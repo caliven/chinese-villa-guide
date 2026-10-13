@@ -43,23 +43,25 @@ export function carvedPilaster(
   height: number, width: number, mat: Mats,
 ) {
   box(parent, x, base + height / 2, z, width, height, 0.56, mat.trim);
-  box(parent, x, base + 0.27, z - 0.02, width + 0.12, 0.54, 0.66, mat.stone);
+  // 柱础只比柱身略宽。再宽 12cm 时，角柱侧面正好落在东西墙外皮上。
+  box(parent, x, base + 0.27, z - 0.02, width + 0.04, 0.54, 0.66, mat.stone);
   box(parent, x, base + 0.38, z - 0.37, width - 0.02, 0.49, 0.08, mat.trim);
   for (const offset of [-0.18, -0.09, 0, 0.09, 0.18])
-    box(parent, x + offset, base + height / 2 - 0.12, z - 0.29, 0.025, height - 1.85, 0.035, mat.wall);
+    box(parent, x + offset, base + height / 2 - 0.12, z - 0.36, 0.025, height - 1.85, 0.03, mat.wall);
   for (const [down, w, h, depth] of [
     [0.22, width + 0.24, 0.16, 0.76],
-    [0.48, width + 0.12, 0.15, 0.66],
+    [0.48, width + 0.04, 0.15, 0.66],
     [0.82, width + 0.16, 0.14, 0.7],
   ])
     box(parent, x, base + height - down, z - 0.02, w, h, depth, mat.trim);
   for (let i = -2; i <= 2; i++)
     box(parent, x + i * 0.085, base + height - 0.65, z - 0.335, 0.035, 0.18, 0.065, mat.stone);
-  meander(parent, x - width / 2 + 0.04, base + 0.82, z - 0.3, width - 0.08, mat);
+  meander(parent, x - width / 2 + 0.04, base + 0.82, z - 0.36, width - 0.08, mat);
 }
 
 export function glassBalustrade(
   parent: THREE.Object3D, a: Point, b: Point, y: number, mat: Mats,
+  omitStart = false,
 ) {
   const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
   const g = new THREE.Group();
@@ -73,7 +75,7 @@ export function glassBalustrade(
     box(g, (i + 0.5) * span, 0.59, 0, span - 0.24, 0.86, 0.03, mat.glass, false);
     box(g, (i + 0.5) * span, 1.055, 0, span, 0.055, 0.075, mat.dark);
   }
-  for (let i = 0; i <= count; i++) {
+  for (let i = omitStart ? 1 : 0; i <= count; i++) {
     const xx = i * length / count;
     box(g, xx, 0.53, 0, 0.25, 1.06, 0.25, mat.trim);
     box(g, xx, 1.085, 0, 0.34, 0.09, 0.34, mat.stone);

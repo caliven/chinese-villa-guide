@@ -53,34 +53,25 @@ export function facades(index: number): Facade[] {
     ];
   const front = floors[index].front,
     back = 9;
+  // 门厅柱已经外伸，中间墙与两侧房间齐平，不再内凹。
   const out: Facade[] =
     index < 2
       ? [
           wall(
             [6.8, front + 0.12],
-            [11.4, front + 0.12],
-            [{ at: 2.3, w: 2.85, sill: 0.55, h: 2.55 }],
-          ),
-          wall(
-            [16, front + 0.12],
             [20.3, front + 0.12],
-            [{ at: 2.15, w: 2.1, sill: 0.65, h: 2.35 }],
-          ),
-          wall(
-            [11.4, 0.72],
-            [16, 0.72],
             [
+              { at: 2.3, w: 2.85, sill: 0.55, h: 2.55 },
               {
-                at: 2.3,
+                at: 6.9,
                 w: 1.85,
                 sill: index === 0 ? 0 : 0.4,
                 h: index === 0 ? 2.85 : 2.5,
                 door: index === 0,
               },
+              { at: 11.35, w: 2.1, sill: 0.65, h: 2.35 },
             ],
           ),
-          wall([11.4, front], [11.4, 0.7]),
-          wall([16, front], [16, 0.7]),
         ]
       : [
           wall(

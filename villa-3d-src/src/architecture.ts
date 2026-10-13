@@ -8,7 +8,6 @@ import {
   rect,
   wallWithOpenings,
   railing,
-  hipRoof,
   furnish,
   stairs,
   tag,
@@ -36,56 +35,81 @@ export function buildVilla(mat: Mats, withLabels = true) {
       base = floor.y,
       h = floor.height;
     const holes = index > 0 ? [rect(17.02, 1.2, 3.15, 3.05)] : [];
+    // 楼板外缘收进墙身。三楼北缘若停在 Z=-1，会和二楼北墙外皮共面，缩放时闪成黄带。
+    const inset = 0.05;
+    // 侧面再收一些，楼板边不要贴到角柱侧面。
+    const sideInset = 0.16;
+    const terraceFront = -0.92;
     const outline =
       index === 1
         ? ([
-            [6.8, -1],
-            [11.4, -1],
-            [11.4, 0.7],
-            [16, 0.7],
-            [16, -1],
-            [20.3, -1],
-            [20.3, 9],
-            [11.4, 9],
-            [11.4, 3],
-            [6.8, 3],
+            [6.8 + sideInset, -1 + inset],
+            [20.3 - sideInset, -1 + inset],
+            [20.3 - sideInset, 9 - inset],
+            [11.4 + inset, 9 - inset],
+            [11.4 + inset, 3 + inset],
+            [6.8 + sideInset, 3 + inset],
           ] as [number, number][])
-        : rect(
-            m.x,
-            index === 2 ? -1 : front,
-            m.w,
-            index === 2 ? 10 : back - front,
-          );
+        : index === 2
+          ? rect(m.x + inset, terraceFront, m.w - 2 * inset, 8.95 - terraceFront)
+          : rect(
+              m.x + sideInset,
+              front + inset,
+              m.w - 2 * sideInset,
+              back - front - 2 * inset,
+            );
     slab(g, outline, base, 0.18, mat.floor, holes);
     for (const facade of facades(index))
       wallWithOpenings(g, facade.a, facade.b, base, h, facade.openings, mat);
     if (index === 2) {
       const porchFront = m.z - site.portico.projection;
-      slab(g, rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), base, 0.22, mat.floor).name = "外伸门厅三楼平台";
+      // 平台北缘让进檐口，南缘埋进北墙，避免楼板侧边和檐口、墙面贴在同一平面。
+      slab(
+        g,
+        rect(site.portico.x, porchFront + 0.04, site.portico.w, -0.92 - (porchFront + 0.04)),
+        base,
+        0.22,
+        mat.floor,
+      ).name = "外伸门厅三楼平台";
       glassBalustrade(g, [6.99, -0.85], [11.46, -0.85], base, mat);
-      glassBalustrade(g, [11.46, -0.85], [11.46, porchFront + 0.18], base, mat);
-      glassBalustrade(g, [11.46, porchFront + 0.18], [15.94, porchFront + 0.18], base, mat);
-      glassBalustrade(g, [15.94, porchFront + 0.18], [15.94, -0.85], base, mat);
-      glassBalustrade(g, [15.94, -0.85], [20.11, -0.85], base, mat);
-      glassBalustrade(g, [6.99, -0.85], [6.99, front], base, mat);
-      glassBalustrade(g, [20.11, -0.85], [20.11, front], base, mat);
+      glassBalustrade(g, [11.46, -0.85], [11.46, porchFront + 0.18], base, mat, true);
+      glassBalustrade(g, [11.46, porchFront + 0.18], [15.94, porchFront + 0.18], base, mat, true);
+      glassBalustrade(g, [15.94, porchFront + 0.18], [15.94, -0.85], base, mat, true);
+      glassBalustrade(g, [15.94, -0.85], [20.11, -0.85], base, mat, true);
+      // 侧栏收到角柱之前，避免望柱和柱身贴在一起。
+      glassBalustrade(g, [6.99, -0.85], [6.99, 0.32], base, mat, true);
+      glassBalustrade(g, [20.11, -0.85], [20.11, 0.32], base, mat, true);
       // 二楼顶部的正面飘檐70cm，门厅平台只在三楼标高出现。
-      for (const [x, width] of [[m.x, 4.5], [16.1, 4.2]])
+      // 两端收进侧墙外皮，端头不再和东西墙共面。
+      for (const [x, width] of [[m.x + 0.03, 4.47], [16.1, 4.17]])
         cornice(g, x, m.z - site.secondFrontEave, width, site.secondFrontEave + 0.24, base, mat).name = "二楼前飘檐70厘米";
       cornice(g, site.portico.x, porchFront, site.portico.w, site.portico.projection + 0.24, base, mat);
     }
+    // 隔墙画到外皮时，端头和外围墙面共面，外面会看到一条白竖线。端头埋进墙身 2cm。
+    const embed = 0.22;
+    const bury = (p: [number, number]): [number, number] => {
+      let [x, z] = p;
+      if (Math.abs(x - m.x) <= 0.02) x = m.x + embed;
+      else if (Math.abs(x - (m.x + m.w)) <= 0.02) x = m.x + m.w - embed;
+      if (Math.abs(z - front) <= 0.02) z = front + embed;
+      else if (Math.abs(z - back) <= 0.02) z = back - embed;
+      return [x, z];
+    };
     for (const part of floor.partitions) {
+      const a = bury(part.a),
+        b = bury(part.b),
+        pulled = Math.hypot(a[0] - part.a[0], a[1] - part.a[1]);
       const op: Opening[] = part.door
         ? [
             {
-              at: part.door.offset + part.door.width / 2,
+              at: part.door.offset - pulled + part.door.width / 2,
               w: part.door.width,
               sill: 0,
               h: 2.2,
             },
           ]
         : [];
-      wallWithOpenings(g, part.a, part.b, base, h - 0.15, op, mat, 0.12, true);
+      wallWithOpenings(g, a, b, base, h - 0.15, op, mat, 0.12, true);
     }
     for (const f of floor.furniture) furnish(g, f, base, mat);
     const labelGroup = new THREE.Group();
@@ -118,9 +142,7 @@ export function buildVilla(mat: Mats, withLabels = true) {
       }
     if (index === 2) {
       for (const x of [7.08, 20.02]) carvedPilaster(g, x, front + 0.13, base, h, 0.44, mat);
-      for (const x of [11.53, 15.87]) carvedPilaster(g, x, front + 0.08, base, h + 1.0, 0.48, mat);
-      box(g, 13.7, 10.37, front - 0.05, 3.82, 0.38, 0.24, mat.trim);
-      meander(g, 11.86, 10.36, front - 0.184, 3.7, mat);
+      for (const x of [11.53, 15.87]) carvedPilaster(g, x, front + 0.08, base, h, 0.48, mat);
     }
     for (const z of [back + 0.02])
       box(g, 13.55, base + h - 0.16, z, 13.56, 0.17, 0.16, mat.trim);
@@ -139,22 +161,20 @@ export function buildVilla(mat: Mats, withLabels = true) {
   box(portico, 13.7, 6.54, porchFront + 0.2, 3.5, 0.45, 0.38, mat.trim);
   meander(portico, 12.04, 6.49, porchFront - 0.006, 3.35, mat);
   slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 0.015, 0.18, mat.paving).name = "门厅地坪投影另计";
-  // 主屋顶前、左、右各出80cm；天沟外缘即尺寸控制线。
+  // 主屋顶前、左、右各出80cm；天沟外缘即尺寸控制线。官帽不再另起高于正屋的帽顶。
   gutteredRoof(roof, m.x - site.thirdEave, floors[2].front - site.thirdEave,
     m.w + 2 * site.thirdEave, m.z + m.d + site.eave - (floors[2].front - site.thirdEave),
     10.5, site.roofRise, mat);
-  // 参考图中央帽顶高于两翼；同样采用内收瓦口与环形天沟。
+  // 效果图2的官帽是正屋屋顶中部的额枋和回纹，檐口仍是这一座四坡，脊线不被第二座屋顶抬高。
   const crown = new THREE.Group();
-  crown.name = "中央抬高官帽";
+  crown.name = "中央官帽";
   roof.add(crown);
-  box(crown, 13.7, 11.05, 1.14, 4.82, 1.5, 0.68, mat.trim);
-  for (let i = 0; i < 36; i++) box(crown, 11.7 + i * 0.114, 11.35, 0.785, 0.035, 0.38, 0.055, mat.wall);
-  meander(crown, 11.55, 10.96, 0.77, 4.3, mat);
-  gutteredRoof(crown, 10.5, 0, 6.4, 4.5, 11.8, 1.35, mat);
+  box(crown, 13.7, 10.37, 0.66, 4.8, 0.38, 0.24, mat.trim);
+  meander(crown, 11.4, 10.36, 0.5, 4.6, mat);
   // 落水管收在墙边和后侧，不再占用80cm檐口之外的边界。
-  downpipe(roof, 6.96, 8.94, 6.18, 9.39, 10.5, mat);
-  downpipe(roof, 20.14, 8.94, 20.93, 9.39, 10.5, mat);
-  downpipe(roof, 11.5, 1.05, 10.65, 0.16, 11.8, mat);
+  downpipe(roof, 6.96, 9.12, 6.18, 9.39, 10.5, mat);
+  downpipe(roof, 20.14, 9.12, 20.93, 9.39, 10.5, mat);
+  downpipe(roof, 10.9, 0.42, 10.35, 0.12, 10.5, mat);
   // 浅阳台位于三层公共过厅外，避免直接放在老人房上方。
   slab(balcony, rect(12.65, 9, 2.5, 1.2), 7.2, 0.18, mat.paving);
   railing(balcony, [12.7, 10.15], [15.1, 10.15], 7.2, mat);
@@ -188,8 +208,10 @@ export function buildVilla(mat: Mats, withLabels = true) {
       true,
     );
   annexFurniture.forEach((f) => furnish(annex, f, 0, mat));
-  // 用户已确认右端仍有约3米旱地，辅楼檐角无需沿旧的估算尖角裁切。
-  hipRoof(annexRoof, 3.05, 4, 5.6, 11.1, 3.6, 1.4, mat);
+  // 辅楼檐口与主楼同一套环形天沟；外轮廓仍按原披檐，不向外加宽。
+  gutteredRoof(annexRoof, 0.25, -1.55, 5.6, 11.1, 3.6, 1.4, mat);
+  downpipe(annexRoof, 1.2, 8.5, 0.62, 9.15, 3.6, mat);
+  downpipe(annexRoof, 4.9, 8.5, 5.48, 9.15, 3.6, mat);
   box(annexRoof, 1.65, 4.95, 7.95, 0.46, 3.1, 0.46, mat.stone);
   box(annexRoof, 1.65, 6.57, 7.95, 0.72, 0.12, 0.72, mat.dark);
   for (const x of [1.45, 1.85])

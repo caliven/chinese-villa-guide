@@ -102,8 +102,7 @@ test("卧室、公卫与三楼南过厅都可从公共区通过真实门洞到�
       x < 20.16 &&
       z > f.front + 0.14 &&
       z < 8.86 &&
-      !(index === 1 && x < 11.46 && z > 2.94) &&
-      !(index < 2 && x > 11.4 && x < 16 && z < 0.86);
+      !(index === 1 && x < 11.46 && z > 2.94);
     const blocked = (x: number, z: number) =>
       walls.some(([a, b]) => {
         const dx = b[0] - a[0],
@@ -204,14 +203,15 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
       }
     });
   assert.deepEqual(outside.slice(0, 8), []);
-  // 垂直射线在门厅中间只命中三楼的楼板，不命中二楼平台。
+  // 中间房间已与两侧齐平，二楼在此有楼板；外伸门厅柱间仍没有二楼平台。
   const ray = new THREE.Raycaster(
     new THREE.Vector3(13.7, 3, -0.5),
     new THREE.Vector3(0, 1, 0),
     0,
     1.0,
   );
-  assert.equal(ray.intersectObject(villa.levels[1], true).length, 0);
+  const midFloor = ray.intersectObject(villa.levels[1], true);
+  assert.ok(midFloor.length > 0 && midFloor[0].point.y > 3.4 && midFloor[0].point.y < 3.61);
   // 新外伸区同样必须在二层为空、三层有真正可踩的楼板。
   ray.set(new THREE.Vector3(13.7, 4, -2), new THREE.Vector3(0, -1, 0));
   ray.far = 0.8;
@@ -219,7 +219,8 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   ray.set(new THREE.Vector3(13.7, 7.3, -2), new THREE.Vector3(0, -1, 0));
   assert.ok(Math.abs(ray.intersectObject(villa.levels[2], true)[0].point.y - 7.2) < 1e-5);
   const porch = villa.levels[2].getObjectByName("外伸门厅三楼平台")!;
-  assert.ok(Math.abs(new THREE.Box3().setFromObject(porch).min.z - (site.main.z - 2)) < 1e-5);
+  // 平台北缘收进 4cm，侧边不再和檐口外皮共面。
+  assert.ok(Math.abs(new THREE.Box3().setFromObject(porch).min.z - (site.main.z - 2 + 0.04)) < 1e-5);
   const lowerEave = villa.levels[2].getObjectByName("二楼前飘檐70厘米")!;
   assert.ok(Math.abs(new THREE.Box3().setFromObject(lowerEave).min.z - (site.main.z - .7)) < 1e-5);
   const mainGutter = villa.roof.children[0];
@@ -229,8 +230,10 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   assert.ok(Math.abs(bounds.min.z - (floors[2].front - .8)) < 1e-5);
   assert.ok(mainGutter.getObjectByName("天沟槽底"));
   assert.ok(mainGutter.getObjectByName("天沟外挡边"));
-  const crown = villa.roof.getObjectByName("中央抬高官帽")!;
-  assert.ok(new THREE.Box3().setFromObject(crown).max.y > bounds.max.y + .6);
+  const crown = villa.roof.getObjectByName("中央官帽")!;
+  assert.ok(new THREE.Box3().setFromObject(crown).max.y <= bounds.max.y + 1e-4);
+  assert.ok(villa.annexRoof.getObjectByName("天沟槽底"));
+  assert.ok(villa.annexRoof.getObjectByName("天沟外挡边"));
 });
 
 test("低田边界保持异形，车辆尺寸不把车身宽冒充含镜宽", () => {

@@ -134,18 +134,15 @@ export class VillaViewer {
   roadY = surroundings.road.entryY;
   route = new THREE.CatmullRomCurve3(
     [
-      new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -14),
-      new THREE.Vector3(
-        surroundings.road.x + surroundings.road.w / 2,
-        0,
-        -10.1,
-      ),
-      new THREE.Vector3(surroundings.road.x + 0.8, 0, -7.35),
-      new THREE.Vector3(31, 0, -7.35),
-      new THREE.Vector3(23, 0, -7.35),
-      new THREE.Vector3(20, 0, -6.9),
-      new THREE.Vector3(18.5, 0, -5.6),
-      new THREE.Vector3(18.5, 0, -2.9),
+      new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -18),
+      new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -12),
+      new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -8.5),
+      new THREE.Vector3(surroundings.road.x - 0.2, 0, -7.4),
+      new THREE.Vector3(28, 0, -7.35),
+      new THREE.Vector3(23.2, 0, -7.15),
+      new THREE.Vector3(20.2, 0, -6.35),
+      new THREE.Vector3(18.6, 0, -4.5),
+      new THREE.Vector3(18.5, 0, -2.8),
     ],
     false,
     "centripetal",
@@ -179,7 +176,6 @@ export class VillaViewer {
     });
     host.append(this.renderer.domElement);
     this.scene.background = new THREE.Color(0xdce5df);
-    this.scene.fog = new THREE.Fog(0xdce5df, 65, 160);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const room = new RoomEnvironment();
     this.scene.environment = pmrem.fromScene(room, 0.04).texture;
@@ -212,7 +208,12 @@ export class VillaViewer {
       batch(g);
     batch(
       this.land.context,
-      new Set([this.land.cutPiece, this.land.cutOutline, this.land.road]),
+      new Set([
+        this.land.cutPiece,
+        this.land.cutOutline,
+        this.land.road,
+        this.land.neighborDeck,
+      ]),
     );
     this.scene.add(
       this.land.context,
@@ -229,23 +230,7 @@ export class VillaViewer {
       this.roadY,
       this.rampLength,
     );
-    this.routeGroup.add(this.movingCar);
-    this.routeGroup.visible = false;
-    const routePoints = this.route
-      .getPoints(70)
-      .map(
-        (p) => new THREE.Vector3(p.x, this.routeHeight(p.x, p.z) + 0.035, p.z),
-      );
-    line(this.routeGroup, routePoints, 0xb7792b, true);
-    tag(
-      this.routeGroup,
-      "路线占位 · 非通行结论",
-      24,
-      0.9,
-      -7.4,
-      "#85551b",
-      0.85,
-    );
+    this.drawRoute();
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.1;
@@ -301,9 +286,10 @@ export class VillaViewer {
         [13.5, 28, 34],
         [13.5, 4.2, 4],
       ],
+      // 站在院坪北侧外沿之外，俯看整块铺装和前檐，不再贴着门厅柱。
       courtyard: [
-        [21.3, 2.6, -7],
-        [13.5, 4.5, 1.2],
+        [10.55, 15, -42],
+        [10.55, 1.6, -3.5],
       ],
       garage: [
         [47, 23, -33],
@@ -323,7 +309,7 @@ export class VillaViewer {
     }
     const target = new THREE.Vector3(...t);
     const pos = new THREE.Vector3(...p);
-    if (this.camera.aspect < 1 && name !== "courtyard")
+    if (this.camera.aspect < 1)
       pos
         .sub(target)
         .multiplyScalar(1 / Math.max(0.6, this.camera.aspect))
@@ -337,17 +323,22 @@ export class VillaViewer {
     Object.assign(this.state, next);
     const s = this.state;
     this.land.existing.visible = s.existing;
+    this.land.neighborDeck.visible = !s.existing && !s.garage;
     this.land.proposed.visible = !s.existing;
     this.villa.group.visible = !s.existing && !s.garage;
     this.land.context.visible = s.context && s.floor === null;
     this.land.fixed.visible = s.floor === null;
     this.land.proposed.visible = !s.existing && s.floor === null;
-    // 场地页展示完整邻居地坪，仅地库通行研究时揭示拟切块。
+    // 邻居木屋前院坪已与两侧拉平。原切口不在这块地坪上。
     this.land.cutPiece.visible = s.existing || !s.garage;
     this.land.cutOutline.visible = !s.existing && (s.garage || s.dimensions);
     this.land.deck.visible = !s.garage;
     this.land.overlap.visible = s.overlap && !s.existing;
     this.land.dimensions.visible = s.dimensions && s.floor === null;
+    this.land.dimensionsScheme.visible = !s.existing;
+    this.land.dimensionsCurrent.visible = s.existing;
+    this.land.columnNotes.visible =
+      !s.existing && s.floor === null && (s.garage || s.dimensions);
     this.routeGroup.visible = s.garage && !s.existing;
     this.villa.roof.visible = s.roof && s.floor === null;
     this.villa.annexRoof.visible = s.roof && s.floor === null;
@@ -386,10 +377,14 @@ export class VillaViewer {
     return result;
   }
   routeHeight(x: number, z = -7.35) {
-    if (x >= surroundings.road.x)
-      return roadHeight(z) + this.roadY - surroundings.road.entryY;
-    const t = THREE.MathUtils.clamp((x - 21.1) / this.rampLength, 0, 1);
-    return site.garageFloor + t * (this.roadY - site.garageFloor);
+    const surface = roadHeight(z) + this.roadY - surroundings.road.entryY;
+    const startX = 21.1 + this.rampLength;
+    if (x >= startX) return surface;
+    if (x <= 21.1) return site.garageFloor;
+    return (
+      site.garageFloor +
+      ((x - 21.1) / this.rampLength) * (surface - site.garageFloor)
+    );
   }
   updateRamp(roadY: number, length: number) {
     this.roadY = roadY;
@@ -400,24 +395,61 @@ export class VillaViewer {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });
     this.ramp = makeRamp(this.land.proposed, this.mat, roadY, length);
-    this.routeGroup.children
-      .filter((o) => o instanceof THREE.Line)
-      .forEach((o) => {
-        o.removeFromParent();
-        if (o instanceof THREE.Line) o.geometry.dispose();
-      });
-    line(
-      this.routeGroup,
-      this.route
-        .getPoints(70)
-        .map(
-          (p) =>
-            new THREE.Vector3(p.x, this.routeHeight(p.x, p.z) + 0.035, p.z),
-        ),
-      0xb7792b,
-      true,
-    );
+    this.drawRoute();
     this.renderer.shadowMap.needsUpdate = true;
+  }
+  private drawRoute() {
+    const car = this.movingCar;
+    for (const child of [...this.routeGroup.children]) {
+      if (child === car) continue;
+      child.removeFromParent();
+      child.traverse((o) => {
+        if (o instanceof THREE.Mesh || o instanceof THREE.Line) {
+          o.geometry.dispose();
+          const material = o.material;
+          if (Array.isArray(material)) material.forEach((m) => m.dispose());
+          else material.dispose();
+        }
+        if (o instanceof THREE.Sprite) {
+          o.material.map?.dispose();
+          o.material.dispose();
+        }
+      });
+    }
+    const points = this.route.getPoints(90).map(
+      (p) => new THREE.Vector3(p.x, this.routeHeight(p.x, p.z) + 0.08, p.z),
+    );
+    this.routeGroup.add(routeRibbon(points, 1.45));
+    const arrows = new THREE.ConeGeometry(0.42, 1.05, 4);
+    arrows.rotateX(Math.PI / 2);
+    const arrowMat = new THREE.MeshBasicMaterial({
+      color: 0xfff6df,
+      depthTest: false,
+    });
+    let travelled = 0;
+    for (let i = 1; i < points.length; i++) {
+      travelled += points[i].distanceTo(points[i - 1]);
+      if (travelled < 5.5) continue;
+      travelled = 0;
+      const dir = points[i].clone().sub(points[i - 1]).normalize();
+      const arrow = new THREE.Mesh(arrows.clone(), arrowMat);
+      arrow.position.copy(points[i]);
+      arrow.position.y += 0.06;
+      arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+      arrow.renderOrder = 6;
+      this.routeGroup.add(arrow);
+    }
+    arrows.dispose();
+    line(this.routeGroup, points, 0xfff1c9, true);
+    const at = (t: number) => this.route.getPointAt(t);
+    const label = (t: number, text: string) => {
+      const p = at(t);
+      tag(this.routeGroup, text, p.x, this.routeHeight(p.x, p.z) + 1.15, p.z, "#7a4e12", 0.78);
+    };
+    label(0.08, "左侧上坡路");
+    label(0.48, "转入地库");
+    label(0.86, "地库内");
+    this.routeGroup.add(car);
   }
   routeAt(progress: number, mirrorWidth?: number) {
     const t = THREE.MathUtils.clamp(progress / 100, 0, 1),
@@ -440,12 +472,18 @@ export class VillaViewer {
     const conflicts = corners.filter(
       (p) => !contains(p, site.field) && !inCorridor(p),
     ).length;
+    const stage =
+      pos.x >= surroundings.road.x
+        ? "左侧上坡马路"
+        : pos.x >= 21.1
+          ? "由马路转入地库"
+          : "地库内";
     return {
       conflicts,
       corners,
       note: conflicts
-        ? "车身占位越出示意通道，需调整切口或路线。"
-        : "此位置车身占位在参考范围内；转弯能力、含镜宽与底盘仍待校核。",
+        ? `${stage}：车身占位越出示意通道，需调整路线。`
+        : `${stage}：车在亮色带子上。转弯、含镜宽和净高仍待校核。`,
     };
   }
   analyzeSun(date: string) {
@@ -509,4 +547,44 @@ export class VillaViewer {
     this.renderer.render(this.scene, this.camera);
     return this.renderer.domElement.toDataURL("image/png");
   }
+}
+
+function routeRibbon(points: THREE.Vector3[], width: number) {
+  const half = width / 2;
+  const left: THREE.Vector3[] = [];
+  const right: THREE.Vector3[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const a = points[Math.max(0, i - 1)];
+    const b = points[Math.min(points.length - 1, i + 1)];
+    const tx = b.x - a.x;
+    const tz = b.z - a.z;
+    const len = Math.hypot(tx, tz) || 1;
+    const px = (-tz / len) * half;
+    const pz = (tx / len) * half;
+    left.push(new THREE.Vector3(points[i].x + px, points[i].y, points[i].z + pz));
+    right.push(new THREE.Vector3(points[i].x - px, points[i].y, points[i].z - pz));
+  }
+  const positions: number[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const l0 = left[i], r0 = right[i], l1 = left[i + 1], r1 = right[i + 1];
+    positions.push(
+      l0.x, l0.y, l0.z, r0.x, r0.y, r0.z, l1.x, l1.y, l1.z,
+      r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, l1.x, l1.y, l1.z,
+    );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      color: 0xf0a02a,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  mesh.renderOrder = 5;
+  mesh.name = "进库示意路线";
+  return mesh;
 }

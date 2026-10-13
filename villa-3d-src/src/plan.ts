@@ -63,12 +63,13 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean) {
   ).join("");
   return `<svg class="floor-svg ${index > 0 ? "main-floor-svg" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="${index === 0 ? "-1 -4.6 24 17.1" : "5.5 -4.6 17 17.1"}" aria-label="${f.name}户型平面图，北向上，东向右">
     ${s}<rect x="-.5" y="-4.4" width="23" height="16.5" rx=".2" fill="#fbfaf6"/>
-    ${index === 0 ? `<path d="M0 -3.6 H21.1 M0 -3.9 V-3.3 M21.1 -3.9 V-3.3" class="dim-line"/>${text(10.55, -4, "东西总宽 21.1 m", "dim-label")}` : `<path d="M6.8 -3.6 H20.3 M6.8 -3.9 V-3.3 M20.3 -3.9 V-3.3" class="dim-line"/>${text(13.55, -4, "主楼面宽 13.5 m", "dim-label")}`}
+    ${index === 0 ? `<path d="M0 -3.6 H21.1 M0 -3.9 V-3.3 M21.1 -3.9 V-3.3" class="dim-line"/>${text(10.55, -4.15, "东西总宽 21.1 m", "dim-label")}${text(18.6, -4.15, `层高 ${f.height.toFixed(1)} m`, "dim-label")}` : `<path d="M6.8 -3.6 H20.3 M6.8 -3.9 V-3.3 M20.3 -3.9 V-3.3" class="dim-line"/>${text(13.55, -4.15, "主楼面宽 13.5 m", "dim-label")}${text(8.4, -4.15, `层高 ${f.height.toFixed(1)} m`, "dim-label")}`}
     <path d="M21.45 ${f.front} V9 M21.2 ${f.front} h.5 M21.2 9 h.5" class="dim-line"/><text class="dim-label" x="21.7" y="4.4" transform="rotate(90 21.7 4.4)">${index === 2 ? "主体进深 8.2 m" : "进深 10.0 m"}</text>
+    ${index === 0 ? `<path d="M.8 -3.15 H5.3 M.8 -3.28 v.26 M5.3 -3.28 v.26" class="dim-line"/>${text(3.05, -2.72, "辅楼 4.5×10 m", "dim-label")}<text x="0.42" y="5.2" class="dim-label" text-anchor="middle" transform="rotate(-90 0.42 5.2)">西侧 0.8 m</text>` : ""}
+    <text x="20.55" y="5.2" class="dim-label" text-anchor="middle" transform="rotate(90 20.55 5.2)">东侧 0.8 m</text>
     ${index === 2 ? rect(6.8, -1, 13.5, 1.8, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width=".06"') + text(13.55, -0.35, "北侧退台露台 · 1.8 m", "dim-label") : ""}
-    ${index < 2 ? rect(11.4, -1, 4.6, 1.7, 'fill="#e9e2d4"') + text(13.7, -0.3, index === 0 ? "通高门厅" : "门厅上空 · 无平台", "dim-label") : ""}
     ${rect(porch.x, porchFront, porch.w, porch.projection, `fill="${index === 1 ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width=".06"`)}
-    ${text(13.7, -1.95, index === 2 ? "外伸门厅平台" : index === 1 ? "门厅上空 · 无楼板" : "外伸 2 m · 门厅另计", "dim-label")}
+    ${text(13.7, -1.95, index === 2 ? "门厅平台 · 外伸 2 m" : index === 1 ? "门厅上空 · 无楼板" : "门厅 4.8×2 m · 另计", "dim-label")}
     ${index < 2 ? [11.68, 15.72].map(x => rect(x - .29, porchFront + .11, .58, .56, 'fill="#879183"')).join("") : '<path d="M11.46 -.85 V-2.82 H15.94 V-.85" class="balustrade"/>'}
     ${index === 0 ? rect(.18, -3.1, 5.12, 2.1, 'fill="none" stroke="#a9b9a1" stroke-width=".04" stroke-dasharray=".14 .12"') + text(3, -2.05, "约2m通道 · 接辅楼外侧梯田", "room-size") : ""}
     ${allRooms.map(room).join("")}
@@ -83,6 +84,7 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean) {
     ${text(13.55, 10.55, "南侧高田 +2.5 m · 屋后留 1.8 m", "dim-label")}
     <g transform="translate(${index === 0 ? ".5" : "6.5"} 10.6)"><path d="M0 .8 V-.55 m-.15 .25 .15-.25 .15 .25" class="dim-line"/>${text(0, -0.85, "北 N", "dim-label")}<path d="M.45 .8 H2.6 m0-.12 v.24" class="dim-line"/>${text(2.6, 1.4, "东 E", "room-size")}</g>
     ${text(13.1, 11.45, "房间数字为外轮廓尺寸 · 使用面积另扣墙体 · 北向上", "footnote")}
+    ${index === 0 ? text(10.55, 11.85, "地库柱：外沿一排、房前墙下一排，柱距4.2m，见地库视图", "footnote") : ""}
   </svg>`;
 }
 

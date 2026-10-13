@@ -1,13 +1,14 @@
 import * as THREE from "three";
 import { site, frontFieldLevel, contains, type Point } from "./data";
 import { rect, box, type Mats } from "./primitives";
+import { betweenContours, contourAt, contourSection } from "./contours";
 import {
   surroundings as c,
   groundHeight,
   roadStations,
   roadHeight,
   rightTerraceBreak,
-  rightLowerBreak,
+  terraceContours as edges,
 } from "./surroundings";
 
 function surface(
@@ -95,304 +96,104 @@ function cropRows(
 
 export function buildContextGround(mat: Mats) {
   const group = new THREE.Group();
-  group.name = "航拍校准梯田";
-  const e = c.extent,
-    roadRight = c.road.x + c.road.w;
-  const upper: Point[] = [
-    [e.left, site.oldDepth],
-    [0, site.oldDepth],
-    ...rightTerraceBreak.slice().reverse(),
-  ];
-  const lower: Point[] = [
-    ...rightTerraceBreak,
-    ...rightLowerBreak.slice().reverse(),
-  ];
-  const rightFront: Point[] = [
-    [e.left, c.road.front],
-    [0, c.road.front],
-    ...rightLowerBreak.slice().reverse(),
-  ];
-  surface(group, "辅楼右侧上田·与院坪齐平", upper, 0, mat.grass);
-  surface(group, "辅楼右侧下田·与地库齐平", lower, site.garageFloor, mat.grass);
-  surface(group, "右侧前方低田", rightFront, c.frontHouse.y, mat.grass);
-  riser(group, rightTerraceBreak, 0, site.garageFloor, mat);
-  riser(group, rightLowerBreak, site.garageFloor, c.frontHouse.y, mat);
-  cropRows(group, upper, 0, mat);
-  cropRows(group, lower, site.garageFloor, mat);
+  group.name = "红线曲线梯田";
+  const left = -55, right = 77, roadRight = c.road.x + c.road.w;
+  const levelLine = (z: number): Point[] => [[left, z], [right, z]];
+  const band = (name: string, front: Point[], back: Point[], from: number, to: number, y: number, crops = false) => {
+    const polygon = betweenContours(front, back, from, to);
+    surface(group, name, polygon, y, mat.grass);
+    if (crops) cropRows(group, polygon, y, mat);
+    return polygon;
+  };
 
-  // 自家异形旱地外侧的低田；田顶、道路、坡道使用相邻而不重叠的轮廓。
-  surface(
-    group,
-    "前方旱地外缘",
-    [
-      [0, -12],
-      [c.road.x, -12],
-      [c.road.x, -8.6],
-      [21.1, -8.6],
-      ...site.field.slice(3),
-    ],
-    frontFieldLevel,
-    mat.grass,
-  );
-  surface(
-    group,
-    "前方砖房台地",
-    rect(0, c.road.front, c.road.x, -12 - c.road.front),
-    c.frontHouse.y,
-    mat.grass,
-  );
-  riser(
-    group,
-    [
-      [0, -12],
-      [c.road.x, -12],
-    ],
-    frontFieldLevel,
-    c.frontHouse.y,
-    mat,
-  );
-  // 右侧低田与正前方更低的田之间补竖向田坎，避免台地交接露空。
-  riser(group, [[0, site.field.at(-1)![1]], [0, rightLowerBreak.at(-1)![1]]], site.garageFloor, frontFieldLevel, mat);
-  riser(group, [[0, rightLowerBreak.at(-1)![1]], [0, -12]], frontFieldLevel, c.frontHouse.y, mat);
-  surface(
-    group,
-    "邻居坪下地面",
-    rect(21.1, -6.1, c.road.x - 21.1, 6.5),
-    -2,
-    mat.soil,
-  );
-  surface(
-    group,
-    "左侧邻居木房地基",
-    rect(21.1, 0.4, c.road.x - 21.1, 10.4),
-    0,
-    mat.soil,
-  );
-  riser(
-    group,
-    [
-      [21.1, 0.4],
-      [c.road.x, 0.4],
-    ],
-    0,
-    -2,
-    mat,
-  );
+  // 右侧原田面向房前展开，田埂在 X=0 与地库外沿连续相接。
+  // 旁田未开挖，所以它的高度单独取值，绝不绑定地库完成面。
+  band("辅楼右侧上田·与院坪齐平", rightTerraceBreak, edges.rearFirst, left, 0, 0, true);
+  band("辅楼右侧原田·未开挖", edges.sharedFront, rightTerraceBreak, left, 0, site.adjacentUnexcavatedLevel, true);
+  riser(group, rightTerraceBreak, 0, site.adjacentUnexcavatedLevel, mat);
+  riser(group, contourSection(edges.sharedFront, left, 0), site.adjacentUnexcavatedLevel, frontFieldLevel, mat);
 
-  const leftTop = rect(
+  // 前方低田横向接通；下一层外沿独立描画，不再使用固定 Z=-12 的直线。
+  band("地库外侧弯曲低田", edges.frontLower, edges.sharedFront, left, c.road.x, frontFieldLevel, true);
+  band("前方砖房台地", levelLine(c.road.front), edges.frontLower, left, c.road.x, c.frontHouse.y);
+  riser(group, edges.frontLower, frontFieldLevel, c.frontHouse.y, mat);
+  // 木屋前院坪已与两侧拉平。外沿挡墙落到前方低田，不再在屋前留一条 -2 米的空地。
+  surface(group, "左侧邻居木房地基", betweenContours(levelLine(c.sideHouse.z), edges.rearFirst, site.width, c.road.x), 0, mat.soil);
+  // 木屋前地下室属于自家。土坎只留在地库地面以下，上面留给地库外墙，避免把外侧封死。
+  riser(group, [[site.width, c.neighborYard.z], [c.road.x, c.neighborYard.z]], site.garageFloor, frontFieldLevel, mat);
+
+  band("道路左侧外伸高地", edges.leftPlatform, edges.rearFirst, roadRight, right, c.leftPlatform.y, true);
+  band("高地前方低田", levelLine(c.road.front), edges.leftPlatform, roadRight, right, c.frontHouse.y);
+  riser(group, edges.leftPlatform, c.leftPlatform.y, c.frontHouse.y, mat);
+
+  // 后田按各自的弯曲外沿拼接；后方木房仍完整坐落在第二层田面上。
+  // 马路东侧红框内不再分级，从高地一直平到山脚。
+  band("屋后第一层曲线梯田", edges.rearFirst, edges.rearSecond, left, c.road.x, c.rearFirst.y, true);
+  band("后方木房所在第二层梯田", edges.rearSecond, edges.rearThird, left, c.road.x, c.rearSecond.y);
+  riser(group, contourSection(edges.rearSecond, left, c.road.x), c.rearSecond.y, c.rearFirst.y, mat);
+  band("道路东侧平地", edges.rearFirst, edges.hillFoot, roadRight, right, c.leftPlatform.y, true);
+  // 路面停在这一层。原路床并入同一平面，屋后木房左侧不再留一段往上走的路。
+  band(
+    "马路尽头并入大平地",
+    [[c.road.x, c.road.back], [roadRight, c.road.back]],
+    edges.hillFoot,
+    c.road.x,
     roadRight,
-    c.leftPlatform.front,
-    e.right - roadRight,
-    c.leftPlatform.back - c.leftPlatform.front,
-  );
-  surface(group, "道路左侧外伸高地", leftTop, c.leftPlatform.y, mat.grass);
-  surface(
-    group,
-    "高地前方低田",
-    rect(
-      roadRight,
-      c.road.front,
-      e.right - roadRight,
-      c.leftPlatform.front - c.road.front,
-    ),
-    c.frontHouse.y,
-    mat.grass,
-  );
-  riser(
-    group,
-    [
-      [e.right, c.leftPlatform.front],
-      [roadRight, c.leftPlatform.front],
-    ],
     c.leftPlatform.y,
-    c.frontHouse.y,
-    mat,
   );
-  riser(
-    group,
-    [
-      [roadRight, c.leftPlatform.front],
-      [roadRight, -8.6],
-      [roadRight, -6.1],
-      [roadRight, 0.4],
-      [roadRight, 10.8],
-    ],
-    c.leftPlatform.y,
-    (_x, z) => Math.min(c.leftPlatform.y, roadHeight(z)),
-    mat,
-  );
-  cropRows(group, leftTop, c.leftPlatform.y, mat);
-
-  // 屋后第一田 +2.5m；第二田承托后方木房，+5m 为本版照片估算。
-  for (const [a, b] of [
-    [e.left, c.road.x],
-    [roadRight, e.right],
-  ]) {
-    surface(
-      group,
-      "屋后第一层梯田",
-      rect(a, c.rearFirst.front, b - a, c.rearFirst.back - c.rearFirst.front),
-      c.rearFirst.y,
-      mat.grass,
-    );
-    riser(
-      group,
-      [
-        [a, c.rearSecond.front],
-        [b, c.rearSecond.front],
-      ],
-      c.rearSecond.y,
-      c.rearFirst.y,
-      mat,
-    );
+  // 屋后自家段已有石砌挡墙，其余田坎使用同一条曲线的分段。
+  for (const [from, to, lower] of [[left, 0, 0], [site.width, c.road.x, 0]]) {
+    riser(group, contourSection(edges.rearFirst, from, to), c.rearFirst.y, lower, mat);
   }
-  riser(
-    group,
-    [
-      [e.left, 10.8],
-      [0, 10.8],
-    ],
-    c.rearFirst.y,
-    0,
-    mat,
-  );
-  riser(
-    group,
-    [
-      [21.1, 10.8],
-      [c.road.x, 10.8],
-    ],
-    c.rearFirst.y,
-    0,
-    mat,
-  );
-  riser(
-    group,
-    [
-      [roadRight, 10.8],
-      [e.right, 10.8],
-    ],
-    c.rearFirst.y,
-    c.leftPlatform.y,
-    mat,
-  );
-  surface(
-    group,
-    "后方木房所在第二层梯田",
-    [
-      [e.left, 16.2],
-      [c.road.x, 16.2],
-      [c.road.x, 18],
-      [roadRight, 18],
-      [roadRight, 16.2],
-      [e.right, 16.2],
-      [e.right, 29.5],
-      [e.left, 29.5],
-    ],
-    c.rearSecond.y,
-    mat.grass,
-  );
-  surface(
-    group,
-    "后山前第三层梯田",
-    rect(e.left, 29.5, e.right - e.left, 6.5),
-    c.rearThird.y,
-    mat.grass,
-  );
-  riser(
-    group,
-    [
-      [e.left, 29.5],
-      [e.right, 29.5],
-    ],
-    c.rearThird.y,
-    c.rearSecond.y,
-    mat,
-  );
-  cropRows(group, rect(-30, 17, 35, 10), c.rearSecond.y, mat);
-  cropRows(group, rect(-30, 30, 82, 5), c.rearThird.y, mat);
+  const roadEdge = (fromZ: number, toZ: number, top: number) =>
+    riser(group, [[c.road.x, fromZ], [c.road.x, toZ]], top, c.leftPlatform.y, mat);
+  roadEdge(contourAt(edges.rearSecond, c.road.x), contourAt(edges.rearThird, c.road.x), c.rearSecond.y);
+  roadEdge(contourAt(edges.rearThird, c.road.x), contourAt(edges.hillFoot, c.road.x), c.rearThird.y);
+  cropRows(group, betweenContours(edges.rearSecond, edges.rearThird, left, c.rearHouse.x - 1), c.rearSecond.y, mat);
+  band("后山前第三层曲线梯田", edges.rearThird, edges.hillFoot, left, c.road.x, c.rearThird.y, true);
+  riser(group, contourSection(edges.rearThird, left, c.road.x), c.rearThird.y, c.rearSecond.y, mat);
 
-  // 远处连续山坡只在近景精确轮廓外生成，不再覆盖路面或院坪。
-  const xs = [
-    ...new Set([
-      ...Array.from({ length: 89 }, (_, i) => -55 + i * 1.5),
-      e.left,
-      e.right,
-    ]),
-  ].sort((a, b) => a - b);
-  const zs = [
-    ...new Set([
-      ...Array.from({ length: 89 }, (_, i) => -45 + i * 1.5),
-      e.front,
-      e.back,
-      -12,
-      c.leftPlatform.front,
-      8,
-      -3,
-      10.8,
-      16.2,
-      29.5,
-    ]),
-  ].sort((a, b) => a - b);
-  const positions: number[] = [],
-    uv: number[] = [];
-  for (let i = 1; i < xs.length; i++)
-    for (let j = 1; j < zs.length; j++) {
-      const x = xs[i - 1],
-        X = xs[i],
-        z = zs[j - 1],
-        Z = zs[j];
-      if (
-        (x + X) / 2 > e.left &&
-        (x + X) / 2 < e.right &&
-        (z + Z) / 2 > e.front &&
-        (z + Z) / 2 < e.back
-      )
-        continue;
-      const quad = [
-        [x, z],
-        [X, z],
-        [X, Z],
-        [x, Z],
-      ];
-      const flatY = groundHeight((x + X) / 2, (z + Z) / 2);
+  // 道路边线始终留空。只补地形与道路之间的侧立面，不在路面下再铺一张共面田面。
+  const roadBank = (x: number, from: number, to: number, y: number) => {
+    const zs = [from, ...roadStations.map(([z]) => z).filter(z => z > from && z < to), to];
+    riser(group, zs.map((z): Point => [x, z]), y, (_x, z) => roadHeight(z), mat);
+  };
+  const frontLeft = contourAt(edges.frontLower, c.road.x);
+  roadBank(c.road.x, c.road.front, frontLeft, c.frontHouse.y);
+  roadBank(c.road.x, frontLeft, c.neighborYard.z, frontFieldLevel);
+  // 邻居地库靠马路一侧是空的，不在这段路和地库之间砌挡墙。
+  roadBank(c.road.x, c.sideHouse.z, c.road.back, 0);
+  roadBank(roadRight, c.road.front, contourAt(edges.leftPlatform, roadRight), c.frontHouse.y);
+  roadBank(roadRight, contourAt(edges.leftPlatform, roadRight), c.road.back, c.leftPlatform.y);
+
+  // 连续曲线一直延伸到远田，不再使用格子状高低跳变拼出远近接缝。
+  surface(group, "村道外前方地面", rect(left, -45, right - left, 15), c.frontHouse.y, mat.grass);
+  surface(group, "横向村道右侧田面", rect(left, -30, c.extent.left - left, 3.5), c.frontHouse.y, mat.grass);
+  surface(group, "横向村道左侧田面", rect(c.extent.right, -30, right - c.extent.right, 3.5), c.frontHouse.y, mat.grass);
+
+  // 山坡第一排顶点直接采用末级田埂，之后才逐渐抬高。
+  const positions: number[] = [], uv: number[] = [];
+  const hill = edges.hillFoot, rows = 32;
+  for (let i = 1; i < hill.length; i++) {
+    const a = hill[i - 1], b = hill[i];
+    const point = (p: Point, row: number) => {
+      const z = p[1] + (87 - p[1]) * row / rows;
+      return [p[0], groundHeight(p[0], z), z];
+    };
+    for (let j = 1; j <= rows; j++) {
+      const quad = [point(a, j - 1), point(b, j - 1), point(b, j), point(a, j)];
       for (const index of [0, 2, 1, 0, 3, 2]) {
-        const [xx, zz] = quad[index];
-        positions.push(
-          xx,
-          z >= c.forestStart ? groundHeight(xx, zz) : flatY,
-          zz,
-        );
-        uv.push(xx / 30, zz / 30);
-      }
-      // 远田同样用水平田面和竖向田坎，接到近景边界时不留下斜三角空洞。
-      if (z < c.forestStart) {
-        const before = groundHeight((x + X) / 2, z - 0.001);
-        if (Math.abs(flatY - before) > 0.01) {
-          const edge = [
-            [x, before, z],
-            [X, before, z],
-            [X, flatY, z],
-            [x, flatY, z],
-          ];
-          for (const index of [0, 1, 2, 0, 2, 3]) {
-            positions.push(...edge[index]);
-            uv.push(edge[index][0] / 30, edge[index][1] / 30);
-          }
-        }
+        positions.push(...quad[index]);
+        uv.push(quad[index][0] / 30, quad[index][2] / 30);
       }
     }
+  }
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positions, 3),
-  );
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
   geometry.computeVertexNormals();
-  const landscapeMaterial = mat.grass.clone();
-  landscapeMaterial.side = THREE.DoubleSide;
-  const mountain = new THREE.Mesh(geometry, landscapeMaterial);
-  mountain.name = "后方山体与远田";
+  const mountain = new THREE.Mesh(geometry, mat.grass);
+  mountain.name = "曲线山脚后的连续后山";
   mountain.castShadow = mountain.receiveShadow = true;
   group.add(mountain);
   return group;

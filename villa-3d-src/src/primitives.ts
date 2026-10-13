@@ -226,28 +226,50 @@ export function tag(
   z: number,
   color = "#284b3b",
   scale = 1,
+  prominent = false,
 ) {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 96;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#f8f6edee";
-  ctx.beginPath();
-  ctx.roundRect(2, 2, 508, 92, 16);
-  ctx.fill();
-  ctx.fillStyle = color;
-  ctx.font = '500 58px "PingFang SC", sans-serif';
+  const font = prominent
+    ? '700 72px "PingFang SC", "Microsoft YaHei", sans-serif'
+    : '500 58px "PingFang SC", sans-serif';
+  ctx.font = font;
+  const width = prominent
+    ? Math.min(1680, Math.max(280, Math.ceil(ctx.measureText(text).width) + 84))
+    : 512;
+  const height = prominent ? 128 : 96;
+  canvas.width = width;
+  canvas.height = height;
+  ctx.font = font;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, 256, 49, 484);
+  if (prominent) {
+    ctx.fillStyle = "#121a24";
+    ctx.strokeStyle = "#ffbf3c";
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.roundRect(8, 8, width - 16, height - 16, 24);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffe566";
+    ctx.fillText(text, width / 2, height / 2 + 2);
+  } else {
+    ctx.fillStyle = "#f8f6edee";
+    ctx.beginPath();
+    ctx.roundRect(2, 2, 508, 92, 16);
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.fillText(text, 256, 49, 484);
+  }
   const mat = new THREE.SpriteMaterial({
     map: new THREE.CanvasTexture(canvas),
     depthTest: false,
   });
   const sprite = new THREE.Sprite(mat);
   sprite.position.set(x, y, z);
-  sprite.scale.set(4.8 * scale, 0.9 * scale, 1);
-  sprite.renderOrder = 5;
+  const worldH = (prominent ? 1.22 : 0.9) * scale;
+  sprite.scale.set(prominent ? worldH * (width / height) : 4.8 * scale, worldH, 1);
+  sprite.renderOrder = prominent ? 12 : 5;
   parent.add(sprite);
   return sprite;
 }
@@ -275,48 +297,56 @@ export function wallWithOpenings(
   g.position.set(a[0], base, a[1]);
   g.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
   parent.add(g);
-  const cutsX = [
-    ...new Set([
-      0,
-      len,
-      ...openings.flatMap((o) => [
-        Math.max(0, o.at - o.w / 2),
-        Math.min(len, o.at + o.w / 2),
-      ]),
-    ]),
-  ].sort((a, b) => a - b);
-  const cutsY = [
-    ...new Set([
-      0,
-      height,
-      ...openings.flatMap((o) => [o.sill, Math.min(height, o.sill + o.h)]),
-    ]),
-  ].sort((a, b) => a - b);
-  for (let i = 1; i < cutsX.length; i++)
-    for (let j = 1; j < cutsY.length; j++) {
-      const x = (cutsX[i] + cutsX[i - 1]) / 2,
-        y = (cutsY[j] + cutsY[j - 1]) / 2;
-      if (
-        openings.some(
-          (o) =>
-            x > o.at - o.w / 2 &&
-            x < o.at + o.w / 2 &&
-            y > o.sill &&
-            y < o.sill + o.h,
-        )
-      )
-        continue;
-      box(
-        g,
-        x,
-        y,
-        0,
-        cutsX[i] - cutsX[i - 1],
-        cutsY[j] - cutsY[j - 1],
-        thickness,
-        interior ? mat.inside : mat.wall,
-      );
-    }
+  // 整面墙一次挤出。按窗洞切成多块盒子时，相邻外表面共面，缩放时接缝会闪成竖线。
+  const shape = new THREE.Shape();
+  const doors = openings
+    .filter((o) => o.sill <= 0.001)
+    .sort((p, q) => p.at - q.at);
+  shape.moveTo(0, 0);
+  for (const o of doors) {
+    const x0 = Math.max(0, o.at - o.w / 2),
+      x1 = Math.min(len, o.at + o.w / 2),
+      top = Math.min(height, o.sill + o.h);
+    if (x1 - x0 < 0.02 || top < 0.02) continue;
+    shape.lineTo(x0, 0);
+    shape.lineTo(x0, top);
+    shape.lineTo(x1, top);
+    shape.lineTo(x1, 0);
+  }
+  shape.lineTo(len, 0);
+  shape.lineTo(len, height);
+  shape.lineTo(0, height);
+  shape.closePath();
+  for (const o of openings) {
+    if (o.sill <= 0.001) continue;
+    const x0 = Math.max(0.02, o.at - o.w / 2),
+      x1 = Math.min(len - 0.02, o.at + o.w / 2),
+      y0 = o.sill,
+      y1 = Math.min(height - 0.02, o.sill + o.h);
+    if (x1 - x0 < 0.02 || y1 - y0 < 0.02) continue;
+    const hole = new THREE.Path();
+    hole.moveTo(x1, y0);
+    hole.lineTo(x0, y0);
+    hole.lineTo(x0, y1);
+    hole.lineTo(x1, y1);
+    hole.closePath();
+    shape.holes.push(hole);
+  }
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness,
+    bevelEnabled: false,
+    curveSegments: 1,
+  });
+  geo.translate(0, 0, -thickness / 2);
+  const position = geo.getAttribute("position"),
+    uv = geo.getAttribute("uv");
+  for (let i = 0; i < uv.count; i++)
+    uv.setXY(i, position.getX(i), position.getY(i));
+  geo.computeVertexNormals();
+  const wallMesh = new THREE.Mesh(geo, interior ? mat.inside : mat.wall);
+  wallMesh.castShadow = true;
+  wallMesh.receiveShadow = true;
+  g.add(wallMesh);
   for (const o of openings) {
     if (interior) {
       // 门扇停在打开位置，保留实际通行洞口。
@@ -333,27 +363,35 @@ export function wallWithOpenings(
       door.castShadow = false;
       continue;
     }
+    // 玻璃靠室内一侧，框料彼此只相接、不叠面，避免窗角和横档发暗闪。
+    const midX = (a[0] + b[0]) / 2,
+      midZ = (a[1] + b[1]) / 2,
+      localZx = -(b[1] - a[1]) / len,
+      localZz = (b[0] - a[0]) / len,
+      intoRoom =
+        (13.55 - midX) * localZx + (4 - midZ) * localZz > 0 ? 1 : -1;
+    const clear = o.w - 0.062;
     box(
       g,
       o.at,
       o.sill + o.h / 2,
-      0,
+      intoRoom * 0.065,
       o.w - 0.08,
       o.h - 0.08,
-      0.025,
+      0.02,
       o.door ? mat.wood : mat.glass,
       o.door,
     );
     for (const x of [o.at - o.w / 2, o.at + o.w / 2])
-      box(g, x, o.sill + o.h / 2, 0, 0.065, o.h + 0.08, 0.14, mat.dark);
+      box(g, x, o.sill + o.h / 2, 0, 0.06, o.h, 0.1, mat.dark);
     for (const y of [o.sill, o.sill + o.h])
-      box(g, o.at, y, 0, o.w + 0.12, 0.065, 0.14, mat.dark);
-    box(g, o.at, o.sill + o.h / 2, -0.025, 0.045, o.h, 0.09, mat.dark);
+      box(g, o.at, y, 0, clear, 0.06, 0.1, mat.dark);
+    box(g, o.at, o.sill + o.h / 2, 0, 0.04, o.h - 0.08, 0.06, mat.dark);
     if (!o.door && o.h > 1.7)
-      box(g, o.at, o.sill + 0.85, -0.03, o.w, 0.045, 0.09, mat.dark);
+      box(g, o.at, o.sill + 0.85, 0, clear, 0.04, 0.045, mat.dark);
     if (o.door)
       for (const x of [o.at - 0.12, o.at + 0.12])
-        box(g, x, 1.1, -0.07, 0.024, 0.32, 0.05, mat.gold);
+        box(g, x, 1.1, -intoRoom * 0.08, 0.024, 0.32, 0.04, mat.gold);
     if (!o.door)
       box(g, o.at, o.sill - 0.05, 0, o.w + 0.22, 0.1, 0.35, mat.trim);
   }

@@ -618,13 +618,15 @@ input[type="range"] {
   fill: #35513e;
 }
 .room-size {
-  font-size: 0.23px;
-  fill: #7d8578;
+  font-size: 0.24px;
+  font-weight: 650;
+  fill: #1a4a34;
 }
 .dim-label {
-  font-size: 0.26px;
-  fill: #75816e;
-  letter-spacing: 0.015px;
+  font-size: 0.3px;
+  font-weight: 700;
+  fill: #8a4b00;
+  letter-spacing: 0.01px;
 }
 .footnote {
   font-size: 0.2px;
@@ -668,8 +670,8 @@ input[type="range"] {
   stroke: #91774c;
 }
 .dim-line {
-  stroke: #929d85;
-  stroke-width: 0.025;
+  stroke: #c47b12;
+  stroke-width: 0.045;
   fill: none;
 }
 .step-line {
