@@ -1,0 +1,94 @@
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Editors and IDEs
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# 本机 Agent 运行配置与已安装技能
+/.claude/
+/.codex/
+/.aionrs/
+/.cursor/
+
+# Local environment
+.env
+.env.*
+!.env.example
+!apps/worker-miniapp/.env.development
+*.local
+
+# Logs
+*.log
+logs/
+
+# Java and Spring
+target/
+build/
+.gradle/
+out/
+*.class
+
+# Node and Next.js
+node_modules/
+.umi/
+.umi-production/
+.taro/
+.next/
+out/
+dist/
+coverage/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Package manager caches
+.npm/
+.pnpm-store/
+.yarn/
+!.yarn/releases/
+!.yarn/plugins/
+!.yarn/sdks/
+!.yarn/versions/
+
+# Docker and local runtime data
+.docker/
+docker-data/
+infra/.data/
+infra/minio/data/
+data/
+tmp/
+temp/
+
+# Test and tool artifacts
+playwright-report/
+test-results/
+.nyc_output/
+
+# Secrets and certificates
+*.pem
+*.key
+*.p12
+*.jks
+
+# Generated archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# playwright
+.playwright-cli/
+.playwright-mcp/
+
+# git
+.git/
+
+# jrebel
+rebel.xml
+
+output/
