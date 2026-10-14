@@ -282,6 +282,57 @@ button svg {
   margin-top: 18px;
   color: #5d695f;
 }
+.floor-choices {
+  border: 0;
+  padding: 0;
+  margin: 18px 0 8px;
+  min-width: 0;
+}
+.floor-choices legend {
+  padding: 0 0 9px;
+  color: #5d695f;
+  font-size: 12px;
+}
+.floor-choices > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.floor-choices label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 54px;
+  padding: 8px 6px;
+  border: 1px solid #cdd2c8;
+  border-radius: 5px;
+  background: #fbfaf7;
+  cursor: pointer;
+}
+.floor-choices input {
+  margin: 0;
+  accent-color: var(--green);
+  flex-shrink: 0;
+}
+.floor-choices strong, .floor-choices small {
+  display: block;
+  white-space: nowrap;
+}
+.floor-choices strong { font-size: 12px; }
+.floor-choices small { font-size: 10px; color: #677368; margin-top: 3px; }
+.floor-choices label:has(input:checked) {
+  border-color: var(--green);
+  background: #e7eee5;
+}
+.floor-choices label:has(input:focus-visible) {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.floor-svg .furniture-label {
+  font-size: 0.2px;
+  fill: #34463a;
+  pointer-events: none;
+}
 select,
 input[type="date"],
 input[type="number"] {
@@ -366,23 +417,22 @@ input[type="range"] {
   margin-left: auto;
 }
 .scene-heading {
-  position: absolute;
-  top: 25px;
-  left: 29px;
-  pointer-events: none;
-  color: #263d2e;
-  text-shadow: 0 1px 10px #f2f4e9cc;
+  margin: 0 0 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
 }
 .scene-heading h1 {
-  font-size: 23px;
-  margin: 0 0 7px;
+  font-size: 18px;
+  margin: 0 0 6px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+  color: #26352d;
 }
 .scene-heading p {
-  font-size: 11px;
+  font-size: 12px;
   margin: 0;
-  color: #506252;
+  line-height: 1.6;
+  color: #66756a;
 }
 .scene-tools {
   position: absolute;
@@ -1187,9 +1237,6 @@ dialog .secondary-button {
     bottom: 73px;
     right: 19px;
   }
-  .scene-heading {
-    left: 22px;
-  }
   .photo-strip {
     left: 20px;
     bottom: 75px;
@@ -1268,18 +1315,6 @@ dialog .secondary-button {
   .inspector section {
     margin-bottom: 21px;
     padding-bottom: 20px;
-  }
-  .scene-heading {
-    left: 17px;
-    top: 20px;
-    max-width: 67%;
-  }
-  .scene-heading h1 {
-    font-size: 18px;
-  }
-  .scene-heading p {
-    font-size: 9px;
-    line-height: 1.6;
   }
   .scene-tools {
     right: 13px;
@@ -1487,22 +1522,6 @@ dialog .secondary-button {
   }
   .spinner {
     animation: none;
-  }
-}
-
-.scene-heading {
-  padding: 12px 15px;
-  background: #f8f8eeeb;
-  border: 1px solid #ffffffb0;
-  border-radius: 5px;
-  backdrop-filter: blur(10px);
-  text-shadow: none;
-  max-width: calc(100% - 160px);
-}
-@media (max-width: 760px) {
-  .scene-heading {
-    padding: 9px 10px;
-    max-width: calc(100% - 99px);
   }
 }
 

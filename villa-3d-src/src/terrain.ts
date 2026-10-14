@@ -14,7 +14,9 @@ import {
   tag,
   type Mats,
 } from "./primitives";
-import { buildCar } from "./architecture";
+import { buildL9, buildXingyuan } from "./cars";
+import { buildRoadsideVilla } from "./roadside-villa";
+import { roadsideFootprints, roadsideToWorld } from "./roadside-villa-layout";
 import { surroundings, forestTrees, basementColumns, roadHeight, rightTerraceBreak } from "./surroundings";
 import { buildContextGround, buildRoad } from "./site-ground";
 
@@ -460,6 +462,8 @@ function flatRoofRails(
 export function buildSurroundingHouses(mat: Mats) {
   const group = new THREE.Group();
   group.name = "周边邻房";
+  group.add(buildRoadsideVilla(mat));
+  let rearHouse: THREE.Object3D | undefined;
   for (const [name, h] of [
     ["左侧邻居木房", surroundings.sideHouse],
     ["后方第二层梯田木房", surroundings.rearHouse],
@@ -477,10 +481,12 @@ export function buildSurroundingHouses(mat: Mats) {
       name === "左侧邻居木房" ? "side" : "rear",
     );
     house.name = name;
+    if (name === "后方第二层梯田木房") rearHouse = house;
   }
   const rear = surroundings.rearHouse;
+  // 门前台阶跟着整栋一起关，下面露出的仍是第二层田的草地。
   slab(
-    group,
+    rearHouse!,
     rect(rear.x, rear.z - 1.5, rear.w, 1.5),
     rear.y + 0.025,
     0.15,
@@ -488,7 +494,7 @@ export function buildSurroundingHouses(mat: Mats) {
   );
   for (let i = 0; i < 6; i++) {
     box(
-      group,
+      rearHouse!,
       rear.x + rear.w - 0.8,
       rear.y - 0.8 + ((i + 1) * 0.8) / 12,
       rear.z - 2.9 + i * 0.24,
@@ -534,14 +540,19 @@ export function buildSurroundingHouses(mat: Mats) {
         h: floor === 0 ? windowH : 1.7,
       };
     });
-  // 右侧主体两层人字坡。开间从东向西是卧室、堂屋、卧室；窗台按人的高度，不贴到层高顶部。
+  // 右侧主体进深两间，二楼两间都在，只向北内退一条走廊。1.4 米沿用自家过道外轮廓，不是测绘。
+  // 内退的这一条是钢架加工层。开间仍是卧室、堂屋、卧室。
+  const corridorSetback = 1.4;
+  const upperFront = h.z + corridorSetback;
   for (let i = 0; i < h.floors; i++) {
     const y = h.y + i * h.floorHeight;
+    const zWall = i === 0 ? h.z : upperFront;
+    const depth = back - zWall;
     const openings = bayOpenings(i);
     const north = wallWithOpenings(
       house,
-      [h.x, h.z],
-      [wingX, h.z],
+      [h.x, zWall],
+      [wingX, zWall],
       y,
       h.floorHeight,
       openings,
@@ -559,24 +570,28 @@ export function buildSurroundingHouses(mat: Mats) {
     );
     wallWithOpenings(
       house,
-      [h.x, h.z],
+      [h.x, zWall],
       [h.x, back],
       y,
       h.floorHeight,
       [
-        { at: 2.1, w: 1.35, sill: 0.9, h: 1.6 },
-        { at: 5.2, w: 1.35, sill: 0.9, h: 1.6 },
-        { at: 8.1, w: 1.35, sill: 0.9, h: 1.6 },
+        { at: depth * 0.25, w: 1.4, sill: 0.9, h: 1.6 },
+        { at: depth * 0.75, w: 1.4, sill: 0.9, h: 1.6 },
       ],
       mat,
     );
     wallWithOpenings(
       house,
-      [wingX, h.z],
+      [wingX, zWall],
       [wingX, back],
       y,
       h.floorHeight,
-      i === 1 ? [{ at: h.d / 2, w: 1.25, sill: 0.9, h: 1.55 }] : [],
+      i === 1
+        ? [
+            { at: depth * 0.25, w: 1.25, sill: 0.9, h: 1.55 },
+            { at: depth * 0.75, w: 1.25, sill: 0.9, h: 1.55 },
+          ]
+        : [],
       mat,
     );
     slab(house, rect(h.x, h.z, mainW, h.d), y + 0.03, 0.15, mat.paving);
@@ -584,7 +599,7 @@ export function buildSurroundingHouses(mat: Mats) {
       house,
       h.x + mainW / 2,
       y + h.floorHeight - 0.08,
-      h.z - 0.18,
+      zWall - 0.18,
       mainW + 0.16,
       0.16,
       0.22,
@@ -595,48 +610,66 @@ export function buildSurroundingHouses(mat: Mats) {
   let joint = h.x;
   for (const bay of [0, ...fromWest]) {
     joint += bay;
-    box(house, joint, h.y + h.floorHeight, h.z - 0.14, 0.22, h.floorHeight * 2, 0.16, mat.trim);
+    box(house, joint, h.y + h.floorHeight / 2, h.z - 0.14, 0.22, h.floorHeight, 0.16, mat.trim);
+    box(
+      house,
+      joint,
+      h.y + h.floorHeight * 1.5,
+      upperFront - 0.14,
+      0.22,
+      h.floorHeight,
+      0.16,
+      mat.trim,
+    );
   }
   const hallMark = new THREE.Group();
   hallMark.name = "堂屋门";
   hallMark.position.set(h.x + bayCenters[1], h.y + 1.35, h.z);
   house.add(hallMark);
-  const hallWest = h.x + widths[2];
-  const hallEast = hallWest + widths[1];
-  slab(
-    house,
-    rect(hallWest + 0.15, h.z - 1.15, widths[1] - 0.3, 1.15),
-    h.y + h.floorHeight,
-    0.16,
-    mat.paving,
-  );
-  railing(
-    house,
-    [hallWest + 0.2, h.z - 1.05],
-    [hallEast - 0.2, h.z - 1.05],
-    h.y + h.floorHeight,
-    mat,
-  );
-  railing(
-    house,
-    [hallWest + 0.2, h.z - 1.05],
-    [hallWest + 0.2, h.z - 0.05],
-    h.y + h.floorHeight,
-    mat,
-  );
-  railing(
-    house,
-    [hallEast - 0.2, h.z - 1.05],
-    [hallEast - 0.2, h.z - 0.05],
-    h.y + h.floorHeight,
-    mat,
+  const workshop = new THREE.Group();
+  workshop.name = "二楼前钢架加工层";
+  house.add(workshop);
+  const frameMat = mat.metal.clone();
+  frameMat.color.set(0x8d9499);
+  const eaveY = h.y + height;
+  const deck = h.y + h.floorHeight;
+  const ridgeZ = h.z + h.d / 2;
+  const roofAt = (z: number) => {
+    const t = (z - (h.z - 0.45)) / (ridgeZ - (h.z - 0.45));
+    return eaveY + Math.min(1, Math.max(0, t)) * h.roofRise;
+  };
+  const frameXs = [h.x + 0.45, h.x + mainW / 2, wingX - 0.45];
+  const postZ = h.z + 0.35;
+  const beamZ = upperFront - 0.2;
+  for (const x of frameXs) {
+    cylinder(
+      workshop,
+      new THREE.Vector3(x, deck + 0.08, postZ),
+      new THREE.Vector3(x, roofAt(postZ) - 0.16, postZ),
+      0.07,
+      frameMat,
+    );
+    cylinder(
+      workshop,
+      new THREE.Vector3(x, roofAt(postZ) - 0.2, postZ),
+      new THREE.Vector3(x, roofAt(beamZ) - 0.16, beamZ),
+      0.05,
+      frameMat,
+    );
+  }
+  cylinder(
+    workshop,
+    new THREE.Vector3(frameXs[0], roofAt(postZ) - 0.18, postZ),
+    new THREE.Vector3(frameXs[2], roofAt(postZ) - 0.18, postZ),
+    0.05,
+    frameMat,
   );
   gableRoof(house, h.x, h.z, mainW, h.d, h.y + height, h.roofRise, mat, {
     darkTiles: true,
     overhang: 0.45,
   });
   // 左侧一层与主楼一层同高，北面不砌墙，东墙离开马路约 0.8 米。
-  // 红顶仍架在原高度：西侧高点低于主体屋脊约 1.8 米，朝东降低；东檐比一层东墙再挑出一点。
+  // 红顶钢架跟着主体屋脊降：西侧高点仍低于屋脊约 1.8 米，朝东降低；东檐比一层东墙再挑出一点。
   const roadGap = 0.8;
   const eavePastWall = 0.4;
   const wingEast = h.x + h.w - roadGap;
@@ -664,11 +697,12 @@ export function buildSurroundingHouses(mat: Mats) {
     mat,
   );
   box(house, (wingX + wingEast) / 2, deckY - 0.12, h.z, wingSpan, 0.22, 0.28, mat.trim);
+  // 楼板收到墙内皮以内，顶面略低于墙顶，避免和墙顶共面，拖动时闪。
   slab(
     house,
-    rect(wingX + 0.12, h.z, wingSpan - 0.12, h.d),
-    deckY,
-    0.16,
+    rect(wingX + 0.28, h.z + 0.04, wingSpan - 0.52, h.d - 0.28),
+    deckY - 0.03,
+    0.14,
     mat.stone,
   ).name = "一楼楼顶";
   const shed = new THREE.Group();
@@ -694,44 +728,46 @@ export function buildSurroundingHouses(mat: Mats) {
       cylinder(
         steel,
         new THREE.Vector3(x, deckY, z),
-        new THREE.Vector3(x, roofY(x) - 0.06, z),
+        new THREE.Vector3(x, roofY(x) - 0.28, z),
         0.055,
         steelMat,
       );
   for (const x of postXs)
     cylinder(
       steel,
-      new THREE.Vector3(x, roofY(x) - 0.08, z0 + 0.15),
-      new THREE.Vector3(x, roofY(x) - 0.08, z1 - 0.15),
+      new THREE.Vector3(x, roofY(x) - 0.3, z0 + 0.15),
+      new THREE.Vector3(x, roofY(x) - 0.3, z1 - 0.15),
       0.04,
       steelMat,
     );
   for (const z of postZs)
     cylinder(
       steel,
-      new THREE.Vector3(postXs[0], roofY(postXs[0]) - 0.1, z),
-      new THREE.Vector3(postXs[2], roofY(postXs[2]) - 0.1, z),
+      new THREE.Vector3(postXs[0], roofY(postXs[0]) - 0.32, z),
+      new THREE.Vector3(postXs[2], roofY(postXs[2]) - 0.32, z),
       0.04,
       steelMat,
     );
   const slopes = new THREE.BufferGeometry();
-  const lip = 0.05;
+  const lip = 0.22;
+  const yw0 = yWest - lip;
+  const ye0 = yEast - lip;
   slopes.setAttribute(
     "position",
     new THREE.Float32BufferAttribute(
       [
-        x0, yWest, z0,
-        x1, yEast, z0,
-        x1, yEast, z1,
-        x0, yWest, z0,
-        x1, yEast, z1,
-        x0, yWest, z1,
-        x0, yWest - lip, z0,
-        x0, yWest - lip, z1,
-        x1, yEast - lip, z1,
-        x0, yWest - lip, z0,
-        x1, yEast - lip, z1,
-        x1, yEast - lip, z0,
+        x0, yWest, z0, x1, yEast, z0, x1, yEast, z1,
+        x0, yWest, z0, x1, yEast, z1, x0, yWest, z1,
+        x0, yw0, z1, x1, ye0, z1, x1, ye0, z0,
+        x0, yw0, z1, x1, ye0, z0, x0, yw0, z0,
+        x0, yWest, z0, x0, yWest, z1, x0, yw0, z1,
+        x0, yWest, z0, x0, yw0, z1, x0, yw0, z0,
+        x1, yEast, z1, x1, yEast, z0, x1, ye0, z0,
+        x1, yEast, z1, x1, ye0, z0, x1, ye0, z1,
+        x0, yWest, z0, x1, ye0, z0, x1, yEast, z0,
+        x0, yWest, z0, x0, yw0, z0, x1, ye0, z0,
+        x0, yWest, z1, x1, yEast, z1, x1, ye0, z1,
+        x0, yWest, z1, x1, ye0, z1, x0, yw0, z1,
       ],
       3,
     ),
@@ -739,7 +775,9 @@ export function buildSurroundingHouses(mat: Mats) {
   slopes.computeVertexNormals();
   const red = mat.roof.clone();
   red.color.set(0xb8433c);
-  red.side = THREE.DoubleSide;
+  red.polygonOffset = true;
+  red.polygonOffsetFactor = 1;
+  red.polygonOffsetUnits = 1;
   const roof = new THREE.Mesh(slopes, red);
   roof.castShadow = roof.receiveShadow = true;
   shed.add(roof);
@@ -785,6 +823,7 @@ function vegetation(parent: THREE.Object3D, mat: Mats) {
   const leaves = new THREE.MeshStandardMaterial({
     map: leafMap,
     alphaTest: 0.4,
+    alphaToCoverage: true,
     side: THREE.DoubleSide,
     roughness: 1,
     color: 0xb0c9a0,
@@ -881,10 +920,7 @@ export function buildCourtyard(mat: Mats) {
   deck.name = "完整院坪与右侧人行通道";
   slab(deck, site.field, 0, 0.23, mat.paving).name = "无中央楼梯洞的院坪";
   courtyardRailing(deck, mat);
-  // 两米左右前通道接右侧过道，在后段与院坪同高的梯田处开放出口。
-  const path = mat.trim.clone();
-  slab(deck, rect(0.18, -2.85, 5.12, 1.55), 0.015, 0.01, path).name = "辅楼前约2米人行通道";
-  slab(deck, rect(0.18, -1.3, 0.58, 8.6), 0.015, 0.01, path).name = "通往右侧同高梯田的侧道";
+  // 辅楼前约2米和西侧过道都走在这块院坪上，不再另铺一层近白色的条子。
   railing(deck, [0.12, -2.98], [0.12, surroundings.rightStep], 0, mat, 1.1);
   box(deck, 13.6, -0.335, -0.5, 13.6, 0.23, 0.36, mat.stone);
   return deck;
@@ -904,12 +940,21 @@ export function buildSite(mat: Mats) {
     dimensions = new THREE.Group(),
     overlap = new THREE.Group();
   context.add(buildContextGround(mat));
-  context.add(buildSurroundingHouses(mat));
+  const neighbors = buildSurroundingHouses(mat);
+  context.add(neighbors);
+  const sideNeighbor = neighbors.getObjectByName("左侧邻居木房")!;
+  const rearNeighbor = neighbors.getObjectByName("后方第二层梯田木房")!;
+  const frontNeighbor = neighbors.getObjectByName("前方两层砖房")!;
+  const roadsideNeighbor = neighbors.getObjectByName("主马路边蓝顶三层邻房")!;
   // 院坪、地库和基座共用外沿；相邻未挖田面在 X=0 接续这条曲线。
   const foundationTop = site.garageFloor - 0.15;
   slab(fixed, site.boundary, foundationTop, foundationTop - frontFieldLevel, mat.soil);
-  slab(fixed, rect(0, 0, 21.1, 10.8), 0, -foundationTop, mat.stone);
-  slab(fixed, rect(0, 0, 21.1, 10.8), 0.01, 0.07, mat.paving);
+  // 铺装是看见的地面。石基顶面留在铺装底面以下，避免鸟瞰时两层共面闪成格子。
+  const padTop = 0.01;
+  const padThick = 0.07;
+  const stoneTop = padTop - padThick - 0.06;
+  slab(fixed, rect(0, 0, 21.1, 10.8), stoneTop, stoneTop - foundationTop, mat.stone);
+  slab(fixed, rect(0, 0, 21.1, 10.8), padTop, padThick, mat.paving);
   box(fixed, 10.55, 1.25, 10.96, 21.1, 2.5, 0.32, mat.stone);
   box(fixed, 10.55, 0.025, 10.52, 20.9, 0.035, 0.16, mat.dark);
   vegetation(context, mat);
@@ -990,15 +1035,15 @@ export function buildSite(mat: Mats) {
     site.adjacentUnexcavatedLevel - site.garageFloor,
     mat.stone,
   ).name = "地库局部下挖与未挖旁田的交界";
-  const parked = buildCar(mat);
+  const parked = buildL9(mat);
   parked.position.set(18.5, site.garageFloor, -4.02);
   garage.add(parked);
-  const second = buildCar(mat, 0x988164, true);
+  const second = buildXingyuan(mat);
   second.position.set(14.65, site.garageFloor, -3.75);
   garage.add(second);
   for (const [x, z, name] of [
-    [18.5, -4.02, "L9 · 车位示意"],
-    [14.65, -3.75, "第二辆车 · 待定"],
+    [18.5, -4.02, "理想 L9 Max · 黑"],
+    [14.65, -3.75, "吉利星愿 · 银"],
   ] as [number, number, string][]) {
     line(
       garage,
@@ -1016,6 +1061,7 @@ export function buildSite(mat: Mats) {
     opacity: 0.28,
     side: THREE.DoubleSide,
     depthWrite: false,
+    forceSinglePass: true,
   });
   slab(overlap, rect(6.8, -1, 13.5, 1), 0.035, 0.025, overlapMat);
   slab(overlap, rect(site.portico.x, site.main.z - site.portico.projection, site.portico.w, site.portico.projection), 0.035, 0.025, overlapMat);
@@ -1096,6 +1142,18 @@ export function buildSite(mat: Mats) {
   const side = surroundings.sideHouse;
   const rear = surroundings.rearHouse;
   const front = surroundings.frontHouse;
+  const roadside = surroundings.roadsideVilla;
+  const roadsideDimensions = new THREE.Group();
+  roadsideDimensions.name = "蓝顶邻房位置与朝向估算";
+  dimensions.add(roadsideDimensions);
+  const eastPoint = roadsideFootprints(roadside).flat().reduce((a, b) => a[0] > b[0] ? a : b);
+  span(roadsideDimensions, p(annex.x, annex.z, 0.4), p(annex.x, eastPoint[1], 0.4));
+  span(roadsideDimensions, p(annex.x, eastPoint[1], 0.4), p(eastPoint[0], eastPoint[1], 0.4));
+  dim(roadsideDimensions, `辅楼西墙延长线 · 横向约 ${roadside.extensionGap} m`, (annex.x + eastPoint[0]) / 2, 1.8, eastPoint[1] - 0.7, 0.7);
+  const eaveHeight = roadside.floorHeights.reduce((sum, height) => sum + height, 0);
+  dim(roadsideDimensions, `蓝顶邻房 ${roadside.w}×${roadside.d} m · 三层 · 估算`, roadside.x, roadside.y + eaveHeight + roadside.roofRise + 1.5, roadside.z, 0.75);
+  const facing = roadsideToWorld(roadside, 0, -roadside.d / 2 - roadside.portico.d - 1);
+  dim(roadsideDimensions, `朝西北 · 北偏西约 ${roadside.angle}° · 估算`, facing[0], roadside.y + 1.6, facing[1] - 0.7, 0.72);
   span(dimensions, p(0, 11.2, 2.4), p(site.width, 11.2, 2.4));
   dim(dimensions, `东西总宽 ${site.width} m`, 10.55, 3.8, 12.6, 0.86);
   span(dimensions, p(0, 0, 1.4), p(0, site.oldDepth, 1.4));
@@ -1113,7 +1171,7 @@ export function buildSite(mat: Mats) {
   dim(dimensions, `道路宽 ${surroundings.road.w} m · 待测`, 35.5, 2.4, -15.4, 0.7);
   dim(dimensions, `邻居木房 ${side.w}×${side.d} m · 前墙对齐 · 估算`, side.x + side.w / 2, side.h + 1.6, side.z + side.d / 2, 0.72);
   dim(dimensions, `屋后木房 ${rear.w.toFixed(1)}×${rear.d} m · 台地 +${rear.y} m · 估算`, rear.x + rear.w / 2, rear.y + rear.h + 1.4, rear.z + rear.d / 2, 0.7);
-  dim(dimensions, `前方砖房 ${front.w.toFixed(1)}×${front.d} m · ${front.floors} 层 · 估算`, front.x + front.w / 2, front.y + front.floorHeight * front.floors + 1.6, front.z - 1.6, 0.7);
+  dim(dimensions, `前方砖房 ${front.w.toFixed(1)}×${front.d} m · 侧面两间 · 二楼内退走廊 1.4 m`, front.x + front.w / 2, front.y + front.floorHeight * front.floors + 1.6, front.z - 1.6, 0.7);
   dim(dimensions, "屋脊高于一层顶约 2 m", front.x + front.w * 0.72, front.y + front.floorHeight * front.floors + 3.2, front.z + front.d / 2, 0.66);
   dim(dimensions, "矮楼与主楼一层齐平 · 红顶低于屋脊约 1.8 m", front.x + front.w - 1.2, front.y + 4.2, front.z + 2.2, 0.64);
   dim(dimensions, "屋后田宽约 0.4 m", front.x + 4, front.y + 1.5, front.z + front.d + 0.9, 0.66);
@@ -1135,7 +1193,7 @@ export function buildSite(mat: Mats) {
   dim(scheme, `三楼北退 ${site.setback} m`, 8.6, 7.6, -2.6, 0.68);
   dim(scheme, `屋后留 ${site.rearGap} m`, 17.4, 3.6, 9.2, 0.68);
   dim(scheme, `门厅 ${site.portico.w}×${site.portico.projection} m · 另计`, 13.7, 3.4, -5.4, 0.72);
-  dim(scheme, `二楼前檐 ${site.secondFrontEave} m · 三楼檐 ${site.thirdEave} m`, 17.6, 4.2, -4.6, 0.68);
+  dim(scheme, `栏杆下瓦檐约 ${site.secondFrontEave} m · 三楼顶檐 ${site.thirdEave} m`, 17.6, 4.2, -4.6, 0.68);
   dim(scheme, "前通道约 2 m", 2.8, 1.6, -2.5, 0.66);
   dim(scheme, `侧道 ${site.sideGap} m`, 0.45, 1.8, 6.4, 0.64);
   dim(scheme, `地库 ${site.garageFloor} m · 净高目标 ${site.garageClear} m`, 16.2, 2, -7.6, 0.7);
@@ -1175,6 +1233,11 @@ export function buildSite(mat: Mats) {
     second,
     neighborDeck,
     columnNotes,
+    sideNeighbor,
+    rearNeighbor,
+    frontNeighbor,
+    roadsideNeighbor,
+    roadsideDimensions,
   };
 }
 

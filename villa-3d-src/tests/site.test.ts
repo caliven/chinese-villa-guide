@@ -21,12 +21,21 @@ const mats = Object.fromEntries(
     "soil",
     "metal",
     "glass",
+    "lowE",
     "inside",
     "floor",
     "fabric",
     "foliage",
     "trunk",
     "gold",
+    "bronze",
+    "bronzeDark",
+    "marble",
+    "darkStone",
+    "darkStoneGroove",
+    "darkStoneRampMark",
+    "sand",
+    "british",
   ].map((key) => [key, new THREE.MeshStandardMaterial()]),
 ) as Mats;
 const ground = buildContextGround(mats);
@@ -77,9 +86,10 @@ test("辅楼右侧为两级田，后方木房落在第二田，左侧高地高�
   const top = hits(ground, -0.31, 8.2)[0].point.y;
   const low = hits(ground, -0.31, 2.1)[0].point.y;
   assert.ok(Math.abs(top) < 1e-5);
-  assert.ok(Math.abs(low - site.garageFloor) < 1e-5);
-  assert.equal(hits(ground, 12.12, 12.7)[0].point.y, 2.5);
-  assert.equal(hits(ground, 20.12, 21.7)[0].point.y, c.rearHouse.y);
+  assert.ok(Math.abs(low - site.adjacentUnexcavatedLevel) < 1e-5);
+  assert.notEqual(low, site.garageFloor, "未开挖的旁田不能绑定地库完成面");
+  assert.ok(Math.abs(hits(ground, 12.12, 12.7)[0].point.y - 2.5) < 1e-5);
+  assert.ok(Math.abs(hits(ground, 20.12, 21.7)[0].point.y - c.rearHouse.y) < 1e-5);
   assert.ok(hits(ground, 40.12, -3.7)[0].point.y > 0);
   const houses = buildSurroundingHouses(mats);
   const sideBody = houses.getObjectByName("左侧邻居木房")!.children[0];
@@ -95,7 +105,7 @@ test("辅楼右侧为两级田，后方木房落在第二田，左侧高地高�
   const front = houses.getObjectByName("前方两层砖房")!;
   const frontRoof = front.getObjectByName("人字坡屋顶")!;
   const frontTop = new THREE.Box3().setFromObject(frontRoof).max.y;
-  const ridge = floors[0].y + floors[0].height + 2;
+  const ridge = floors[0].y + floors[0].height + 0.5;
   assert.ok(frontTop > ridge && frontTop < ridge + 0.2);
   assert.ok(houses.getObjectByName("左侧邻居木房")!.getObjectByName("人字坡屋顶"));
   assert.ok(houses.getObjectByName("后方第二层梯田木房")!.getObjectByName("人字坡屋顶"));

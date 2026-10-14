@@ -1,5 +1,6 @@
-import { site, floors, frontFieldLevel, courtyardFront, courtyardCircle, type Point } from "./data";
+import { site, floors, frontFieldLevel, courtyardFront, courtyardCircle, roadsideVilla, contains, type Point } from "./data";
 import { contourAt, insetContour, smoothContour } from "./contours";
+import { roadsideToWorld } from "./roadside-villa-layout";
 
 // 全部左右关系按站在北侧、面对房子描述：画面左侧为 X 增大。
 // 对齐关系来自用户；周边房屋尺寸、未测标高和田坎折点仍是航拍估算。
@@ -10,9 +11,11 @@ const leftEdge = sideHouse.x + sideHouse.w;
 const rearRight = site.main.x + site.main.w / 2;
 const frontRight = site.main.x + (site.main.w * 2) / 3;
 const frontHouseY = frontFieldLevel - site.frontHouseDrop;
-// 屋脊比自家一层顶高 2 米。航拍里人字坡很平，起坡只留约 0.9 米，是照片估算。
+// 屋脊原先比自家一层顶高约 2 米。整栋再降 1.5 米后，约高 0.5 米。口述调整，不是测绘。
+// 航拍里人字坡很平，起坡只留约 0.9 米，是照片估算。
 const frontRoofRise = 0.9;
-const frontRidge = floors[0].y + floors[0].height + 2;
+const frontRidgeDrop = 1.5;
+const frontRidge = floors[0].y + floors[0].height + 2 - frontRidgeDrop;
 const frontFloorHeight = (frontRidge - frontRoofRise - frontHouseY) / 2;
 // 进深原 7.5 米。按航拍向北加 2 米，后墙和屋后 0.4 米田外沿不动。
 const frontHouseDepth = 9.5;
@@ -45,6 +48,7 @@ function roadGrade(z: number) {
 
 export const surroundings = {
   sideHouse,
+  roadsideVilla,
   rearHouse: {
     x: rearRight,
     z: 20,
@@ -91,6 +95,32 @@ export const surroundings = {
   forestStart: 36,
   extent: { left: -32, right: 55, front: -30, back: 36 },
 };
+
+// 俯拍里主马路在蓝顶房前向西南转弯。保留东侧 T 形路口，只有西段随邻房转向。
+// 道路宽度与曲线都是照片估算；与上坡支路不同，这一段与前方砖房首层同高。
+const villageRoadWidth = 3.5;
+const villageRoadFront = -roadsideVilla.d / 2 - roadsideVilla.portico.d - 3.45;
+export const villageRoadCenter = smoothContour([
+  [surroundings.extent.left, -14.5],
+  roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2, villageRoadFront),
+  roadsideToWorld(roadsideVilla, 2, villageRoadFront),
+  roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w, villageRoadFront),
+  [-5, -29.25], [2, -28.25], [20, -28.25], [surroundings.extent.right, -28.25],
+], 0.45);
+export const villageRoadEdges = (() => {
+  const front: Point[] = [], back: Point[] = [];
+  for (let i = 0; i < villageRoadCenter.length; i++) {
+    const p = villageRoadCenter[i];
+    const a = villageRoadCenter[Math.max(0, i - 1)], b = villageRoadCenter[Math.min(villageRoadCenter.length - 1, i + 1)];
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const end = i === 0 || i === villageRoadCenter.length - 1;
+    const nx = end ? 0 : -(b[1] - a[1]) / length;
+    const nz = end ? 1 : (b[0] - a[0]) / length;
+    front.push([p[0] - nx * villageRoadWidth / 2, p[1] - nz * villageRoadWidth / 2]);
+    back.push([p[0] + nx * villageRoadWidth / 2, p[1] + nz * villageRoadWidth / 2]);
+  }
+  return { front, back, outline: [...front, ...back.slice().reverse()] };
+})();
 
 // 俯瞰航拍里西侧田埂远离房子后朝南弯。整条上田田埂按这条原弧向北平移
 // rightTerraceAdvance，靠屋终点仍落在 rightStep。
@@ -241,6 +271,7 @@ export function groundHeight(x: number, z: number) {
       Math.sin(x * 0.13) * 1.6 * Math.min(1, distance / 12)
     );
   }
+  if (contains([x, z], villageRoadEdges.outline)) return c.frontHouse.y;
   if (x >= c.road.x && x <= c.road.x + c.road.w && z >= c.road.front && z <= c.road.back)
     return roadHeight(z);
   // 马路尽头以后，路床并入东侧大平地，不再升到屋后木房那一层。

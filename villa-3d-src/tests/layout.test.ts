@@ -10,9 +10,11 @@ import {
   contains,
   polygonArea,
   buildingAreas,
+  frontElevation,
+  circulation,
   type Point,
 } from "../src/data";
-import { buildVilla } from "../src/architecture";
+import { buildVilla, roofPitch } from "../src/architecture";
 import { facades } from "../src/facades";
 import { sunDirection } from "../src/viewer";
 import { diningClearance } from "../src/plan";
@@ -102,7 +104,7 @@ test("卧室、公卫与三楼南过厅都可从公共区通过真实门洞到�
       x < 20.16 &&
       z > f.front + 0.14 &&
       z < 8.86 &&
-      !(index === 1 && x < 11.46 && z > 2.94);
+      !(index === 1 && x < circulation.livingVoid.x + circulation.livingVoid.w + 0.06 && z < circulation.livingVoid.z + circulation.livingVoid.d + 0.02);
     const blocked = (x: number, z: number) =>
       walls.some(([a, b]) => {
         const dx = b[0] - a[0],
@@ -116,7 +118,7 @@ test("卧室、公卫与三楼南过厅都可从公共区通过真实门洞到�
     const id = (x: number, z: number) =>
       Math.round((z + 1) / step) * width + Math.round((x - 6.8) / step);
     const visited = new Set<number>(),
-      queue = [id(15.6, 2.1)];
+      queue = [id(13.5, 1.5)];
     for (let head = 0; head < queue.length; head++) {
       const value = queue[head];
       if (visited.has(value)) continue;
@@ -160,12 +162,21 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     "soil",
     "metal",
     "glass",
+    "lowE",
     "inside",
     "floor",
     "fabric",
     "foliage",
     "trunk",
     "gold",
+    "bronze",
+    "bronzeDark",
+    "marble",
+    "darkStone",
+    "darkStoneGroove",
+    "darkStoneRampMark",
+    "sand",
+    "british",
   ];
   const mats = Object.fromEntries(
     keys.map((key) => [key, new THREE.MeshStandardMaterial()]),
@@ -218,30 +229,75 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   assert.equal(ray.intersectObject(villa.group, true).length, 0);
   ray.set(new THREE.Vector3(13.7, 7.3, -2), new THREE.Vector3(0, -1, 0));
   assert.ok(Math.abs(ray.intersectObject(villa.levels[2], true)[0].point.y - 7.2) < 1e-5);
+  const approach = villa.group.getObjectByName("门厅柱间三步与两侧坡道")!;
+  const approachBounds = new THREE.Box3().setFromObject(approach);
+  const columnFront = frontElevation.porticoColumnZ - frontElevation.porticoColumnDepth / 2;
+  const westInner = frontElevation.balustradePosts[1].x + frontElevation.balustradePosts[1].w / 2;
+  const eastInner = frontElevation.balustradePosts[2].x - frontElevation.balustradePosts[2].w / 2;
+  const steps = approach.getObjectByName("柱间三步")!;
+  const stepBounds = new THREE.Box3().setFromObject(steps);
+  assert.ok(stepBounds.min.z < columnFront - 0.5, "台阶应伸到门厅柱前面");
+  assert.ok(stepBounds.min.x > westInner - 0.02 && stepBounds.max.x < eastInner + 0.02, "三步应嵌在两根门厅柱中间");
+  const westOuter = frontElevation.balustradePosts[1].x - frontElevation.balustradePosts[1].w / 2;
+  const eastOuter = frontElevation.balustradePosts[2].x + frontElevation.balustradePosts[2].w / 2;
+  assert.ok(approachBounds.min.z > -5, "坡道不应伸向院坪栏杆");
+  assert.ok(approachBounds.min.x < westOuter - 1.5 && approachBounds.min.x > westOuter - 2.4, "西侧坡道缩短到约2米");
+  assert.ok(approachBounds.max.x > eastOuter + 1.5 && approachBounds.max.x < eastOuter + 2.4, "东侧坡道缩短到约2米");
+  assert.ok(approach.getObjectByName("坡道防滑条"), "坡道应有防滑横条");
+  const eastOuterFace = frontElevation.balustradePosts[2].x + frontElevation.balustradePosts[2].w / 2;
+  const eastRamp = approach.getObjectByName("东侧坡道")!;
+  const fromNorth = new THREE.Raycaster(
+    new THREE.Vector3(eastOuterFace + 1, 0.22, columnFront - 1.2),
+    new THREE.Vector3(0, 0, 1),
+  );
+  const sideHit = fromNorth.intersectObject(eastRamp, true)[0];
+  assert.ok(sideHit, "东侧坡道北侧面应能挡住视线");
+  const fromAbove = new THREE.Raycaster(
+    new THREE.Vector3(eastOuterFace + 1, 2, columnFront + 0.8),
+    new THREE.Vector3(0, -1, 0),
+  );
+  assert.ok(fromAbove.intersectObject(eastRamp, true).length > 0, "东侧坡道顶面应封闭");
+  assert.ok(Math.abs(approachBounds.max.y - site.entranceRise) < 0.03);
   const porch = villa.levels[2].getObjectByName("外伸门厅三楼平台")!;
   // 平台北缘收进 4cm，侧边不再和檐口外皮共面。
   assert.ok(Math.abs(new THREE.Box3().setFromObject(porch).min.z - (site.main.z - 2 + 0.04)) < 1e-5);
-  const lowerEave = villa.levels[2].getObjectByName("二楼前飘檐70厘米")!;
-  assert.ok(Math.abs(new THREE.Box3().setFromObject(lowerEave).min.z - (site.main.z - .7)) < 1e-5);
+  const lowerEave = villa.levels[2].getObjectByName("三楼栏杆下沿外挑70厘米连续瓦檐")!;
+  // 前凸门厅同样出檐70cm，外缘线脚和瓦垄另有不到5cm的建模厚度。
+  const lowerEaveBounds = new THREE.Box3().setFromObject(lowerEave);
+  assert.ok(Math.abs(lowerEaveBounds.min.z - (frontElevation.centerFront - site.secondFrontEave)) < 0.05);
+  const frontCorners: THREE.Object3D[] = [];
+  villa.group.traverse((object) => {
+    if (object.name === "包角柱" && object.position.y < 1 && object.position.z < 0) frontCorners.push(object);
+  });
+  assert.equal(frontCorners.length, 2);
+  for (const column of frontCorners) {
+    const top = new THREE.Box3().setFromObject(column).max.y;
+    assert.ok(top < lowerEaveBounds.min.y, `包角柱顶 ${top} 穿进挑檐 ${lowerEaveBounds.min.y}`);
+  }
   const mainGutter = villa.roof.children[0];
   const bounds = new THREE.Box3().setFromObject(mainGutter);
   assert.ok(Math.abs(bounds.min.x - (site.main.x - .8)) < 1e-5);
   assert.ok(Math.abs(bounds.max.x - (site.main.x + site.main.w + .8)) < 1e-5);
-  assert.ok(Math.abs(bounds.min.z - (floors[2].front - .8)) < 1e-5);
+  assert.ok(Math.abs(bounds.min.z - frontElevation.hatFront) < 1e-5);
   assert.ok(mainGutter.getObjectByName("天沟槽底"));
   assert.ok(mainGutter.getObjectByName("天沟外挡边"));
   const crown = villa.roof.getObjectByName("中央官帽")!;
   const crownBounds = new THREE.Box3().setFromObject(crown);
+  const pitch = roofPitch(site.roofFenShui);
+  assert.ok(Math.abs(pitch.mainRise - site.roofRise) < 1e-6);
+  assert.ok(bounds.max.y > 10.5 + pitch.mainRise);
+  const steeper = buildVilla(mats, false, 6);
+  assert.ok(new THREE.Box3().setFromObject(steeper.roof).max.y > bounds.max.y + 0.5);
   assert.ok(Math.abs(crownBounds.max.y - bounds.max.y) < 0.03, `官帽脊 ${crownBounds.max.y} 与正屋脊 ${bounds.max.y} 未齐平`);
-  assert.ok(crownBounds.min.z < bounds.min.z - 1, "官帽应比正屋前檐更靠前");
+  assert.ok(crownBounds.min.z < floors[2].front - 0.8 - 1, "官帽瓦面应比两侧前檐更靠前");
   const leftTerrace = villa.levels[2].getObjectByName("三楼左侧露台")!;
   const rightTerrace = villa.levels[2].getObjectByName("三楼右侧露台")!;
   const leftBox = new THREE.Box3().setFromObject(leftTerrace);
   const rightBox = new THREE.Box3().setFromObject(rightTerrace);
   const centerBox = new THREE.Box3().setFromObject(porch);
-  assert.ok(leftBox.max.x < centerBox.min.x - 0.2);
-  assert.ok(centerBox.max.x < rightBox.min.x - 0.2);
-  const sidePosts = new THREE.Box3().setFromObject(villa.levels[2].getObjectByName("三楼侧房间柱")!);
+  assert.ok(Math.abs(leftBox.max.x - centerBox.min.x) < 0.02);
+  assert.ok(Math.abs(centerBox.max.x - rightBox.min.x) < 0.02);
+  const sidePosts = new THREE.Box3().setFromObject(villa.levels[2].getObjectByName("三楼两端贴墙角柱")!);
   const hatPosts = new THREE.Box3().setFromObject(villa.levels[2].getObjectByName("三楼官帽柱")!);
   assert.ok(hatPosts.min.z < sidePosts.min.z - 1, "官帽柱应比两侧房间柱更靠前");
   assert.ok(villa.annexRoof.getObjectByName("天沟槽底"));

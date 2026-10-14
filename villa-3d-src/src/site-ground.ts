@@ -9,6 +9,7 @@ import {
   roadHeight,
   rightTerraceBreak,
   terraceContours as edges,
+  villageRoadEdges,
 } from "./surroundings";
 
 function surface(
@@ -99,6 +100,8 @@ export function buildContextGround(mat: Mats) {
   group.name = "红线曲线梯田";
   const left = -55, right = 77, roadRight = c.road.x + c.road.w;
   const levelLine = (z: number): Point[] => [[left, z], [right, z]];
+  const villageFront: Point[] = [[left, villageRoadEdges.front[0][1]], ...villageRoadEdges.front, [right, villageRoadEdges.front.at(-1)![1]]];
+  const villageBack: Point[] = [[left, villageRoadEdges.back[0][1]], ...villageRoadEdges.back, [right, villageRoadEdges.back.at(-1)![1]]];
   const band = (name: string, front: Point[], back: Point[], from: number, to: number, y: number, crops = false) => {
     const polygon = betweenContours(front, back, from, to);
     surface(group, name, polygon, y, mat.grass);
@@ -115,15 +118,15 @@ export function buildContextGround(mat: Mats) {
 
   // 前方低田横向接通；下一层外沿独立描画，不再使用固定 Z=-12 的直线。
   band("地库外侧弯曲低田", edges.frontLower, edges.sharedFront, left, c.road.x, frontFieldLevel, true);
-  band("前方砖房台地", levelLine(c.road.front), edges.frontLower, left, c.road.x, c.frontHouse.y);
+  band("前方砖房及蓝顶邻房台地", villageBack, edges.frontLower, left, c.road.x, c.frontHouse.y);
   riser(group, edges.frontLower, frontFieldLevel, c.frontHouse.y, mat);
-  // 木屋前院坪已与两侧拉平。外沿挡墙落到前方低田，不再在屋前留一条 -2 米的空地。
-  surface(group, "左侧邻居木房地基", betweenContours(levelLine(c.sideHouse.z), edges.rearFirst, site.width, c.road.x), 0, mat.soil);
+  // 木屋前院坪已与两侧拉平。屋基和前坪用同一块铺装，关掉整栋后不会露出一块褐色补丁。
+  surface(group, "左侧邻居木房地基", betweenContours(levelLine(c.sideHouse.z), edges.rearFirst, site.width, c.road.x), 0, mat.paving);
   // 木屋前地下室属于自家。土坎只留在地库地面以下，上面留给地库外墙，避免把外侧封死。
   riser(group, [[site.width, c.neighborYard.z], [c.road.x, c.neighborYard.z]], site.garageFloor, frontFieldLevel, mat);
 
   band("道路左侧外伸高地", edges.leftPlatform, edges.rearFirst, roadRight, right, c.leftPlatform.y, true);
-  band("高地前方低田", levelLine(c.road.front), edges.leftPlatform, roadRight, right, c.frontHouse.y);
+  band("高地前方低田", villageBack, edges.leftPlatform, roadRight, right, c.frontHouse.y);
   riser(group, edges.leftPlatform, c.leftPlatform.y, c.frontHouse.y, mat);
 
   // 后田按各自的弯曲外沿拼接；后方木房仍完整坐落在第二层田面上。
@@ -162,14 +165,15 @@ export function buildContextGround(mat: Mats) {
   roadBank(c.road.x, c.road.front, frontLeft, c.frontHouse.y);
   roadBank(c.road.x, frontLeft, c.neighborYard.z, frontFieldLevel);
   // 邻居地库靠马路一侧是空的，不在这段路和地库之间砌挡墙。
-  roadBank(c.road.x, c.sideHouse.z, c.road.back, 0);
+  // 木房侧墙就在道路边线上，这段由房墙遮挡路床；不再叠一张同位置的土立面。
+  roadBank(c.road.x, c.sideHouse.z + c.sideHouse.d, c.road.back, 0);
   roadBank(roadRight, c.road.front, contourAt(edges.leftPlatform, roadRight), c.frontHouse.y);
   roadBank(roadRight, contourAt(edges.leftPlatform, roadRight), c.road.back, c.leftPlatform.y);
 
   // 连续曲线一直延伸到远田，不再使用格子状高低跳变拼出远近接缝。
-  surface(group, "村道外前方地面", rect(left, -45, right - left, 15), c.frontHouse.y, mat.grass);
-  surface(group, "横向村道右侧田面", rect(left, -30, c.extent.left - left, 3.5), c.frontHouse.y, mat.grass);
-  surface(group, "横向村道左侧田面", rect(c.extent.right, -30, right - c.extent.right, 3.5), c.frontHouse.y, mat.grass);
+  band("村道外前方地面", levelLine(-45), villageFront, left, right, c.frontHouse.y);
+  band("横向村道右侧田面", villageFront, villageBack, left, c.extent.left, c.frontHouse.y);
+  band("横向村道左侧田面", villageFront, villageBack, c.extent.right, right, c.frontHouse.y);
 
   // 山坡第一排顶点直接采用末级田埂，之后才逐渐抬高。
   const positions: number[] = [], uv: number[] = [];
@@ -232,11 +236,11 @@ export function buildRoad(mat: Mats) {
   strip.name = "连续路面·无重复铺面";
   strip.receiveShadow = true;
   road.add(strip);
-  // T形路口和坪下接入段均止于道路边线，不与主路面交叠。
+  // 西段沿蓝顶邻房门前转弯，东段仍接原来的 T 形路口。田面共用这组路缘，不叠共面草地。
   surface(
     road,
-    "前方横向道路",
-    rect(c.extent.left, -30, c.extent.right - c.extent.left, 3.5),
+    "蓝顶邻房门前弯曲主马路",
+    villageRoadEdges.outline,
     c.frontHouse.y,
     mat.paving,
   );
