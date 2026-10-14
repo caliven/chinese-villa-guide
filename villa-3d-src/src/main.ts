@@ -46,6 +46,7 @@ document.querySelector("#app")!.innerHTML = `
         ["model", "场地模型"],
         ["floor", "分层户型"],
         ["sun", "日照分析"],
+        ["real", "实景"],
         ["sources", "资料与校核"],
       ]
         .map(
@@ -85,6 +86,10 @@ document.querySelector("#app")!.innerHTML = `
       <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills">${floors.map((f, i) => `<button data-floor="${i}" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}</div><span>北 ↑ · 东 →</span></div><div class="plan-scroll" id="plan-drawing"></div><p class="plan-caption">点击房间查看说明。平面与3D共用尺寸、门窗及家具数据。</p></div>
       <article id="sources-panel" class="sources-panel" hidden><h1>设计依据与待核对事项</h1><p class="lead">把已经知道的、照片估算的和设计提出的分开记录，方便家人与现场一起核对。</p><div class="source-gallery">${photos.map((p, i) => `<button data-photo-modal="${i}"><img src="./photos/${p.file}" alt="${p.title}" loading="lazy"/><strong>${p.title}</strong><span>${p.note}</span></button>`).join("")}</div><h2>尺寸与证据</h2><div class="fact-list" id="fact-list"></div><h2>使用范围</h2><p>这是按现有照片与尺寸制作的方案模型。围护墙、楼梯、柱梁、挡土、排水、柴火烟道和邻居平台切除均需结合现场深化；模型没有代替结构施工图，也未认定宅基地审批范围。</p><p>太阳位置采用安化地区坐标和北京时间。周边树高、远山天际线与邻房标高未经测绘，日照结果只用于当前模型内的方案比较。</p><p class="source-links"><a href="https://manuals.lixiang.com/zh-cn/X012022MAX/20250916140616/topic-2022-702D4999-001.html" target="_blank" rel="noreferrer">2022款理想L9官方整车参数 ↗</a><a href="https://bsesc.energy.gov/energy-basics/natural-light-and-daylighting" target="_blank" rel="noreferrer">自然采光与遮阳原理 ↗</a><a href="../sunlight-3d/">原四季日照模拟器 ↗</a></p></article>
       <div class="sun-stamp" id="sun-stamp" hidden>${icon("sun")}<span id="sun-stamp-text"></span></div>
+    </section>
+    <section id="real-scene-panel" class="real-scene-panel" aria-label="实景效果" hidden>
+      <div class="real-scene-header"><h1>实景效果</h1><a href="../villa-real-scene/" target="_blank" rel="noopener">单独打开 ↗</a></div>
+      <iframe id="real-scene-frame" title="安化山居实景效果与原片对比" allow="fullscreen"></iframe>
     </section>
     <aside class="inspector" aria-label="模型设置">
       <div class="scene-heading" id="scene-heading"><h1 id="scene-title">新建方案</h1><p id="scene-subtitle">依据航拍与已知尺寸重建 · 周边为估算</p></div>
@@ -188,6 +193,16 @@ function drawPlan() {
     "<strong>点击图中的房间</strong><p>查看空间尺寸和设计说明。</p>";
 }
 function updateScene() {
+  const realScene = tab === "real";
+  $("real-scene-panel").hidden = !realScene;
+  document.querySelector<HTMLElement>(".stage")!.hidden = realScene;
+  document.querySelector<HTMLElement>(".inspector")!.hidden = realScene;
+  if (realScene) {
+    const frame = $<HTMLIFrameElement>("real-scene-frame");
+    if (!frame.hasAttribute("src")) frame.src = "../villa-real-scene/?embed=1";
+    $("interaction-hint").textContent = "切换机位 · 原片对比 · 下载实景效果";
+    return;
+  }
   const garage = tab === "model" && camera === "garage";
   const floor3d = tab === "floor" && planMode === "3d";
   const plan = tab === "floor" && planMode === "2d";
@@ -254,6 +269,10 @@ function updateScene() {
 function switchTab(name: string) {
   tab = name;
   active("[data-tab]", (b) => b.dataset.tab === tab);
+  if (tab === "real") {
+    updateScene();
+    return;
+  }
   if (tab === "floor") {
     updateScene();
     if (planMode === "3d" && !checked("explode")) viewer?.setCamera("top");
@@ -562,3 +581,4 @@ try {
     "<strong>当前环境未能启动3D</strong><p>请在支持WebGL2的浏览器打开。分层平面与资料仍可查看。</p>";
   toast("3D加载失败，平面图与资料可以继续查看。");
 }
+if (new URLSearchParams(location.search).get("tab") === "real") switchTab("real");

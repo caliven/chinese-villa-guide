@@ -133,3 +133,13 @@ input[type="range"] { width: 100%; accent-color: var(--green); cursor: ew-resize
   .download-button span { max-width: 58px; }
   .view-buttons button { padding-left: 8px; padding-right: 8px; }
 }
+
+body.is-embedded .page-header,
+body.is-embedded .page-footer { display: none; }
+body.is-embedded .workspace { padding: 18px clamp(14px, 3vw, 40px); }
+body.is-embedded .image-frame { width: min(100%, max(560px, calc((100svh - 190px) * 1.5))); }
+body.is-embedded .model-host { height: max(350px, calc(100svh - 190px)); }
+@media (max-width: 600px) {
+  body.is-embedded .workspace { padding: 12px; }
+  body.is-embedded .image-frame { width: 100%; }
+}

@@ -83,6 +83,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const modelParam = new URLSearchParams(window.location.search).get("model");
+document.body.classList.toggle("is-embedded", new URLSearchParams(window.location.search).get("embed") === "1");
 let view: View = modelParam === "aerial" ? "aerial" : "front";
 let mode: Mode = modelParam === "front" || modelParam === "aerial" ? "model" : "render";
 let model: ModelController | null = null;
