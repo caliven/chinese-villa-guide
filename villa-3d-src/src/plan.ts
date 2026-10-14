@@ -67,10 +67,10 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean) {
     <path d="M21.45 ${f.front} V9 M21.2 ${f.front} h.5 M21.2 9 h.5" class="dim-line"/><text class="dim-label" x="21.7" y="4.4" transform="rotate(90 21.7 4.4)">${index === 2 ? "主体进深 8.2 m" : "进深 10.0 m"}</text>
     ${index === 0 ? `<path d="M.8 -3.15 H5.3 M.8 -3.28 v.26 M5.3 -3.28 v.26" class="dim-line"/>${text(3.05, -2.72, "辅楼 4.5×10 m", "dim-label")}<text x="0.42" y="5.2" class="dim-label" text-anchor="middle" transform="rotate(-90 0.42 5.2)">西侧 0.8 m</text>` : ""}
     <text x="20.55" y="5.2" class="dim-label" text-anchor="middle" transform="rotate(90 20.55 5.2)">东侧 0.8 m</text>
-    ${index === 2 ? rect(6.8, -1, 13.5, 1.8, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width=".06"') + text(13.55, -0.35, "北侧退台露台 · 1.8 m", "dim-label") : ""}
+    ${index === 2 ? `${rect(6.98, -0.96, 3.74, 1.76, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width=".06"')}${rect(16.68, -0.96, 3.44, 1.76, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width=".06"')}${text(8.85, -0.2, "左侧露台", "dim-label")}${text(18.4, -0.2, "右侧露台", "dim-label")}` : ""}
     ${rect(porch.x, porchFront, porch.w, porch.projection, `fill="${index === 1 ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width=".06"`)}
     ${text(13.7, -1.95, index === 2 ? "门厅平台 · 外伸 2 m" : index === 1 ? "门厅上空 · 无楼板" : "门厅 4.8×2 m · 另计", "dim-label")}
-    ${index < 2 ? [11.68, 15.72].map(x => rect(x - .29, porchFront + .11, .58, .56, 'fill="#879183"')).join("") : '<path d="M11.46 -.85 V-2.82 H15.94 V-.85" class="balustrade"/>'}
+    ${index < 2 ? [11.68, 15.72].map(x => rect(x - .29, porchFront + .11, .58, .56, 'fill="#879183"')).join("") : '<path d="M7.16 -.9 H10.54 M7.16 -.9 V.65 M10.54 -.9 V.65 M16.86 -.9 H19.94 M16.86 -.9 V.65 M19.94 -.9 V.65 M11.38 .7 V-2.84 H16.02 V.7" class="balustrade"/>'}
     ${index === 0 ? rect(.18, -3.1, 5.12, 2.1, 'fill="none" stroke="#a9b9a1" stroke-width=".04" stroke-dasharray=".14 .12"') + text(3, -2.05, "约2m通道 · 接辅楼外侧梯田", "room-size") : ""}
     ${allRooms.map(room).join("")}
     ${[...f.furniture, ...(index === 0 ? annexFurniture : [])].map(furniture).join("")}

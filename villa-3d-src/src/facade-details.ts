@@ -105,6 +105,33 @@ export function gutteredRoof(
   return g;
 }
 
+// 二楼两侧窗上的小披檐，外缘停在已有 70cm 前檐之内。
+export function bayCanopy(
+  parent: THREE.Object3D,
+  x: number, z: number, w: number, d: number,
+  base: number, rise: number, mat: Mats,
+) {
+  const g = new THREE.Group();
+  g.name = "二楼披檐";
+  parent.add(g);
+  slab(g, rect(x, z, w, d), base - 0.06, 0.05, mat.dark);
+  hipRoof(g, x + w / 2, z + d / 2, w - 0.08, d - 0.08, base, rise, mat);
+  return g;
+}
+
+// 窗套贴在墙外皮之外，只加正面线脚。
+export function openingFrame(
+  parent: THREE.Object3D,
+  x: number, sill: number, z: number,
+  w: number, h: number, mat: Mats,
+) {
+  const t = 0.07, d = 0.04;
+  box(parent, x, sill + h + t / 2, z, w + t * 2, t, d, mat.trim);
+  box(parent, x, sill - t / 2, z, w + t * 2, t, d, mat.stone);
+  box(parent, x - w / 2 - t / 2, sill + h / 2, z, t, h, d, mat.trim);
+  box(parent, x + w / 2 + t / 2, sill + h / 2, z, t, h, d, mat.trim);
+}
+
 export function downpipe(
   parent: THREE.Object3D, x: number, z: number,
   gutterX: number, gutterZ: number, top: number, mat: Mats,

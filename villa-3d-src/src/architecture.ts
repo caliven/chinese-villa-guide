@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { site, floors, annexPartitions, annexFurniture } from "./data";
 import { facades } from "./facades";
-import { cornice, carvedPilaster, glassBalustrade, gutteredRoof, downpipe, meander } from "./facade-details";
+import { cornice, carvedPilaster, glassBalustrade, gutteredRoof, downpipe, meander, bayCanopy, openingFrame } from "./facade-details";
 import {
   box,
   slab,
@@ -39,7 +39,6 @@ export function buildVilla(mat: Mats, withLabels = true) {
     const inset = 0.05;
     // 侧面再收一些，楼板边不要贴到角柱侧面。
     const sideInset = 0.16;
-    const terraceFront = -0.92;
     const outline =
       index === 1
         ? ([
@@ -51,7 +50,7 @@ export function buildVilla(mat: Mats, withLabels = true) {
             [6.8 + sideInset, 3 + inset],
           ] as [number, number][])
         : index === 2
-          ? rect(m.x + inset, terraceFront, m.w - 2 * inset, 8.95 - terraceFront)
+          ? rect(m.x + sideInset, 0.86, m.w - 2 * sideInset, 8.95 - 0.86)
           : rect(
               m.x + sideInset,
               front + inset,
@@ -63,22 +62,38 @@ export function buildVilla(mat: Mats, withLabels = true) {
       wallWithOpenings(g, facade.a, facade.b, base, h, facade.openings, mat);
     if (index === 2) {
       const porchFront = m.z - site.portico.projection;
-      // 平台北缘让进檐口，南缘埋进北墙，避免楼板侧边和檐口、墙面贴在同一平面。
+      // 中间露台随官帽前伸；两侧停在退台前，中间留空，三块楼板互不连通。
       slab(
         g,
-        rect(site.portico.x, porchFront + 0.04, site.portico.w, -0.92 - (porchFront + 0.04)),
+        rect(6.98, -0.96, 3.74, 1.8),
+        base,
+        0.18,
+        mat.floor,
+      ).name = "三楼左侧露台";
+      slab(
+        g,
+        rect(16.68, -0.96, 3.44, 1.8),
+        base,
+        0.18,
+        mat.floor,
+      ).name = "三楼右侧露台";
+      // 平台北缘让进檐口。南缘收到三楼前墙外，不并入两侧露台。
+      slab(
+        g,
+        rect(site.portico.x, porchFront + 0.04, site.portico.w, 0.84 - (porchFront + 0.04)),
         base,
         0.22,
         mat.floor,
       ).name = "外伸门厅三楼平台";
-      glassBalustrade(g, [6.99, -0.85], [11.46, -0.85], base, mat);
-      glassBalustrade(g, [11.46, -0.85], [11.46, porchFront + 0.18], base, mat, true);
-      glassBalustrade(g, [11.46, porchFront + 0.18], [15.94, porchFront + 0.18], base, mat, true);
-      glassBalustrade(g, [15.94, porchFront + 0.18], [15.94, -0.85], base, mat, true);
-      glassBalustrade(g, [15.94, -0.85], [20.11, -0.85], base, mat, true);
-      // 侧栏收到角柱之前，避免望柱和柱身贴在一起。
-      glassBalustrade(g, [6.99, -0.85], [6.99, 0.32], base, mat, true);
-      glassBalustrade(g, [20.11, -0.85], [20.11, 0.32], base, mat, true);
+      glassBalustrade(g, [7.16, -0.9], [10.54, -0.9], base, mat);
+      glassBalustrade(g, [7.16, -0.9], [7.16, 0.65], base, mat, true);
+      glassBalustrade(g, [10.54, -0.9], [10.54, 0.65], base, mat, true);
+      glassBalustrade(g, [16.86, -0.9], [19.94, -0.9], base, mat);
+      glassBalustrade(g, [16.86, -0.9], [16.86, 0.65], base, mat, true);
+      glassBalustrade(g, [19.94, -0.9], [19.94, 0.65], base, mat, true);
+      glassBalustrade(g, [11.38, porchFront + 0.16], [16.02, porchFront + 0.16], base, mat);
+      glassBalustrade(g, [11.38, porchFront + 0.16], [11.38, 0.7], base, mat, true);
+      glassBalustrade(g, [16.02, porchFront + 0.16], [16.02, 0.7], base, mat, true);
       // 二楼顶部的正面飘檐70cm，门厅平台只在三楼标高出现。
       // 两端收进侧墙外皮，端头不再和东西墙共面。
       for (const [x, width] of [[m.x + 0.03, 4.47], [16.1, 4.17]])
@@ -134,15 +149,43 @@ export function buildVilla(mat: Mats, withLabels = true) {
     // 石材腰线只沿建筑外围；门厅正中保持通高。
     if (index < 2)
       for (const [x, w] of [
-        [9.1, 4.6],
-        [18.15, 4.3],
+        [9.15, 4.55],
+        [18.05, 4.15],
       ]) {
-        box(g, x, base + h - 0.19, -1.05, w + 0.08, 0.23, 0.19, mat.trim);
-        box(g, x, base + h - 0.36, -1.025, w + 0.03, 0.065, 0.13, mat.stone);
+        box(g, x, base + h - 0.19, -1.06, w, 0.16, 0.16, mat.trim);
+        box(g, x, base + h - 0.34, -1.04, w - 0.08, 0.055, 0.1, mat.stone);
+        meander(g, x - w / 2 + 0.08, base + h - 0.28, -1.12, w - 0.2, mat);
       }
+    if (index === 0) {
+      for (const [x, w] of [
+        [9.15, 4.7],
+        [18.05, 4.2],
+      ])
+        box(g, x, 0.22, -1.08, w, 0.44, 0.14, mat.stone);
+      openingFrame(g, 9.15, 0.38, -1.06, 3.15, 2.78, mat);
+      openingFrame(g, 17.95, 0.38, -1.06, 2.55, 2.78, mat);
+      openingFrame(g, 13.7, 2.66, -1.06, 1.65, 0.64, mat);
+    }
+    if (index === 1) {
+      openingFrame(g, 9.15, 3.6 + 0.42, -1.06, 3.15, 2.52, mat);
+      openingFrame(g, 13.7, 3.6 + 0.48, -1.06, 1.65, 2.42, mat);
+      openingFrame(g, 17.95, 3.6 + 0.42, -1.06, 2.4, 2.52, mat);
+    }
     if (index === 2) {
-      for (const x of [7.08, 20.02]) carvedPilaster(g, x, front + 0.13, base, h, 0.44, mat);
-      for (const x of [11.53, 15.87]) carvedPilaster(g, x, front + 0.08, base, h, 0.48, mat);
+      const sidePosts = new THREE.Group();
+      sidePosts.name = "三楼侧房间柱";
+      g.add(sidePosts);
+      for (const x of [7.32, 10.38, 16.98, 19.88])
+        carvedPilaster(sidePosts, x, -0.5, base, 2.92, 0.4, mat);
+      const hatPosts = new THREE.Group();
+      hatPosts.name = "三楼官帽柱";
+      g.add(hatPosts);
+      for (const x of [11.68, 15.72])
+        carvedPilaster(hatPosts, x, -2.58, base, 3.02, 0.52, mat);
+      meander(g, 7.35, 10.18, 0.68, 2.9, mat);
+      meander(g, 16.9, 10.18, 0.68, 2.7, mat);
+      openingFrame(g, 9.15, 7.2 + 0.38, 0.7, 3.2, 2.35, mat);
+      openingFrame(g, 17.95, 7.2 + 0.38, 0.7, 2.35, 2.35, mat);
     }
     for (const z of [back + 0.02])
       box(g, 13.55, base + h - 0.16, z, 13.56, 0.17, 0.16, mat.trim);
@@ -152,29 +195,47 @@ export function buildVilla(mat: Mats, withLabels = true) {
   group.add(portico);
   const porchFront = m.z - site.portico.projection;
   for (const x of [11.68, 15.72]) {
-    carvedPilaster(portico, x, porchFront + 0.39, 0, 7.04, 0.64, mat);
-    box(portico, x, 2.75, porchFront - 0.01, 0.19, 0.82, 0.16, mat.dark);
-    box(portico, x, 2.75, porchFront - 0.102, 0.12, 0.67, 0.025, mat.gold);
+    carvedPilaster(portico, x, porchFront + 0.39, 0, 7.04, 0.58, mat);
+    box(portico, x, 2.85, porchFront - 0.02, 0.16, 0.72, 0.12, mat.dark);
+    box(portico, x, 2.85, porchFront - 0.09, 0.1, 0.56, 0.02, mat.gold);
   }
   // 两侧立柱通跨一、二层；细部沿用参考图，避免在3.6米处截断立柱。
-  for (const x of [7.07, 20.03]) carvedPilaster(portico, x, -0.75, 0, 7.04, 0.46, mat);
-  box(portico, 13.7, 6.54, porchFront + 0.2, 3.5, 0.45, 0.38, mat.trim);
-  meander(portico, 12.04, 6.49, porchFront - 0.006, 3.35, mat);
+  for (const x of [7.12, 20.0]) carvedPilaster(portico, x, -0.78, 0, 7.04, 0.44, mat);
+  for (const x of [11.15, 16.35]) carvedPilaster(portico, x, -0.78, 0, 7.04, 0.4, mat);
+  box(portico, 13.7, 6.58, porchFront + 0.18, 3.7, 0.42, 0.36, mat.trim);
+  meander(portico, 11.95, 6.52, porchFront - 0.02, 3.5, mat);
   slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 0.015, 0.18, mat.paving).name = "门厅地坪投影另计";
-  // 主屋顶前、左、右各出80cm；天沟外缘即尺寸控制线。官帽不再另起高于正屋的帽顶。
-  gutteredRoof(roof, m.x - site.thirdEave, floors[2].front - site.thirdEave,
+  // 正屋前、左、右各出80cm；天沟外缘即尺寸控制线。
+  const mainEave = 10.5;
+  const mainRoof = gutteredRoof(roof, m.x - site.thirdEave, floors[2].front - site.thirdEave,
     m.w + 2 * site.thirdEave, m.z + m.d + site.eave - (floors[2].front - site.thirdEave),
-    10.5, site.roofRise, mat);
-  // 效果图2的官帽是正屋屋顶中部的额枋和回纹，檐口仍是这一座四坡，脊线不被第二座屋顶抬高。
-  const crown = new THREE.Group();
-  crown.name = "中央官帽";
-  roof.add(crown);
-  box(crown, 13.7, 10.37, 0.66, 4.8, 0.38, 0.24, mat.trim);
-  meander(crown, 11.4, 10.36, 0.5, 4.6, mat);
-  // 落水管收在墙边和后侧，不再占用80cm檐口之外的边界。
+    mainEave, site.roofRise, mat);
+  mainRoof.name = "正屋四坡";
+  // 官帽是门厅上方另起的四坡。檐口略高于正屋檐，起坡减小，使脊线与正屋脊同高。
+  const mainPeak = mainEave + 0.08 + site.roofRise;
+  const hatFront = porchFront - 0.5;
+  const hatBack = 1;
+  const hatDepth = hatBack - hatFront;
+  const hatRise = 1.2;
+  const hat = gutteredRoof(
+    roof,
+    10.2,
+    hatFront,
+    7,
+    hatDepth,
+    mainPeak - hatRise - 0.08,
+    hatRise,
+    mat,
+  );
+  hat.name = "中央官帽";
+  box(hat, 13.7, mainPeak - hatRise - 0.22, -2.55, 3.85, 0.28, 0.32, mat.trim);
+  meander(hat, 11.9, mainPeak - hatRise - 0.28, -2.72, 3.6, mat);
+  bayCanopy(roof, 7.45, -1.64, 3.15, 0.7, 7.28, 0.42, mat).name = "二楼左侧披檐";
+  bayCanopy(roof, 16.55, -1.64, 2.7, 0.7, 7.28, 0.42, mat).name = "二楼右侧披檐";
+  // 落水管收在墙边和后侧，避开官帽覆盖的正中。
   downpipe(roof, 6.96, 9.12, 6.18, 9.39, 10.5, mat);
   downpipe(roof, 20.14, 9.12, 20.93, 9.39, 10.5, mat);
-  downpipe(roof, 10.9, 0.42, 10.35, 0.12, 10.5, mat);
+  downpipe(roof, 9.35, 0.55, 8.85, 0.18, 10.5, mat);
   // 浅阳台位于三层公共过厅外，避免直接放在老人房上方。
   slab(balcony, rect(12.65, 9, 2.5, 1.2), 7.2, 0.18, mat.paving);
   railing(balcony, [12.7, 10.15], [15.1, 10.15], 7.2, mat);

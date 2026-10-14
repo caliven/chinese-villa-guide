@@ -53,24 +53,25 @@ export function facades(index: number): Facade[] {
     ];
   const front = floors[index].front,
     back = 9;
-  // 门厅柱已经外伸，中间墙与两侧房间齐平，不再内凹。
+  // 门厅柱已经外伸，房间前墙仍与两侧齐平。正面窗洞按效果图拉高，门上留横披。
   const out: Facade[] =
     index < 2
       ? [
           wall(
             [6.8, front + 0.12],
             [20.3, front + 0.12],
-            [
-              { at: 2.3, w: 2.85, sill: 0.55, h: 2.55 },
-              {
-                at: 6.9,
-                w: 1.85,
-                sill: index === 0 ? 0 : 0.4,
-                h: index === 0 ? 2.85 : 2.5,
-                door: index === 0,
-              },
-              { at: 11.35, w: 2.1, sill: 0.65, h: 2.35 },
-            ],
+            index === 0
+              ? [
+                  { at: 2.35, w: 3.15, sill: 0.38, h: 2.78 },
+                  { at: 6.9, w: 1.65, sill: 0, h: 2.52, door: true },
+                  { at: 6.9, w: 1.65, sill: 2.66, h: 0.64 },
+                  { at: 11.15, w: 2.55, sill: 0.38, h: 2.78 },
+                ]
+              : [
+                  { at: 2.35, w: 3.15, sill: 0.42, h: 2.52 },
+                  { at: 6.9, w: 1.65, sill: 0.48, h: 2.42 },
+                  { at: 11.15, w: 2.4, sill: 0.42, h: 2.52 },
+                ],
           ),
         ]
       : [
@@ -78,9 +79,9 @@ export function facades(index: number): Facade[] {
             [6.8, front + 0.12],
             [20.3, front + 0.12],
             [
-              { at: 2.6, w: 3.15, sill: 0.55, h: 2.25 },
-              { at: 6.9, w: 1.8, sill: 0, h: 2.7, door: true },
-              { at: 11.25, w: 2.25, sill: 0.55, h: 2.25 },
+              { at: 2.35, w: 3.2, sill: 0.38, h: 2.35 },
+              { at: 6.9, w: 1.7, sill: 0, h: 2.55, door: true },
+              { at: 11.15, w: 2.35, sill: 0.38, h: 2.35 },
             ],
           ),
         ];
