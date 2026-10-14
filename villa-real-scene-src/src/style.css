@@ -1,0 +1,135 @@
+:root {
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  color: #283a31;
+  background: #f4f3ee;
+  --ink: #283a31;
+  --green: #294a3e;
+  --muted: #788078;
+  --line: #dcded5;
+  --paper: #faf9f5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 280px; }
+button, input { font: inherit; }
+button, a, input { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; color: inherit; }
+button:disabled { cursor: default; opacity: .45; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #a78d56; outline-offset: 4px; }
+a { color: inherit; }
+[hidden] { display: none !important; }
+svg { display: block; width: 18px; height: 18px; flex-shrink: 0; }
+.page-header { height: 82px; padding: 0 clamp(20px, 4vw, 64px); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.brand { display: flex; align-items: center; gap: 15px; white-space: nowrap; }
+.brand > svg { width: 28px; height: 28px; color: var(--green); }
+.brand strong { font-size: 21px; letter-spacing: .07em; font-weight: 600; }
+.brand strong span { margin: 0 7px; color: #8b978a; }
+.brand-divider { height: 20px; width: 1px; background: #d2d7cc; margin: 0 4px; }
+.edition { font-size: 13px; color: #68746a; letter-spacing: .03em; }
+.original-model-link { display: flex; align-items: center; gap: 6px; text-decoration: none; font-size: 12px; color: #677769; white-space: nowrap; }
+.original-model-link:hover { color: var(--green); }
+.original-model-link svg { width: 15px; height: 15px; }
+.workspace { width: min(1600px, 100%); padding: 26px clamp(20px, 4vw, 64px) 22px; margin: 0 auto; }
+.toolbar { display: flex; align-items: flex-end; gap: 28px; margin-bottom: 22px; }
+.view-picker { border: 0; padding: 0; margin: 0; min-width: 0; }
+.view-picker legend { padding: 0; font-size: 10px; color: var(--muted); letter-spacing: .12em; margin-bottom: 10px; }
+.view-buttons, .mode-buttons { display: flex; gap: 2px; align-items: center; }
+.view-buttons { padding: 4px; border: 1px solid #d9ddd2; border-radius: 6px; background: #eeeee7; }
+.view-buttons button { border: 0; background: transparent; padding: 9px 19px; font-size: 13px; border-radius: 4px; color: #7b8279; white-space: nowrap; }
+.view-buttons button[aria-pressed="true"] { color: var(--green); background: var(--paper); box-shadow: 0 1px 4px #24362312; font-weight: 600; }
+.mode-buttons { flex: 1; gap: 25px; align-self: flex-end; }
+.mode-buttons button { border: 0; padding: 13px 0 12px; background: transparent; font-size: 13px; color: #7e847a; white-space: nowrap; position: relative; }
+.mode-buttons button[aria-pressed="true"] { color: var(--green); font-weight: 600; }
+.mode-buttons button[aria-pressed="true"]::after { content: ""; position: absolute; height: 2px; bottom: 2px; left: 0; right: 0; background: var(--green); }
+.view-buttons button:hover, .mode-buttons button:hover { color: var(--green); }
+.download-button { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 12px 17px; border: 1px solid var(--green); border-radius: 5px; font-size: 12px; color: #f5f6ee; background: var(--green); min-height: 43px; }
+.download-button:hover:not(:disabled) { background: #3a5c4b; }
+.download-button svg { width: 16px; height: 16px; }
+.viewer { border: 1px solid #d6dacf; border-radius: 7px; background: var(--paper); overflow: hidden; }
+.visual-bay { background: #e6e9df; padding: 0; display: flex; justify-content: center; align-items: center; min-width: 0; }
+.image-frame { --comparison: 50%; aspect-ratio: 3 / 2; width: min(100%, max(720px, calc((100svh - 310px) * 1.5))); position: relative; overflow: hidden; background: #e1e6dc; }
+.scene-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; }
+.comparison-layer { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--comparison)); pointer-events: none; }
+.comparison-marker { position: absolute; top: 0; bottom: 0; left: var(--comparison); width: 2px; transform: translateX(-50%); background: #fff; box-shadow: 0 0 5px #17352265; pointer-events: none; }
+.comparison-marker > span { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 36px; height: 36px; background: #fcfcf8; border: 1px solid #d8ddcf; box-shadow: 0 2px 12px #18312533; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--green); }
+.comparison-marker svg { width: 21px; height: 21px; }
+.image-labels { position: absolute; inset: 16px 16px auto; display: flex; justify-content: space-between; pointer-events: none; }
+.image-labels span { font-size: 11px; padding: 6px 9px; border-radius: 3px; color: #fff; background: #1f362ad4; backdrop-filter: blur(6px); }
+.loading-state, .model-message { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; padding: 28px; text-align: center; color: #687565; }
+.loading-state strong, .model-message strong { font-size: 13px; font-weight: 500; line-height: 1.7; }
+.loading-dot { width: 19px; height: 19px; border: 2px solid #bfc9b5; border-top-color: #456a50; border-radius: 50%; animation: loading .9s linear infinite; }
+.is-error .loading-dot { display: none; }
+.retry-button { border: 1px solid #b9c5b0; border-radius: 4px; background: #f5f6ef; padding: 8px 16px; font-size: 12px; }
+.model-host { width: 100%; height: max(430px, calc(100svh - 310px)); max-height: 840px; position: relative; background: #e2e7de; overflow: hidden; }
+.model-host canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.model-message span:not(.loading-dot) { font-size: 12px; line-height: 1.6; }
+.viewer-caption { padding: 19px 23px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.caption-title { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.view-number { font-size: 11px; font-variant-numeric: tabular-nums; color: #9b9f91; letter-spacing: .1em; }
+.caption-title h1 { font-size: 16px; letter-spacing: .02em; margin: 0; font-weight: 600; }
+.mode-caption { font-size: 10px; color: #77856c; background: #eef1e7; border: 1px solid #e2e7d8; border-radius: 3px; padding: 3px 6px; }
+.viewer-caption p { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0; }
+.comparison-controls { width: min(540px, 100%); margin: 0 auto; padding: 2px 26px 23px; }
+.comparison-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.comparison-heading label { font-size: 11px; color: #76816f; }
+.comparison-heading output { font-size: 11px; color: var(--green); font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--green); cursor: ew-resize; height: 28px; margin: 0; }
+.range-labels { display: flex; justify-content: space-between; font-size: 10px; color: #899181; }
+.asset-status { padding: 0 23px 19px; margin: 0; color: #8a764d; font-size: 12px; line-height: 1.7; }
+.page-footer { display: flex; align-items: baseline; gap: 22px; padding-top: 19px; color: #93998b; }
+.page-footer > span { font-size: 10px; letter-spacing: .1em; white-space: nowrap; }
+.page-footer p { margin: 0; font-size: 10px; line-height: 1.8; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 10; max-width: calc(100% - 32px); border-radius: 6px; padding: 13px 20px; background: #233f32; color: #fbfcf6; font-size: 12px; line-height: 1.6; box-shadow: 0 6px 20px #24352326; text-align: center; }
+@keyframes loading { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .loading-dot { animation: none; } }
+@media (max-width: 1080px) {
+  .toolbar { flex-wrap: wrap; gap: 18px 24px; }
+  .view-picker { order: 0; }
+  .download-button { order: 1; margin-left: auto; }
+  .mode-buttons { order: 2; flex-basis: 100%; flex-grow: 0; gap: 28px; }
+  .mode-buttons button { padding-top: 5px; }
+  .viewer-caption { display: block; }
+  .viewer-caption p { margin-top: 8px; }
+  .image-frame { width: min(100%, max(620px, calc((100svh - 350px) * 1.5))); }
+}
+@media (max-width: 600px) {
+  .page-header { padding: 0 18px; height: 76px; gap: 8px; }
+  .brand { flex-wrap: wrap; gap: 2px 10px; }
+  .brand > svg { width: 22px; height: 22px; align-self: flex-start; margin-top: 3px; }
+  .brand strong { font-size: 18px; }
+  .brand strong span { margin: 0 5px; }
+  .brand-divider { display: none; }
+  .edition { flex-basis: 100%; margin-left: 32px; font-size: 10px; }
+  .original-model-link { font-size: 10px; gap: 2px; }
+  .original-model-link svg { width: 13px; height: 13px; }
+  .workspace { padding: 20px 14px; }
+  .toolbar { gap: 17px 8px; margin-bottom: 14px; }
+  .view-picker legend { margin-bottom: 8px; }
+  .view-buttons { padding: 3px; }
+  .view-buttons button { padding: 9px 12px; font-size: 11px; min-height: 36px; }
+  .download-button { padding: 11px 10px; font-size: 10px; gap: 5px; min-height: 44px; }
+  .download-button svg { width: 14px; height: 14px; }
+  .mode-buttons { justify-content: space-between; gap: 9px; }
+  .mode-buttons button { font-size: 11px; min-height: 38px; padding-bottom: 10px; }
+  .viewer { border-radius: 5px; }
+  .image-frame { width: 100%; }
+  .viewer-caption { padding: 16px 15px; }
+  .caption-title { gap: 8px; }
+  .caption-title h1 { font-size: 14px; }
+  .view-number { font-size: 10px; }
+  .mode-caption { font-size: 9px; }
+  .viewer-caption p { font-size: 10px; margin-top: 7px; }
+  .image-labels { inset: 10px 10px auto; }
+  .image-labels span { font-size: 9px; padding: 4px 6px; }
+  .comparison-marker > span { width: 28px; height: 28px; }
+  .comparison-marker svg { width: 17px; height: 17px; }
+  .comparison-controls { padding: 0 16px 18px; }
+  .model-host { height: 62svh; min-height: 320px; max-height: 560px; }
+  .page-footer { display: block; padding: 17px 2px 0; }
+  .page-footer p { margin-top: 6px; font-size: 9px; }
+  .asset-status { padding: 0 15px 16px; font-size: 11px; }
+}
+@media (max-width: 340px) {
+  .download-button span { max-width: 58px; }
+  .view-buttons button { padding-left: 8px; padding-right: 8px; }
+}

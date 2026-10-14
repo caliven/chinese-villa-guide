@@ -564,6 +564,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
         base + (index === 0 ? site.entranceRise : 0),
         h - (index === 0 ? site.entranceRise : 0),
         mat,
+        stairLayout.axis,
       );
     if (index === 1) {
       const edge = voidEast + 0.07;
@@ -572,11 +573,20 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
       railing(g, [m.x + 0.16, southEdge], [edge, southEdge], base, mat);
     }
     if (index > 0) {
-      const northStop = opening.x + stairLayout.flight + 0.08;
-      railing(g, [opening.x, opening.z], [opening.x, opening.z + opening.d], base, mat);
-      railing(g, [opening.x + opening.w, opening.z], [opening.x + opening.w, opening.z + opening.d], base, mat);
-      railing(g, [opening.x, opening.z + opening.d], [opening.x + opening.w, opening.z + opening.d], base, mat);
-      railing(g, [opening.x, opening.z], [northStop, opening.z], base, mat);
+      const { x: hx, z: hz, w: hw, d: hd } = opening;
+      if (stairLayout.axis === "x") {
+        const entry = stairLayout.flight + stairLayout.gap + 0.06;
+        railing(g, [hx, hz], [hx + hw, hz], base, mat);
+        railing(g, [hx + hw, hz], [hx + hw, hz + hd], base, mat);
+        railing(g, [hx, hz + hd], [hx + hw, hz + hd], base, mat);
+        railing(g, [hx, hz + entry], [hx, hz + hd], base, mat);
+      } else {
+        const northStop = hx + stairLayout.flight + 0.08;
+        railing(g, [hx, hz], [hx, hz + hd], base, mat);
+        railing(g, [hx + hw, hz], [hx + hw, hz + hd], base, mat);
+        railing(g, [hx, hz + hd], [hx + hw, hz + hd], base, mat);
+        railing(g, [hx, hz], [northStop, hz], base, mat);
+      }
     }
     if (index === 0) {
       for (const [x, w] of [

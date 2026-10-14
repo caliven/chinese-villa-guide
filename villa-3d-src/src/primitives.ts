@@ -1002,65 +1002,50 @@ export function stairs(
   base: number,
   height: number,
   mat: Mats,
+  axis: "x" | "z" = "z",
 ) {
-  // 两跑沿南北：下跑向南上，南端平台折返，上跑向北。x、z 为下跑西北角。
+  // axis z：两跑沿南北，下跑向南。axis x：两跑沿东西，下跑向东。x、z 为下跑起始侧的外侧角。
   const rise = height / 20,
     tread = 0.25,
     flight = 1.05,
     gap = 0.18;
+  const put = (
+    across: number,
+    y: number,
+    along: number,
+    acrossSize: number,
+    ySize: number,
+    alongSize: number,
+  ) => {
+    if (axis === "z")
+      box(parent, x + across, base + y, z + along, acrossSize, ySize, alongSize, mat.paving);
+    else box(parent, x + along, base + y, z + across, alongSize, ySize, acrossSize, mat.paving);
+  };
   for (let i = 0; i < 9; i++) {
-    box(
-      parent,
-      x + flight / 2,
-      base + (rise * (i + 1)) / 2,
-      z + tread * (i + 0.5),
-      flight,
-      rise * (i + 1),
-      tread,
-      mat.paving,
-    );
+    put(flight / 2, (rise * (i + 1)) / 2, tread * (i + 0.5), flight, rise * (i + 1), tread);
     const h = height / 2 + rise * (i + 1);
-    box(
-      parent,
-      x + flight + gap + flight / 2,
-      base + h / 2,
-      z + tread * (8.5 - i),
-      flight,
-      h,
-      tread,
-      mat.paving,
-    );
+    put(flight + gap + flight / 2, h / 2, tread * (8.5 - i), flight, h, tread);
   }
-  box(
-    parent,
-    x + flight + gap / 2,
-    base + height / 2 - 0.09,
-    z + 9 * tread + 0.4,
-    flight * 2 + gap,
-    0.18,
-    0.8,
-    mat.paving,
-  );
+  put(flight + gap / 2, height / 2 - 0.09, 9 * tread + 0.4, flight * 2 + gap, 0.18, 0.8);
   for (const side of [0, 1]) {
-    const xx = x + (side === 0 ? flight - 0.06 : flight + gap + 0.06);
+    const across = side === 0 ? flight - 0.06 : flight + gap + 0.06;
     const reverse = side === 1;
-    cylinder(
-      parent,
-      new THREE.Vector3(xx, base + (reverse ? height : 0) + 0.95, z),
-      new THREE.Vector3(xx, base + height / 2 + 0.95, z + 2.25),
-      0.02,
-      mat.metal,
-    );
+    const rail = (aAlong: number, aY: number, bAlong: number, bY: number, radius: number) => {
+      const pa =
+        axis === "z"
+          ? new THREE.Vector3(x + across, base + aY, z + aAlong)
+          : new THREE.Vector3(x + aAlong, base + aY, z + across);
+      const pb =
+        axis === "z"
+          ? new THREE.Vector3(x + across, base + bY, z + bAlong)
+          : new THREE.Vector3(x + bAlong, base + bY, z + across);
+      cylinder(parent, pa, pb, radius, mat.metal);
+    };
+    rail(0, (reverse ? height : 0) + 0.95, 2.25, height / 2 + 0.95, 0.02);
     for (let i = 0; i < 7; i++) {
-      const zz = z + i * 0.32,
-        yy = base + (reverse ? height - (i * height) / 12 : (i * height) / 12);
-      cylinder(
-        parent,
-        new THREE.Vector3(xx, yy, zz),
-        new THREE.Vector3(xx, yy + 0.95, zz),
-        0.012,
-        mat.metal,
-      );
+      const along = i * 0.32,
+        y0 = reverse ? height - (i * height) / 12 : (i * height) / 12;
+      rail(along, y0, along, y0 + 0.95, 0.012);
     }
   }
 }

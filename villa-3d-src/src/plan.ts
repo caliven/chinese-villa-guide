@@ -74,7 +74,9 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean) {
     .join("");
   const stepLines = Array.from({ length: 9 }, (_, i) => {
     const sx = stairLayout.x, sz = stairLayout.z, flight = stairLayout.flight, gap = stairLayout.gap;
-    return `<path d="M${sx} ${sz + i * 0.25} h${flight} M${sx + flight + gap} ${sz + (8 - i) * 0.25} h${flight}" class="step-line"/>`;
+    return stairLayout.axis === "x"
+      ? `<path d="M${sx + i * 0.25} ${sz} v${flight} M${sx + (8 - i) * 0.25} ${sz + flight + gap} v${flight}" class="step-line"/>`
+      : `<path d="M${sx} ${sz + i * 0.25} h${flight} M${sx + flight + gap} ${sz + (8 - i) * 0.25} h${flight}" class="step-line"/>`;
   }).join("");
   const columnNorth = elevation.porticoColumnZ - elevation.porticoColumnDepth / 2;
   const landingFront = columnNorth - 0.15;
