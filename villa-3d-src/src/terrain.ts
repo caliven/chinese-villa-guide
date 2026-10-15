@@ -19,6 +19,7 @@ import { buildRoadsideVilla } from "./roadside-villa";
 import { roadsideFootprints, roadsideToWorld } from "./roadside-villa-layout";
 import { surroundings, forestTrees, basementColumns, roadHeight, rightTerraceBreak } from "./surroundings";
 import { buildContextGround, buildRoad } from "./site-ground";
+import { garageLayout } from "./garage-layout";
 
 function gableRoof(
   parent: THREE.Object3D,
@@ -966,9 +967,9 @@ export function buildSite(mat: Mats) {
   // 木屋前整段与自家院坪、邻居左侧院坪同一标高接通，不再留一块挖低的空地。现状另画旧水泥坪。
   slab(
     neighborDeck,
-    rect(site.width, yard.z, surroundings.road.x - site.width, yard.d),
+    garageLayout.retainedDeck.footprint,
     0,
-    0.23,
+    -garageLayout.retainedDeck.modelSlabBottom,
     mat.paving,
   ).name = "与两侧院坪接通的邻居前坪";
   const neighborLeft = new THREE.Group();
@@ -1006,23 +1007,17 @@ export function buildSite(mat: Mats) {
     mat.paving,
   ).name = "木屋前自家地下室地面";
   const columns = basementColumns();
-  const soffit = -0.23;
-  const columnHeight = soffit - site.garageFloor;
-  const columnY = (soffit + site.garageFloor) / 2;
-  for (const column of columns.columns) {
-    for (const [x, z] of [column.outer, column.inner])
-      box(garage, x, columnY, z, 0.36, columnHeight, 0.36, mat.stone);
+  for (const column of garageLayout.columns) {
+    const [a, , c] = column.footprint;
+    box(garage, (a[0] + c[0]) / 2, (column.top + column.bottom) / 2,
+      (a[1] + c[1]) / 2, garageLayout.columnWidth, column.top - column.bottom,
+      garageLayout.columnWidth, mat.stone).name = column.label;
   }
   // 梁底 -.45、地面 -2.95，示意最低净高2.50；不代表结构梁高可成立。
   // 外墙只做到约 1 米，上面敞开，便于从外侧看到地库。样式一直延续到木屋前。
-  const ourOuter = contourSection(insetContour(courtyardFront, 0.035), 0.12, site.width);
-  const routeWall: Point[] = [
-    ...ourOuter,
-    [surroundings.road.x - 0.35, yard.z + 0.035],
-  ];
   slab(
     garage,
-    [...routeWall, ...insetContour(routeWall, 0.2).reverse()],
+    garageLayout.outerWall,
     site.garageFloor + 1.04,
     1.04,
     mat.stone,
@@ -1030,9 +1025,9 @@ export function buildSite(mat: Mats) {
   // 局部下挖止于自家边界，旁田的原标高不随车库降低。
   slab(
     garage,
-    rect(0, courtyardFront[0][1], 0.12, -courtyardFront[0][1]),
-    site.adjacentUnexcavatedLevel,
-    site.adjacentUnexcavatedLevel - site.garageFloor,
+    garageLayout.westWall.footprint,
+    garageLayout.westWall.top,
+    garageLayout.westWall.top - garageLayout.westWall.bottom,
     mat.stone,
   ).name = "地库局部下挖与未挖旁田的交界";
   const parked = buildL9(mat);
@@ -1247,11 +1242,11 @@ export function makeRamp(
   roadY: number,
   length: number,
 ) {
-  const startX = 21.1 + length,
-    endX = 21.1;
+  const startX = site.width + length,
+    endX = site.width;
   const g = new THREE.Group();
   parent.add(g);
-  const z0 = -8.6, z1 = -6.1, strips = 5;
+  const z0 = garageLayout.entry.z, z1 = z0 + garageLayout.entry.d, strips = 5;
   const surface = (z: number) =>
     roadHeight(z) + roadY - surroundings.road.entryY;
   const material = mat.paving.clone();

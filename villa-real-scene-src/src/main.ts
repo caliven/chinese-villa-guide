@@ -8,18 +8,16 @@ type ModelController = {
   dispose(): void;
 };
 
-const views: Record<View, { label: string; original: string; render: string; number: string }> = {
+const views: Record<View, { label: string; original: string; render: string }> = {
   front: {
     label: "近景正面",
     original: "./photos/front-original.jpg",
     render: "./photos/front-render.png",
-    number: "01",
   },
   aerial: {
     label: "全景航拍",
     original: "./photos/aerial-original.jpg",
     render: "./photos/aerial-render.png",
-    number: "02",
   },
 };
 const modes: Record<Mode, string> = {
@@ -40,12 +38,12 @@ const icon = (name: "house" | "download" | "arrow" | "move") => {
 
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <header class="page-header">
-    <div class="brand">${icon("house")}<strong>安化<span>·</span>山居</strong><span class="brand-divider" aria-hidden="true"></span><span class="edition">实景效果第一版</span></div>
+    <div class="brand">${icon("house")}<strong>安化<span>·</span>山居</strong></div>
     <a class="original-model-link" href="../villa-3d/" target="_blank" rel="noopener">打开原模型 ${icon("arrow")}</a>
   </header>
   <main class="workspace">
     <div class="toolbar">
-      <fieldset class="view-picker"><legend>选择机位</legend><div class="view-buttons">
+      <fieldset class="view-picker" aria-label="选择机位"><div class="view-buttons">
         <button type="button" data-view="aerial" aria-pressed="false">全景航拍</button>
         <button type="button" data-view="front" aria-pressed="true">近景正面</button>
       </div></fieldset>
@@ -59,24 +57,15 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <div class="image-frame" id="image-frame">
           <img id="base-image" class="scene-image" alt="" hidden draggable="false" />
           <div id="comparison-layer" class="comparison-layer" hidden><img id="effect-image" class="scene-image" alt="" draggable="false" /></div>
-          <div class="comparison-marker" id="comparison-marker" hidden aria-hidden="true"><span>${icon("move")}</span></div>
+          <div class="comparison-marker" id="comparison-marker" hidden role="slider" tabindex="0" aria-label="原始航拍显示比例" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="原始航拍 50%，建成效果 50%"><span title="左右拖动对比" aria-hidden="true">${icon("move")}</span></div>
           <div id="image-labels" class="image-labels" hidden aria-hidden="true"><span>原始航拍</span><span>建成效果</span></div>
           <div class="loading-state" id="loading-state" role="status"><span class="loading-dot" aria-hidden="true"></span><strong id="loading-message">正在加载实景画面</strong><button type="button" class="retry-button" id="retry-image" hidden>重新加载</button></div>
         </div>
-        <div id="model-host" class="model-host" hidden></div>
-      </div>
-      <div class="viewer-caption">
-        <div class="caption-title"><span class="view-number" id="view-number">01</span><h1 id="view-title">近景正面</h1><span class="mode-caption" id="mode-caption">建成效果</span></div>
-        <p id="view-hint">保留原航拍环境，观察别墅建成后的外观与周边关系。</p>
-      </div>
-      <div class="comparison-controls" id="comparison-controls" hidden>
-        <div class="comparison-heading"><label for="comparison-range">拖动查看前后变化</label><output id="comparison-output" for="comparison-range">50%</output></div>
-        <input type="range" id="comparison-range" min="0" max="100" step="1" value="50" aria-label="原始航拍显示比例" aria-valuetext="原始航拍 50%，建成效果 50%" />
-        <div class="range-labels"><span>全部效果</span><span>全部原片</span></div>
+        <div id="model-host" class="model-host" title="拖动旋转 · 滚轮或双指缩放" hidden></div>
       </div>
       <p id="asset-status" class="asset-status" role="status" hidden></p>
     </section>
-    <footer class="page-footer"><span>湖南 · 安化</span><p>根据现有方案与航拍制作，场地落位为估算；实景合成可能存在细节偏差，以原模型为准。</p></footer>
+    <footer class="page-footer"><p>合成参考，场地位置为估算；未同步最新方案，尺寸以当前方案模型为准。</p></footer>
   </main>
   <div id="toast" class="toast" role="status" hidden></div>
 `;
@@ -89,6 +78,8 @@ let mode: Mode = modelParam === "front" || modelParam === "aerial" ? "model" : "
 let model: ModelController | null = null;
 let updateId = 0;
 let imageReady = false;
+let comparison = 50;
+let comparisonDrag: { pointer: number; startX: number; startAmount: number } | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 const imageCache = new Map<string, Promise<string>>();
 
@@ -135,13 +126,25 @@ function setImage(element: HTMLImageElement, url: string, description: string) {
 }
 
 function updateComparison() {
-  const amount = Number($<HTMLInputElement>("comparison-range").value);
+  const amount = comparison;
   $("image-frame").style.setProperty("--comparison", `${amount}%`);
-  $("comparison-output").textContent = `原片 ${amount}%`;
   const labels = $("image-labels").children;
   (labels[0] as HTMLElement).style.visibility = amount === 0 ? "hidden" : "visible";
   (labels[1] as HTMLElement).style.visibility = amount === 100 ? "hidden" : "visible";
-  $<HTMLInputElement>("comparison-range").setAttribute("aria-valuetext", `原始航拍 ${amount}%，建成效果 ${100 - amount}%`);
+  $("comparison-marker").setAttribute("aria-valuenow", String(amount));
+  $("comparison-marker").setAttribute("aria-valuetext", `原始航拍 ${amount}%，建成效果 ${100 - amount}%`);
+}
+
+function setComparison(amount: number) {
+  comparison = Math.max(0, Math.min(100, Math.round(amount)));
+  updateComparison();
+}
+
+function endComparisonDrag() {
+  const marker = $("comparison-marker"), pointer = comparisonDrag?.pointer;
+  comparisonDrag = null;
+  marker.classList.remove("is-dragging");
+  if (pointer !== undefined && marker.hasPointerCapture(pointer)) marker.releasePointerCapture(pointer);
 }
 
 function updateSelection() {
@@ -151,15 +154,6 @@ function updateSelection() {
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach(button => {
     button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
   });
-  $("view-number").textContent = views[view].number;
-  $("view-title").textContent = views[view].label;
-  $("mode-caption").textContent = modes[mode];
-  $("view-hint").textContent = {
-    render: "保留原航拍环境，观察别墅建成后的外观与周边关系。",
-    original: "原始现场照片，可对照道路、邻房与梯田的位置。",
-    compare: "以原航拍机位制作的合成预览。滑杆支持方向键、Home 和 End。",
-    model: "拖动旋转 · 滚轮或双指缩放 · 右键平移",
-  }[mode];
   $("download-image").querySelector("span")!.textContent = mode === "model" ? "下载模型截图" : mode === "original" ? "下载原始航拍" : "下载建成效果";
 }
 
@@ -171,12 +165,12 @@ function showLoading(message: string) {
 }
 
 async function updateView() {
+  endComparisonDrag();
   const thisUpdate = ++updateId;
   imageReady = false;
   updateSelection();
   $<HTMLButtonElement>("download-image").disabled = true;
   $("asset-status").hidden = true;
-  $("comparison-controls").hidden = true;
   $("comparison-layer").hidden = true;
   $("comparison-marker").hidden = true;
   $("image-labels").hidden = true;
@@ -236,9 +230,8 @@ async function updateView() {
       setImage($<HTMLImageElement>("base-image"), rendered, `${selected.label} · ${fallback ? "原始航拍" : "建成效果"}`);
       imageReady = !fallback;
       if (fallback) {
-        $("asset-status").textContent = "这张效果图正在准备，当前先显示原始航拍。完成后刷新即可查看。";
+        $("asset-status").textContent = "效果图暂不可用，当前显示原始航拍。";
         $("asset-status").hidden = false;
-        $("mode-caption").textContent = "原片预览";
       }
     } else {
       const original = await loadImage(selected.original);
@@ -248,7 +241,7 @@ async function updateView() {
       } catch {
         if (thisUpdate !== updateId) return;
         setImage($<HTMLImageElement>("base-image"), original, `${selected.label} · 原始航拍`);
-        $("asset-status").textContent = "这张效果图正在准备，暂时不能前后对比。当前显示原始航拍。";
+        $("asset-status").textContent = "效果图暂不可用，当前显示原始航拍。";
         $("asset-status").hidden = false;
         $("loading-state").hidden = true;
         return;
@@ -259,7 +252,6 @@ async function updateView() {
       $("comparison-layer").hidden = false;
       $("comparison-marker").hidden = false;
       $("image-labels").hidden = false;
-      $("comparison-controls").hidden = false;
       updateComparison();
       imageReady = true;
     }
@@ -289,7 +281,38 @@ document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach(button => {
     void updateView();
   });
 });
-$("comparison-range").addEventListener("input", updateComparison);
+const comparisonMarker = $("comparison-marker");
+comparisonMarker.addEventListener("pointerdown", (event) => {
+  if (!event.isPrimary || event.button !== 0 || mode !== "compare" || !imageReady) return;
+  comparisonDrag = { pointer: event.pointerId, startX: event.clientX, startAmount: comparison };
+  comparisonMarker.focus({ preventScroll: true });
+  comparisonMarker.setPointerCapture(event.pointerId);
+  comparisonMarker.classList.add("is-dragging");
+  event.preventDefault();
+});
+function moveComparison(event: PointerEvent) {
+  if (comparisonDrag?.pointer !== event.pointerId) return;
+  const width = $("image-frame").getBoundingClientRect().width;
+  if (width > 0) setComparison(comparisonDrag.startAmount + (event.clientX - comparisonDrag.startX) / width * 100);
+}
+comparisonMarker.addEventListener("pointermove", moveComparison);
+comparisonMarker.addEventListener("pointerup", (event) => {
+  if (comparisonDrag?.pointer !== event.pointerId) return;
+  moveComparison(event);
+  endComparisonDrag();
+});
+comparisonMarker.addEventListener("pointercancel", endComparisonDrag);
+comparisonMarker.addEventListener("lostpointercapture", endComparisonDrag);
+comparisonMarker.addEventListener("keydown", (event) => {
+  const amount = {
+    ArrowLeft: comparison - (event.shiftKey ? 10 : 1), ArrowDown: comparison - 1,
+    ArrowRight: comparison + (event.shiftKey ? 10 : 1), ArrowUp: comparison + 1,
+    PageDown: comparison - 10, PageUp: comparison + 10, Home: 0, End: 100,
+  }[event.key];
+  if (amount === undefined) return;
+  event.preventDefault();
+  setComparison(amount);
+});
 $("retry-image").addEventListener("click", () => { void updateView(); });
 $("download-image").addEventListener("click", async () => {
   if (!imageReady) return;

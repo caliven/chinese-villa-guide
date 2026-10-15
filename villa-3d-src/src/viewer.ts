@@ -2,14 +2,19 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { getPosition } from "suncalc";
-import { site, carCorners, contains, type Point } from "./data";
-import { materials, box, line, tag } from "./primitives";
+import { site } from "./data";
+import { materials, line, tag } from "./primitives";
 import { buildVilla, attachRoofs } from "./architecture";
 import { buildL9 } from "./cars";
 import { buildSite, makeRamp } from "./terrain";
-import { surroundings, roadHeight } from "./surroundings";
+import { surroundings } from "./surroundings";
 import { batchStatic as batch, visibleSurfaceMeshes } from "./render-geometry";
 import { roadsideToWorld } from "./roadside-villa-layout";
+import { assessVehicleRoute, inspectFootprint, routeHeight, routePose, vehicleRoute, type RouteAssessment } from "./vehicle-route";
+import { buildGarageRouteVisual, routeColors } from "./garage-route-visual";
+import { southWindowProbes } from "./design-data";
+import type { CameraPose } from "./design-session";
+import { projectMeta } from "./project-meta";
 
 export type CameraName =
   "aerial" | "north" | "south" | "courtyard" | "garage" | "top" | "roadside";
@@ -137,21 +142,11 @@ export class VillaViewer {
   ramp: THREE.Group;
   rampLength = 5;
   roadY = surroundings.road.entryY;
-  route = new THREE.CatmullRomCurve3(
-    [
-      new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -18),
-      new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -12),
-      new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -8.5),
-      new THREE.Vector3(surroundings.road.x - 0.2, 0, -7.4),
-      new THREE.Vector3(28, 0, -7.35),
-      new THREE.Vector3(23.2, 0, -7.15),
-      new THREE.Vector3(20.2, 0, -6.35),
-      new THREE.Vector3(18.6, 0, -4.5),
-      new THREE.Vector3(18.5, 0, -2.8),
-    ],
-    false,
-    "centripetal",
-  );
+  route = vehicleRoute;
+  routeAssessment!: RouteAssessment;
+  routeVisual!: ReturnType<typeof buildGarageRouteVisual>;
+  routeLayers = { sweep: true, clearance: true, conflicts: true };
+  routeProgress = 0;
   observer: ResizeObserver;
   onCompass: (angle: number) => void = () => {};
   onContextLoss: () => void = () => {};
@@ -167,6 +162,7 @@ export class VillaViewer {
       // 毫米线脚与百米场地共存，近看和远看都保留足够的深度精度。
       logarithmicDepthBuffer: true,
       alpha: false,
+      stencil: true,
       preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     });
@@ -325,13 +321,14 @@ export class VillaViewer {
   }
 
   resize() {
+    // 隐藏的资料／沟通页不把画布缩成1px，也不重置用户保存的机位。
+    if (!this.host.clientWidth || !this.host.clientHeight) return;
     const w = Math.max(1, this.host.clientWidth),
       h = Math.max(1, this.host.clientHeight);
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.needsRender = true;
-    if (this.initialized) this.setCamera(this.activeCamera);
   }
   setCamera(name: CameraName) {
     this.activeCamera = name;
@@ -361,8 +358,8 @@ export class VillaViewer {
         [10.55, 1.6, -3.5],
       ],
       garage: [
-        [47, 23, -33],
-        [20, -1.3, -3.5],
+        [48, 30, -43],
+        [26.5, -1.4, -9.5],
       ],
       top: [
         [10.55, 42, 4.01],
@@ -384,11 +381,30 @@ export class VillaViewer {
         .multiplyScalar(1 / Math.max(0.6, this.camera.aspect))
         .add(target);
     // 画面左侧较空，右侧蓝顶邻房贴边。镜头平移后整组模型靠左，场地坐标不动。
-    if (name !== "roadside") this.shiftFrameLeft(pos, target);
+    if (name !== "roadside" && name !== "garage") this.shiftFrameLeft(pos, target);
     this.controls.target.copy(target);
     this.camera.position.copy(pos);
     this.camera.up.set(0, 1, 0);
     this.controls.update();
+    this.needsRender = true;
+  }
+  cameraPose(): CameraPose {
+    return {
+      position: this.camera.position.toArray() as [number, number, number],
+      target: this.controls.target.toArray() as [number, number, number],
+      zoom: this.camera.zoom,
+    };
+  }
+  restoreCameraPose(pose: CameraPose) {
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.camera.position.fromArray(pose.position);
+    this.camera.zoom = pose.zoom;
+    this.camera.updateProjectionMatrix();
+    this.controls.target.fromArray(pose.target);
+    this.controls.update();
+    this.controls.enableDamping = damping;
     this.needsRender = true;
   }
   setState(next: Partial<ViewState>) {
@@ -417,6 +433,7 @@ export class VillaViewer {
     this.land.columnNotes.visible =
       !s.existing && s.floor === null && (s.garage || s.dimensions);
     this.routeGroup.visible = s.garage && !s.existing;
+    this.land.parked.visible = !s.garage;
     this.villa.roof.visible = s.mainBuilding && s.roof && s.floor === null;
     this.villa.annexRoof.visible = s.annexBuilding && s.roof && s.floor === null;
     this.villa.annex.visible = s.annexBuilding && (s.floor === null || s.floor === 0);
@@ -505,14 +522,7 @@ export class VillaViewer {
     return result;
   }
   routeHeight(x: number, z = -7.35) {
-    const surface = roadHeight(z) + this.roadY - surroundings.road.entryY;
-    const startX = 21.1 + this.rampLength;
-    if (x >= startX) return surface;
-    if (x <= 21.1) return site.garageFloor;
-    return (
-      site.garageFloor +
-      ((x - 21.1) / this.rampLength) * (surface - site.garageFloor)
-    );
+    return routeHeight(x, z, this.roadY, this.rampLength);
   }
   updateRamp(roadY: number, length: number) {
     this.roadY = roadY;
@@ -520,7 +530,11 @@ export class VillaViewer {
     this.rampLength = length;
     this.ramp.removeFromParent();
     this.ramp.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.geometry.dispose();
+      if (o instanceof THREE.Mesh || o instanceof THREE.Line) {
+        o.geometry.dispose();
+        if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+        else o.material.dispose();
+      }
     });
     this.ramp = makeRamp(this.land.proposed, this.mat, roadY, length);
     this.drawRoute();
@@ -545,6 +559,10 @@ export class VillaViewer {
         }
       });
     }
+    this.routeAssessment = assessVehicleRoute(this.roadY, this.rampLength);
+    this.routeVisual = buildGarageRouteVisual(this.routeAssessment);
+    this.routeGroup.add(this.routeVisual.group);
+    this.setRouteLayers(this.routeLayers);
     const points = this.route.getPoints(90).map(
       (p) => new THREE.Vector3(p.x, this.routeHeight(p.x, p.z) + 0.08, p.z),
     );
@@ -580,52 +598,50 @@ export class VillaViewer {
     label(0.48, "转入地库");
     label(0.86, "地库内");
     this.routeGroup.add(car);
+    this.routeAt(this.routeProgress);
   }
-  routeAt(progress: number, mirrorWidth?: number) {
-    const t = THREE.MathUtils.clamp(progress / 100, 0, 1),
-      pos = this.route.getPointAt(t),
-      dir = this.route.getTangentAt(t);
-    const yaw = Math.atan2(-dir.x, -dir.z);
-    this.movingCar.position.set(pos.x, this.routeHeight(pos.x, pos.z), pos.z);
-    this.movingCar.rotation.y = yaw;
-    this.land.parked.visible = progress === 0;
+  setRouteLayers(next: Partial<typeof this.routeLayers>) {
+    Object.assign(this.routeLayers, next);
+    for (const layer of ["sweep", "clearance", "conflicts"] as const)
+      this.routeVisual[layer].visible = this.routeLayers[layer];
     this.needsRender = true;
-    const extra = mirrorWidth
-      ? Math.max(0, (mirrorWidth - site.vehicle.width) / 2)
-      : 0;
-    const corners = carCorners(pos.x, pos.z, yaw, extra);
-    const inCorridor = ([x, z]: Point) =>
-      (x >= 21.1 && x <= surroundings.road.x && z >= -8.6 && z <= -6.1) ||
-      (x >= surroundings.road.x &&
-        x <= surroundings.road.x + surroundings.road.w &&
-        z >= surroundings.road.front &&
-        z <= surroundings.road.back);
-    const conflicts = corners.filter(
-      (p) => !contains(p, site.field) && !inCorridor(p),
-    ).length;
+  }
+  routeAt(progress: number) {
+    this.routeProgress = THREE.MathUtils.clamp(progress, 0, 100);
+    const pose = routePose(this.routeProgress / 100, this.roadY, this.rampLength);
+    const result = inspectFootprint(pose.corners);
+    this.movingCar.position.set(pose.x, pose.y, pose.z);
+    this.movingCar.rotation.y = pose.yaw;
+    const current = this.routeVisual.current;
+    current.position.set(pose.x, pose.y + site.vehicle.height / 2 + 0.03, pose.z);
+    current.rotation.y = pose.yaw;
+    current.material.color.set(result.outside || result.obstacles.length
+      ? routeColors.conflict : result.underDeck ? routeColors.pending : routeColors.sweep);
+    this.needsRender = true;
     const stage =
-      pos.x >= surroundings.road.x
+      pose.x >= surroundings.road.x
         ? "左侧上坡马路"
-        : pos.x >= 21.1
+        : pose.x >= site.width
           ? "由马路转入地库"
           : "地库内";
+    const details = [
+      result.outside ? "车身越出示意通道" : "车身未越出示意通道",
+      result.obstacles.length
+        ? `与${[...new Set(result.obstacles.map((o) => o.label))].join("、")}有平面潜在冲突`
+        : "此位置未见柱墙投影相交",
+      result.underDeck ? "部分车身位于保留地坪下方，净高待测（含拟切口待确认范围）" : "道路与梁底标高待测",
+    ];
     return {
-      conflicts,
-      corners,
-      note: conflicts
-        ? `${stage}：车身占位越出示意通道，需调整路线。`
-        : `${stage}：车在亮色带子上。转弯、含镜宽和净高仍待校核。`,
+      ...result,
+      corners: pose.corners,
+      note: `${stage}：${details.join("；")}。仅作示意筛查，通行未确认。`,
     };
   }
   analyzeSun(date: string) {
     const saved = { ...this.state };
     this.setState({ ...defaultView, balcony: saved.balcony });
     this.scene.updateMatrixWorld(true);
-    const probes = [
-      { name: "一层尊亲房南窗", x: 17.4, z: 9.17, y: 1.55 },
-      { name: "一层南侧待定房南窗", x: 9.05, z: 9.17, y: 1.55 },
-      { name: "二层东侧卧室南窗", x: 18.1, z: 9.17, y: 5.2 },
-    ];
+    const probes = southWindowProbes();
     const meshes: THREE.Object3D[] = [];
     for (const root of [
       this.villa.group,
@@ -655,7 +671,7 @@ export class VillaViewer {
         const sun = sunDirection(date, hour),
           item = { hour, plain: 0, balcony: 0 };
         if (sun.altitude > 0 && sun.vector.z > 0)
-          for (const dy of [-0.6, 0, 0.6]) {
+          for (const dy of [-probe.sampleOffset, 0, probe.sampleOffset]) {
             ray.set(
               new THREE.Vector3(probe.x, probe.y + dy, probe.z),
               sun.vector,
@@ -676,7 +692,24 @@ export class VillaViewer {
   }
   exportImage() {
     this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement.toDataURL("image/png");
+    const source = this.renderer.domElement;
+    const canvas = document.createElement("canvas");
+    const font = Math.max(12, Math.round(source.width / 90));
+    canvas.width = source.width;
+    canvas.height = source.height + font * 5.4;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(source, 0, 0);
+    ctx.fillStyle = "#f6f5ec";
+    ctx.fillRect(0, source.height, canvas.width, canvas.height - source.height);
+    ctx.fillStyle = "#354e40";
+    ctx.font = `${font}px system-ui,sans-serif`;
+    const lines = [
+      `安化山居 · ${projectMeta.revision} / ${projectMeta.date} · 当前${this.state.existing ? "现状" : "新建"}模型 · 机位 ${this.activeCamera}`,
+      `${projectMeta.datum} · 分水${this.fenShui.toFixed(1)} · 非测绘／施工图`,
+      this.state.garage ? "车辆通行未确认；道路与最低梁底待测；拟切口协商待确认" : "结构、净高、通行与排水待专业设计核实；周边含照片估算",
+    ];
+    lines.forEach((label, i) => ctx.fillText(label, font, source.height + font * (1.4 + i * 1.4), canvas.width - font * 2));
+    return canvas.toDataURL("image/png");
   }
 }
 

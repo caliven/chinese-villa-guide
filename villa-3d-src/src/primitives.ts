@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Point, Furniture } from "./data";
+import { stairLayout, type Point, type Furniture } from "./data";
 
 export const palette = {
   wall: 0xe6dfd0,
@@ -1005,10 +1005,10 @@ export function stairs(
   axis: "x" | "z" = "z",
 ) {
   // axis z：两跑沿南北，下跑向南。axis x：两跑沿东西，下跑向东。x、z 为下跑起始侧的外侧角。
-  const rise = height / 20,
-    tread = 0.25,
-    flight = 1.05,
-    gap = 0.18;
+  const rise = height / stairLayout.risers,
+    tread = stairLayout.tread,
+    flight = stairLayout.flight,
+    gap = stairLayout.gap;
   const put = (
     across: number,
     y: number,

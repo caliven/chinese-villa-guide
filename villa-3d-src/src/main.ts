@@ -4,6 +4,12 @@ import { site, floors, facts, photos, annexRooms, buildingAreas } from "./data";
 import { floorPlan, diningClearance } from "./plan";
 import { roofPitch } from "./architecture";
 import { surroundings } from "./surroundings";
+import { garageLayout } from "./garage-layout";
+import { formatRouteRanges, routeRanges, type SweepCell } from "./vehicle-route";
+import { bedroomSummary, roomReference, type DesignIssue } from "./design-data";
+import { mountDesignReview } from "./design-review";
+import { viewFlags, type CameraPose, type MeetingView } from "./design-session";
+import { projectMeta, escapeHtml } from "./project-meta";
 
 const shapes: Record<string, string> = {
   house: '<path d="M3 10 12 3l9 7M5 9v12h14V9M10 21v-7h4v7"/>',
@@ -47,11 +53,12 @@ document.querySelector("#app")!.innerHTML = `
         ["floor", "分层户型"],
         ["sun", "日照分析"],
         ["real", "实景"],
+        ["design", "设计沟通"],
         ["sources", "资料与校核"],
       ]
         .map(
           ([id, name]) =>
-            `<button data-tab="${id}" class="${id === "model" ? "active" : ""}" aria-pressed="${id === "model"}">${name}</button>`,
+            `<button data-tab="${id}" ${id === "real" ? 'title="合成参考，未同步最新方案；尺寸以场地模型为准。"' : ""} class="${id === "model" ? "active" : ""}" aria-pressed="${id === "model"}">${name}</button>`,
         )
         .join("")}
     </nav>
@@ -64,6 +71,7 @@ document.querySelector("#app")!.innerHTML = `
       <div class="scene-tools" id="scene-tools">
         <button class="icon-button" id="reset-camera" aria-label="恢复当前视角" title="恢复视角">${icon("reset")}</button>
         <button class="icon-button" id="save-view" aria-label="保存当前模型图片" title="保存视图">${icon("save")}</button>
+        <button class="icon-button" id="record-view" aria-label="记录当前机位和参数为会议快照" title="记录会议快照">${icon("check")}</button>
         <button class="icon-button" id="fullscreen" aria-label="全屏查看" title="全屏查看">${icon("expand")}</button>
       </div>
       <div class="photo-comparison" id="comparison" hidden><div><strong id="comparison-title"></strong><button id="photo-expand" class="icon-button" aria-label="放大航拍参考">${icon("expand")}</button><button id="close-comparison" class="icon-button" aria-label="关闭航拍对照">${icon("close")}</button></div><img id="comparison-img" alt="航拍对照"/><p id="comparison-note"></p></div>
@@ -83,27 +91,27 @@ document.querySelector("#app")!.innerHTML = `
         )
         .join("")}</div>
       <div class="compass" id="compass"><span>N</span><svg viewBox="0 0 52 52" aria-label="指北针"><circle cx="26" cy="26" r="23"/><g id="compass-arrow"><path d="m26 7 9 34-9-7-9 7Z"/></g></svg></div>
-      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills">${floors.map((f, i) => `<button data-floor="${i}" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}</div><span>北 ↑ · 东 →</span></div><div class="plan-scroll" id="plan-drawing"></div><p class="plan-caption">点击房间查看说明。平面与3D共用尺寸、门窗及家具数据。</p></div>
+      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills">${floors.map((f, i) => `<button data-floor="${i}" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}</div><span>北 ↑ · 东 →</span></div><div class="plan-scroll" id="plan-drawing"></div><p class="plan-caption">点击房间查看口径。内侧约值和0.60m家具留位均为讨论参考，非实测或通行结论；北向上，东向右。</p></div>
       <article id="sources-panel" class="sources-panel" hidden><h1>设计依据与待核对事项</h1><p class="lead">把已经知道的、照片估算的和设计提出的分开记录，方便家人与现场一起核对。</p><div class="source-gallery">${photos.map((p, i) => `<button data-photo-modal="${i}"><img src="./photos/${p.file}" alt="${p.title}" loading="lazy"/><strong>${p.title}</strong><span>${p.note}</span></button>`).join("")}</div><h2>尺寸与证据</h2><div class="fact-list" id="fact-list"></div><h2>使用范围</h2><p>这是按现有照片与尺寸制作的方案模型。围护墙、楼梯、柱梁、挡土、排水、柴火烟道和邻居平台切除均需结合现场深化；模型没有代替结构施工图，也未认定宅基地审批范围。</p><p>太阳位置采用安化地区坐标和北京时间。周边树高、远山天际线与邻房标高未经测绘，日照结果只用于当前模型内的方案比较。</p><p class="source-links"><a href="https://manuals.lixiang.com/zh-cn/X012022MAX/20250916140616/topic-2022-702D4999-001.html" target="_blank" rel="noreferrer">2022款理想L9官方整车参数 ↗</a><a href="https://bsesc.energy.gov/energy-basics/natural-light-and-daylighting" target="_blank" rel="noreferrer">自然采光与遮阳原理 ↗</a><a href="../sunlight-3d/">原四季日照模拟器 ↗</a></p></article>
       <div class="sun-stamp" id="sun-stamp" hidden>${icon("sun")}<span id="sun-stamp-text"></span></div>
     </section>
-    <section id="real-scene-panel" class="real-scene-panel" aria-label="实景效果" hidden>
-      <div class="real-scene-header"><h1>实景效果</h1><a href="../villa-real-scene/" target="_blank" rel="noopener">单独打开 ↗</a></div>
+    <section id="real-scene-panel" class="real-scene-panel" aria-label="实景效果" aria-description="合成参考，未同步最新方案；尺寸以场地模型为准。" hidden>
       <iframe id="real-scene-frame" title="安化山居实景效果与原片对比" allow="fullscreen"></iframe>
     </section>
+    <section id="design-panel" class="design-panel" aria-label="设计沟通资料" hidden></section>
     <aside class="inspector" aria-label="模型设置">
       <div class="scene-heading" id="scene-heading"><h1 id="scene-title">新建方案</h1><p id="scene-subtitle">依据航拍与已知尺寸重建 · 周边为估算</p></div>
       <div id="model-controls">
         <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number">180<span>m²</span></div><p class="area-caption">主楼 135 m² ＋ 辅楼 45 m²</p><p class="micro">主体首层投影 · 门厅另计 ${buildingAreas.portico.toFixed(1)} m²</p></section>
         <section><h2>模型显示</h2>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子", true)}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "主楼与地库重叠")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1.2 m</option></select></label></section>
-        <section><h2>屋面坡度</h2><p class="micro">主楼和辅楼的四坡共用这个分水：水平 10，升高所填的数。改完立刻重画屋面。官帽脊仍与正屋脊齐平。这是方案比较，不是测绘。</p><div class="range-heading"><label for="fen-shui">分水</label><output id="fen-shui-output">${site.roofFenShui.toFixed(1)}</output></div><input type="range" id="fen-shui" min="1" max="10" step="0.1" value="${site.roofFenShui}"/><label class="select-label">直接输入<input type="number" id="fen-shui-number" min="1" max="10" step="0.1" value="${site.roofFenShui}"/></label><p class="calculation" id="fen-shui-result"></p></section>
+        <section><h2>屋面坡度</h2><p class="micro">分水＝水平10对应的升高。主辅楼同步调整，官帽脊与主楼齐平。</p><div class="range-heading"><label for="fen-shui">分水</label><output id="fen-shui-output">${site.roofFenShui.toFixed(1)}</output></div><input type="range" id="fen-shui" min="1" max="10" step="0.1" value="${site.roofFenShui}"/><label class="select-label">直接输入<input type="number" id="fen-shui-number" min="1" max="10" step="0.1" value="${site.roofFenShui}"/></label><p class="calculation" id="fen-shui-result"></p></section>
         <section><h2>关键尺寸</h2><dl class="metric-list"><div><dt>总面宽</dt><dd>21.1 m</dd></div><div><dt>主楼</dt><dd>13.5 × 10 m</dd></div><div><dt>辅楼</dt><dd>4.5 × 10 m</dd></div><div><dt>子孙道</dt><dd>1.5 m</dd></div><div><dt>三楼北退</dt><dd>1.8 m</dd></div><div><dt>门厅外伸</dt><dd>2.0 m</dd></div><div><dt>二楼前檐</dt><dd>0.70 m</dd></div><div><dt>三楼三面檐</dt><dd>0.80 m</dd></div><div><dt>右端人行通道</dt><dd>约 2 m</dd></div></dl></section>
-        <button class="notice notice-button" id="open-garage">${icon("info")}<span><strong>地库入口待校核</strong><small>邻居木屋前的田已与两侧院坪拉平接通。<br/>原切口不在这块院坪上，通行仍待复核。</small></span><span>↗</span></button>
+        <button class="notice notice-button" id="open-garage">${icon("info")}<span><strong>地库车辆路线待校核</strong><small>查看车身扫掠、净高待核区与柱墙潜在冲突。<br/>道路与梁底待测，切口协商待确认。</small></span><span>↗</span></button>
       </div>
       <div id="floor-controls" hidden>
-        <section><h2>分层户型</h2><div class="segmented"><button data-plan-mode="2d" class="active">平面图</button><button data-plan-mode="3d">立体剖看</button></div><fieldset id="floor-select" class="floor-choices"><legend>选择楼层</legend><div>${floors.map((f, i) => `<label><input type="radio" name="floor" value="${i}" ${i === 0 ? "checked" : ""}/><span><strong>${f.name}</strong><small>${f.rooms.filter(r => r.kind === "bed").length}间卧室</small></span></label>`).join("")}</div></fieldset>${check("explode", "楼层分离展示")}${check("chair-clearance", "餐厅拉椅范围", true)}</section>
-        <section><h2 id="floor-summary-title">一层 · 2间卧室</h2><p id="floor-summary" class="description"></p><div id="room-detail" class="room-detail"><strong>点击图中的房间</strong><p>查看空间尺寸和设计说明。</p></div></section>
-        <section><h2>餐厅使用检查</h2><p class="description">大圆桌直径2 m，12把椅子；小桌1.5 × 0.85 m，6把椅子。两桌同时摆入。</p><div class="notice"><span><strong>拉椅空间偏紧</strong><small id="dining-warning"></small></span></div><p class="micro">虚线按圆桌外1.85 m半径示意拉椅范围。12人满座时需调整桌径、位置或座椅形式，尚未满足宽松通行。</p></section>
+        <section><h2>分层户型</h2><div class="segmented"><button data-plan-mode="2d" class="active">平面图</button><button data-plan-mode="3d">立体剖看</button></div><fieldset id="floor-select" class="floor-choices"><legend>选择楼层</legend><div>${floors.map((f, i) => `<label><input type="radio" name="floor" value="${i}" ${i === 0 ? "checked" : ""}/><span><strong>${f.name}</strong><small>${bedroomSummary(i)}</small></span></label>`).join("")}</div></fieldset>${check("explode", "楼层分离展示")}${check("chair-clearance", "餐厅拉椅范围", true)}${check("room-inside", "模型内侧参考尺寸", true)}${check("room-clearance", "家具使用讨论留位")}<label class="select-label">餐厅平面情景<select id="dining-mode"><option value="full">双桌满座 · 18座／偏紧</option><option value="daily">日常建议 · 小桌6座</option></select></label><button class="secondary-button" data-design-issue="D08">记录房间深化意见 ↗</button></section>
+        <section><h2 id="floor-summary-title">一层 · 1间卧室＋1间用途待定</h2><p id="floor-summary" class="description"></p><div id="room-detail" class="room-detail" hidden></div></section>
+        <section id="dining-check"><h2>餐厅满座</h2><p class="description">圆桌12座＋小桌6座。</p><div class="notice"><span><strong>拉椅空间偏紧</strong><small id="dining-warning"></small></span></div></section>
       </div>
       <div id="sun-controls" hidden>
         <section><h2>四季日照</h2><p class="description">按真实朝北方向观察光线，重点比较南窗与屋后高田的遮挡。</p><div class="season-grid">${[
@@ -119,26 +127,44 @@ document.querySelector("#app")!.innerHTML = `
           .join(
             "",
           )}</div><label class="select-label">日期<input type="date" id="sun-date" value="2026-09-23" min="2020-01-01" max="2100-12-31"/></label><div class="range-heading"><label for="sun-time">北京时间</label><output id="time-output">10:30</output></div><input type="range" id="sun-time" min="6" max="18" step="0.25" value="10.5"/><div class="range-ends"><span>06:00</span><span>12:00</span><span>18:00</span></div><dl class="metric-list"><div><dt>太阳高度角</dt><dd id="sun-alt"></dd></div><div><dt>方位角 · 北起顺时针</dt><dd id="sun-az"></dd></div></dl></section>
-        <section><h2>后阳台对比</h2><select id="sun-balcony" aria-label="选择南侧阳台方案"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1.2 m</option></select><p class="micro">浅阳台位于三楼公共过厅外，两侧卧室南窗保持开敞。切换后视角与时间不变。</p><button class="primary-button" id="analyze-sun">计算两种方案的南窗遮挡</button><div id="sun-report" aria-live="polite"></div></section>
+        <section><h2>后阳台对比</h2><select id="sun-balcony" aria-label="选择南侧阳台方案"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1.2 m</option></select><p class="micro">浅阳台仅在三楼公共过厅外，卧室南窗保持开敞。</p><button class="primary-button" id="analyze-sun">计算两种方案的南窗遮挡</button><div id="sun-report" aria-live="polite"></div></section>
         <p class="micro">每半小时采样窗外竖向3点，显示直射光是否受阻；不是室内照度或法定日照时数。树木、邻房和地形为照片估算。</p>
       </div>
       <div id="garage-controls" hidden>
-        <section><div class="section-heading"><h2>地库与入口</h2><button id="leave-garage" class="text-button">返回场地</button></div><div class="notice"><span><strong>路线示意 · 待校核</strong><small>左侧马路是连续上坡。亮色带子从这条路转入地库。木屋前地下室外侧已敞开，柱只在外沿和房前墙下。车身占位不代表L9可以完成通行。</small></span></div><dl class="metric-list"><div><dt>目标最低净高</dt><dd>2.50 m</dd></div><div><dt>预计入口净宽</dt><dd>2.50 m</dd></div><div><dt>L9车身 · 不含镜</dt><dd>1.998 m</dd></div><div><dt>居中直行单侧余量</dt><dd>约 25 cm</dd></div></dl></section>
-        <section><h2>坡道参数探索</h2><p class="micro">以下初值是示意值，不是由邻居地下室净高推算的道路标高。左侧马路按连续上坡，中间没有平台阶。院坪暂定±0.000。</p><label class="select-label">接入处道路标高 · 示意（m）<input type="number" id="road-level" value="${surroundings.road.entryY.toFixed(2)}" step="0.1" min="-3.8" max="0"/></label><label class="select-label">坡道投影长度 · 示意（m）<input type="number" id="ramp-length" value="5" step="0.5" min="3" max="10"/></label><p class="calculation" id="ramp-result"></p><p class="micro">梁板占用暂0.45 m → 地库地面−2.95 m。坡道折点、底盘离地和相邻基础均未验算。</p></section>
-        <section><div class="range-heading"><label for="route-progress">车辆沿示意路线移动</label><output id="route-output">0%</output></div><input type="range" id="route-progress" min="0" max="100" value="0" step="1"/><p id="route-status" class="description" aria-live="polite"></p><p class="micro">拖动滑杆，车辆沿亮色带子从左侧上坡马路转入地库。带子上有箭头和“左侧上坡路 / 转入地库 / 地库内”标记。转弯、含镜宽和净高仍待校核。</p></section>
+        <section>
+          <div class="section-heading"><h2>地库与入口</h2><button id="leave-garage" class="text-button">返回场地</button></div>
+          <div class="notice"><span><strong>车辆路线 · 通行未确认</strong><small>道路与最低梁底待测，切口协商待确认；当前仅作模型平面筛查。</small></span></div>
+          <dl class="metric-list">
+            <div><dt>地库最低净高目标</dt><dd>${site.garageClear.toFixed(2)} m · 待核</dd></div>
+            <div><dt>预计入口净宽 · 待测</dt><dd>${garageLayout.entry.d.toFixed(2)} m</dd></div>
+            <div><dt>L9长 / 宽 / 高 · 不含镜</dt><dd>${site.vehicle.length} / ${site.vehicle.width} / ${site.vehicle.height} m</dd></div>
+            <div><dt>居中直行单侧几何余量</dt><dd>约 ${Math.round((garageLayout.entry.d - site.vehicle.width) * 50)} cm</dd></div>
+          </dl><p class="micro">轴距 ${site.vehicle.wheelbase} m，沿用项目已有车辆尺寸。上列余量只是假定入口宽度减车身宽，不含后视镜、转弯及安全余量。</p>
+        </section>
+        <section><h2>扫掠与风险图层</h2>
+          ${check("route-sweep", "车身扫掠范围", true)}${check("route-clearance", "净高待核区与拟切口", true)}${check("route-conflicts", "柱墙与越界提示", true)}
+          <ul class="route-legend"><li><i class="route-sweep-key"></i>蓝色：沿途整车占位包络</li><li><i class="route-pending-key"></i>橙色：保留地坪下方 · 净高待测</li><li><i class="route-conflict-key"></i>红色：柱墙投影相交或超出示意通道</li><li><i class="route-cut-key"></i>紫色虚线：拟切口 · 协商待确认</li></ul>
+          <p id="route-summary" class="description"></p><div id="route-findings" class="route-findings" aria-label="沿途待核区段，点击定位车辆"></div>
+          <p class="micro">平面扫掠包含前后悬；含镜宽、实际转弯、纵坡俯仰、底盘、驶出及两车独立进出待核。</p>
+        </section>
+        <section><h2>坡道参数探索</h2><p class="micro">院坪暂定±0.000；道路标高与坡长均为待测示意值。</p><label class="select-label">接入处道路标高 · 待测 / 示意（m）<input type="number" id="road-level" value="${surroundings.road.entryY.toFixed(2)}" step="0.1" min="-3.8" max="0"/></label><label class="select-label">坡道投影长度 · 待测 / 示意（m）<input type="number" id="ramp-length" value="5" step="0.5" min="3" max="10"/></label><p class="calculation" id="ramp-result"></p><p class="micro">地库完成面暂${site.garageFloor} m、结构预留${site.deckStructure} m；${site.garageClear} m为净高目标，实际梁底和柱墙待测。</p></section>
+        <section><div class="range-heading"><label for="route-progress">车辆沿示意路线移动</label><output id="route-output">0%</output></div><input type="range" id="route-progress" min="0" max="100" value="0" step="1"/><p id="route-status" class="description" aria-live="polite"></p><p class="micro">拖动滑杆或点击待核区段定位车辆。</p></section>
       </div>
       <div id="sources-controls" hidden><section><h2>证据状态</h2><ul class="evidence-legend"><li><i class="e-user"></i>用户提供</li><li><i class="e-photo"></i>照片估算</li><li><i class="e-design"></i>设计建议</li><li><i class="e-pending"></i>待测 / 待校核</li></ul>${check("pending-only", "只看待补测项目")}</section><section><h2>下一步现场补测</h2><ol class="measure-list"><li>道路、邻居院坪与旧房前坪的高差。</li><li>切口、保留柱墙及可用坡道的平面尺寸。</li><li>L9含镜宽、转弯参数。第二辆已按吉利星愿外观示意，不参与通行占位。</li><li>地块转折点、屋后田坎及邻居屋檐位置。</li></ol></section><button class="secondary-button" id="download-data">下载当前方案参数</button></div>
     </aside>
   </main>
-  <footer class="app-footer"><span id="interaction-hint">拖动旋转 · 滚轮缩放 · 右键平移</span><span>湖南 · 安化　/　概念方案 02</span><a href="#" id="footer-sources">查看数据依据 ↗</a></footer>
+  <footer class="app-footer"><span id="interaction-hint">拖动旋转 · 滚轮缩放 · 右键平移</span><span>概念方案 · 待实测与设计</span><a href="#" id="footer-sources">查看数据依据 ↗</a></footer>
   <dialog id="photo-modal"><form method="dialog"><button class="icon-button" aria-label="关闭图片">${icon("close")}</button></form><img id="modal-img" alt="现场参考"/><div><h2 id="modal-title"></h2><p id="modal-note"></p><button id="match-photo" class="secondary-button">按此照片方向观察模型</button></div></dialog>
-  <dialog id="export-modal"><form method="dialog"><button class="icon-button" aria-label="关闭导出预览">${icon("close")}</button></form><img id="export-image" alt="当前模型视图导出预览"/><div><h2>当前模型视图</h2><p>保存的是当前3D模型画面。也可右键或长按图片保存。</p><a id="export-download" class="secondary-button" download="安化山居.png">下载 PNG 图片</a></div></dialog>
+  <dialog id="export-modal"><form method="dialog"><button class="icon-button" aria-label="关闭导出预览">${icon("close")}</button></form><img id="export-image" alt="当前模型视图导出预览"/><div><h2>当前模型视图</h2><p>图片附版本与未核状态。</p><a id="export-download" class="secondary-button" download="安化山居.png">下载 PNG 图片</a></div></dialog>
   <div id="toast" role="status" hidden></div>
 `;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 let viewer: VillaViewer | null = null;
+let review: ReturnType<typeof mountDesignReview> | null = null;
+let lastViewingTab: MeetingView["tab"] = "model";
+let reviewPose: CameraPose | null = null;
 let tab = "model",
   level = 0,
   planMode = "2d",
@@ -177,29 +203,44 @@ function drawPlan() {
     level,
     checked("chair-clearance"),
     balcony,
+    { inside: checked("room-inside"), useZones: checked("room-clearance"), dining: $<HTMLSelectElement>("dining-mode").value as "full" | "daily" },
   );
   active("[data-floor]", (b) => Number(b.dataset.floor) === level);
   document.querySelectorAll<HTMLInputElement>('input[name="floor"]').forEach(input => {
     input.checked = Number(input.value) === level;
   });
   $("floor-summary-title").textContent =
-    `${floors[level].name} · ${level === 1 ? 3 : 2}间卧室`;
+    `${floors[level].name} · ${bedroomSummary(level)}`;
   $("floor-summary").textContent = [
     "面对房子时，右侧是挑空客厅，左侧前部是 4.5×3 米茶室，茶室和尊亲房中间是楼梯。尊亲房靠南，带内卫。右后是一间用途待定的房间。堂屋后面只留空位。辅楼厨房未改。",
     "挑空仍在右侧。茶室上方是一间 3 米进深的东前卧室；主卧改到楼梯南侧，带内卫。西侧另有一间卧室。楼梯和公卫与一楼对齐。",
     "中间仍是家庭多功能厅。西侧前为主卧，后部是影音室。东侧楼梯与下面对齐，楼梯北是通东侧露台的过厅，南侧是卧室和内卫。",
   ][level];
-  $("room-detail").innerHTML =
-    "<strong>点击图中的房间</strong><p>查看空间尺寸和设计说明。</p>";
+  $("room-detail").hidden = true;
+  $("room-detail").replaceChildren();
+  $("dining-check").hidden = level !== 0;
+  document.querySelector<HTMLElement>(".plan-caption")!.textContent = level === 0 && $<HTMLSelectElement>("dining-mode").value === "daily"
+    ? "日常6座：圆桌与12椅暂收起，收纳待定；3D保留双桌。尺寸与留位仅作模型参考。"
+    : "尺寸为外轮廓／模型内侧参考，未扣装修和套内占用；0.60m家具留位非通行校核。";
 }
 function updateScene() {
+  const design = tab === "design";
   const realScene = tab === "real";
+  document.querySelector<HTMLElement>(".app-footer")!.hidden = design || realScene || tab === "sources";
+  document.body.classList.toggle("focused-view", design || realScene || tab === "sources");
+  $("design-panel").hidden = !design;
   $("real-scene-panel").hidden = !realScene;
-  document.querySelector<HTMLElement>(".stage")!.hidden = realScene;
-  document.querySelector<HTMLElement>(".inspector")!.hidden = realScene;
+  document.querySelector<HTMLElement>(".stage")!.hidden = realScene || design;
+  document.querySelector<HTMLElement>(".inspector")!.hidden = realScene || design;
+  if (design) {
+    $("loading").hidden = true;
+    $("interaction-hint").textContent = "按编号记录意见 · 保存快照与JSON备份 · 导出离线沟通图册";
+    review?.refresh();
+    return;
+  }
   if (realScene) {
     const frame = $<HTMLIFrameElement>("real-scene-frame");
-    if (!frame.hasAttribute("src")) frame.src = "../villa-real-scene/?embed=1";
+    if (!frame.hasAttribute("src")) frame.src = "../villa-real-scene/?embed=1&ui=2";
     $("interaction-hint").textContent = "切换机位 · 原片对比 · 下载实景效果";
     return;
   }
@@ -213,7 +254,7 @@ function updateScene() {
   $("scene-heading").hidden = plan || tab === "sources";
   $("scene-tools").hidden = plan || tab === "sources";
   $("compass").hidden = plan || tab === "sources";
-  $("photo-strip").hidden = tab !== "model";
+  $("photo-strip").hidden = tab !== "model" || garage;
   $("camera-bar").hidden = tab === "sources" || tab === "floor";
   $("sun-stamp").hidden = tab !== "sun";
   document.querySelector<HTMLElement>('[data-camera="garage"]')!.hidden =
@@ -246,7 +287,7 @@ function updateScene() {
     roadsideNeighbor: checked("neighbor-roadside"),
   });
   $("scene-title").textContent = garage
-    ? "地库空间与露天入口"
+    ? "地库车辆路线与待核区"
     : floor3d
       ? `${floors[level].name} · 立体剖看`
       : tab === "sun"
@@ -255,7 +296,7 @@ function updateScene() {
           ? "老房现状"
           : "新建方案";
   $("scene-subtitle").textContent = garage
-    ? "院坪与主楼隐藏 · 柱梁、车位和路线均为示意"
+    ? "车身平面扫掠 · 净高待测 · 切口协商待确认"
     : floor3d
       ? checked("explode")
         ? "楼层竖向分离展示 · 不改变实际层高"
@@ -267,9 +308,12 @@ function updateScene() {
   if (tab === "floor") drawPlan();
 }
 function switchTab(name: string) {
+  const resumePose = tab === "design" && name === lastViewingTab ? reviewPose : null;
+  if (name === "design" && tab !== "design") reviewPose = viewer?.cameraPose() ?? null;
   tab = name;
+  if (name === "model" || name === "floor" || name === "sun") lastViewingTab = name;
   active("[data-tab]", (b) => b.dataset.tab === tab);
-  if (tab === "real") {
+  if (tab === "real" || tab === "design") {
     updateScene();
     return;
   }
@@ -283,6 +327,7 @@ function switchTab(name: string) {
     viewer?.setCamera(camera);
   }
   active("[data-camera]", (b) => b.dataset.camera === camera);
+  if (resumePose) viewer?.restoreCameraPose(resumePose);
 }
 function setCamera(name: CameraName) {
   camera = name;
@@ -339,20 +384,117 @@ function updateRamp() {
     len > 10
   ) {
     $("ramp-result").textContent =
-      "请输入有效范围：道路−3.8～0米，坡长3～10米。";
+      "请输入有效范围：道路−3.8～0米，坡长3～10米。图中沿用上次有效的示意参数。";
     return;
   }
   viewer?.updateRamp(roadY, len);
   const grade = ((roadY - site.garageFloor) / len) * 100;
   $("ramp-result").textContent =
     `示意高差 ${Math.abs(roadY - site.garageFloor).toFixed(2)} m / ${len.toFixed(1)} m → ${grade >= 0 ? "下坡" : "上坡"} ${Math.abs(grade).toFixed(1)}%`;
+  renderRouteReview();
   updateRoute();
+}
+function renderRouteReview() {
+  if (!viewer) return;
+  const assessment = viewer.routeAssessment;
+  const columns = assessment.conflicts.filter((o) => o.kind === "column");
+  const walls = [...new Set(assessment.conflicts.filter((o) => o.kind === "wall").map((o) => o.label))];
+  $("route-summary").textContent =
+    `全程平面筛查：${columns.length ? `${columns.length}根模型柱有投影潜在冲突` : "未见模型柱投影相交"}；${walls.length ? `${walls.length}处墙体有投影潜在冲突` : "未见模型墙体投影相交"}。道路与梁底标高待测，通行未确认。点击下列区段定位查看。`;
+  const findings = $("route-findings");
+  findings.replaceChildren();
+  const add = (label: string, kind: string, predicate: (cell: SweepCell) => boolean) => {
+    const ranges = routeRanges(assessment.cells, predicate);
+    if (!ranges.length) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "route-finding";
+    button.dataset.kind = kind;
+    button.dataset.routeTo = String(Math.round((ranges[0][0] + ranges[0][1]) * 50));
+    const name = document.createElement("strong"), range = document.createElement("small");
+    name.textContent = label;
+    range.textContent = `${formatRouteRanges(ranges)} · 点击定位`;
+    button.append(name, range);
+    findings.append(button);
+  };
+  add("保留地坪下方 · 净高待测", "pending", (c) => c.underDeck);
+  add("越出示意通道 · 需复核", "conflict", (c) => c.outside);
+  for (const o of columns)
+    add(`${o.label} · 平面潜在冲突`, "conflict", (c) => c.obstacles.includes(o));
+  for (const wall of walls)
+    add(`${wall} · 平面潜在冲突`, "conflict", (c) => c.obstacles.some((o) => o.label === wall));
 }
 function updateRoute() {
   const n = Number($<HTMLInputElement>("route-progress").value);
   $("route-output").textContent = `${n}%`;
   const result = viewer?.routeAt(n);
-  if (result) $("route-status").textContent = result.note;
+  if (result) {
+    $("route-status").textContent = result.note;
+    $("route-status").dataset.kind = result.outside || result.obstacles.length ? "conflict" : "pending";
+  }
+}
+function showRoom(id: string) {
+  const room = [...floors[level].rooms, ...(level === 0 ? annexRooms : [])].find((r) => r.id === id);
+  if (!room) return;
+  const ref = roomReference(room, level);
+  $("room-detail").hidden = false;
+  $("room-detail").innerHTML = `<strong>${escapeHtml(room.name)}</strong><p>${room.w.toFixed(2)} × ${room.d.toFixed(2)} m · 外轮廓</p>${room.kind !== "void" ? `<p>模型内侧参考约 ${ref.w.toFixed(2)} × ${ref.d.toFixed(2)} m</p><p class="micro">${escapeHtml(ref.note)}</p>` : ""}<p>${escapeHtml(room.note ?? "家具与空间为方案参考，需结合结构、装修和使用进一步深化。")}</p>${room.purposeStatus ? "<p>用途待确认；当前不计入6间用途明确的卧室。</p>" : ""}<button class="text-button" data-design-issue="${room.id === "dining" ? "D09" : room.id === "stair" ? "D03" : room.id === "spare" ? "D10" : "D08"}">打开相关议题与记录 ↗</button>`;
+}
+function captureMeetingView(): MeetingView {
+  return {
+    tab: ["model", "floor", "sun"].includes(tab) ? tab as MeetingView["tab"] : lastViewingTab,
+    camera: viewer?.activeCamera ?? camera,
+    level, planMode: planMode as "2d" | "3d", existing: viewer?.state.existing ?? (isExisting && lastViewingTab === "model"), balcony,
+    fenShui: Number($<HTMLInputElement>("fen-shui").value),
+    roadY: viewer?.roadY ?? surroundings.road.entryY, rampLength: viewer?.rampLength ?? 5,
+    progress: Number($<HTMLInputElement>("route-progress").value),
+    sunDate: $<HTMLInputElement>("sun-date").value, sunTime: Number($<HTMLInputElement>("sun-time").value),
+    dining: $<HTMLSelectElement>("dining-mode").value as "full" | "daily",
+    flags: Object.fromEntries(viewFlags.map((id) => [id, checked(id)])),
+    pose: viewer?.cameraPose() ?? null,
+  };
+}
+function restoreMeetingView(view: MeetingView) {
+  level = view.level; planMode = view.planMode; isExisting = view.existing; balcony = view.balcony; camera = view.camera;
+  for (const id of viewFlags) $<HTMLInputElement>(id).checked = view.flags[id];
+  for (const id of ["fen-shui", "fen-shui-number"]) $<HTMLInputElement>(id).value = String(view.fenShui);
+  $<HTMLInputElement>("road-level").value = String(view.roadY);
+  $<HTMLInputElement>("ramp-length").value = String(view.rampLength);
+  $<HTMLInputElement>("route-progress").value = String(view.progress);
+  $<HTMLInputElement>("sun-date").value = view.sunDate;
+  $<HTMLInputElement>("sun-time").value = String(view.sunTime);
+  $<HTMLSelectElement>("dining-mode").value = view.dining;
+  for (const id of ["balcony", "sun-balcony"]) $<HTMLSelectElement>(id).value = balcony ? "local" : "none";
+  active("[data-existing]", (b) => b.dataset.existing === String(isExisting));
+  active("[data-plan-mode]", (b) => b.dataset.planMode === planMode);
+  updateFenShui(); updateRamp(); updateSun();
+  switchTab(view.tab);
+  camera = view.camera;
+  viewer?.setCamera(view.camera);
+  if (view.pose) viewer?.restoreCameraPose(view.pose);
+  viewer?.setRouteLayers({ sweep: view.flags["route-sweep"], clearance: view.flags["route-clearance"], conflicts: view.flags["route-conflicts"] });
+  active("[data-camera]", (b) => b.dataset.camera === camera);
+}
+function locateDesignIssue(issue: DesignIssue) {
+  if (issue.target === "real" || issue.target === "sources" || issue.target === "sun") {
+    switchTab(issue.target);
+  } else if (["floor", "stair", "roof"].includes(issue.target)) {
+    level = issue.floor ?? (issue.target === "roof" ? 2 : 0);
+    planMode = "2d";
+    active("[data-plan-mode]", (b) => b.dataset.planMode === "2d");
+    $<HTMLInputElement>("room-clearance").checked = issue.target === "floor";
+    switchTab("floor");
+    if (issue.room) {
+      showRoom(issue.room);
+      document.querySelectorAll<HTMLElement>("[data-room]").forEach((r) => r.classList.toggle("selected", r.dataset.room === issue.room));
+    }
+  } else {
+    isExisting = false;
+    active("[data-existing]", (b) => b.dataset.existing === "false");
+    switchTab("model");
+    setCamera(issue.target === "garage" ? "garage" : issue.target === "entrance" ? "courtyard" : "aerial");
+  }
+  toast(`${issue.id} · ${issue.title}；可返回设计沟通记录意见。`);
 }
 function openPhoto(index: number, modal = false) {
   photoIndex = index;
@@ -405,21 +547,21 @@ document.addEventListener("click", (event) => {
     updateSun();
   }
   if (el.dataset.room) {
-    const room = [...floors[level].rooms, ...annexRooms].find(
-      (r) => r.id === el.dataset.room,
-    )!;
-    $("room-detail").innerHTML =
-      `<strong>${room.name}</strong><p>${room.w.toFixed(1)} × ${room.d.toFixed(1)} m · 外轮廓</p><p>${room.note ?? (room.kind === "bed" ? "卧室保留独立门窗；家具为尺度参考。" : "空间布置为概念方案，需结合结构与门窗进一步深化。")}</p>`;
+    showRoom(el.dataset.room);
     document
       .querySelectorAll("[data-room]")
       .forEach((r) => r.classList.toggle("selected", r === el));
+  }
+  if (el.dataset.designIssue) {
+    switchTab("design");
+    review?.openIssue(el.dataset.designIssue);
   }
 });
 document.addEventListener("keydown", (e) => {
   const el = (e.target as Element).closest<HTMLElement>("[data-room]");
   if (el && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();
-    el.click();
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   }
 });
 for (const id of ["roof", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside"])
@@ -447,6 +589,8 @@ $("explode").addEventListener("change", () => {
   updateScene();
 });
 $("chair-clearance").addEventListener("change", drawPlan);
+for (const id of ["room-inside", "room-clearance", "dining-mode"])
+  $(id).addEventListener("change", drawPlan);
 $("sun-date").addEventListener("change", () => {
   $("sun-report").innerHTML = "";
   updateSun();
@@ -478,6 +622,14 @@ for (const id of ["road-level", "ramp-length"])
 for (const id of ["fen-shui", "fen-shui-number"])
   $(id).addEventListener("input", (event) => updateFenShui(event.target as HTMLInputElement));
 $("route-progress").addEventListener("input", updateRoute);
+for (const [id, layer] of [["route-sweep", "sweep"], ["route-clearance", "clearance"], ["route-conflicts", "conflicts"]] as const)
+  $(id).addEventListener("change", () => viewer?.setRouteLayers({ [layer]: checked(id) }));
+$("route-findings").addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-route-to]");
+  if (!button) return;
+  $<HTMLInputElement>("route-progress").value = button.dataset.routeTo!;
+  updateRoute();
+});
 $("reset-camera").addEventListener("click", () =>
   viewer?.setCamera(tab === "floor" ? "top" : camera),
 );
@@ -491,6 +643,7 @@ $("save-view").addEventListener("click", () => {
     $<HTMLDialogElement>("export-modal").showModal();
   }
 });
+$("record-view").addEventListener("click", () => review?.saveSnapshot());
 $("fullscreen").addEventListener("click", async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -519,6 +672,8 @@ $("download-data").addEventListener("click", () => {
     [
       JSON.stringify(
         {
+          projectMeta,
+          meeting: review?.exportSession(),
           description: "概念模型参数，不能作为测绘或施工图使用。",
           units: "m",
           axes: "X东 Y上 Z南；旧前坪外缘Z=0",
@@ -527,8 +682,18 @@ $("download-data").addEventListener("click", () => {
           surroundings,
           facts,
           floors,
+          garageRoute: {
+            status: "模型平面筛查，通行未确认",
+            evidence: "原空间探索曲线与模型柱墙投影，实际结构和标高待测",
+            vehicle: site.vehicle,
+            controlPoints: viewer?.route.points.map((p) => [p.x, p.z]),
+            retainedDeck: garageLayout.retainedDeck,
+            proposedCut: garageLayout.proposedCut,
+            modelObstacles: garageLayout.obstacles,
+            limitations: "含镜宽、可靠转弯参数、纵坡俯仰、底盘、驶出及第二辆车独立进出均待校核",
+          },
           preview: {
-            fenShui: Number($<HTMLInputElement>("fen-shui-number").value),
+            fenShui: Number($<HTMLInputElement>("fen-shui").value),
             roadY: viewer?.roadY,
             rampLength: viewer?.rampLength,
             roadAndRampEvidence: "设计示意，未测",
@@ -549,6 +714,11 @@ $("download-data").addEventListener("click", () => {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+});
+review = mountDesignReview($("design-panel"), {
+  getView: captureMeetingView, restore: restoreMeetingView,
+  options: () => ({ fenShui: Number($<HTMLInputElement>("fen-shui").value), roadY: viewer?.roadY ?? surroundings.road.entryY, rampLength: viewer?.rampLength ?? 5 }),
+  navigate: locateDesignIssue, image: () => viewer?.exportImage(), toast,
 });
 renderFacts();
 drawPlan();
@@ -572,8 +742,8 @@ try {
   updateSun();
   updateRamp();
   updateScene();
-  if (new URLSearchParams(location.search).get("view") === "roadside")
-    setCamera("roadside");
+  const initialView = new URLSearchParams(location.search).get("view");
+  if (initialView === "roadside" || initialView === "garage") setCamera(initialView);
   $("loading").hidden = true;
 } catch (error) {
   console.error(error);
@@ -581,4 +751,5 @@ try {
     "<strong>当前环境未能启动3D</strong><p>请在支持WebGL2的浏览器打开。分层平面与资料仍可查看。</p>";
   toast("3D加载失败，平面图与资料可以继续查看。");
 }
-if (new URLSearchParams(location.search).get("tab") === "real") switchTab("real");
+const initialTab = new URLSearchParams(location.search).get("tab");
+if (initialTab && ["model", "floor", "sun", "sources", "real", "design"].includes(initialTab)) switchTab(initialTab);

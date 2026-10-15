@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { site, floors, frontElevation, stairLayout, circulation, annexPartitions, annexFurniture, type Point } from "./data";
+import { site, floors, frontElevation, stairLayout, construction, circulation, annexPartitions, annexFurniture, type Point } from "./data";
 import { eastTransom, facades, secondFloorGlassHead, secondFloorSideGlassHead } from "./facades";
 import { carvedPilaster, cornerPilaster, balconyCornerPost, recessedHatPier, glassBalustrade, gutteredRoof, hipRise, meander, tiledApron, projectingHatRoof, openingFrame, brownSlashPanel, apronFasciaBottom } from "./facade-details";
 import {
@@ -23,7 +23,7 @@ function entranceApproach(parent: THREE.Object3D, mat: Mats) {
   g.name = "门厅柱间三步与两侧坡道";
   parent.add(g);
   const rise = site.entranceRise;
-  const tread = 0.3;
+  const tread = construction.entranceTread;
   const [west, east] = frontElevation.balustradePosts.slice(1, 3);
   const westOuter = west.x - west.w / 2;
   const westInner = west.x + west.w / 2;
@@ -31,7 +31,7 @@ function entranceApproach(parent: THREE.Object3D, mat: Mats) {
   const eastOuter = east.x + east.w / 2;
   const columnNorth = frontElevation.porticoColumnZ - frontElevation.porticoColumnDepth / 2;
   const doorZ = site.main.z;
-  const landingFront = columnNorth - 0.15;
+  const landingFront = columnNorth - construction.entranceLandingOffset;
   const stepFront = landingFront - tread * 2;
   const stone = mat.darkStone;
   box(
@@ -60,7 +60,7 @@ function entranceApproach(parent: THREE.Object3D, mat: Mats) {
   }
   treadLines(g, westInner, eastInner, rise, landingFront, mat.darkStoneGroove);
   // 原先拉到墙角柱，大约 3.7 米。改短到 2 米，坡大约 1:5，是缩短后的设计坡度。
-  const rampRun = 2;
+  const rampRun = construction.entranceRampRun;
   const south = doorZ + 0.02;
   const eastRamp = wedgeAlongX(g, south, columnNorth, eastOuter - 0.02, eastOuter + rampRun, rise, 0.02, stone);
   eastRamp.name = "东侧坡道";
@@ -422,10 +422,10 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
               back - front - 2 * inset,
             );
     // 一层完成面比院坪高三步。关掉房子后铺装仍在 ±0，不会和楼板叠在同一高度上闪。
-    slab(g, outline, base + (index === 0 ? site.entranceRise : 0), 0.18, mat.floor, holes);
+    slab(g, outline, base + (index === 0 ? site.entranceRise : 0), construction.floorSlab, mat.floor, holes);
     const floorWalls = facades(index);
     for (const facade of floorWalls)
-      wallWithOpenings(g, facade.a, facade.b, base, h, facade.openings, mat, 0.24, false, mat.sand);
+      wallWithOpenings(g, facade.a, facade.b, base, h, facade.openings, mat, construction.outsideWall, false, mat.sand);
     sandGrooves(
       g,
       floorWalls.map((facade) => ({
@@ -539,7 +539,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
             },
           ]
         : [];
-      wallWithOpenings(g, a, b, base, h - 0.15, op, mat, 0.12, true);
+      wallWithOpenings(g, a, b, base, h - 0.15, op, mat, construction.partition, true);
     }
     for (const f of floor.furniture) furnish(g, f, base + (index === 0 ? site.entranceRise : 0), mat);
     const labelGroup = new THREE.Group();
@@ -663,7 +663,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
   slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 0.015, 0.18, mat.paving).name = "门厅地坪投影另计";
   entranceApproach(portico, mat);
   slab(levels[0], rect(site.annex.x + site.annex.w, circulation.sideDoorZ - circulation.sideDoorWidth / 2,
-    m.x - (site.annex.x + site.annex.w), circulation.sideDoorWidth), 0.015, 0.08, mat.paving)
+    m.x - (site.annex.x + site.annex.w), circulation.sideDoorWidth), construction.connectionY, 0.08, mat.paving)
     .name = "横向过道至辅楼的地面连接";
   // 浅阳台位于三层公共过厅外，避免直接放在老人房上方。
   slab(balcony, rect(12.65, 9, 2.5, 1.2), 7.2, 0.18, mat.paving);
@@ -676,7 +676,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
   slab(annex, rect(a.x, a.z, a.w, a.d), site.entranceRise, 0.18, mat.floor);
   const annexWalls = facades(3);
   for (const facade of annexWalls)
-    wallWithOpenings(annex, facade.a, facade.b, 0, 3.6, facade.openings, mat, 0.24, false, mat.sand);
+    wallWithOpenings(annex, facade.a, facade.b, 0, 3.6, facade.openings, mat, construction.outsideWall, false, mat.sand);
   sandGrooves(
     annex,
     annexWalls.map((facade) => ({

@@ -7,11 +7,13 @@ import {
   annexRooms,
   annexFurniture,
   annexPartitions,
+  construction,
   type Room,
   type Wall,
   type Furniture,
 } from "./data";
 import { facades, type Facade } from "./facades";
+import { roomReference } from "./design-data";
 
 const colors: Record<Room["kind"], string> = {
   bed: "#e1e9de",
@@ -56,7 +58,12 @@ function furniture(f: Furniture) {
 function room(r: Room) {
   return `<g tabindex="0" role="button" data-room="${r.id}" aria-label="${r.name}，${r.note ?? "点击查看空间说明"}">${rect(r.x + 0.08, r.z + 0.08, r.w - 0.16, r.d - 0.16, `fill="${colors[r.kind]}" class="room-fill"`)}</g>`;
 }
-export function floorPlan(index: number, clearance: boolean, balcony: boolean) {
+export interface PlanOptions { inside?: boolean; useZones?: boolean; dining?: "full" | "daily" }
+function useZone(f: Furniture) {
+  if (!["bed", "wardrobe", "toilet", "basin", "sink", "stove", "hob"].includes(f.kind)) return "";
+  return `<g pointer-events="none" transform="translate(${f.x} ${f.z}) rotate(${(-(f.rotation ?? 0) * 180) / Math.PI})">${rect(-f.w / 2 - .6, -f.d / 2 - .6, f.w + 1.2, f.d + 1.2, 'class="use-zone"')}<title>家具四周0.60m讨论留位；使用方向、门扇及实际净宽待设计</title></g>`;
+}
+export function floorPlan(index: number, clearance: boolean, balcony: boolean, options: PlanOptions = {}) {
   const f = floors[index],
     allRooms = [...f.rooms, ...(index === 0 ? annexRooms : [])];
   const porch = site.portico, porchFront = site.main.z - porch.projection;
@@ -69,24 +76,25 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean) {
   const labels = allRooms
     .map((r) => {
       const [x, z] = r.label ?? [r.x + r.w / 2, r.z + r.d / 2];
-      return `<g class="room-label" pointer-events="none">${text(x, z - 0.05, r.name)}${text(x, z + 0.37, r.kind === "void" ? "两层通高 · 无楼板" : `${r.w.toFixed(1)} × ${r.d.toFixed(1)} m`, "room-size")}</g>`;
+      const ref = roomReference(r, index);
+      return `<g class="room-label" pointer-events="none">${text(x, z - 0.05, r.name)}${text(x, z + 0.37, r.kind === "void" ? "两层通高 · 无楼板" : `${r.w.toFixed(1)} × ${r.d.toFixed(1)} m`, "room-size")}${options.inside && r.kind !== "void" ? text(x, z + .67, `内侧约${ref.w.toFixed(2)}×${ref.d.toFixed(2)}${ref.nested.length ? " · 含套内空间" : ""}`, "inside-label") : ""}</g>`;
     })
     .join("");
   const stepLines = Array.from({ length: 9 }, (_, i) => {
     const sx = stairLayout.x, sz = stairLayout.z, flight = stairLayout.flight, gap = stairLayout.gap;
     return stairLayout.axis === "x"
-      ? `<path d="M${sx + i * 0.25} ${sz} v${flight} M${sx + (8 - i) * 0.25} ${sz + flight + gap} v${flight}" class="step-line"/>`
-      : `<path d="M${sx} ${sz + i * 0.25} h${flight} M${sx + flight + gap} ${sz + (8 - i) * 0.25} h${flight}" class="step-line"/>`;
+      ? `<path d="M${sx + i * stairLayout.tread} ${sz} v${flight} M${sx + (8 - i) * stairLayout.tread} ${sz + flight + gap} v${flight}" class="step-line"/>`
+      : `<path d="M${sx} ${sz + i * stairLayout.tread} h${flight} M${sx + flight + gap} ${sz + (8 - i) * stairLayout.tread} h${flight}" class="step-line"/>`;
   }).join("");
   const columnNorth = elevation.porticoColumnZ - elevation.porticoColumnDepth / 2;
-  const landingFront = columnNorth - 0.15;
-  const tread = 0.3;
+  const landingFront = columnNorth - construction.entranceLandingOffset;
+  const tread = construction.entranceTread;
   const stepFront = landingFront - tread * 2;
   const westOuter = middleWest.x - middleWest.w / 2;
   const westInner = middleWest.x + middleWest.w / 2;
   const eastInner = middleEast.x - middleEast.w / 2;
   const eastOuter = middleEast.x + middleEast.w / 2;
-  const rampRun = 2;
+  const rampRun = construction.entranceRampRun;
   const eastEnd = eastOuter + rampRun;
   const westEnd = westOuter - rampRun;
   const stone = `fill="#3a2422" stroke="#241614" stroke-width=".02"`;
@@ -109,7 +117,9 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean) {
       ${text((eastOuter + eastEnd) / 2, columnNorth - 0.32, "朝东", "room-size")}
       ${text((westOuter + westEnd) / 2, columnNorth - 0.32, "朝西", "room-size")}`
     : "";
-  return `<svg class="floor-svg ${index > 0 ? "main-floor-svg" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="${index === 0 ? "-1 -4.6 24 17.1" : "5.5 -4.6 17 17.1"}" aria-label="${f.name}户型平面图，北向上，东向右">
+  const diningFurniture = annexFurniture.filter((item) => options.dining !== "daily" || !(item.kind === "roundTable" || (item.kind === "chair" && Math.hypot(item.x - 2.9, item.z - 1.12) < 1.6)));
+  const allFurniture = [...f.furniture, ...(index === 0 ? diningFurniture : [])];
+  return `<svg class="floor-svg ${index > 0 ? "main-floor-svg" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="${index === 0 ? "-1 -4.6 24 17.1" : "5.5 -4.6 17 17.1"}" aria-label="${f.name}户型平面图，北向上，东向右${options.dining === "daily" ? "，餐厅日常6座建议情景" : ""}">
     ${s}<rect x="-.5" y="-4.4" width="23" height="16.5" rx=".2" fill="#fbfaf6"/>
     ${index === 0 ? `<path d="M0 -3.6 H21.1 M0 -3.9 V-3.3 M21.1 -3.9 V-3.3" class="dim-line"/>${text(10.55, -4.15, "东西总宽 21.1 m", "dim-label")}${text(18.6, -4.15, `层高 ${f.height.toFixed(1)} m`, "dim-label")}` : `<path d="M6.8 -3.6 H20.3 M6.8 -3.9 V-3.3 M20.3 -3.9 V-3.3" class="dim-line"/>${text(13.55, -4.15, "主楼面宽 13.5 m", "dim-label")}${text(8.4, -4.15, `层高 ${f.height.toFixed(1)} m`, "dim-label")}`}
     <path d="M21.45 ${f.front} V9 M21.2 ${f.front} h.5 M21.2 9 h.5" class="dim-line"/><text class="dim-label" x="21.7" y="4.4" transform="rotate(90 21.7 4.4)">${index === 2 ? "主体进深 8.2 m" : "进深 10.0 m"}</text>
@@ -122,18 +132,19 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean) {
     ${index < 2 ? `${elevation.balustradePosts.slice(1, 3).map(p => rect(p.x - p.w / 2, elevation.porticoColumnZ - elevation.porticoColumnDepth / 2, p.w, elevation.porticoColumnDepth, 'fill="#879183"')).join("")}${cornerColumn(elevation.cornerWestX, f.front - 0.12, -1)}${cornerColumn(elevation.cornerEastX, f.front - 0.12, 1)}` : `${terraceRails}${elevation.balustradePosts.map(p => rect(p.x - elevation.shortPostWidth / 2, p.z - elevation.shortPostWidth / 2, elevation.shortPostWidth, elevation.shortPostWidth, 'fill="#c3bba9" stroke="#777872" stroke-width=".04"')).join("")}${elevation.postXs.map(x => rect(x - elevation.dividerWidth / 2, elevation.postZ - .25, elevation.dividerWidth, .5, 'fill="#879183"')).join("")}${cornerColumn(elevation.cornerWestX, f.front - 0.12, -1)}${cornerColumn(elevation.cornerEastX, f.front - 0.12, 1)}${text(13.7, -0.48, "内退柱墙隔开两侧 · 短柱在50cm挡墙上", "room-size")}`}${cornerColumn(site.main.x, site.main.z + site.main.d, -1, 1)}${cornerColumn(site.main.x + site.main.w, site.main.z + site.main.d, 1, 1)}
     ${index === 0 ? rect(.18, -3.1, 5.12, 2.1, 'fill="none" stroke="#a9b9a1" stroke-width=".04" stroke-dasharray=".14 .12"') + text(3, -2.05, "约2m通道 · 接辅楼外侧梯田", "room-size") : ""}
     ${allRooms.map(room).join("")}
-    ${[...f.furniture, ...(index === 0 ? annexFurniture : [])].map(furniture).join("")}
+    ${allFurniture.map(furniture).join("")}
+    ${options.useZones ? allFurniture.map(useZone).join("") : ""}
     ${stepLines}
     ${f.partitions.map(partition).join("")}${facades(index).map(facade).join("")}
     ${index === 0 ? annexPartitions.map(partition).join("") + facades(3).map(facade).join("") : ""}
     ${index === 1 ? `<path d="M${circulation.livingVoid.x + circulation.livingVoid.w} ${circulation.livingVoid.z + 0.16} V${circulation.livingVoid.z + circulation.livingVoid.d} H${circulation.livingVoid.x + 0.16}" class="balustrade"/>` : ""}
     ${index === 0 ? `<path d="M5.3 ${circulation.sideDoorZ - circulation.sideDoorWidth / 2} H6.8 M5.3 ${circulation.sideDoorZ + circulation.sideDoorWidth / 2} H6.8" class="dim-line"/>${text(6.05, circulation.sideDoorZ - 0.45, "通辅楼", "room-size")}` : ""}
-    ${index === 0 && clearance ? '<circle cx="2.9" cy="1.12" r="1.85" class="clearance"/><rect x="1.09" y="2.89" width="3.72" height="2.42" class="clearance"/>' : ""}
+    ${index === 0 && clearance ? `${options.dining !== "daily" ? '<circle cx="2.9" cy="1.12" r="1.85" class="clearance"/>' : text(2.9, 1.6, "日常示意：圆桌收起 · 收纳待定", "room-size")}<rect x="1.09" y="2.89" width="3.72" height="2.42" class="clearance"/>` : ""}
     ${balcony && index === 2 ? rect(12.65, 9, 2.5, 1.2, 'class="clearance"') + text(13.9, 9.7, "局部浅阳台", "room-size") : ""}
     ${labels}${index === 0 ? '<text x="6.05" y="4.3" class="dim-label" text-anchor="middle" transform="rotate(-90 6.05 4.3)">子孙道 · 1.5 m</text>' : ""}
     ${text(13.55, 10.55, "南侧高田 +2.5 m · 屋后留 1.8 m", "dim-label")}
     <g transform="translate(${index === 0 ? ".5" : "6.5"} 10.6)"><path d="M0 .8 V-.55 m-.15 .25 .15-.25 .15 .25" class="dim-line"/>${text(0, -0.85, "北 N", "dim-label")}<path d="M.45 .8 H2.6 m0-.12 v.24" class="dim-line"/>${text(2.6, 1.4, "东 E", "room-size")}</g>
-    ${text(13.1, 11.45, "房间数字为外轮廓尺寸 · 使用面积另扣墙体 · 北向上", "footnote")}
+    ${text(13.1, 11.45, "主数字为外轮廓 · 内侧约值未扣装修柱及套内占用 · 北向上", "footnote")}
     ${index === 0 ? text(10.55, 11.85, "地库柱：外沿一排、房前墙下一排，柱距4.2m，见地库视图", "footnote") : ""}
   </svg>`;
 }

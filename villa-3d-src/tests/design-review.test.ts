@@ -1,0 +1,108 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { floors, site } from "../src/data";
+import { bedroomSummary, entranceMetrics, roomReference, southWindowProbes, stairMetrics } from "../src/design-data";
+import { designDrawings, unresolvedConditions } from "../src/design-drawings";
+import { emptySession, mergeSessions, parseSession, validateMeetingView, viewFlags, type MeetingView } from "../src/design-session";
+import { meetingBooklet } from "../src/meeting-booklet";
+import { floorPlan } from "../src/plan";
+import { facades } from "../src/facades";
+
+const view = (): MeetingView => ({
+  tab: "model", camera: "garage", level: 0, planMode: "2d", existing: false, balcony: false,
+  fenShui: 4.5, roadY: -1.86, rampLength: 5, progress: 72,
+  sunDate: "2026-09-23", sunTime: 10.5, dining: "full",
+  flags: Object.fromEntries(viewFlags.map((key) => [key, true])),
+  pose: { position: [48, 30, -43], target: [26.5, -1.4, -9.5], zoom: 1 },
+});
+test("控制线分别起算，首层抬高反映在楼梯与辅楼连接中", () => {
+  const m = entranceMetrics();
+  for (const [key, value] of Object.entries({ column: 2.6, platform: 2.75, steps: 3.35, connectionRise: .435, rampGrade: 22.5 }))
+    assert.ok(Math.abs(m[key as keyof typeof m] - value) < 1e-8, key);
+  assert.equal(m.projection, 2);
+  const stairs = stairMetrics();
+  assert.deepEqual(stairs.map((s) => s.rise), [3.15, 3.6]);
+  assert.deepEqual(stairs.map((s) => s.riser), [3.15 / 20, 3.6 / 20]);
+  assert.ok(stairs.every((s) => s.headroom === null && s.clearWidth === null));
+});
+test("用途待定不计为已确定卧室；套卫包络不转成可用净面积", () => {
+  assert.equal(bedroomSummary(0), "1间卧室＋1间用途待定");
+  assert.equal(bedroomSummary(1), "3间卧室");
+  assert.equal(bedroomSummary(2), "2间卧室");
+  const elder = floors[0].rooms.find((r) => r.id === "elder")!;
+  const ref = roomReference(elder, 0);
+  assert.ok(ref.w < elder.w && ref.d < elder.d);
+  assert.ok(ref.nested.some((r) => r.id === "ensuite"));
+  assert.match(ref.note, /不可与子房间面积相加/);
+  assert.ok(!("usableArea" in ref));
+});
+test("日常餐厅只作为平面备选，原双桌与车辆尺寸不被修改", () => {
+  const full = floorPlan(0, true, false, { dining: "full" });
+  const daily = floorPlan(0, true, false, { dining: "daily" });
+  const chairs = (s: string) => [...s.matchAll(/class="furniture chair"/g)].length;
+  assert.equal(chairs(full) - chairs(daily), 12);
+  assert.match(full, /r="1.85"/);
+  assert.ok(!daily.includes('r="1.85"'));
+  assert.match(daily, /收纳待定/);
+  assert.equal(site.vehicle.length, 5.218);
+});
+test("日照探针由真实南窗洞口生成，采样点留在窗高范围内", () => {
+  const probes = southWindowProbes();
+  assert.equal(probes.length, 4);
+  for (const [index, floor] of floors.slice(0, 2).entries()) {
+    const wall = facades(index).find((w) => Math.abs(w.a[1] - w.b[1]) < .01 && w.a[1] > 8.75)!;
+    for (const o of wall.openings.filter((o) => o.w > 1.5 && !o.door)) {
+      const p = probes.find((p) => Math.abs(p.x - wall.a[0] - o.at) < 1e-8 && p.name.startsWith(floor.name))!;
+      assert.ok(p);
+      assert.ok(p.y - p.sampleOffset >= floor.y + o.sill);
+      assert.ok(p.y + p.sampleOffset <= floor.y + o.sill + o.h);
+    }
+  }
+});
+test("会议JSON完整回读，不接受非法机位、未知图层值、日期和越界参数", () => {
+  const session = emptySession();
+  session.notes.D04 = { status: "待补资料", owner: "设计师", due: "2026-11-03", body: "最低梁底待测" };
+  session.snapshots.push({ id: "test-view", title: "入口A", createdAt: "2026-10-15T00:00:00Z", revision: session.revision, view: view() });
+  assert.deepEqual(parseSession(JSON.stringify(session)), session);
+  assert.throws(() => validateMeetingView({ ...view(), roadY: NaN }));
+  assert.throws(() => validateMeetingView({ ...view(), rampLength: 0 }));
+  assert.throws(() => validateMeetingView({ ...view(), sunDate: "2026-02-30" }));
+  assert.throws(() => validateMeetingView({ ...view(), pose: { position: [1, 1, 1], target: [1, 1, 1], zoom: 1 } }));
+  assert.throws(() => validateMeetingView({ ...view(), flags: { ...view().flags, roof: "true" } }));
+  assert.throws(() => parseSession(JSON.stringify({ ...session, notes: { D99: session.notes.D04 } })));
+  const other = emptySession();
+  other.notes.D05 = { status: "未讨论", owner: "", due: "", body: "人行出口" };
+  const merged = mergeSessions(session, other);
+  assert.equal(merged.snapshots.length, 1);
+  assert.equal(Object.keys(merged.notes).length, 2);
+  assert.equal(session.notes.D05, undefined);
+});
+test("导出图册转义会议内容，参数变化更新图纸，未知工程条件保持为空", () => {
+  const session = emptySession();
+  session.brief = '<img src=x onerror="alert(1)"><script>bad()</script>';
+  const options = { fenShui: 4.5, roadY: -1.86, rampLength: 5 };
+  const html = meetingBooklet(session, options, view());
+  assert.ok(!html.includes(session.brief));
+  assert.match(html, /&lt;script&gt;bad\(\)&lt;\/script&gt;/);
+  assert.match(html, /最低梁底待联测/);
+  assert.match(html, /切口协商待确认/);
+  assert.ok(!/https?:\/\//.test(html.replaceAll('xmlns="http://www.w3.org/2000/svg"', "")));
+  const base = designDrawings(options), changed = designDrawings({ ...options, fenShui: 6, roadY: -2.5 });
+  assert.equal(base.length, 5);
+  assert.notEqual(base[0].svg, changed[0].svg);
+  assert.notEqual(base[1].svg, changed[1].svg);
+  assert.equal(base[2].svg, changed[2].svg);
+  assert.deepEqual(unresolvedConditions, { roadSurveyElevation: null, lowestRetainedSoffitElevation: null, cutAgreementConfirmed: false, stairHeadroom: null, structuralCapacity: null, drainageDestination: null });
+});
+test("允许的坡道极值下，路线标高及车高带仍完整落在绘图区", () => {
+  for (const roadY of [-3.8, 0]) for (const rampLength of [3, 10]) {
+    const svg = designDrawings({ fenShui: 10, roadY, rampLength })[1].svg;
+    const polygon = svg.match(/<polygon points="([^"]+)" class="vehicle"/)!;
+    assert.ok(polygon);
+    for (const pair of polygon[1].split(" ")) {
+      const [x, y] = pair.split(",").map(Number);
+      assert.ok(Number.isFinite(x) && Number.isFinite(y));
+      assert.ok(x >= 70 && x <= 920 && y >= 130 && y <= 300);
+    }
+  }
+});
