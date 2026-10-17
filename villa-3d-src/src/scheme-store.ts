@@ -63,7 +63,7 @@ export function createEmptyScheme(title = "当前方案"): SchemeDocument {
     schema: schemeSchema,
     id: "current",
     title,
-    savedAt: new Date().toISOString(),
+    savedAt: formatSavedAt(),
     villaParams: { ...DEFAULT_VILLA_PARAMS },
     layoutDraft: null,
     courtyardDimLayout: {},
@@ -97,7 +97,7 @@ export function parseSchemeDocument(raw: unknown): SchemeDocument {
     schema: schemeSchema,
     id: typeof raw.id === "string" && raw.id ? raw.id : "current",
     title: typeof raw.title === "string" && raw.title ? raw.title : "方案",
-    savedAt: typeof raw.savedAt === "string" ? raw.savedAt : new Date().toISOString(),
+    savedAt: typeof raw.savedAt === "string" ? raw.savedAt : formatSavedAt(),
     villaParams,
     layoutDraft,
     courtyardDimLayout,
@@ -124,7 +124,7 @@ export function buildSchemeDocument(input: {
     schema: schemeSchema,
     id: input.id ?? "current",
     title: input.title ?? "当前方案",
-    savedAt: new Date().toISOString(),
+    savedAt: formatSavedAt(),
     villaParams: getVillaParams(),
     layoutDraft: input.layoutDraft === undefined ? null : input.layoutDraft,
     courtyardDimLayout: input.courtyardDimLayout ?? {},
@@ -264,9 +264,54 @@ export async function persistSchemeFile(
   };
 }
 
+/** 北京时间各字段（与日照／文案口径一致，避免 UTC 与文件名差 8 小时）。 */
+function shanghaiParts(now: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const g = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "00";
+  return {
+    year: g("year"),
+    month: g("month"),
+    day: g("day"),
+    hour: g("hour"),
+    minute: g("minute"),
+    second: g("second"),
+  };
+}
+
+/** 版本文件名时间段：20261017-121742（北京时间）。 */
 export function makeVersionId(now = new Date()) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const p = shanghaiParts(now);
+  return `${p.year}${p.month}${p.day}-${p.hour}${p.minute}${p.second}`;
+}
+
+/**
+ * 写入 JSON 的 savedAt：北京时间带 +08:00，如 2026-10-17T12:17:42+08:00。
+ * 不用 toISOString() 的 Z（UTC），否则比本地／文件名慢 8 小时。
+ */
+export function formatSavedAt(now = new Date()) {
+  const p = shanghaiParts(now);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}+08:00`;
+}
+
+/** 下拉／状态栏展示：把旧 UTC（…Z）与新 +08:00 都显示成北京时间。 */
+export function formatSavedAtDisplay(savedAt: string, withSeconds = false) {
+  const t = Date.parse(savedAt);
+  if (!Number.isFinite(t)) {
+    return savedAt.replace("T", " ").replace(/\+08:00$/, "").replace(/\.\d+Z$/, "").replace(/Z$/, "").slice(0, withSeconds ? 19 : 16);
+  }
+  const p = shanghaiParts(new Date(t));
+  return withSeconds
+    ? `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`
+    : `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
 }
 
 /** 从旧 localStorage 迁一次（仅内存，不写回缓存）。 */

@@ -288,15 +288,32 @@ export class LayoutEditor {
     }
   }
 
-  /** 手动保存到内存；请再点「保存到文件／保存版本」写入 scheme 文件。 */
-  saveNow() {
+  /** 手动保存到内存；随后由「保存」写入 data/户型/（一二三楼一体）。 */
+  saveNow(options?: { silent?: boolean }) {
     try {
       this.draft = saveLayoutDraft(this.draft);
       this.host.onDraftSaved?.(this.draft.updatedAt, true);
-      this.host.toast("布局已写入内存，请点「保存到文件」或「保存版本」落盘");
+      if (!options?.silent) {
+        this.host.toast("布局已写入内存，可点「保存」存为户型版本");
+      }
     } catch (error) {
       this.host.toast(error instanceof Error ? error.message : "草稿保存失败");
     }
+  }
+
+  /** 载入完整户型版本（一二三楼一体），重置撤销栈。 */
+  loadDraft(draft: LayoutDraft) {
+    this.draft = ensureExteriorManaged(structuredClone(draft));
+    try {
+      this.draft = saveLayoutDraft(this.draft);
+      this.host.onDraftSaved?.(this.draft.updatedAt, false);
+    } catch {
+      /* ignore */
+    }
+    this.history = [JSON.stringify(this.draft)];
+    this.future = [];
+    this.selection = null;
+    this.host.redraw();
   }
 
   get canUndo() {

@@ -296,12 +296,13 @@ export function villaParamsPanelHtml(params: VillaParams = getVillaParams()) {
       <div class="params-inner-tabs-row">
         <div class="params-inner-tabs" role="tablist" aria-label="尺寸分组">${tabs}</div>
         <div class="params-scheme-versions">
-          <label class="params-version-label">已存版本
-            <select id="scheme-version-select" aria-label="选择已保存的方案版本">
-              <option value="">（当前稿）</option>
+          <label class="params-version-label">已存尺寸版本
+            <select id="scheme-version-select" aria-label="选择已保存的尺寸版本">
+              <option value="">（当前尺寸）</option>
             </select>
           </label>
           <button type="button" class="secondary-button params-compact-btn" id="scheme-load-version">载入</button>
+          <button type="button" class="secondary-button params-compact-btn" id="scheme-delete-version">删除</button>
         </div>
       </div>
       <div class="params-section-body" id="villa-params-scroll">

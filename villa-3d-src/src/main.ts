@@ -59,16 +59,29 @@ import {
 import {
   buildSchemeDocument,
   clearLegacyLocalStorage,
+  formatSavedAt,
+  formatSavedAtDisplay,
   loadCurrentScheme,
-  loadSchemeVersion,
-  loadSchemeVersionsIndex,
-  makeVersionId,
   migrateLegacyLocalStorage,
   persistSchemeFile,
   resetSchemeDocument,
   type SchemeDocument,
-  type SchemeVersionsIndex,
 } from "./scheme-store";
+import {
+  buildLayoutVersionDocument,
+  buildSizeVersionDocument,
+  loadDataVersionsIndex,
+  loadLayoutVersion,
+  loadSizeVersion,
+  makeDataVersionTitle,
+  deleteDataVersion,
+  persistDataVersion,
+  prependVersionMeta,
+  removeVersionMeta,
+  type DataVersionsIndex,
+  type LayoutVersionDocument,
+  type SizeVersionDocument,
+} from "./data-versions";
 
 const shapes: Record<string, string> = {
   house: '<path d="M3 10 12 3l9 7M5 9v12h14V9M10 21v-7h4v7"/>',
@@ -157,7 +170,11 @@ document.querySelector("#app")!.innerHTML = `
         )
         .join("")}</div>
       <div class="compass" id="compass"><span>N</span><svg viewBox="0 0 52 52" aria-label="指北针"><circle cx="26" cy="26" r="23"/><g id="compass-arrow"><path d="m26 7 9 34-9-7-9 7Z"/></g></svg></div>
-      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills"><button data-floor="-1" type="button">院坪</button>${floors.map((f, i) => `<button data-floor="${i}" type="button" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}</div><div class="plan-toolbar-actions"><span id="plan-orient-hint">北 ↑ · 东 →</span><button type="button" id="toggle-wall-width" class="secondary-button" aria-pressed="false" title="显示或隐藏墙厚毫米标注">墙厚</button><button type="button" id="toggle-layout-edit" class="secondary-button" aria-pressed="false">编辑布局</button></div></div><div class="plan-canvas-wrap"><div id="layout-edit-bar" class="layout-edit-bar layout-edit-bar-float" hidden>
+      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills"><button data-floor="-1" type="button">院坪</button>${floors.map((f, i) => `<button data-floor="${i}" type="button" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}</div><div class="plan-toolbar-actions"><span id="plan-orient-hint">北 ↑ · 东 →</span><button type="button" id="toggle-wall-width" class="secondary-button" aria-pressed="false" title="显示或隐藏墙厚毫米标注">墙厚</button><button type="button" id="toggle-layout-edit" class="secondary-button" aria-pressed="false">编辑布局</button><label class="layout-version-label">户型版本
+            <select id="layout-version-select" aria-label="选择已保存的户型版本（一二三楼一体）">
+              <option value="">（当前草稿）</option>
+            </select>
+          </label><button type="button" id="layout-delete-version" class="secondary-button" title="删除所选户型版本">删除版本</button></div></div><div class="plan-canvas-wrap"><div id="layout-edit-bar" class="layout-edit-bar layout-edit-bar-float" hidden>
         <div class="layout-edit-row">
           <div class="layout-tools" role="toolbar" aria-label="布局编辑类别">
             <button type="button" data-edit-tool="select" class="active">选择</button>
@@ -420,20 +437,36 @@ function collectSchemeDocument(title = "当前方案", id = "current"): SchemeDo
   });
 }
 
-async function refreshSchemeVersionSelect(index?: SchemeVersionsIndex) {
-  const select = document.getElementById("scheme-version-select") as HTMLSelectElement | null;
+function fillVersionSelect(select: HTMLSelectElement | null, index: DataVersionsIndex, emptyLabel: string) {
   if (!select) return;
-  const data = index ?? (await loadSchemeVersionsIndex());
   const current = select.value;
   select.innerHTML =
-    `<option value="">（当前稿）</option>` +
-    data.versions
+    `<option value="">${escapeHtml(emptyLabel)}</option>` +
+    index.versions
       .map(
         (v) =>
-          `<option value="${escapeHtml(v.file)}">${escapeHtml(v.title)} · ${escapeHtml(v.savedAt.slice(0, 16).replace("T", " "))}</option>`,
+          `<option value="${escapeHtml(v.file)}">${escapeHtml(v.title)} · ${escapeHtml(formatSavedAtDisplay(v.savedAt))}</option>`,
       )
       .join("");
   if ([...select.options].some((o) => o.value === current)) select.value = current;
+}
+
+async function refreshSizeVersionSelect(index?: DataVersionsIndex) {
+  const data = index ?? (await loadDataVersionsIndex("尺寸"));
+  fillVersionSelect(
+    document.getElementById("scheme-version-select") as HTMLSelectElement | null,
+    data,
+    "（当前尺寸）",
+  );
+}
+
+async function refreshLayoutVersionSelect(index?: DataVersionsIndex) {
+  const data = index ?? (await loadDataVersionsIndex("户型"));
+  fillVersionSelect(
+    document.getElementById("layout-version-select") as HTMLSelectElement | null,
+    data,
+    "（当前草稿）",
+  );
 }
 
 async function applySchemeDocument(doc: SchemeDocument, options?: { toastMsg?: string }) {
@@ -455,7 +488,37 @@ async function applySchemeDocument(doc: SchemeDocument, options?: { toastMsg?: s
   });
   updateScene();
   drawPlan();
-  setSchemeStatus(`已载入：${doc.title}（${doc.savedAt.slice(0, 19).replace("T", " ")}）`);
+  setSchemeStatus(`已载入：${doc.title}（${formatSavedAtDisplay(doc.savedAt, true)}）`);
+}
+
+async function applySizeVersion(doc: SizeVersionDocument, options?: { toastMsg?: string }) {
+  replaceCourtyardDimLayout(doc.courtyardDimLayout);
+  courtyardDimLayout = loadCourtyardDimLayout();
+  roofStyle = doc.roofStyle;
+  applyCourtyardFinishInputs(doc.courtyardFinish, doc.neighborCourtyardFinish);
+  document.querySelectorAll<HTMLButtonElement>("[data-roof-style]").forEach((btn) => {
+    const on = btn.dataset.roofStyle === roofStyle;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", String(on));
+  });
+  await commitVillaParams(doc.villaParams, { persist: false, toastMsg: options?.toastMsg });
+  viewer?.setState({
+    roofStyle: doc.roofStyle,
+    courtyardFinish: doc.courtyardFinish,
+    neighborCourtyardFinish: doc.neighborCourtyardFinish,
+  });
+  updateScene();
+  drawPlan();
+  setSchemeStatus(`已载入尺寸：${doc.title}（${formatSavedAtDisplay(doc.savedAt, true)}）`);
+}
+
+async function applyLayoutVersion(doc: LayoutVersionDocument) {
+  replaceLayoutDraftMemory(doc.layoutDraft);
+  if (layoutEditor) {
+    layoutEditor.loadDraft(doc.layoutDraft);
+  }
+  drawPlan();
+  toast(`已载入户型版本：${doc.title}（一二三楼）`);
 }
 
 async function saveSchemeCurrent() {
@@ -465,36 +528,111 @@ async function saveSchemeCurrent() {
   toast(result.message);
 }
 
-async function saveSchemeVersion() {
-  const entered = window.prompt("版本名称（可留空用时间戳）", "");
-  // Cancel → null；点确定即使空字符串也继续。
-  if (entered == null) {
-    setSchemeStatus("已取消保存版本");
+/** 尺寸设置「保存版本」→ data/尺寸/，自动中文前缀＋日期编号。 */
+async function saveSizeVersion() {
+  try {
+    const title = makeDataVersionTitle("尺寸");
+    const doc = buildSizeVersionDocument({
+      id: title,
+      title,
+      courtyardDimLayout: loadCourtyardDimLayout(),
+      roofStyle,
+      courtyardFinish: selectedCourtyardFinish("courtyard-finish"),
+      neighborCourtyardFinish: selectedCourtyardFinish("neighbor-courtyard-finish"),
+    });
+    const index = await loadDataVersionsIndex("尺寸");
+    const nextIndex = prependVersionMeta(index, {
+      id: doc.id,
+      title: doc.title,
+      savedAt: doc.savedAt,
+      file: `${doc.id}.json`,
+    });
+    const result = await persistDataVersion({ kind: "尺寸", document: doc, index: nextIndex });
+    await refreshSizeVersionSelect(nextIndex);
+    setSchemeStatus(result.message);
+    toast(result.message);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "尺寸版本保存失败";
+    setSchemeStatus(message);
+    toast(message);
+  }
+}
+
+async function deleteSizeVersion() {
+  const select = document.getElementById("scheme-version-select") as HTMLSelectElement | null;
+  const file = select?.value;
+  if (!file) {
+    toast("请先选择要删除的尺寸版本");
     return;
   }
-  const label = entered.trim();
-  const id = makeVersionId();
-  const title = label || `版本 ${id}`;
-  const doc = collectSchemeDocument(title, id);
-  const current = { ...doc, id: "current", title: "当前方案" };
-  const index = await loadSchemeVersionsIndex();
-  const nextIndex: SchemeVersionsIndex = {
-    schema: "anhua-villa-scheme-versions-v1",
-    versions: [
-      { id, title, savedAt: doc.savedAt, file: `${id}.json` },
-      ...index.versions.filter((v) => v.id !== id),
-    ],
-  };
-  // 一次请求写完版本＋目录＋当前稿；静态页则只下一份版本文件。
-  const result = await persistSchemeFile({
-    kind: "version",
-    document: doc,
-    current,
-    index: nextIndex,
-  });
-  await refreshSchemeVersionSelect(nextIndex);
-  setSchemeStatus(result.message);
-  toast(result.message);
+  const label = select?.selectedOptions[0]?.textContent?.trim() || file;
+  if (!window.confirm(`确定删除尺寸版本「${label}」？将从仓库 data/尺寸/ 去掉该文件，不可撤销。`)) return;
+  try {
+    const index = await loadDataVersionsIndex("尺寸");
+    const nextIndex = removeVersionMeta(index, file);
+    const result = await deleteDataVersion({ kind: "尺寸", file, index: nextIndex });
+    await refreshSizeVersionSelect(nextIndex);
+    if (select) select.value = "";
+    setSchemeStatus(result.message);
+    toast(result.message);
+  } catch (error) {
+    toast(error instanceof Error ? error.message : "删除尺寸版本失败");
+  }
+}
+
+async function deleteLayoutVersion() {
+  const select = document.getElementById("layout-version-select") as HTMLSelectElement | null;
+  const file = select?.value;
+  if (!file) {
+    toast("请先选择要删除的户型版本");
+    return;
+  }
+  const label = select?.selectedOptions[0]?.textContent?.trim() || file;
+  if (!window.confirm(`确定删除户型版本「${label}」？将从仓库 data/户型/ 去掉该文件（一二三楼一体），不可撤销。`)) return;
+  try {
+    const index = await loadDataVersionsIndex("户型");
+    const nextIndex = removeVersionMeta(index, file);
+    const result = await deleteDataVersion({ kind: "户型", file, index: nextIndex });
+    await refreshLayoutVersionSelect(nextIndex);
+    if (select) select.value = "";
+    const status = document.getElementById("layout-save-status");
+    if (status) status.textContent = result.message;
+    toast(result.message);
+  } catch (error) {
+    toast(error instanceof Error ? error.message : "删除户型版本失败");
+  }
+}
+
+/** 户型图「保存」→ data/户型/，一二三楼一体一个版本。 */
+async function saveLayoutVersion() {
+  try {
+    layoutEditor?.saveNow({ silent: true });
+    const draft = loadLayoutDraft();
+    if (!draft) {
+      toast("没有可保存的户型草稿，请先编辑布局");
+      return;
+    }
+    if (draft.floors.length !== 3) {
+      toast("户型版本必须包含一二三楼，无法按单层保存");
+      return;
+    }
+    const title = makeDataVersionTitle("户型");
+    const doc = buildLayoutVersionDocument(draft, { id: title, title });
+    const index = await loadDataVersionsIndex("户型");
+    const nextIndex = prependVersionMeta(index, {
+      id: doc.id,
+      title: doc.title,
+      savedAt: doc.savedAt,
+      file: `${doc.id}.json`,
+    });
+    const result = await persistDataVersion({ kind: "户型", document: doc, index: nextIndex });
+    await refreshLayoutVersionSelect(nextIndex);
+    const status = document.getElementById("layout-save-status");
+    if (status) status.textContent = result.message;
+    toast(result.message);
+  } catch (error) {
+    toast(error instanceof Error ? error.message : "户型版本保存失败");
+  }
 }
 
 async function resetSchemeToInitial() {
@@ -840,6 +978,8 @@ function drawPlan() {
     $("layout-edit-bar").hidden = true;
     $("toggle-layout-edit").hidden = true;
     $("toggle-wall-width").hidden = true;
+    const layoutVersionLabel = document.querySelector<HTMLElement>(".layout-version-label");
+    if (layoutVersionLabel) layoutVersionLabel.hidden = true;
     $("toggle-layout-edit").setAttribute("aria-pressed", "false");
     $("toggle-layout-edit").classList.remove("active");
     $("toggle-layout-edit").textContent = "编辑布局";
@@ -867,10 +1007,15 @@ function drawPlan() {
 
   $("toggle-layout-edit").hidden = false;
   $("toggle-wall-width").hidden = false;
+  const layoutVersionLabel = document.querySelector<HTMLElement>(".layout-version-label");
+  if (layoutVersionLabel) layoutVersionLabel.hidden = false;
 
+  const memoryDraft = loadLayoutDraft();
   const source = layoutEditing && layoutEditor
     ? planSourceFromDraft(layoutEditor.draft, level)
-    : planSourceFromPublished(level);
+    : memoryDraft
+      ? planSourceFromDraft(memoryDraft, level)
+      : planSourceFromPublished(level);
   const selected = layoutEditing && layoutEditor?.selection
     ? layoutEditor.selection.kind === "room"
       ? { kind: "room", id: layoutEditor.selection.id }
@@ -973,7 +1118,7 @@ function formatSaveStatus(updatedAt: string, manual: boolean) {
   const clock = Number.isNaN(t.getTime())
     ? ""
     : `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}:${String(t.getSeconds()).padStart(2, "0")}`;
-  return manual ? `已写入内存 ${clock} · 请「保存到文件」` : `已暂存 ${clock} · 请「保存到文件」`;
+  return manual ? `已写入内存 ${clock} · 可点「保存」` : `已暂存 ${clock}`;
 }
 
 function setLayoutSaveStatus(updatedAt: string, manual: boolean) {
@@ -1425,8 +1570,7 @@ document.addEventListener("click", (event) => {
     return;
   }
   if (el.id === "layout-save") {
-    layoutEditor?.saveNow();
-    void saveSchemeCurrent();
+    void saveLayoutVersion();
   }
   if (el.id === "layout-undo") layoutEditor?.undo();
   if (el.id === "layout-redo") layoutEditor?.redo();
@@ -1649,7 +1793,8 @@ document.addEventListener(
 
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      layoutEditor.saveNow();
+      void saveLayoutVersion();
+      return;
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
@@ -1874,23 +2019,43 @@ document.getElementById("scheme-save-current")?.addEventListener("click", () => 
   void saveSchemeCurrent();
 });
 document.getElementById("scheme-save-version")?.addEventListener("click", () => {
-  void saveSchemeVersion();
+  void saveSizeVersion();
 });
 document.getElementById("scheme-load-version")?.addEventListener("click", () => {
   void (async () => {
     const select = document.getElementById("scheme-version-select") as HTMLSelectElement | null;
     const file = select?.value;
     if (!file) {
-      toast("请先选择一个已保存版本");
+      toast("请先选择一个已保存的尺寸版本");
       return;
     }
-    const doc = await loadSchemeVersion(file);
+    const doc = await loadSizeVersion(file);
     if (!doc) {
-      toast("载入版本失败");
+      toast("载入尺寸版本失败");
       return;
     }
-    await applySchemeDocument(doc, { toastMsg: "正在载入版本…" });
-    toast(`已载入版本：${doc.title}`);
+    await applySizeVersion(doc, { toastMsg: "正在载入尺寸版本…" });
+    toast(`已载入尺寸：${doc.title}`);
+  })();
+});
+document.getElementById("scheme-delete-version")?.addEventListener("click", () => {
+  void deleteSizeVersion();
+});
+document.getElementById("layout-delete-version")?.addEventListener("click", () => {
+  void deleteLayoutVersion();
+});
+document.getElementById("layout-version-select")?.addEventListener("change", () => {
+  void (async () => {
+    const select = document.getElementById("layout-version-select") as HTMLSelectElement | null;
+    const file = select?.value;
+    if (!file) return;
+    const doc = await loadLayoutVersion(file);
+    if (!doc) {
+      toast("载入户型版本失败");
+      select!.value = "";
+      return;
+    }
+    await applyLayoutVersion(doc);
   })();
 });
 $("villa-params-reset").addEventListener("click", () => {
@@ -1952,7 +2117,7 @@ if (initialTab && ["model", "floor", "sun", "sources", "real", "design", "origin
   if (!boot) {
     const legacy = migrateLegacyLocalStorage();
     if (legacy) {
-      boot = { ...resetSchemeDocument(), ...legacy, schema: "anhua-villa-scheme-v1", id: "current", title: "从浏览器缓存迁移", savedAt: new Date().toISOString() };
+      boot = { ...resetSchemeDocument(), ...legacy, schema: "anhua-villa-scheme-v1", id: "current", title: "从浏览器缓存迁移", savedAt: formatSavedAt() };
       const migrated = await persistSchemeFile("current", boot as SchemeDocument);
       setSchemeStatus(migrated.message);
       toast("已将浏览器旧缓存迁到方案文件，请确认后点「保存到文件」");
@@ -1966,5 +2131,6 @@ if (initialTab && ["model", "floor", "sun", "sources", "real", "design", "origin
     fillVillaParamsDom(DEFAULT_VILLA_PARAMS, document, { force: true });
     setSchemeStatus("使用初始化默认值；改完请「保存到文件」写入 public/scheme/current.json");
   }
-  await refreshSchemeVersionSelect();
+  await refreshSizeVersionSelect();
+  await refreshLayoutVersionSelect();
 }

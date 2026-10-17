@@ -738,6 +738,24 @@ input[type="range"] {
   padding: 7px 12px;
   font-size: 12px;
 }
+.layout-version-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: #687861;
+  white-space: nowrap;
+}
+.layout-version-label select {
+  max-width: min(16rem, 42vw);
+  padding: 5px 8px;
+  border: 1px solid #c5cbbd;
+  border-radius: 4px;
+  background: #fffdf7;
+  font: inherit;
+  color: #35513e;
+}
 .layout-edit-bar {
   display: block;
 }

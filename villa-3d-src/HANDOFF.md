@@ -30,9 +30,11 @@
 ### 怎么改、存在哪
 
 - 顶栏右侧「尺寸设置」悬浮面板（`villa-params-ui.ts`）；不是旧的左侧／右侧整块「方案尺寸」。
-- 方案尺寸、布局草稿、院坪标注、官帽与院坪铺装 → `villa-3d-src/public/scheme/current.json`（版本在 `public/scheme/versions/`）；构建复制到 `villa-3d/scheme/`。**不再以 localStorage 为正式存储**（旧键仅迁移一次）。
-- 「恢复默认」只还原源码默认，不落盘。「保存到文件／保存版本」：`npm run dev` 经 `/__scheme_save` 直写；静态服务则下载 JSON。
-- 分层户型「编辑布局」改草稿，外墙锁定；定稿导出 JSON 后再回写 `data.ts`。
+- **尺寸版本**与**户型版本**分开存仓库 `villa-3d-src/data/`：`data/尺寸/`、`data/户型/`（各有 `index.json`＋版本 JSON）。构建复制到 `villa-3d/data/`。`npm run dev` 经 `/__data_save` 直写；静态服务则下载 JSON。
+- 尺寸设置「保存版本」→ 自动名 `尺寸-YYYYMMDD-HHMMSS`，只存尺寸／官帽／院坪相关，不绑户型。面板「已存尺寸版本」可载入／删除。
+- 户型图「保存」→ 自动名 `户型-YYYYMMDD-HHMMSS`，**一二三楼一体**一个版本（不可按单层存）。「编辑布局」旁下拉可选版本并一次载入／删除三层。
+- 当前工作稿仍可「保存到文件」写入 `public/scheme/current.json`（启动载入用）；**不再以 localStorage 为正式存储**。
+- 「恢复默认」只还原源码默认，不落盘。分层户型「编辑布局」改草稿，外墙锁定；定稿导出 JSON 后再回写 `data.ts`。
 - 顶栏「原始资料」嵌入 `original-materials/`，源文件在仓库 `原始资料/`；见 `../original-materials/README.md`。
 
 ### 两套查看器
@@ -43,12 +45,24 @@
 ### 运行
 
 - 仓库根目录：`启动服务.command`／`.bat`，或 `python3 -m http.server 18888 --bind 127.0.0.1`。端口 **18888**（不是旧文的 8000／8006）。
-- 开发：`cd villa-3d-src && npm run dev`；检查／构建：`npm run check`／`npm run build` → 输出 `../villa-3d/`。
-- 用户要求跳过验证时只跑 Vite 构建即可；未写明验证的改动不要当成已验收。
+- 开发：仓库根或 `villa-3d-src` 执行 `npm run dev`。对外 URL 对齐仓库根（`/docs/`、`/villa-3d/`、`/sunlight-3d/`、原始资料等），见 `vite-plugin-repo-root.ts`；别墅模型在 `/villa-3d/` 热更新。
+- 检查／构建：`npm run check`／`npm run build` → `villa-3d/`。用户要求跳过验证时只跑 Vite 构建即可；未写明验证的改动不要当成已验收。
 
 ### 待用户自验／专业未决（摘要）
 
 外观、茶室户型、院坪弧、尺寸面板、scheme 落盘等多轮改动大量待用户强刷核对。车辆通行、梁底净高、邻居切口、报建面积、法定日照均未通过专业校核。细节见文末「已知未决项」与 README。
+
+## 最新：尺寸／户型版本可删除（2026-10-17）
+
+尺寸设置「已存尺寸版本」旁与户型图「户型版本」旁增加「删除」；确认后经 `/__data_delete` 删掉 `data/尺寸|户型/` 下对应 JSON 并更新 `index.json`。静态服务无写入接口时下载新 index 并提示手删文件。
+
+## 前轮：npm run dev 按仓库根路径提供各子项目（2026-10-17）
+
+`vite-plugin-repo-root`：开发时 `/`→文档，`/villa-3d/`→别墅源码热更新，并挂载 `/docs/`、`/sunlight-3d/`、`/original-materials/`、`/原始资料/`、`/villa-real-scene/`。与 18888 静态布局一致，页面间 `../` 链接可用。仓库根新增转发用 `package.json`（`npm run dev`／`build`／`check`）。
+
+## 前轮：尺寸／户型版本写入 data/（2026-10-17）
+
+「保存版本」（尺寸设置）与户型「保存」改为写入 `villa-3d-src/data/尺寸/`、`data/户型/`；名称自动为 `尺寸-日期时间`／`户型-日期时间`。户型版本一二三楼一体保存与载入；平面图「编辑布局」旁下拉选版本。开发经 `/__data_save`；构建复制到 `villa-3d/data/`。当前稿「保存到文件」仍写 `public/scheme/current.json`。
 
 ## 最新：方案尺寸 → 几何联动补齐（2026-10-17）
 
@@ -63,7 +77,7 @@
 
 ## 最新：原始资料浏览（2026-10-17）
 
-顶栏新增「原始资料」Tab，嵌入根目录 `original-materials/` 静态图库；文档中心也有入口。51 个文件（50 张图片、1 份 Excel），支持分类、搜索、大图、键盘翻阅与下载。`scripts/index-original-materials.mjs` 扫描 `原始资料/`，Vite 启动／构建自动生成清单。部署需发布仓库根目录，包含原始资料与图库，说明见 `../original-materials/README.md`。本轮构建／类型检查通过；浏览器验证分类、搜索、大图翻阅及390px无横向溢出。全套83项测试80通过、3失败，涉及院坪／餐厅尺寸断言，未修改这些模型与测试。
+顶栏新增「原始资料」Tab，嵌入根目录 `original-materials/` 静态图库；文档中心也有入口。51 个文件（50 张图片、1 份 Excel），支持分类、搜索、大图、键盘翻阅与下载。`scripts/index-original-materials.mjs` 扫描 `原始资料/`，Vite 启动／构建自动生成清单。dev 下由图库路径随 `vite-plugin-repo-root` 一并挂载。部署需发布仓库根目录，说明见 `../original-materials/README.md`。
 
 ## 最新：默认尺寸调整（2026-10-17）
 

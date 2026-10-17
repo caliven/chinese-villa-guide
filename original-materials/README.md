@@ -4,7 +4,7 @@
 
 支持文件夹分类、文件名搜索、大图预览、左右方向键翻阅与下载。Excel 等非图片文件提供下载。
 
-新增、删除或重命名资料后，在仓库根目录执行 `node scripts/index-original-materials.mjs` 更新清单；启动 Vite 或构建别墅模型时也会更新清单。
+新增、删除或重命名资料后，在仓库根目录执行 `node scripts/index-original-materials.mjs` 更新清单；启动 Vite 或构建别墅模型时也会更新清单。`npm run dev` 按仓库根路径提供本图库与 `原始资料/`（与 `/docs/`、`/villa-3d/` 等一致），iframe 与原片链接可直接打开。
 
 GitHub Pages 需以仓库根目录发布，将 `original-materials/`、`原始资料/`、`villa-3d/`、`docs/` 一并上传，保留根目录 `.nojekyll`。相对路径支持仓库子路径，不依赖目录索引或 API。仅发布 docs 目录无法读取外部资料。
 

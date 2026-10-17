@@ -1,16 +1,19 @@
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { dataSavePlugin } from "./vite-plugin-data-save";
 import { schemeSavePlugin } from "./vite-plugin-scheme-save";
+import { repoRootDevPlugin, repoRootFsAllow } from "./vite-plugin-repo-root";
 
 export default defineConfig({
   base: "./",
-  plugins: [schemeSavePlugin(), {
-    name: "original-materials-index",
-    buildStart() {
-      execFileSync(process.execPath, [fileURLToPath(new URL("../scripts/index-original-materials.mjs", import.meta.url))], { stdio: "inherit" });
+  plugins: [dataSavePlugin(), schemeSavePlugin(), repoRootDevPlugin()],
+  server: {
+    host: "127.0.0.1",
+    open: "/villa-3d/",
+    fs: {
+      // 开发服务对外等同仓库根：可读 docs／日照／原始资料／实景等兄弟目录
+      allow: repoRootFsAllow(),
     },
-  }],
+  },
   build: {
     outDir: "../villa-3d",
     emptyOutDir: true,

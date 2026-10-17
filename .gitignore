@@ -60,7 +60,6 @@ coverage/
 docker-data/
 infra/.data/
 infra/minio/data/
-data/
 tmp/
 temp/
 

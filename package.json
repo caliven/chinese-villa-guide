@@ -1,0 +1,12 @@
+{
+  "name": "chinese-villa-guide",
+  "private": true,
+  "description": "安化自建房资料仓：文档、实景别墅、日照与原始资料。开发服务按仓库根路径提供各子项目。",
+  "scripts": {
+    "dev": "npm run dev --prefix villa-3d-src",
+    "build": "npm run build --prefix villa-3d-src",
+    "check": "npm run check --prefix villa-3d-src",
+    "dev:villa": "npm run dev --prefix villa-3d-src",
+    "dev:real-scene": "npm run dev --prefix villa-real-scene-src"
+  }
+}
