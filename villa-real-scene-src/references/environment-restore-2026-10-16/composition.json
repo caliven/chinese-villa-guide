@@ -1,0 +1,56 @@
+{
+  "version": "20261016-original1",
+  "outputWidth": 2736,
+  "notes": "原片按同一比例缩至2736x1824后锁定底图；仅建设及小接缝选区可变。sourceOffset以1536宽参考坐标计。",
+  "views": {
+    "front": {
+      "original": "public/photos/front-original.jpg",
+      "output": "public/photos/front-render.png",
+      "layers": [
+        {
+          "source": "public/photos/front-original.jpg",
+          "mask": "references/environment-restore-2026-10-16/front-old-railing-mask.svg",
+          "sourceOffset": [
+            0,
+            60
+          ],
+          "feather": 1.5
+        },
+        {
+          "source": "references/environment-restore-2026-10-16/front-construction-source.png",
+          "mask": "references/environment-restore-2026-10-16/front-construction-mask.png",
+          "saturation": 0.78,
+          "feather": 0.34
+        },
+        {
+          "source": "references/environment-restore-2026-10-16/front-seams-source.png",
+          "mask": "references/environment-restore-2026-10-16/front-seams-mask.svg",
+          "feather": 2
+        }
+      ]
+    },
+    "aerial": {
+      "original": "public/photos/aerial-original.jpg",
+      "output": "public/photos/aerial-render.png",
+      "layers": [
+        {
+          "source": "references/environment-restore-2026-10-16/aerial-old-railing-source.png",
+          "mask": "references/environment-restore-2026-10-16/aerial-old-railing-mask.svg",
+          "feather": 0.35
+        },
+        {
+          "source": "references/environment-restore-2026-10-16/aerial-construction-source.png",
+          "mask": "references/environment-restore-2026-10-16/aerial-construction-mask.svg",
+          "saturation": 0.78,
+          "feather": 0.35
+        },
+        {
+          "source": "references/environment-restore-2026-10-16/aerial-neighbor-floor-source.png",
+          "mask": "references/environment-restore-2026-10-16/aerial-neighbor-floor-mask.svg",
+          "saturation": 0.78,
+          "feather": 0.5
+        }
+      ]
+    }
+  }
+}

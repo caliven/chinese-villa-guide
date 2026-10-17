@@ -1,0 +1,69 @@
+{
+  "version": "20261016-original1",
+  "views": {
+    "front": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "373a123d38ff1916dbc4f70aace8bc5cd802f5d024096797ab4ef36a1ed3ea4f",
+      "outputSha256": "7d32046a2cad690ac84eeb4ebec1919790933d247d9592b1bee3af6f817bb54e",
+      "outsidePixels": 3050892,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 61.134,
+      "layers": [
+        {
+          "source": "public/photos/front-original.jpg",
+          "sourceSha256": "373a123d38ff1916dbc4f70aace8bc5cd802f5d024096797ab4ef36a1ed3ea4f",
+          "mask": "references/environment-restore-2026-10-16/front-old-railing-mask.svg",
+          "maskSha256": "f295df1f84451892f4790d86b4b920d9ff9f1ebcf3a5e014b85cfab415188b56",
+          "selectedPixels": 30423
+        },
+        {
+          "source": "references/environment-restore-2026-10-16/front-construction-source.png",
+          "sourceSha256": "133ae54fe0d29f97202f14a0eec52dbbd8c2b2bb564bf18850d863da713ae3e9",
+          "mask": "references/environment-restore-2026-10-16/front-construction-mask.png",
+          "maskSha256": "8e264e7636c11dd60c8687e1c5299d516dfb1864740583c02d2c2503b8f47b3f",
+          "selectedPixels": 1863713
+        },
+        {
+          "source": "references/environment-restore-2026-10-16/front-seams-source.png",
+          "sourceSha256": "8cdc61a2e3286a5c9fa260491d6ce4a676d8463a4509273d74afeed86e03ff10",
+          "mask": "references/environment-restore-2026-10-16/front-seams-mask.svg",
+          "maskSha256": "9ee691cbf74dbf6348f8aaed6ab6108f3170e4e96b66f25c8741701b6bcb2e73",
+          "selectedPixels": 164168
+        }
+      ]
+    },
+    "aerial": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "2c22146e953b03eeb939ad629d0b4d26aa131e763776a39b5887eff99a825ab5",
+      "outputSha256": "2aa1292f2cc7e41361389663d605682ee33781d2a66dd99c095b43e7d3b07f35",
+      "outsidePixels": 4860632,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 97.398,
+      "layers": [
+        {
+          "source": "references/environment-restore-2026-10-16/aerial-old-railing-source.png",
+          "sourceSha256": "60e1c8b41741086c494368d4e9405817fe946dcd14681c6c45dfec982abff4ca",
+          "mask": "references/environment-restore-2026-10-16/aerial-old-railing-mask.svg",
+          "maskSha256": "3f8e88e226c33fd88d312acf90f1245b5fae6b7c302d3f056a9066bdc39d2724",
+          "selectedPixels": 1592
+        },
+        {
+          "source": "references/environment-restore-2026-10-16/aerial-construction-source.png",
+          "sourceSha256": "1ae249d7ae9c5bb2f9140ccfa59b5115795b71c57bddf615a9dc3d9aa45697a1",
+          "mask": "references/environment-restore-2026-10-16/aerial-construction-mask.svg",
+          "maskSha256": "43a728bfc95fb53317bb2ddc05449df133873a062d9899b6899b7f44504d779d",
+          "selectedPixels": 126965
+        },
+        {
+          "source": "references/environment-restore-2026-10-16/aerial-neighbor-floor-source.png",
+          "sourceSha256": "07a7898b6165bf5b435312bc3ea7d874e4f954b54d093ea539cab439c6e9d2be",
+          "mask": "references/environment-restore-2026-10-16/aerial-neighbor-floor-mask.svg",
+          "maskSha256": "59e392f0dfd073ebfd042cbf96ed38410d2f0b2f5b6b4cc3f75e8ad41e14d8a9",
+          "selectedPixels": 8161
+        }
+      ]
+    }
+  }
+}

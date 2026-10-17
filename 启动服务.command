@@ -2,8 +2,7 @@
 set -u
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_PORT=8000
-PORT="$BASE_PORT"
+PORT=18888
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "未找到 Python 3。请先从 https://www.python.org/downloads/ 安装 Python 3。"
@@ -11,15 +10,8 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-while [ "$PORT" -le 8010 ]; do
-  if ! lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-    break
-  fi
-  PORT=$((PORT + 1))
-done
-
-if [ "$PORT" -gt 8010 ]; then
-  echo "端口 8000 到 8010 均已被占用，请关闭其他服务后重试。"
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "端口 $PORT 已被占用，请关闭占用该端口的服务后重试。"
   read -r -p "按回车键关闭窗口..."
   exit 1
 fi

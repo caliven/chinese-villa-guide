@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原始资料 · 安化山居</title>
+<link rel="stylesheet" href="gallery.css?v=4">
+<script defer src="manifest.js"></script><script defer src="gallery.js"></script>
+</head>
+<body>
+<header><div><h1>原始资料</h1><p>查看航拍原片、参考效果与户型资料，点击图片可放大翻阅。</p></div></header>
+<div class="filter-bar">
+  <nav id="categories" aria-label="资料分类"></nav>
+  <input id="search" type="search" aria-label="搜索文件" placeholder="搜索文件名或文件夹名称">
+</div>
+<p id="count" role="status"></p><main id="gallery" aria-label="资料列表"></main>
+<dialog id="preview" aria-label="图片预览"><div class="preview-toolbar"><span id="caption"></span><a id="original" target="_blank" rel="noopener">打开原图 ↗</a><a id="download" download>下载</a><button id="close" autofocus aria-label="关闭预览">关闭 ×</button></div><div class="picture"><img id="full" alt=""></div><div class="paging"><button id="previous">← 上一张</button><span id="position"></span><button id="next">下一张 →</button></div></dialog>
+</body></html>

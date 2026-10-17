@@ -290,14 +290,14 @@ export function buildExistingHouses(parent: THREE.Object3D, mat: Mats) {
       box(parent, x, fieldY + 0.04, z + 0.85, 0.13, 0.08, 1.7, crops, false);
   slab(
     pads,
-    rect(8.8, woodYardFront, 21.1 - 8.8, ownWoodFront - woodYardFront),
+    rect(8.8, woodYardFront, site.width - 8.8, ownWoodFront - woodYardFront),
     0,
     0.16,
     mat.paving,
   ).name = "自家旧木房前水泥坪";
   slab(
     pads,
-    rect(21.1, woodYardFront, neighborRight - 21.1, side.z - woodYardFront),
+    rect(site.width, woodYardFront, neighborRight - site.width, side.z - woodYardFront),
     0,
     0.16,
     mat.paving,
@@ -953,13 +953,13 @@ export function buildSite(mat: Mats) {
   const padTop = 0.01;
   const padThick = 0.07;
   const stoneTop = padTop - padThick - 0.06;
-  slab(fixed, rect(0, 0, 21.1, 10.8), stoneTop, stoneTop - foundationTop, mat.stone);
-  slab(fixed, rect(0, 0, 21.1, 10.8), padTop, padThick, mat.paving);
-  box(fixed, 10.55, 1.25, 10.96, 21.1, 2.5, 0.32, mat.stone);
-  box(fixed, 10.55, 0.025, 10.52, 20.9, 0.035, 0.16, mat.dark);
+  slab(fixed, rect(0, 0, site.width, 10.8), stoneTop, stoneTop - foundationTop, mat.stone);
+  slab(fixed, rect(0, 0, site.width, 10.8), padTop, padThick, mat.paving);
+  box(fixed, site.width / 2, 1.25, 10.96, site.width, 2.5, 0.32, mat.stone);
+  box(fixed, site.width / 2, 0.025, 10.52, site.width - 0.2, 0.035, 0.16, mat.dark);
   vegetation(context, mat);
   context.add(road);
-  slab(fixed, rect(21.1, -8.6, 5, 2.5), -3.15, 0.15, mat.soil);
+  slab(fixed, rect(site.width, -8.6, 5, 2.5), -3.15, 0.15, mat.soil);
 
   const yard = surroundings.neighborYard;
   neighborDeck.name = "新建邻居前坪";
@@ -1155,7 +1155,7 @@ export function buildSite(mat: Mats) {
   const facing = roadsideToWorld(roadside, 0, -roadside.d / 2 - roadside.portico.d - 1);
   dim(roadsideDimensions, `朝西北 · 北偏西约 ${roadside.angle}° · 估算`, facing[0], roadside.y + 1.6, facing[1] - 0.7, 0.72);
   span(dimensions, p(0, 11.2, 2.4), p(site.width, 11.2, 2.4));
-  dim(dimensions, `东西总宽 ${site.width} m`, 10.55, 3.8, 12.6, 0.86);
+  dim(dimensions, `东西总宽 ${site.width} m`, site.width / 2, 3.8, 12.6, 0.86);
   span(dimensions, p(0, 0, 1.4), p(0, site.oldDepth, 1.4));
   dim(dimensions, `旧台地进深 ${site.oldDepth} m`, 2.4, 3.3, 11.6, 0.74);
   span(dimensions, p(0.35, 0, 1.2), p(0.35, courtyardFront[0][1], 1.2));
@@ -1247,8 +1247,8 @@ export function makeRamp(
   roadY: number,
   length: number,
 ) {
-  const startX = 21.1 + length,
-    endX = 21.1;
+  const startX = site.width + length,
+    endX = site.width;
   const g = new THREE.Group();
   parent.add(g);
   const z0 = -8.6, z1 = -6.1, strips = 5;

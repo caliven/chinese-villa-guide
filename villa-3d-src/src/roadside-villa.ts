@@ -9,6 +9,13 @@ const balusterGeometry = new THREE.LatheGeometry([
 ].map(([r, y]) => new THREE.Vector2(r, y)), 10);
 
 function tileMaterial(kind: "roof" | "yard") {
+  // Node 测试无 document 时退回纯色，避免整栋邻房构建失败。
+  if (typeof document === "undefined") {
+    return new THREE.MeshStandardMaterial({
+      color: kind === "roof" ? 0x42669c : 0xc5c2b8,
+      roughness: kind === "roof" ? 0.57 : 0.87,
+    });
+  }
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 256;
   const ctx = canvas.getContext("2d")!;
@@ -256,16 +263,45 @@ export function buildRoadsideVilla(baseMat: Mats) {
   ] as [Point, Point][])
     stoneRail(wing, a, b, h.wing.h + 0.09, { ...mat, trim: mat.wall });
 
-  const yard = new THREE.Group();
-  yard.name = "蓝顶邻房菱格前坪·首层同高";
-  group.add(yard);
+  // 台基沉入台地，减少墙脚穿模；前坪用略深铺装，避免大块发白空白感。
   const yardFront = porticoFront - 0.95;
   const yardEast = east + h.wing.w;
-  slab(yard, rect(west - 0.25, yardFront, yardEast - west + 0.5, front - yardFront), 0.025, 0.22, tileMaterial("yard"));
+  const foundation = new THREE.Group();
+  foundation.name = "蓝顶邻房台基";
+  group.add(foundation);
+  box(
+    foundation,
+    (west + yardEast) / 2,
+    -0.22,
+    (yardFront + back) / 2,
+    yardEast - west + 0.55,
+    0.44,
+    back - yardFront + 0.35,
+    mat.stone,
+  );
+  // 柴火房一侧补一截石裙，遮住田坎立面穿插。
+  box(
+    foundation,
+    east + h.wing.w / 2,
+    -0.18,
+    (wingFront + wingBack) / 2,
+    h.wing.w + 0.35,
+    0.36,
+    h.wing.d + 0.3,
+    mat.stone,
+  );
+
+  const yard = new THREE.Group();
+  yard.name = "蓝顶邻房前坪·首层同高";
+  group.add(yard);
+  const yardPad = baseMat.paving.clone();
+  yardPad.color = new THREE.Color(0x9a978c);
+  yardPad.roughness = 0.92;
+  slab(yard, rect(west - 0.2, yardFront, yardEast - west + 0.4, front - yardFront), 0.02, 0.16, yardPad);
   // 只画首层前坪及矮基础；不生成地下室、地下车位或架空柱。
-  stoneRail(yard, [west, yardFront + 0.08], [-1.25, yardFront + 0.08], 0.04, mat);
-  stoneRail(yard, [1.25, yardFront + 0.08], [yardEast, yardFront + 0.08], 0.04, mat);
-  stoneRail(yard, [west - 0.13, yardFront + 0.08], [west - 0.13, front], 0.04, mat);
-  stoneRail(yard, [yardEast + 0.12, yardFront + 0.08], [yardEast + 0.12, wingFront], 0.04, mat);
+  stoneRail(yard, [west, yardFront + 0.08], [-1.25, yardFront + 0.08], 0.02, mat);
+  stoneRail(yard, [1.25, yardFront + 0.08], [yardEast, yardFront + 0.08], 0.02, mat);
+  stoneRail(yard, [west - 0.13, yardFront + 0.08], [west - 0.13, front], 0.02, mat);
+  stoneRail(yard, [yardEast + 0.12, yardFront + 0.08], [yardEast + 0.12, wingFront], 0.02, mat);
   return group;
 }

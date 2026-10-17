@@ -1,9 +1,15 @@
 import { designIssues } from "./design-data";
 import { projectMeta } from "./project-meta";
+import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
+import { parseRoofStyle, type RoofStyle } from "./roof-options";
+import { DEFAULT_VILLA_PARAMS, type VillaParams } from "./villa-params";
 
 export const viewFlags = ["roof", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside", "explode", "chair-clearance", "room-clearance", "room-inside", "route-sweep", "route-clearance", "route-conflicts"] as const;
 export interface CameraPose { position: [number, number, number]; target: [number, number, number]; zoom: number }
 export interface MeetingView {
+  roofStyle: RoofStyle;
+  courtyardFinish: CourtyardFinish;
+  neighborCourtyardFinish: CourtyardFinish;
   tab: "model" | "floor" | "sun";
   camera: "aerial" | "north" | "south" | "courtyard" | "garage" | "top" | "roadside";
   level: number; planMode: "2d" | "3d"; existing: boolean; balcony: boolean;
@@ -12,6 +18,8 @@ export interface MeetingView {
   dining: "full" | "daily";
   flags: Record<string, boolean>;
   pose: CameraPose | null;
+  /** 方案尺寸；旧快照缺字段时按默认参数。 */
+  villaParams: VillaParams;
 }
 export interface MeetingSnapshot { id: string; title: string; createdAt: string; revision: string; view: MeetingView }
 export const noteStatuses = ["未讨论", "待补资料", "已记录意见"] as const;
@@ -49,7 +57,7 @@ function date(v: unknown, allowEmpty = false) {
   return s;
 }
 export function validateMeetingView(value: unknown): MeetingView {
-  const v = object(value), level = range(v.level, 0, 2);
+  const v = object(value), level = range(v.level, -1, 2);
   if (!Number.isInteger(level)) throw new Error("楼层必须为整数");
   const rawFlags = object(v.flags), flags: Record<string, boolean> = {};
   for (const key of viewFlags) flags[key] = bool(rawFlags[key]);
@@ -64,13 +72,25 @@ export function validateMeetingView(value: unknown): MeetingView {
     const distance = Math.hypot(...pose.position.map((n, i) => n - pose!.target[i]));
     if (distance < .55 - 1e-8 || distance > 125 + 1e-8) throw new Error("机位与观察点间距超出范围");
   }
+  let villaParams: VillaParams = { ...DEFAULT_VILLA_PARAMS };
+  if (v.villaParams != null) {
+    const raw = object(v.villaParams);
+    const next = { ...DEFAULT_VILLA_PARAMS };
+    for (const key of Object.keys(DEFAULT_VILLA_PARAMS) as (keyof VillaParams)[]) {
+      if (typeof raw[key] === "number" && Number.isFinite(raw[key])) next[key] = raw[key] as number;
+    }
+    villaParams = next;
+  }
   return {
+    roofStyle: parseRoofStyle(v.roofStyle),
+    courtyardFinish: parseCourtyardFinish(v.courtyardFinish),
+    neighborCourtyardFinish: parseCourtyardFinish(v.neighborCourtyardFinish),
     tab: choice(v.tab, ["model", "floor", "sun"]),
     camera: choice(v.camera, ["aerial", "north", "south", "courtyard", "garage", "top", "roadside"]),
     level, planMode: choice(v.planMode, ["2d", "3d"]), existing: bool(v.existing), balcony: bool(v.balcony),
     fenShui: range(v.fenShui, 1, 10), roadY: range(v.roadY, -3.8, 0), rampLength: range(v.rampLength, 3, 10),
     progress: range(v.progress, 0, 100), sunDate: date(v.sunDate), sunTime: range(v.sunTime, 6, 18),
-    dining: choice(v.dining, ["full", "daily"]), flags, pose,
+    dining: choice(v.dining, ["full", "daily"]), flags, pose, villaParams,
   };
 }
 export function parseSession(raw: string): DesignSession {

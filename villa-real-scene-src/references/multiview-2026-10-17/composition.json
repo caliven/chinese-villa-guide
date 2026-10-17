@@ -1,0 +1,54 @@
+{
+  "version": "20261016-multiview1",
+  "outputWidth": 2736,
+  "views": {
+    "left": {
+      "original": "public/photos/left-original.jpg",
+      "output": "public/photos/left-render.png",
+      "layers": [
+        {
+          "source": "references/multiview-2026-10-17/left-construction-source.png",
+          "mask": "references/multiview-2026-10-17/left-construction-mask.png",
+          "saturation": 0.88,
+          "feather": 0
+        },
+        {
+          "source": "references/multiview-2026-10-17/left-courtyard-expanded-source.png",
+          "mask": "references/multiview-2026-10-17/left-courtyard-mask.png",
+          "saturation": 0.88,
+          "feather": 0
+        }
+      ]
+    },
+    "right": {
+      "original": "public/photos/right-original.jpg",
+      "output": "public/photos/right-render.png",
+      "layers": [
+        {
+          "source": "references/multiview-2026-10-17/right-construction-source.png",
+          "mask": "references/multiview-2026-10-17/right-construction-mask.png",
+          "saturation": 0.84,
+          "feather": 0
+        },
+        {
+          "source": "references/multiview-2026-10-17/right-connection-source.png",
+          "mask": "references/multiview-2026-10-17/right-connection-mask.png",
+          "saturation": 0.9,
+          "feather": 0
+        }
+      ]
+    },
+    "overhead": {
+      "original": "public/photos/overhead-original.jpg",
+      "output": "public/photos/overhead-render.png",
+      "layers": [
+        {
+          "source": "references/multiview-2026-10-17/overhead-construction-source.png",
+          "mask": "references/multiview-2026-10-17/overhead-construction-mask.svg",
+          "saturation": 0.9,
+          "feather": 0.337
+        }
+      ]
+    }
+  }
+}

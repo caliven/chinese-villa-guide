@@ -723,14 +723,16 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
   return { group, levels, roof, balcony, annex, annexRoof, portico, labels };
 }
 
-// 正屋前、左、右各出 80cm；天沟外缘即尺寸控制线。主辅楼四坡共用一个分水。
+// 正屋前、左、右名义各出 thirdEave；东檐不超过东西总宽。天沟外缘即尺寸控制线。主辅楼四坡共用一个分水。
 export function mainRoofFootprint() {
   const m = site.main;
   const z = floors[2].front - site.thirdEave;
+  const westEave = site.thirdEave;
+  const eastEave = Math.min(site.thirdEave, site.width - m.x - m.w);
   return {
-    x: m.x - site.thirdEave,
+    x: m.x - westEave,
     z,
-    w: m.w + 2 * site.thirdEave,
+    w: m.w + westEave + eastEave,
     d: m.z + m.d + site.eave - z,
     eave: 10.5,
   };

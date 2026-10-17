@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { stairLayout, type Point, type Furniture } from "./data";
+import type { CourtyardFinish } from "./courtyard-finishes";
+import { bedLayout } from "./furniture-catalog";
 
 export const palette = {
   wall: 0xe6dfd0,
@@ -25,16 +27,16 @@ function darkStoneMap() {
   c.width = c.height = size;
   const ctx = c.getContext("2d")!;
   const rand = seeded(44021);
-  // 对照门厅照片：深褐近黑的抛光石，密布浅麻点。不是石材色卡。
-  ctx.fillStyle = "#3a2422";
+  // 入口保留深色花岗岩质感，压低红相，改为与白麻墙、英国棕协调的暖炭灰。
+  ctx.fillStyle = "#383630";
   ctx.fillRect(0, 0, size, size);
   for (let i = 0; i < 16; i++) {
     const x = rand() * size;
     const y = rand() * size;
     const r = 36 + rand() * 80;
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, rand() > 0.5 ? "rgba(98,62,54,0.42)" : "rgba(10,7,7,0.55)");
-    g.addColorStop(1, "rgba(58,36,34,0)");
+    g.addColorStop(0, rand() > 0.5 ? "rgba(110,104,88,0.24)" : "rgba(18,19,18,0.34)");
+    g.addColorStop(1, "rgba(56,54,48,0)");
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -47,21 +49,21 @@ function darkStoneMap() {
     const cream = n > 0.84;
     const gray = !cream && n > 0.68;
     ctx.fillStyle = cream
-      ? `rgba(214,196,176,${0.4 + rand() * 0.45})`
+      ? `rgba(193,189,174,${0.24 + rand() * 0.35})`
       : gray
         ? `rgba(148,138,130,${0.28 + rand() * 0.35})`
-        : `rgba(8,6,6,${0.4 + rand() * 0.45})`;
+        : `rgba(18,20,19,${0.25 + rand() * 0.35})`;
     const s = cream ? 1.2 + rand() * 1.5 : gray ? 0.9 + rand() : 0.7 + rand() * 1.1;
     ctx.fillRect(x, y, s, s);
   }
   // 大块石的细缝只留在左、上，重复铺贴时不会叠成双倍粗。
-  ctx.fillStyle = "#1c100e";
-  ctx.fillRect(0, 0, 2, size);
-  ctx.fillRect(0, 0, size, 2);
+  ctx.fillStyle = "#292b27";
+  ctx.fillRect(0, 0, 1.3, size);
+  ctx.fillRect(0, 0, size, 1.3);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = 16;
   t.repeat.set(1 / 1.2, 1 / 1.2);
   return t;
 }
@@ -80,18 +82,90 @@ function sandCoat() {
     const black = n > 0.82;
     const gray = !black && n > 0.62;
     ctx.fillStyle = black
-      ? `rgba(38,36,32,${0.45 + n * 0.45})`
+      ? `rgba(69,68,64,${0.12 + n * 0.14})`
       : gray
-        ? `rgba(120,116,108,${0.28 + n * 0.35})`
+        ? `rgba(140,138,130,${0.14 + n * 0.18})`
         : `rgba(255,253,248,${0.14 + n * 0.22})`;
-    const s = black ? 1.6 : gray ? 1.3 : 0.8;
+    const s = black ? 1.2 : gray ? 1 : 0.8;
     ctx.fillRect(x, y, s, s);
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
+  t.anisotropy = 16;
   return t;
+}
+
+function courtyardConcreteMap() {
+  // 普通水泥地：中性灰、细砂颗粒和轻微抹面色差，不画砖缝或装饰分格。
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const pixels = ctx.createImageData(size, size);
+  const rand = seeded(83514), cycle = Math.PI * 2 / size;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const u = x * cycle, v = y * cycle;
+    // 周期性低频色差在贴图边缘连续，避免重复处出现方块接缝。
+    const mottling = Math.sin(u + Math.cos(v)) * 2.8
+      + Math.cos(2 * v + Math.sin(2 * u)) * 2.1
+      + Math.sin(4 * u - 3 * v) * 1.2;
+    const tone = Math.round(174 + mottling + (rand() - 0.5) * 5);
+    const index = (y * size + x) * 4;
+    pixels.data[index] = tone;
+    pixels.data[index + 1] = tone;
+    pixels.data[index + 2] = tone - 1;
+    pixels.data[index + 3] = 255;
+  }
+  ctx.putImageData(pixels, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1 / 3.2, 1 / 3.2);
+  texture.anisotropy = 16;
+  return texture;
+}
+
+function terraceTileMap(kind: "terrace" | "courtyard" = "terrace") {
+  // 2.4米纹理含4×4块600毫米砖；院坪用约4毫米灰缝，露台沿用约3毫米暖灰缝。
+  const size = 1024, cell = size / 4;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const outdoor = kind === "courtyard", gap = outdoor ? 1.7 : 1.3;
+  const rand = seeded(outdoor ? 76138 : 64271);
+  ctx.fillStyle = outdoor ? "#858884" : "#aaa79d";
+  ctx.fillRect(0, 0, size, size);
+  for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
+    const x = col * cell, y = row * cell, tone = Math.round(rand() * (outdoor ? 10 : 7));
+    ctx.fillStyle = outdoor
+      ? `rgb(${177 + tone},${179 + tone},${174 + tone})`
+      : `rgb(${201 + tone},${198 + tone},${187 + tone})`;
+    ctx.fillRect(x + gap, y + gap, cell - gap, cell - gap);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x + gap, y + gap, cell - gap, cell - gap);
+    ctx.clip();
+    for (let i = 0; i < 10; i++) {
+      const cx = x + rand() * cell, cy = y + rand() * cell, radius = 22 + rand() * 95;
+      const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+      gradient.addColorStop(0, i % 2 ? "rgba(110,111,102,0.055)" : "rgba(251,249,239,0.12)");
+      gradient.addColorStop(1, "rgba(200,198,187,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, y, cell, cell);
+    }
+    for (let i = 0; i < 1800; i++) {
+      ctx.fillStyle = rand() > 0.5 ? "rgba(255,253,243,0.10)" : "rgba(85,88,81,0.055)";
+      ctx.fillRect(x + rand() * cell, y + rand() * cell, 0.8, 0.8);
+    }
+    ctx.restore();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1 / 2.4, 1 / 2.4);
+  texture.anisotropy = 16;
+  return texture;
 }
 function surface(kind: "stone" | "grass" | "wall" | "wood") {
   const c = document.createElement("canvas");
@@ -186,12 +260,64 @@ export function materials() {
       roughness: 0.87,
     });
   const darkMap = darkStoneMap();
+  const courtyardConcrete = new THREE.MeshStandardMaterial({
+    name: "普通灰色水泥院坪",
+    color: 0xffffff,
+    map: courtyardConcreteMap(),
+    roughness: 0.98,
+    metalness: 0,
+    envMapIntensity: 0.12,
+  });
+  const courtyardTile = new THREE.MeshStandardMaterial({
+    name: "600毫米灰色哑光仿石院坪砖",
+    color: 0xffffff,
+    map: terraceTileMap("courtyard"),
+    roughness: 0.92,
+    metalness: 0,
+    envMapIntensity: 0.15,
+  });
   return {
     wall: std(palette.wall, wallMap),
     trim: finishLayer(std(palette.trim), 3),
     stone: finishLayer(std(palette.stone, stoneMap), 2),
     paving: finishLayer(std(palette.paving, wallMap), 1),
+    courtyard: finishLayer(courtyardConcrete.clone(), 1),
+    neighborCourtyard: finishLayer(courtyardConcrete.clone(), 1),
+    courtyardConcrete,
+    courtyardTile,
     roof: std(palette.roof),
+    // 新建主辅楼专用釉瓦材质；旧木房及邻房仍使用各自原有瓦色。
+    villaRoof: new THREE.MeshPhysicalMaterial({
+      name: "墨蓝色琉璃瓦",
+      color: 0x222b45,
+      roughness: 0.25,
+      metalness: 0,
+      clearcoat: 0.52,
+      clearcoatRoughness: 0.2,
+      envMapIntensity: 0.7,
+    }),
+    villaRoofJoint: new THREE.MeshStandardMaterial({ name: "墨蓝釉瓦搭接阴线", color: 0x1c2337, roughness: 0.58 }),
+    roofGutter: new THREE.MeshStandardMaterial({
+      name: "自然水泥灰天沟",
+      color: 0xa6a8a5,
+      roughness: 0.96,
+      metalness: 0,
+      envMapIntensity: 0.12,
+    }),
+    relief: new THREE.MeshStandardMaterial({ name: "细石雕线饰", color: 0x858477, roughness: 0.82 }),
+    dressedStone: new THREE.MeshStandardMaterial({ name: "整块细磨暖灰柱饰石", color: 0x77786f, roughness: 0.7 }),
+    carvedStone: new THREE.MeshStandardMaterial({ name: "参考图浅色雕花柱石", color: 0xe8e4db, roughness: 0.77 }),
+    carvingInset: new THREE.MeshStandardMaterial({ name: "浅石雕凹槽与花纹阴面", color: 0xb5b0a6, roughness: 0.9 }),
+    carvingDark: new THREE.MeshStandardMaterial({ name: "雕花柱深咖嵌底", color: 0x302a27, roughness: 0.82 }),
+    terrace: finishLayer(new THREE.MeshStandardMaterial({
+      name: "600毫米浅暖灰仿石露台砖",
+      color: 0xffffff,
+      map: terraceTileMap(),
+      roughness: 0.88,
+      metalness: 0,
+      envMapIntensity: 0.18,
+    }), 4),
+    terraceEdge: finishLayer(new THREE.MeshStandardMaterial({ name: "露台暖灰收边石", color: 0x96968b, roughness: 0.84 }), 5),
     dark: std(palette.dark),
     wood: std(palette.timber, woodMap),
     grass: std(palette.grass, grassMap),
@@ -227,14 +353,14 @@ export function materials() {
     }), 4),
     // 踏步前沿防滑线，只比石面略浅，避免白线打眼。
     darkStoneGroove: new THREE.MeshStandardMaterial({
-      color: 0x645044,
+      color: 0x666459,
       roughness: 0.82,
       metalness: 0,
       envMapIntensity: 0.08,
     }),
     // 坡道防滑条只比石面略浅，避免一条亮带。
     darkStoneRampMark: new THREE.MeshStandardMaterial({
-      color: 0x5a4038,
+      color: 0x55554c,
       roughness: 0.82,
       metalness: 0,
       envMapIntensity: 0.08,
@@ -257,12 +383,27 @@ export function materials() {
     }),
     // 英国棕取深咖底色，对照外墙涂料和英国棕花岗岩（Tan Brown），不用偏橘红的英国红棕。不是色卡实测。
     british: finishLayer(new THREE.MeshStandardMaterial({
-      color: 0x4f3c34,
-      roughness: 0.8,
+      name: "低红度深咖英国棕",
+      color: 0x494039,
+      roughness: 0.74,
     }), 3),
   };
 }
 export type Mats = ReturnType<typeof materials>;
+
+export function setCourtyardFinishes(mat: Mats, own: CourtyardFinish, neighbor: CourtyardFinish) {
+  for (const [target, finish] of [[mat.courtyard, own], [mat.neighborCourtyard, neighbor]] as const) {
+    const source = finish === "tile" ? mat.courtyardTile : mat.courtyardConcrete;
+    if (target.map === source.map) continue;
+    // 保留材质对象及完成面深度层次，让已经合批的地坪直接换肤，无须重建几何。
+    target.map = source.map;
+    target.name = source.name;
+    target.color.copy(source.color);
+    target.roughness = source.roughness;
+    target.envMapIntensity = source.envMapIntensity;
+    target.needsUpdate = true;
+  }
+}
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 export function box(
   parent: THREE.Object3D,
@@ -586,17 +727,18 @@ export function wallWithOpenings(
       localZz = (b[0] - a[0]) / len,
       intoRoom =
         (13.55 - midX) * localZx + (4 - midZ) * localZz > 0 ? 1 : -1;
-    const clear = o.w - 0.062;
-    const glassBottom = o.span === "upper" ? o.sill : o.sill + 0.04;
-    const glassTop = o.span === "lower" ? o.sill + o.h : o.sill + o.h - 0.04;
+    const clear = o.w - 0.06;
+    // 玻璃边缘收在框槽后面，覆盖框内口10毫米，避免原来四边各留一条透空线。
+    const glassBottom = o.span === "upper" ? o.sill : o.sill + 0.02;
+    const glassTop = o.span === "lower" ? o.sill + o.h : o.sill + o.h - 0.02;
     if (o.door && !o.glazed && !o.open && !o.span)
       bronzeEntryDoor(g, o.at, o.sill, -intoRoom * 0.015, o.w - 0.1, o.h, mat);
     else if (!o.open && !o.span && o.pattern !== "sliding") box(
       g,
       o.at,
       (glassBottom + glassTop) / 2,
-      intoRoom * 0.065,
-      o.w - 0.08,
+      intoRoom * 0.045,
+      o.w - 0.04,
       glassTop - glassBottom,
       0.02,
       mat.glass,
@@ -642,7 +784,7 @@ export function wallWithOpenings(
       const drawLeaf = (x0: number, x1: number, z: number) => {
         const cx = (x0 + x1) / 2;
         const lw = x1 - x0;
-        box(g, cx, midY, z, lw - 0.07, leafH - 0.07, 0.016, mat.glass, false);
+        box(g, cx, midY, z, lw - 0.03, leafH - 0.025, 0.016, mat.glass, false);
         box(g, x0, midY, z, 0.045, leafH, 0.04, mat.dark);
         box(g, x1, midY, z, 0.045, leafH, 0.04, mat.dark);
         box(g, cx, y1, z, lw, 0.04, 0.04, mat.dark);
@@ -897,12 +1039,47 @@ export function furnish(
   g.rotation.y = f.rotation ?? 0;
   parent.add(g);
   if (f.kind === "bed") {
-    box(g, 0, 0.2, 0, f.w, 0.35, f.d, mat.wood);
-    box(g, 0, 0.43, 0, f.w - 0.05, 0.18, f.d - 0.06, mat.fabric);
-    box(g, 0, 0.7, f.d / 2 - 0.05, f.w + 0.12, 0.95, 0.12, mat.wood);
-    for (const x of [-f.w / 4, f.w / 4])
-      box(g, x, 0.57, f.d / 2 - 0.38, f.w / 2 - 0.12, 0.14, 0.42, mat.inside);
-    box(g, 0, 0.55, -0.33, f.w, 0.07, f.d * 0.58, mat.fabric);
+    // 宽／深为占地外轮廓；床垫与床头柜都落在轮廓内，与平面图 1:1。
+    const layout = bedLayout(f);
+    box(g, 0, 0.2, 0, layout.mattressW, 0.35, f.d, mat.wood);
+    box(g, 0, 0.43, 0, Math.max(0.4, layout.mattressW - 0.05), 0.18, f.d - 0.06, mat.fabric);
+    box(g, 0, 0.7, f.d / 2 - 0.05, layout.mattressW, 0.95, 0.12, mat.wood);
+    for (const x of [-layout.mattressW / 4, layout.mattressW / 4])
+      box(g, x, 0.57, f.d / 2 - 0.38, layout.mattressW / 2 - 0.12, 0.14, 0.42, mat.inside);
+    box(g, 0, 0.55, -0.33, layout.mattressW, 0.07, f.d * 0.58, mat.fabric);
+    if (layout.showNightstands) {
+      const nsH = 0.52;
+      for (const side of [-1, 1]) {
+        box(
+          g,
+          side * (f.w / 2 - layout.nsW / 2),
+          nsH / 2,
+          f.d / 2 - layout.nsD / 2,
+          layout.nsW,
+          nsH,
+          layout.nsD,
+          mat.wood,
+        );
+      }
+    }
+  } else if (f.kind === "tv") {
+    box(g, 0, 0.35, 0, f.w * 0.55, 0.7, f.d * 0.7, mat.wood);
+    box(g, 0, 0.95, -f.d * 0.05, f.w, 0.7, 0.06, mat.dark);
+    box(g, 0, 0.95, -f.d * 0.08, f.w - 0.08, 0.58, 0.02, mat.glass);
+  } else if (f.kind === "coffeeTable") {
+    box(g, 0, 0.38, 0, f.w, 0.06, f.d, mat.wood);
+    for (const xx of [-1, 1])
+      for (const zz of [-1, 1])
+        box(g, xx * (f.w / 2 - 0.08), 0.19, zz * (f.d / 2 - 0.08), 0.05, 0.38, 0.05, mat.wood);
+  } else if (f.kind === "dressingTable") {
+    box(g, 0, 0.38, 0, f.w, 0.76, f.d, mat.wood);
+    box(g, 0, 0.78, 0, f.w + 0.02, 0.04, f.d + 0.02, mat.inside);
+    box(g, 0, 1.15, -f.d / 2 + 0.02, f.w * 0.7, 0.55, 0.04, mat.glass);
+  } else if (f.kind === "cabinet") {
+    box(g, 0, 0.75, 0, f.w, 1.5, f.d, mat.wood);
+  } else if (f.kind === "squatToilet") {
+    box(g, 0, 0.08, 0, f.w, 0.16, f.d, mat.inside);
+    box(g, 0, 0.12, 0, f.w * 0.45, 0.04, f.d * 0.55, mat.dark);
   } else if (f.kind === "roundTable") {
     const top = new THREE.Mesh(
       new THREE.CylinderGeometry(f.w / 2, f.w / 2, 0.09, 48),
@@ -943,9 +1120,18 @@ export function furnish(
   } else if (f.kind === "sofa") {
     box(g, 0, 0.32, 0, f.w, 0.48, f.d, mat.fabric);
     box(g, -f.w / 2 + 0.08, 0.65, 0, 0.17, 0.45, f.d, mat.fabric);
-  } else if (f.kind === "wardrobe")
+  } else if (f.kind === "wardrobe") {
     box(g, 0, 1.02, 0, f.w, 2.04, f.d, mat.wood);
-  else if (["counter", "stove", "hob", "sink"].includes(f.kind)) {
+  } else if (f.kind === "shrine") {
+    // 湖南堂屋神龛示意：贴墙高柜、三层开放龛台，供祖先牌位／香烛。
+    const h = 2.2;
+    box(g, 0, h / 2, 0, f.w, h, f.d, mat.wood);
+    box(g, 0, h - 0.06, -f.d / 2 + 0.03, f.w + 0.04, 0.12, 0.06, mat.wood);
+    for (const y of [0.55, 1.05, 1.55]) {
+      box(g, 0, y, 0.02, f.w - 0.12, 0.04, f.d - 0.1, mat.inside);
+      box(g, 0, y + 0.18, -f.d / 2 + 0.06, f.w - 0.2, 0.28, 0.04, mat.dark);
+    }
+  } else if (["counter", "stove", "hob", "sink"].includes(f.kind)) {
     box(
       g,
       0,
@@ -978,7 +1164,7 @@ export function furnish(
       cylinder(g, new THREE.Vector3(-0.5, 0.9, 0.18), new THREE.Vector3(-0.5, 1.17, 0.18), 0.018, mat.metal, 8);
       cylinder(g, new THREE.Vector3(-0.5, 1.17, 0.18), new THREE.Vector3(-0.5, 1.17, 0), 0.018, mat.metal, 8);
     }
-  } else {
+  } else if (f.kind === "toilet" || f.kind === "basin") {
     box(
       g,
       0,
@@ -991,6 +1177,11 @@ export function furnish(
     );
     if (f.kind === "toilet")
       box(g, 0, 0.56, f.d / 2 - 0.06, f.w, 0.52, 0.14, mat.inside);
+    if (f.kind === "basin") {
+      box(g, 0, 0.86, 0, f.w * 0.7, 0.04, f.d * 0.55, mat.metal);
+    }
+  } else {
+    box(g, 0, 0.4, 0, f.w, 0.8, f.d, mat.wood);
   }
   return g;
 }

@@ -12,25 +12,34 @@ import {
   buildingAreas,
   frontElevation,
   circulation,
+  courtyardArcAnchors,
   type Point,
 } from "../src/data";
-import { buildVilla, roofPitch } from "../src/architecture";
+import { buildVilla, mainRoofFootprint, roofPitch } from "../src/architecture";
 import { facades } from "../src/facades";
 import { sunDirection } from "../src/viewer";
 import { diningClearance } from "../src/plan";
 import type { Mats } from "../src/primitives";
+import { cornerPilasterTopY, eyelidFixed, fasciaBottomY } from "../src/roof-options";
+import { frontApronEaveBase } from "../src/facade-details";
 
-test("主辅楼180平方米，21.1米内包含两侧过道和子孙道", () => {
+test("主辅楼171平方米，21米内包含两侧过道和子孙道，辅楼内退2米", () => {
   assert.equal(site.main.w * site.main.d, 135);
-  assert.equal(site.annex.w * site.annex.d, 45);
+  assert.equal(site.annex.w * site.annex.d, 36);
+  assert.equal(site.annex.d, 8);
+  assert.equal(site.annex.z - site.main.z, 2);
   assert.equal(buildingAreas.portico, 9.6);
+  assert.equal(site.width, 21);
+  const eastGap = site.width - site.main.x - site.main.w;
+  assert.ok(Math.abs(eastGap - 0.8) < 1e-8);
+  assert.ok(Math.abs(site.sideGap - 0.7) < 1e-8);
   assert.ok(
     Math.abs(
-      site.main.w + site.annex.w + 2 * site.sideGap + site.lane - site.width,
+      site.sideGap + site.annex.w + site.lane + site.main.w + eastGap - site.width,
     ) < 1e-8,
   );
-  assert.equal(site.main.z + site.main.d + site.rearGap, site.oldDepth);
-  assert.equal(floors[2].front - floors[0].front, 1.8);
+  assert.ok(Math.abs(site.main.z + site.main.d + site.rearGap - site.oldDepth) < 1e-9);
+  assert.ok(Math.abs(site.setback - 1.2) < 1e-9);
   assert.ok(Math.abs(-site.deckStructure - site.garageFloor - 2.5) < 1e-8);
 });
 
@@ -99,11 +108,12 @@ test("卧室、公卫与三楼南过厅都可从公共区通过真实门洞到�
         [at(w.door.offset + w.door.width), w.b],
       ];
     });
+    const rearInside = site.main.z + site.main.d - 0.14;
     const inside = (x: number, z: number) =>
       x > 6.94 &&
       x < 20.16 &&
       z > f.front + 0.14 &&
-      z < 8.86 &&
+      z < rearInside &&
       !(index === 1 && x < circulation.livingVoid.x + circulation.livingVoid.w + 0.06 && z < circulation.livingVoid.z + circulation.livingVoid.d + 0.02);
     const blocked = (x: number, z: number) =>
       walls.some(([a, b]) => {
@@ -115,17 +125,18 @@ test("卧室、公卫与三楼南过厅都可从公共区通过真实门洞到�
           : 0;
         return Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t) < 0.068;
       });
+    const gridZ0 = site.main.z;
     const id = (x: number, z: number) =>
-      Math.round((z + 1) / step) * width + Math.round((x - 6.8) / step);
+      Math.round((z - gridZ0) / step) * width + Math.round((x - 6.8) / step);
     const visited = new Set<number>(),
-      queue = [id(13.5, 1.5)];
+      queue = [id(13.5, site.main.z + 2.5)];
     for (let head = 0; head < queue.length; head++) {
       const value = queue[head];
       if (visited.has(value)) continue;
       const ix = value % width,
         iz = Math.floor(value / width),
         x = 6.8 + ix * step,
-        z = -1 + iz * step;
+        z = gridZ0 + iz * step;
       if (
         ix < 0 ||
         ix >= width ||
@@ -177,6 +188,16 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     "darkStoneRampMark",
     "sand",
     "british",
+    "villaRoof",
+    "villaRoofJoint",
+    "roofGutter",
+    "relief",
+    "dressedStone",
+    "carvedStone",
+    "carvingInset",
+    "carvingDark",
+    "terrace",
+    "terraceEdge",
   ];
   const mats = Object.fromEntries(
     keys.map((key) => [key, new THREE.MeshStandardMaterial()]),
@@ -187,6 +208,22 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     transform = new THREE.Matrix4(),
     inst = new THREE.Matrix4();
   const outside: string[] = [];
+  // 主楼东檐／辅楼西檐与前檐按统一 0.8 出挑时可略超红线；压顶再外飘 20mm。
+  const cope = eyelidFixed.copingOverhang;
+  const eastPad = Math.max(0, site.thirdEave - (site.width - site.main.x - site.main.w)) + cope;
+  const westPad = Math.max(0, site.thirdEave - site.annex.x) + cope;
+  const northPad = Math.max(0, site.thirdEave - (site.annex.z - courtyardArcAnchors[0][1])) + cope;
+  const inBounds = (x: number, z: number) => {
+    if (contains([x, z], site.boundary)) return true;
+    const cx = Math.min(site.width - 1e-4, Math.max(0, x));
+    const cz = Math.min(site.oldDepth - 1e-4, Math.max(courtyardArcAnchors[0][1], z));
+    return (
+      contains([cx, cz], site.boundary)
+      && x >= -westPad - 1e-4
+      && x <= site.width + eastPad + 1e-4
+      && z >= courtyardArcAnchors[0][1] - northPad - 1e-4
+    );
+  };
   for (const [name, root] of [
     ["mainRoof", villa.roof],
     ["annexRoof", villa.annexRoof],
@@ -206,7 +243,7 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
         }
         for (let i = 0; i < pos.count; i++) {
           v.fromBufferAttribute(pos, i).applyMatrix4(transform);
-          if (!contains([v.x, v.z], site.boundary)) {
+          if (!inBounds(v.x, v.z)) {
             outside.push(`${name}: ${v.x.toFixed(3)}, ${v.z.toFixed(3)}`);
             break;
           }
@@ -216,7 +253,7 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   assert.deepEqual(outside.slice(0, 8), []);
   // 中间房间已与两侧齐平，二楼在此有楼板；外伸门厅柱间仍没有二楼平台。
   const ray = new THREE.Raycaster(
-    new THREE.Vector3(13.7, 3, -0.5),
+    new THREE.Vector3(13.7, 3, site.main.z + 0.5),
     new THREE.Vector3(0, 1, 0),
     0,
     1.0,
@@ -224,10 +261,11 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   const midFloor = ray.intersectObject(villa.levels[1], true);
   assert.ok(midFloor.length > 0 && midFloor[0].point.y > 3.4 && midFloor[0].point.y < 3.61);
   // 新外伸区同样必须在二层为空、三层有真正可踩的楼板。
-  ray.set(new THREE.Vector3(13.7, 4, -2), new THREE.Vector3(0, -1, 0));
+  const porchProbeZ = site.main.z - site.portico.projection;
+  ray.set(new THREE.Vector3(13.7, 4, porchProbeZ), new THREE.Vector3(0, -1, 0));
   ray.far = 0.8;
   assert.equal(ray.intersectObject(villa.group, true).length, 0);
-  ray.set(new THREE.Vector3(13.7, 7.3, -2), new THREE.Vector3(0, -1, 0));
+  ray.set(new THREE.Vector3(13.7, 7.3, porchProbeZ), new THREE.Vector3(0, -1, 0));
   assert.ok(Math.abs(ray.intersectObject(villa.levels[2], true)[0].point.y - 7.2) < 1e-5);
   const approach = villa.group.getObjectByName("门厅柱间三步与两侧坡道")!;
   const approachBounds = new THREE.Box3().setFromObject(approach);
@@ -259,10 +297,10 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   assert.ok(fromAbove.intersectObject(eastRamp, true).length > 0, "东侧坡道顶面应封闭");
   assert.ok(Math.abs(approachBounds.max.y - site.entranceRise) < 0.03);
   const porch = villa.levels[2].getObjectByName("外伸门厅三楼平台")!;
-  // 平台北缘收进 4cm，侧边不再和檐口外皮共面。
-  assert.ok(Math.abs(new THREE.Box3().setFromObject(porch).min.z - (site.main.z - 2 + 0.04)) < 1e-5);
-  const lowerEave = villa.levels[2].getObjectByName("三楼栏杆下沿外挑70厘米连续瓦檐")!;
-  // 前凸门厅同样出檐70cm，外缘线脚和瓦垄另有不到5cm的建模厚度。
+  // 平台北缘与门厅柱／中间短柱同轴后的露台外皮对齐。
+  assert.ok(Math.abs(new THREE.Box3().setFromObject(porch).min.z - frontElevation.centerFront) < 1e-5);
+  const lowerEave = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+  // 前凸门厅同样出檐；外缘线脚和瓦垄另有不到5cm的建模厚度。
   const lowerEaveBounds = new THREE.Box3().setFromObject(lowerEave);
   assert.ok(Math.abs(lowerEaveBounds.min.z - (frontElevation.centerFront - site.secondFrontEave)) < 0.05);
   const frontCorners: THREE.Object3D[] = [];
@@ -270,15 +308,41 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     if (object.name === "包角柱" && object.position.y < 1 && object.position.z < 0) frontCorners.push(object);
   });
   assert.equal(frontCorners.length, 2);
+  // 正面一二层包角柱顶：二楼前檐下沿线底以下约10厘米，不通到三眼皮／天沟。
+  const frontApronBase = frontApronEaveBase(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
+  const frontExpect = cornerPilasterTopY(frontApronBase);
+  const frontFasciaBot = fasciaBottomY(frontApronBase, 0);
   for (const column of frontCorners) {
     const top = new THREE.Box3().setFromObject(column).max.y;
-    assert.ok(top < lowerEaveBounds.min.y, `包角柱顶 ${top} 穿进挑檐 ${lowerEaveBounds.min.y}`);
+    assert.ok(Math.abs(top - frontExpect) < 1e-4, `包角柱顶 ${top} 应为 ${frontExpect}`);
+    assert.ok(frontFasciaBot - top > 0.09 && frontFasciaBot - top < 0.12, "柱顶到下沿线底约10厘米");
+    // 下沿线／梁托也在飘檐分组内，不能用整组 AABB；柱顶须低于三眼皮底。
+    assert.ok(top < frontApronBase - eyelidFixed.rises[0] - eyelidFixed.rises[1] - eyelidFixed.rises[2] - 0.25, "柱顶须明显低于挑檐三眼皮底");
+  }
+  // 屋后与三楼包角柱：正屋天沟下沿线底以下约10厘米。
+  const mainExpect = cornerPilasterTopY(mainRoofFootprint().eave);
+  const mainFasciaBot = fasciaBottomY(mainRoofFootprint().eave, 0);
+  const highCorners: THREE.Object3D[] = [];
+  villa.group.traverse((object) => {
+    if (object.name !== "包角柱") return;
+    const top = new THREE.Box3().setFromObject(object).max.y;
+    if (top > 8) highCorners.push(object);
+  });
+  assert.ok(highCorners.length >= 2, "屋后应有通高包角柱");
+  for (const column of highCorners) {
+    const top = new THREE.Box3().setFromObject(column).max.y;
+    assert.ok(Math.abs(top - mainExpect) < 1e-4, `高包角柱顶 ${top} 应为 ${mainExpect}`);
+    assert.ok(mainFasciaBot - top > 0.09 && mainFasciaBot - top < 0.12);
   }
   const mainGutter = villa.roof.children[0];
   const bounds = new THREE.Box3().setFromObject(mainGutter);
-  assert.ok(Math.abs(bounds.min.x - (site.main.x - .8)) < 1e-5);
-  assert.ok(Math.abs(bounds.max.x - (site.main.x + site.main.w + .8)) < 1e-5);
-  assert.ok(Math.abs(bounds.min.z - frontElevation.hatFront) < 1e-5);
+  const mainRoof = mainRoofFootprint();
+  assert.ok(Math.abs(bounds.min.x - (mainRoof.x - cope)) < 1e-4);
+  assert.ok(Math.abs(bounds.max.x - (mainRoof.x + mainRoof.w + cope)) < 1e-4);
+  // 东檐按 thirdEave 统一出挑；墙至界 0.7 时外缘略超地块东界。
+  assert.ok(Math.abs(mainRoof.x + mainRoof.w - (site.main.x + site.main.w + site.thirdEave)) < 1e-8);
+  assert.ok(Math.abs(mainRoof.z + mainRoof.d - (site.main.z + site.main.d + site.thirdEave)) < 1e-8);
+  assert.ok(Math.abs(bounds.min.z - (frontElevation.hatFront - cope)) < 1e-4);
   assert.ok(mainGutter.getObjectByName("天沟槽底"));
   assert.ok(mainGutter.getObjectByName("天沟外挡边"));
   const crown = villa.roof.getObjectByName("中央官帽")!;
@@ -297,9 +361,10 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   const centerBox = new THREE.Box3().setFromObject(porch);
   assert.ok(Math.abs(leftBox.max.x - centerBox.min.x) < 0.02);
   assert.ok(Math.abs(centerBox.max.x - rightBox.min.x) < 0.02);
-  const sidePosts = new THREE.Box3().setFromObject(villa.levels[2].getObjectByName("三楼两端贴墙角柱")!);
-  const hatPosts = new THREE.Box3().setFromObject(villa.levels[2].getObjectByName("三楼官帽柱")!);
-  assert.ok(hatPosts.min.z < sidePosts.min.z - 1, "官帽柱应比两侧房间柱更靠前");
+  assert.equal(villa.levels[2].getObjectByName("三楼两端贴墙角柱"), undefined, "三楼左右墙角不再做装饰柱");
+  assert.ok(villa.levels[2].getObjectByName("三楼官帽柱"), "三楼官帽柱应保留");
+  // 柱身进深 0.5 m、中心在前墙外皮以南 0.25 m → 柱身北皮与一层前墙外皮同面。
+  assert.ok(Math.abs(frontElevation.postZ - (site.main.z + 0.25)) < 1e-9);
   assert.ok(villa.annexRoof.getObjectByName("天沟槽底"));
   assert.ok(villa.annexRoof.getObjectByName("天沟外挡边"));
 });
@@ -321,7 +386,7 @@ test("双桌18座均在辅楼内，拉椅空间不足被保留为真实问题", 
   assert.equal(annexFurniture.filter((f) => f.kind === "chair").length, 18);
   for (const f of annexFurniture.filter((f) => f.kind === "chair")) {
     assert.ok(f.x - f.w / 2 >= 1.04 && f.x + f.w / 2 <= 5.06);
-    assert.ok(f.z - f.d / 2 >= -0.76 && f.z + f.d / 2 <= 5.29);
+    assert.ok(f.z - f.d / 2 >= site.annex.z - 0.76 && f.z + f.d / 2 <= site.annex.z + site.annex.d - 2.71);
   }
   assert.ok(diningClearance().east < 0.6);
 });

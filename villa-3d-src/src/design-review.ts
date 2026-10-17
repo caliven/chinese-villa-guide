@@ -4,6 +4,8 @@ import { designDrawings, drawingStyles, type DrawingOptions } from "./design-dra
 import { emptySession, mergeSessions, noteStatuses, parseSession, sessionKey, validateMeetingView, type DesignSession, type MeetingView } from "./design-session";
 import { controlTable, meetingBooklet, openingSchedule, roomSchedule } from "./meeting-booklet";
 import { downloadFile, escapeHtml as e, projectMeta, meetingTabLabels, cameraViewLabels, formatHour } from "./project-meta";
+import { courtyardFinishLabels } from "./courtyard-finishes";
+import { roofStyleLabels } from "./roof-options";
 
 interface ReviewAPI {
   getView: () => MeetingView;
@@ -54,6 +56,8 @@ export function mountDesignReview(root: HTMLElement, api: ReviewAPI) {
     const v = (view: MeetingView) => ({
       "查看模式／机位": `${meetingTabLabels[view.tab]}／${cameraViewLabels[view.camera]}`, "楼层／平面模式": `${floors[view.level].name}／${view.planMode === "2d" ? "平面" : "立体"}`,
       "新建／现状": view.existing ? "现状" : "新建", "屋面分水": view.fenShui.toFixed(1),
+      "官帽造型": roofStyleLabels[view.roofStyle],
+      "自家院坪": courtyardFinishLabels[view.courtyardFinish], "邻居院坪": courtyardFinishLabels[view.neighborCourtyardFinish],
       "道路标高（待测）": `${view.roadY.toFixed(2)}m`, "坡长（待测）": `${view.rampLength.toFixed(1)}m`,
       "车辆进度": `${view.progress}%`, "南侧浅阳台": view.balcony ? "有" : "无", "餐厅平面情景": view.dining === "daily" ? "日常6座（示意）" : "双桌满座18座",
       "日照时间": `${view.sunDate} ${formatHour(view.sunTime)}`,

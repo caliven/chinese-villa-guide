@@ -1,6 +1,6 @@
 import { construction, courtyardFront, floors, frontElevation, site } from "./data";
 import { contourAt } from "./contours";
-import { roofPitch } from "./architecture";
+import { mainRoofFootprint, roofPitch } from "./architecture";
 import { facades } from "./facades";
 import { garageLayout } from "./garage-layout";
 import { assessVehicleRoute, routeRanges, vehicleRoute } from "./vehicle-route";
@@ -33,24 +33,27 @@ function siteSection(options: DrawingOptions) {
   const scaleY = Math.min(18, 210 / ridge);
   const x = (z: number) => 60 + (z + 13) * 24, y = (h: number) => 310 - h * scaleY;
   const front = contourAt(courtyardFront, site.main.x + site.main.w / 2);
+  const wallFront = site.main.z;
+  const wallRear = site.main.z + site.main.d;
+  const thirdFront = wallFront + site.setback;
   let content = text(60, 60, "北 N ←  ·  示意位置：主楼中跨  ·  → 南 S", "small muted");
-  content += rect(x(front), y(0), x(-1) - x(front), y(site.garageFloor) - y(0), "pending");
-  content += path(`M${x(-13)} ${y(site.garageFloor - site.frontFieldDrop)} H${x(front)} V${y(0)} H${x(-1)} M${x(9)} ${y(0)} H${x(10.8)} V${y(site.rearField)} H${x(16)}`, "line");
-  content += rect(x(-1), y(7.2), x(9) - x(-1), y(0) - y(7.2), "wall");
-  content += rect(x(.8), y(10.5), x(9) - x(.8), y(7.2) - y(10.5), "wall");
-  content += path(`M${x(-1)} ${y(10.5)} H${x(.8)} V${y(7.2)} H${x(-1)}`, "guide");
+  content += rect(x(front), y(0), x(wallFront) - x(front), y(site.garageFloor) - y(0), "pending");
+  content += path(`M${x(-13)} ${y(site.garageFloor - site.frontFieldDrop)} H${x(front)} V${y(0)} H${x(wallFront)} M${x(wallRear)} ${y(0)} H${x(site.oldDepth)} V${y(site.rearField)} H${x(16)}`, "line");
+  content += rect(x(wallFront), y(7.2), x(wallRear) - x(wallFront), y(0) - y(7.2), "wall");
+  content += rect(x(thirdFront), y(10.5), x(wallRear) - x(thirdFront), y(7.2) - y(10.5), "wall");
+  content += path(`M${x(wallFront)} ${y(10.5)} H${x(thirdFront)} V${y(7.2)} H${x(wallFront)}`, "guide");
   for (let i = 0; i < 3; i++) {
-    const h = floorFinish(i), left = i === 2 ? .8 : -1;
-    content += rect(x(left), y(h), x(9) - x(left), construction.floorSlab * scaleY, "wall");
+    const h = floorFinish(i), left = i === 2 ? thirdFront : wallFront;
+    content += rect(x(left), y(h), x(wallRear) - x(left), construction.floorSlab * scaleY, "wall");
     content += text(x(left) + 10, y(h) - 8, `${floors[i].name}完成面 ${elevation(h)}`, "small");
   }
-  content += path(`M${x(0)} ${y(10.5)} L${x(4.9)} ${y(ridge)} L${x(9.55)} ${y(10.5)} Z`, "roof");
-  content += text(x(4.9), y(ridge) - 12, `屋脊 ${elevation(ridge)} · 分水${options.fenShui.toFixed(1)}`, "small", "middle");
+  content += path(`M${x(wallFront + 1)} ${y(10.5)} L${x((wallFront + wallRear) / 2)} ${y(ridge)} L${x(wallRear + 0.55)} ${y(10.5)} Z`, "roof");
+  content += text(x((wallFront + wallRear) / 2), y(ridge) - 12, `屋脊 ${elevation(ridge)} · 分水${options.fenShui.toFixed(1)}`, "small", "middle");
   content += text(x(front) + 10, y(-1.2), "地库体量／梁底待设计", "small warn-text");
-  content += path(`M${x(front)} ${y(site.garageFloor)} H${x(-1)}`, "line");
+  content += path(`M${x(front)} ${y(site.garageFloor)} H${x(wallFront)}`, "line");
   content += text(x(front), y(site.garageFloor) + 20, `库底 ${elevation(site.garageFloor)} · 示意`, "small");
-  content += text(x(10.8) + 8, y(2.5) - 10, "屋后田 +2.500 · 待联测", "small");
-  content += dimension(x(9), x(10.8), 385, "屋后留1.8");
+  content += text(x(site.oldDepth) + 8, y(2.5) - 10, "屋后田 +2.500 · 待联测", "small");
+  content += dimension(x(wallRear), x(site.oldDepth), 385, `屋后留${site.rearGap}`);
   content += text(800, 103, "待补测／设计", "warn-text");
   ["真实界址及高程基准", "保留梁底、挡墙及基础", "截排水、防水及支护", "屋面／露台排水去向", "邻房及施工保护条件"].forEach((v, i) => { content += text(800, 130 + 25 * i, v, "small"); });
   content += text(60, 407, "田坎轮廓与体量作关系表达，省略装饰、官帽遮挡及构造层；不是连续实测地形断面。", "small muted");
@@ -155,7 +158,8 @@ function northElevation(options: DrawingOptions) {
     });
   }
   const roof = (left: number, right: number, eave: number, rise: number, run: number) => path(`M${x(right)} ${y(eave)} L${x(right - run)} ${y(eave + rise)} H${x(left + run)} L${x(left)} ${y(eave)} Z`, "roof");
-  content += roof(site.main.x - .8, site.main.x + site.main.w + .8, 10.5, pitch.mainRise, pitch.mainRun);
+  const mainRoof = mainRoofFootprint();
+  content += roof(mainRoof.x, mainRoof.x + mainRoof.w, 10.5, pitch.mainRise, pitch.mainRun);
   content += roof(site.annex.x - .55, site.annex.x + site.annex.w + .55, 3.6, pitch.annexRise, pitch.annexRun);
   for (const post of frontElevation.balustradePosts.slice(1, 3))
     content += rect(x(post.x + frontElevation.porticoColumnDepth / 2), y(7.2), frontElevation.porticoColumnDepth * 35, 7.2 * scaleY, "wall");
@@ -163,7 +167,7 @@ function northElevation(options: DrawingOptions) {
     content += path(`M55 ${y(h)} H950`, "guide");
   [[3.6, "二层 +3.600"], [7.2, "三层 +7.200"], [10.5, "檐口 +10.500"]].forEach(([h, label]) => { content += text(785, y(Number(h)) - 6, String(label), "small"); });
   content += text(785, 334, "首层 +0.450", "small") + text(785, 365, "院坪 ±0.000", "small");
-  content += dimension(x(21.1), x(0), 400, "0.8 ＋ 主楼13.5 ＋ 子孙道1.5 ＋ 辅楼4.5 ＋ 0.8 ＝ 21.1m");
+  content += dimension(x(21), x(0), 400, "0.8 ＋ 主楼13.5 ＋ 子孙道1.5 ＋ 辅楼4.5 ＋ 0.7 ＝ 21m");
   const m = entranceMetrics();
   content += text(50, 420, `前墙向北控制线：门厅楼板${m.projection.toFixed(2)}／柱北外皮${m.column.toFixed(2)}／平台${m.platform.toFixed(2)}／最外踏步${m.steps.toFixed(2)}m。`, "small");
   return sheet("E01", "北立面与控制尺寸", "正投影尺寸关系示意，纵横比例不同；省略官帽、栏杆、装饰与遮挡。待设计师回交完整四向立面。", content);

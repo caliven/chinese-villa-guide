@@ -4,7 +4,15 @@ import { buildVilla } from "./architecture";
 import { materials } from "./primitives";
 import { batchStatic } from "./render-geometry";
 
-type PreviewView = "front" | "aerial";
+type PreviewView = "front" | "left" | "right" | "overhead" | "aerial";
+
+const cameraPresets: Record<PreviewView, { pitch: number; yaw: number }> = {
+  front: { pitch: 10, yaw: 0 },
+  left: { pitch: 16, yaw: 48 },
+  right: { pitch: 16, yaw: -48 },
+  overhead: { pitch: 62, yaw: 22 },
+  aerial: { pitch: 25, yaw: 22 },
+};
 
 // 独立的造型参考预览；地面只用于接影，不表示场地边界或实测高程。
 export class ModelPreview {
@@ -66,7 +74,7 @@ export class ModelPreview {
     });
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(350, 350), groundMaterial);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.set(10.55, -0.025, 3);
+    ground.position.set(10.5, -0.025, 3);
     ground.receiveShadow = true;
     this.scene.add(ground);
 
@@ -78,13 +86,13 @@ export class ModelPreview {
     const paving = new THREE.Mesh(new THREE.PlaneGeometry(25, 17), pavingMaterial);
     paving.name = "造型截图的中性院坪";
     paving.rotation.x = -Math.PI / 2;
-    paving.position.set(10.55, -0.014, 1.75);
+    paving.position.set(10.5, -0.014, 1.75);
     paving.receiveShadow = true;
     this.scene.add(paving);
 
     const daylight = new THREE.DirectionalLight(0xfff8ed, 3.4);
     daylight.position.set(31, 35, -27);
-    daylight.target.position.set(10.55, 3, 2);
+    daylight.target.position.set(10.5, 3, 2);
     daylight.castShadow = true;
     daylight.shadow.mapSize.set(4096, 4096);
     Object.assign(daylight.shadow.camera, {
@@ -121,8 +129,9 @@ export class ModelPreview {
   setView(view: PreviewView) {
     if (this.disposed) return;
     this.view = view;
-    const pitch = THREE.MathUtils.degToRad(view === "front" ? 10 : 25);
-    const yaw = THREE.MathUtils.degToRad(view === "front" ? 0 : 22);
+    const preset = cameraPresets[view];
+    const pitch = THREE.MathUtils.degToRad(preset.pitch);
+    const yaw = THREE.MathUtils.degToRad(preset.yaw);
     const offset = new THREE.Vector3(
       Math.sin(yaw) * Math.cos(pitch),
       Math.sin(pitch),

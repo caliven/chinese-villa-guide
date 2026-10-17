@@ -357,22 +357,22 @@ export class VillaViewer {
       ],
       // 站在院坪北侧外沿之外，俯看整块铺装和前檐，不再贴着门厅柱。
       courtyard: [
-        [10.55, 15, -42],
-        [10.55, 1.6, -3.5],
+        [10.5, 15, -42],
+        [10.5, 1.6, -3.5],
       ],
       garage: [
         [47, 23, -33],
         [20, -1.3, -3.5],
       ],
       top: [
-        [10.55, 42, 4.01],
-        [10.55, 0, 4],
+        [10.5, 42, 4.01],
+        [10.5, 0, 4],
       ],
     };
     let [p, t] = views[name];
     if (this.state.floor !== null && name === "top") {
       const y = this.state.floor * 3.6,
-        x = this.state.floor === 0 ? 10.55 : 13.55;
+        x = this.state.floor === 0 ? 10.5 : 13.55;
       p = [x, y + (this.state.floor === 0 ? 37 : 29), 4.01];
       t = [x, y, 4];
     }
@@ -506,12 +506,12 @@ export class VillaViewer {
   }
   routeHeight(x: number, z = -7.35) {
     const surface = roadHeight(z) + this.roadY - surroundings.road.entryY;
-    const startX = 21.1 + this.rampLength;
+    const startX = site.width + this.rampLength;
     if (x >= startX) return surface;
-    if (x <= 21.1) return site.garageFloor;
+    if (x <= site.width) return site.garageFloor;
     return (
       site.garageFloor +
-      ((x - 21.1) / this.rampLength) * (surface - site.garageFloor)
+      ((x - site.width) / this.rampLength) * (surface - site.garageFloor)
     );
   }
   updateRamp(roadY: number, length: number) {
@@ -595,7 +595,7 @@ export class VillaViewer {
       : 0;
     const corners = carCorners(pos.x, pos.z, yaw, extra);
     const inCorridor = ([x, z]: Point) =>
-      (x >= 21.1 && x <= surroundings.road.x && z >= -8.6 && z <= -6.1) ||
+      (x >= site.width && x <= surroundings.road.x && z >= -8.6 && z <= -6.1) ||
       (x >= surroundings.road.x &&
         x <= surroundings.road.x + surroundings.road.w &&
         z >= surroundings.road.front &&
@@ -606,7 +606,7 @@ export class VillaViewer {
     const stage =
       pos.x >= surroundings.road.x
         ? "左侧上坡马路"
-        : pos.x >= 21.1
+        : pos.x >= site.width
           ? "由马路转入地库"
           : "地库内";
     return {

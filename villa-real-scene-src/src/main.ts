@@ -1,6 +1,6 @@
 import "./style.css";
 
-type View = "front" | "aerial";
+type View = "front" | "left" | "right" | "overhead" | "aerial";
 type Mode = "render" | "original" | "compare" | "model";
 type ModelController = {
   setView(view: View): void;
@@ -12,17 +12,32 @@ const views: Record<View, { label: string; original: string; render: string }> =
   front: {
     label: "近景正面",
     original: "./photos/front-original.jpg",
-    render: "./photos/front-render.png",
+    render: "./photos/front-render.png?v=20261016-original1",
+  },
+  left: {
+    label: "左侧斜视",
+    original: "./photos/left-original.jpg",
+    render: "./photos/left-render.png?v=20261016-multiview1",
+  },
+  right: {
+    label: "右侧斜视",
+    original: "./photos/right-original.jpg",
+    render: "./photos/right-render.png?v=20261016-multiview1",
+  },
+  overhead: {
+    label: "屋顶俯瞰",
+    original: "./photos/overhead-original.jpg",
+    render: "./photos/overhead-render.png?v=20261016-multiview1",
   },
   aerial: {
     label: "全景航拍",
     original: "./photos/aerial-original.jpg",
-    render: "./photos/aerial-render.png",
+    render: "./photos/aerial-render.png?v=20261016-original1",
   },
 };
 const modes: Record<Mode, string> = {
   render: "建成效果",
-  original: "原始航拍",
+  original: "原始照片",
   compare: "前后对比",
   model: "建筑模型",
 };
@@ -44,8 +59,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <main class="workspace">
     <div class="toolbar">
       <fieldset class="view-picker" aria-label="选择机位"><div class="view-buttons">
-        <button type="button" data-view="aerial" aria-pressed="false">全景航拍</button>
-        <button type="button" data-view="front" aria-pressed="true">近景正面</button>
+        ${Object.entries(views).map(([key, selected]) => `<button type="button" data-view="${key}" aria-pressed="${key === "front"}">${selected.label}</button>`).join("")}
       </div></fieldset>
       <div class="mode-buttons" role="group" aria-label="查看模式">
         ${Object.entries(modes).map(([mode, label]) => `<button type="button" data-mode="${mode}" aria-pressed="${mode === "render"}">${label}</button>`).join("")}
@@ -57,8 +71,8 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <div class="image-frame" id="image-frame">
           <img id="base-image" class="scene-image" alt="" hidden draggable="false" />
           <div id="comparison-layer" class="comparison-layer" hidden><img id="effect-image" class="scene-image" alt="" draggable="false" /></div>
-          <div class="comparison-marker" id="comparison-marker" hidden role="slider" tabindex="0" aria-label="原始航拍显示比例" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="原始航拍 50%，建成效果 50%"><span title="左右拖动对比" aria-hidden="true">${icon("move")}</span></div>
-          <div id="image-labels" class="image-labels" hidden aria-hidden="true"><span>原始航拍</span><span>建成效果</span></div>
+          <div class="comparison-marker" id="comparison-marker" hidden role="slider" tabindex="0" aria-label="原始照片显示比例" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="原始照片 50%，建成效果 50%"><span title="左右拖动对比" aria-hidden="true">${icon("move")}</span></div>
+          <div id="image-labels" class="image-labels" hidden aria-hidden="true"><span>原始照片</span><span>建成效果</span></div>
           <div class="loading-state" id="loading-state" role="status"><span class="loading-dot" aria-hidden="true"></span><strong id="loading-message">正在加载实景画面</strong><button type="button" class="retry-button" id="retry-image" hidden>重新加载</button></div>
         </div>
         <div id="model-host" class="model-host" title="拖动旋转 · 滚轮或双指缩放" hidden></div>
@@ -71,10 +85,13 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 `;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const modelParam = new URLSearchParams(window.location.search).get("model");
-document.body.classList.toggle("is-embedded", new URLSearchParams(window.location.search).get("embed") === "1");
-let view: View = modelParam === "aerial" ? "aerial" : "front";
-let mode: Mode = modelParam === "front" || modelParam === "aerial" ? "model" : "render";
+const params = new URLSearchParams(window.location.search);
+const isView = (value: string | null): value is View => value !== null && Object.hasOwn(views, value);
+const modelParam = params.get("model");
+const viewParam = params.get("view");
+document.body.classList.toggle("is-embedded", params.get("embed") === "1");
+let view: View = isView(modelParam) ? modelParam : isView(viewParam) ? viewParam : "front";
+let mode: Mode = isView(modelParam) ? "model" : "render";
 let model: ModelController | null = null;
 let updateId = 0;
 let imageReady = false;
@@ -132,7 +149,7 @@ function updateComparison() {
   (labels[0] as HTMLElement).style.visibility = amount === 0 ? "hidden" : "visible";
   (labels[1] as HTMLElement).style.visibility = amount === 100 ? "hidden" : "visible";
   $("comparison-marker").setAttribute("aria-valuenow", String(amount));
-  $("comparison-marker").setAttribute("aria-valuetext", `原始航拍 ${amount}%，建成效果 ${100 - amount}%`);
+  $("comparison-marker").setAttribute("aria-valuetext", `原始照片 ${amount}%，建成效果 ${100 - amount}%`);
 }
 
 function setComparison(amount: number) {
@@ -154,7 +171,7 @@ function updateSelection() {
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach(button => {
     button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
   });
-  $("download-image").querySelector("span")!.textContent = mode === "model" ? "下载模型截图" : mode === "original" ? "下载原始航拍" : "下载建成效果";
+  $("download-image").querySelector("span")!.textContent = mode === "model" ? "下载模型截图" : mode === "original" ? "下载原始照片" : "下载建成效果";
 }
 
 function showLoading(message: string) {
@@ -215,7 +232,7 @@ async function updateView() {
     if (mode === "original") {
       const original = await loadImage(selected.original);
       if (thisUpdate !== updateId) return;
-      setImage($<HTMLImageElement>("base-image"), original, `${selected.label} · 原始航拍`);
+      setImage($<HTMLImageElement>("base-image"), original, `${selected.label} · 原始照片`);
       imageReady = true;
     } else if (mode === "render") {
       let rendered: string;
@@ -227,10 +244,10 @@ async function updateView() {
         fallback = true;
       }
       if (thisUpdate !== updateId) return;
-      setImage($<HTMLImageElement>("base-image"), rendered, `${selected.label} · ${fallback ? "原始航拍" : "建成效果"}`);
+      setImage($<HTMLImageElement>("base-image"), rendered, `${selected.label} · ${fallback ? "原始照片" : "建成效果"}`);
       imageReady = !fallback;
       if (fallback) {
-        $("asset-status").textContent = "效果图暂不可用，当前显示原始航拍。";
+        $("asset-status").textContent = "效果图暂不可用，当前显示原始照片。";
         $("asset-status").hidden = false;
       }
     } else {
@@ -240,14 +257,14 @@ async function updateView() {
         rendered = await loadImage(selected.render);
       } catch {
         if (thisUpdate !== updateId) return;
-        setImage($<HTMLImageElement>("base-image"), original, `${selected.label} · 原始航拍`);
-        $("asset-status").textContent = "效果图暂不可用，当前显示原始航拍。";
+        setImage($<HTMLImageElement>("base-image"), original, `${selected.label} · 原始照片`);
+        $("asset-status").textContent = "效果图暂不可用，当前显示原始照片。";
         $("asset-status").hidden = false;
         $("loading-state").hidden = true;
         return;
       }
       if (thisUpdate !== updateId) return;
-      setImage($<HTMLImageElement>("base-image"), original, `${selected.label} · 原始航拍`);
+      setImage($<HTMLImageElement>("base-image"), original, `${selected.label} · 原始照片`);
       setImage($<HTMLImageElement>("effect-image"), rendered, `${selected.label} · 建成效果`);
       $("comparison-layer").hidden = false;
       $("comparison-marker").hidden = false;
@@ -327,7 +344,7 @@ $("download-image").addEventListener("click", async () => {
     } else {
       const original = selectedMode === "original";
       const url = await loadImage(original ? selected.original : selected.render);
-      download(url, `安化山居-${selected.label}-${original ? "原始航拍.jpg" : "建成效果.png"}`);
+      download(url, `安化山居-${selected.label}-${original ? "原始照片.jpg" : "建成效果.png"}`);
     }
     toast("已开始下载，也可以长按图片保存。");
   } catch {

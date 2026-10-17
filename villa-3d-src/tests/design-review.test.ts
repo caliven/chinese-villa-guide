@@ -5,15 +5,19 @@ import { bedroomSummary, entranceMetrics, roomReference, southWindowProbes, stai
 import { designDrawings, unresolvedConditions } from "../src/design-drawings";
 import { emptySession, mergeSessions, parseSession, validateMeetingView, viewFlags, type MeetingView } from "../src/design-session";
 import { meetingBooklet } from "../src/meeting-booklet";
-import { floorPlan } from "../src/plan";
+import { courtyardSitePlan, floorPlan } from "../src/plan";
 import { facades } from "../src/facades";
+import { DEFAULT_VILLA_PARAMS } from "../src/villa-params";
 
 const view = (): MeetingView => ({
+  roofStyle: "joined",
+  courtyardFinish: "concrete", neighborCourtyardFinish: "concrete",
   tab: "model", camera: "garage", level: 0, planMode: "2d", existing: false, balcony: false,
   fenShui: 4.5, roadY: -1.86, rampLength: 5, progress: 72,
   sunDate: "2026-09-23", sunTime: 10.5, dining: "full",
   flags: Object.fromEntries(viewFlags.map((key) => [key, true])),
   pose: { position: [48, 30, -43], target: [26.5, -1.4, -9.5], zoom: 1 },
+  villaParams: { ...DEFAULT_VILLA_PARAMS },
 });
 test("控制线分别起算，首层抬高反映在楼梯与辅楼连接中", () => {
   const m = entranceMetrics();
@@ -36,11 +40,76 @@ test("用途待定不计为已确定卧室；套卫包络不转成可用净面�
   assert.match(ref.note, /不可与子房间面积相加/);
   assert.ok(!("usableArea" in ref));
 });
+test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", () => {
+  const svg = courtyardSitePlan();
+  assert.match(svg, /整体院坪平面图/);
+  assert.match(svg, /邻居面宽 13\.0 m/);
+  assert.match(svg, /门厅中心前墙→外沿/);
+  assert.match(svg, /左柱外缘→外沿/);
+  assert.match(svg, /右柱外缘→外沿/);
+  assert.equal([...svg.matchAll(/[左右]柱外缘→外沿/g)].length, 2);
+  assert.ok(!svg.includes("柱心→外沿"));
+  assert.ok(!/\b门厅前墙→外沿/.test(svg));
+  assert.match(svg, /左开间墙→外沿/);
+  assert.match(svg, /右开间墙→外沿/);
+  assert.match(svg, /主楼前墙→外沿/);
+  assert.match(svg, /主楼右角→外沿/);
+  assert.match(svg, /子孙道 1\.5 m/);
+  assert.ok(!svg.includes(">过道 "));
+  assert.ok(!/>子孙道</.test(svg));
+  assert.match(svg, /罗马柱门厅/);
+  assert.match(svg, /4\.8×2\.0/);
+  assert.ok(!svg.includes("前院东宽西窄"));
+  assert.match(svg, /邻院外 8\.6 m/);
+  assert.match(svg, /西总进深 11\.0 m/);
+  assert.match(svg, /东总进深 19\.4 m/);
+  assert.match(svg, /中总进深 15\.8 m/);
+  assert.match(svg, /dim-ext/);
+  assert.match(svg, /yard-dim-direct/);
+  assert.match(svg, /yard-dim-extend/);
+  assert.match(svg, /dim-anchor/);
+  assert.match(svg, /dim-arrow/);
+  assert.match(svg, /data-yard-dim=/);
+  assert.match(svg, /data-axis="x"/);
+  assert.match(svg, /data-axis="z"/);
+  assert.match(svg, /yard-dim-hit/);
+  assert.match(svg, /data-edge=/);
+  assert.match(svg, /data-base-dim=/);
+  // 图内「内退」「中总进深」「主楼前墙→外沿」默认贴边，无虚线；黄点在 edge
+  for (const label of ["内退 1.0 m", "中总进深 15.8 m", "主楼前墙→外沿"]) {
+    const at = svg.indexOf(label);
+    const open = svg.lastIndexOf("<g class=\"yard-dim", at);
+    const g = svg.slice(open, svg.indexOf("</g>", at) + 4);
+    assert.match(g, /yard-dim-direct/, label);
+    assert.ok(!g.includes("dim-ext"), label);
+    assert.match(g, /data-edge=/, label);
+  }
+  // 偏移只改尺寸线位置，黄点 edge 不变
+  const shifted = courtyardSitePlan({ "v-setback": 1.5 });
+  assert.match(shifted, /data-yard-dim="v-setback"[^>]*data-shift="1\.5"/);
+  {
+    const at = shifted.indexOf("内退 1.0 m");
+    const open = shifted.lastIndexOf("<g class=\"yard-dim", at);
+    const g = shifted.slice(open, shifted.indexOf("</g>", at) + 4);
+    assert.match(g, /dim-ext/);
+    assert.match(g, /yard-dim-extend/);
+    const edge = g.match(/data-edge="([^"]+)"/)?.[1];
+    const base = g.match(/data-base-dim="([^"]+)"/)?.[1];
+    assert.ok(edge && base);
+    assert.equal(edge, base, "direct 标注默认尺寸线贴边");
+  }
+  assert.ok(!svg.includes("大门／柱间三步"));
+  assert.ok(!svg.includes("柱间三步"));
+  assert.ok(!svg.includes('fill="#3a2422"'));
+  assert.ok(!svg.includes('class="partition"'));
+  assert.ok(!svg.includes('data-room='));
+});
 test("日常餐厅只作为平面备选，原双桌与车辆尺寸不被修改", () => {
   const full = floorPlan(0, true, false, { dining: "full" });
   const daily = floorPlan(0, true, false, { dining: "daily" });
   const chairs = (s: string) => [...s.matchAll(/class="furniture chair"/g)].length;
-  assert.equal(chairs(full) - chairs(daily), 12);
+  // 每把椅子 SVG 含座面+靠背两个 `.furniture.chair`，12 把日常隐藏椅 → 差 24
+  assert.equal(chairs(full) - chairs(daily), 24);
   assert.match(full, /r="1.85"/);
   assert.ok(!daily.includes('r="1.85"'));
   assert.match(daily, /收纳待定/);
@@ -69,6 +138,9 @@ test("会议JSON完整回读，不接受非法机位、未知图层值、日期�
   assert.throws(() => validateMeetingView({ ...view(), sunDate: "2026-02-30" }));
   assert.throws(() => validateMeetingView({ ...view(), pose: { position: [1, 1, 1], target: [1, 1, 1], zoom: 1 } }));
   assert.throws(() => validateMeetingView({ ...view(), flags: { ...view().flags, roof: "true" } }));
+  assert.throws(() => validateMeetingView({ ...view(), courtyardFinish: "wood" }));
+  assert.throws(() => validateMeetingView({ ...view(), neighborCourtyardFinish: 1 }));
+  assert.throws(() => validateMeetingView({ ...view(), roofStyle: "other" }));
   assert.throws(() => parseSession(JSON.stringify({ ...session, notes: { D99: session.notes.D04 } })));
   const other = emptySession();
   other.notes.D05 = { status: "未讨论", owner: "", due: "", body: "人行出口" };
@@ -76,6 +148,34 @@ test("会议JSON完整回读，不接受非法机位、未知图层值、日期�
   assert.equal(merged.snapshots.length, 1);
   assert.equal(Object.keys(merged.notes).length, 2);
   assert.equal(session.notes.D05, undefined);
+});
+test("院坪铺装随快照回读，旧快照缺失选项时恢复普通水泥地", () => {
+  const source = view();
+  source.courtyardFinish = "tile";
+  source.neighborCourtyardFinish = "concrete";
+  const session = emptySession();
+  session.snapshots.push({ id: "courtyard-material", title: "院坪铺砖", createdAt: "2026-10-15T00:00:00Z", revision: session.revision, view: source });
+  assert.deepEqual(parseSession(JSON.stringify(session)), session);
+  const { courtyardFinish: _own, neighborCourtyardFinish: _neighbor, ...legacy } = source;
+  const restored = validateMeetingView(legacy);
+  assert.equal(restored.courtyardFinish, "concrete");
+  assert.equal(restored.neighborCourtyardFinish, "concrete");
+});
+test("官帽造型随会议JSON完整回读，旧快照恢复原有官帽", () => {
+  const source = { ...view(), roofStyle: "floating" as const };
+  const session = emptySession();
+  session.snapshots.push({ id: "floating-roof", title: "悬浮官帽", createdAt: "2026-10-15T00:00:00Z", revision: session.revision, view: source });
+  assert.deepEqual(parseSession(JSON.stringify(session)), session);
+  const { roofStyle: _roof, ...legacy } = source;
+  assert.equal(validateMeetingView(legacy).roofStyle, "joined");
+  const html = meetingBooklet(session, { fenShui: 4.5, roadY: -1.86, rampLength: 5 }, source);
+  assert.match(html, /悬浮官帽/);
+  assert.ok(!html.includes("undefined"));
+});
+test("旧会议快照缺方案尺寸时回落默认参数", () => {
+  const { villaParams: _p, ...legacy } = view();
+  const restored = validateMeetingView(legacy);
+  assert.deepEqual(restored.villaParams, DEFAULT_VILLA_PARAMS);
 });
 test("导出图册转义会议内容，参数变化更新图纸，未知工程条件保持为空", () => {
   const session = emptySession();

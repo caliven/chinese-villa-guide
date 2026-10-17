@@ -17,9 +17,9 @@ import {
 import { buildL9, buildXingyuan } from "./cars";
 import { buildRoadsideVilla } from "./roadside-villa";
 import { roadsideFootprints, roadsideToWorld } from "./roadside-villa-layout";
-import { surroundings, forestTrees, basementColumns, roadHeight, rightTerraceBreak } from "./surroundings";
+import { surroundings, forestTrees, basementColumns, roadHeight, rightTerraceBreak, rebuildTerraceLinkage } from "./surroundings";
 import { buildContextGround, buildRoad } from "./site-ground";
-import { garageLayout } from "./garage-layout";
+import { garageLayout, rebuildGarageLayout } from "./garage-layout";
 
 function gableRoof(
   parent: THREE.Object3D,
@@ -291,17 +291,17 @@ export function buildExistingHouses(parent: THREE.Object3D, mat: Mats) {
       box(parent, x, fieldY + 0.04, z + 0.85, 0.13, 0.08, 1.7, crops, false);
   slab(
     pads,
-    rect(8.8, woodYardFront, 21.1 - 8.8, ownWoodFront - woodYardFront),
+    rect(8.8, woodYardFront, site.width - 8.8, ownWoodFront - woodYardFront),
     0,
     0.16,
-    mat.paving,
+    mat.courtyard,
   ).name = "自家旧木房前水泥坪";
   slab(
     pads,
-    rect(21.1, woodYardFront, neighborRight - 21.1, side.z - woodYardFront),
+    rect(site.width, woodYardFront, neighborRight - site.width, side.z - woodYardFront),
     0,
     0.16,
-    mat.paving,
+    mat.neighborCourtyard,
   );
   // 面对房子：左侧接到下面农田外沿，比右侧长。西端外沿拉直并封口，不留折角。
   // 最右侧栏杆超过西墙约 1 米，并沿这条路伸到与院坪同高的梯田。1 米是口述。
@@ -318,7 +318,7 @@ export function buildExistingHouses(parent: THREE.Object3D, mat: Mats) {
     [[brickLeft, brickFront], [brickRight, brickFront], ...outerEdge],
     0,
     0.16,
-    mat.paving,
+    mat.courtyard,
   ).name = "自家旧砖房前水泥坪";
   const terraceZ = contourAt(rightTerraceBreak, brickRight);
   slab(
@@ -331,14 +331,14 @@ export function buildExistingHouses(parent: THREE.Object3D, mat: Mats) {
     ],
     0,
     0.16,
-    mat.paving,
+    mat.courtyard,
   ).name = "砖房西侧上田的路";
   slab(
     pads,
     rect(neighborRight, neighborYardFront, east - neighborRight, side.z - neighborYardFront),
     0,
     0.16,
-    mat.paving,
+    mat.neighborCourtyard,
   ).name = "邻居木房前水泥坪";
   railing(pads, [8.7, woodYardFront + 0.08], [neighborRight, woodYardFront + 0.08], 0, mat);
   const brickPath = new THREE.Group();
@@ -491,7 +491,7 @@ export function buildSurroundingHouses(mat: Mats) {
     rect(rear.x, rear.z - 1.5, rear.w, 1.5),
     rear.y + 0.025,
     0.15,
-    mat.paving,
+    mat.neighborCourtyard,
   );
   for (let i = 0; i < 6; i++) {
     box(
@@ -502,7 +502,7 @@ export function buildSurroundingHouses(mat: Mats) {
       1.5,
       ((i + 1) * 0.8) / 6,
       0.24,
-      mat.paving,
+      mat.neighborCourtyard,
     );
   }
 
@@ -595,7 +595,7 @@ export function buildSurroundingHouses(mat: Mats) {
         : [],
       mat,
     );
-    slab(house, rect(h.x, h.z, mainW, h.d), y + 0.03, 0.15, mat.paving);
+    slab(house, rect(h.x, h.z, mainW, h.d), y + 0.03, 0.15, i === 0 ? mat.neighborCourtyard : mat.paving);
     box(
       house,
       h.x + mainW / 2,
@@ -890,7 +890,8 @@ function courtyardRailing(parent: THREE.Group, mat: Mats) {
     ...insetContour(path, -halfWidth),
     ...insetContour(path, halfWidth).reverse(),
   ];
-  slab(parent, strip(0.09), 0.12, 0.12, mat.trim);
+  // 底托顶仍约 0.12；底面抬离院坪顶约 1cm，避免与铺装共面斜看闪白线。
+  slab(parent, strip(0.09), 0.12, 0.11, mat.trim);
   slab(parent, strip(0.05), 1.13, 0.065, mat.metal);
   const lengths = [0];
   for (let i = 1; i < path.length; i++)
@@ -919,15 +920,19 @@ function courtyardRailing(parent: THREE.Group, mat: Mats) {
 export function buildCourtyard(mat: Mats) {
   const deck = new THREE.Group();
   deck.name = "完整院坪与右侧人行通道";
-  slab(deck, site.field, 0, 0.23, mat.paving).name = "无中央楼梯洞的院坪";
+  slab(deck, site.field, 0, 0.23, mat.courtyard).name = "无中央楼梯洞的院坪";
   courtyardRailing(deck, mat);
-  // 辅楼前约2米和西侧过道都走在这块院坪上，不再另铺一层近白色的条子。
-  railing(deck, [0.12, -2.98], [0.12, surroundings.rightStep], 0, mat, 1.1);
+  // 西侧栏杆北端落在院坪西端外沿，南端接到右田坎／辅楼侧通道，不伸出院坪。
+  const westRailNorth = contourAt(courtyardFront, 0.12);
+  railing(deck, [0.12, westRailNorth], [0.12, surroundings.rightStep], 0, mat, 1.1);
   box(deck, 13.6, -0.335, -0.5, 13.6, 0.23, 0.36, mat.stone);
   return deck;
 }
 
 export function buildSite(mat: Mats) {
+  // 建场地前按当前院坪／房子参数刷新梯田接缝与地库布局。
+  rebuildTerraceLinkage();
+  rebuildGarageLayout();
   const context = new THREE.Group(),
     fixed = new THREE.Group(),
     existing = new THREE.Group(),
@@ -954,13 +959,13 @@ export function buildSite(mat: Mats) {
   const padTop = 0.01;
   const padThick = 0.07;
   const stoneTop = padTop - padThick - 0.06;
-  slab(fixed, rect(0, 0, 21.1, 10.8), stoneTop, stoneTop - foundationTop, mat.stone);
-  slab(fixed, rect(0, 0, 21.1, 10.8), padTop, padThick, mat.paving);
-  box(fixed, 10.55, 1.25, 10.96, 21.1, 2.5, 0.32, mat.stone);
-  box(fixed, 10.55, 0.025, 10.52, 20.9, 0.035, 0.16, mat.dark);
+  slab(fixed, rect(0, 0, site.width, site.oldDepth), stoneTop, stoneTop - foundationTop, mat.stone);
+  slab(fixed, rect(0, 0, site.width, site.oldDepth), padTop, padThick, mat.courtyard);
+  box(fixed, site.width / 2, 1.25, site.oldDepth + 0.16, site.width, 2.5, 0.32, mat.stone);
+  // 屋后铺装上原先有一条深色细条（偏绿灰），用户要求删除。
   vegetation(context, mat);
   context.add(road);
-  slab(fixed, rect(21.1, -8.6, 5, 2.5), -3.15, 0.15, mat.soil);
+  slab(fixed, rect(site.cut.x, site.cut.z, site.cut.w, site.cut.d), -3.15, 0.15, mat.soil);
 
   const yard = surroundings.neighborYard;
   neighborDeck.name = "新建邻居前坪";
@@ -970,7 +975,7 @@ export function buildSite(mat: Mats) {
     garageLayout.retainedDeck.footprint,
     0,
     -garageLayout.retainedDeck.modelSlabBottom,
-    mat.paving,
+    mat.neighborCourtyard,
   ).name = "与两侧院坪接通的邻居前坪";
   const neighborLeft = new THREE.Group();
   neighborLeft.name = "新建邻居前坪左侧栏杆";
@@ -1150,11 +1155,11 @@ export function buildSite(mat: Mats) {
   const facing = roadsideToWorld(roadside, 0, -roadside.d / 2 - roadside.portico.d - 1);
   dim(roadsideDimensions, `朝西北 · 北偏西约 ${roadside.angle}° · 估算`, facing[0], roadside.y + 1.6, facing[1] - 0.7, 0.72);
   span(dimensions, p(0, 11.2, 2.4), p(site.width, 11.2, 2.4));
-  dim(dimensions, `东西总宽 ${site.width} m`, 10.55, 3.8, 12.6, 0.86);
+  dim(dimensions, `东西总宽 ${site.width} m`, site.width / 2, 3.8, 12.6, 0.86);
   span(dimensions, p(0, 0, 1.4), p(0, site.oldDepth, 1.4));
   dim(dimensions, `旧台地进深 ${site.oldDepth} m`, 2.4, 3.3, 11.6, 0.74);
   span(dimensions, p(0.35, 0, 1.2), p(0.35, courtyardFront[0][1], 1.2));
-  dim(dimensions, "西端外沿 3.1 m", 2.6, 2, -1.6, 0.7);
+  dim(dimensions, `西端外沿 ${Math.abs(courtyardFront[0][1]).toFixed(1)} m`, 2.6, 2, courtyardFront[0][1] / 2, 0.7);
   dim(dimensions, `旁田 ${site.adjacentUnexcavatedLevel.toFixed(1)} m · 示意待测`, -7, site.adjacentUnexcavatedLevel + 1.1, 1, 0.74);
   dim(dimensions, `前田低于地库约 ${site.frontFieldDrop} m`, 5, frontFieldLevel + 1.1, -13, 0.74);
   dim(dimensions, `砖房台地再低约 ${site.frontHouseDrop} m`, 18, front.y + 1.3, -19, 0.74);
@@ -1179,7 +1184,7 @@ export function buildSite(mat: Mats) {
   span(scheme, p(annex.x, -3.5, 0.4), p(annex.x + annex.w, -3.5, 0.4));
   dim(scheme, `辅楼 ${annex.w}×${annex.d} m · 高 ${annex.height} m`, 3.05, annex.height + 1.6, 4, 0.72);
   span(scheme, p(main.x + main.w, 6, 0.4), p(site.width, 6, 0.4));
-  dim(scheme, `东侧 ${site.sideGap} m`, 20.7, 2.2, 7.2, 0.64);
+  dim(scheme, `东侧 ${(site.width - main.x - main.w).toFixed(1)} m`, (main.x + main.w + site.width) / 2, 2.2, 7.2, 0.64);
   span(scheme, p(0, 3, 0.4), p(annex.x, 3, 0.4));
   dim(scheme, `西侧 ${site.sideGap} m`, 0.4, 2.2, 1.4, 0.64);
   span(scheme, p(annex.x + annex.w, 5, 0.4), p(main.x, 5, 0.4));
@@ -1188,7 +1193,7 @@ export function buildSite(mat: Mats) {
   dim(scheme, `三楼北退 ${site.setback} m`, 8.6, 7.6, -2.6, 0.68);
   dim(scheme, `屋后留 ${site.rearGap} m`, 17.4, 3.6, 9.2, 0.68);
   dim(scheme, `门厅 ${site.portico.w}×${site.portico.projection} m · 另计`, 13.7, 3.4, -5.4, 0.72);
-  dim(scheme, `栏杆下瓦檐约 ${site.secondFrontEave} m · 三楼顶檐 ${site.thirdEave} m`, 17.6, 4.2, -4.6, 0.68);
+  dim(scheme, `二楼前檐 ${site.secondFrontEave} m · 顶檐 ${site.thirdEave} m · 同构造`, 17.6, 4.2, -4.6, 0.68);
   dim(scheme, "前通道约 2 m", 2.8, 1.6, -2.5, 0.66);
   dim(scheme, `侧道 ${site.sideGap} m`, 0.45, 1.8, 6.4, 0.64);
   dim(scheme, `地库 ${site.garageFloor} m · 净高目标 ${site.garageClear} m`, 16.2, 2, -7.6, 0.7);
@@ -1274,16 +1279,5 @@ export function makeRamp(
   const ramp = new THREE.Mesh(geo, material);
   ramp.receiveShadow = true;
   g.add(ramp);
-  const mid = (z0 + z1) / 2;
-  line(
-    g,
-    [
-      new THREE.Vector3(surroundings.road.x, surface(mid) + 0.03, mid),
-      new THREE.Vector3(startX, surface(mid) + 0.03, mid),
-      new THREE.Vector3(endX, site.garageFloor + 0.03, mid),
-    ],
-    0xbd8136,
-    true,
-  );
   return g;
 }

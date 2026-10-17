@@ -14,6 +14,8 @@ const mats = Object.fromEntries(
     "trim",
     "stone",
     "paving",
+    "courtyard",
+    "neighborCourtyard",
     "roof",
     "dark",
     "wood",
@@ -56,6 +58,33 @@ test("道路在邻居木房左墙外且只有一层路面，地形不穿过道�
       const x = c.road.x + offset;
       assert.equal(hits(road, x, z).length, 1, `路面重叠或缺口 @ ${x},${z}`);
       assert.equal(hits(ground, x, z).length, 0, `地形侵入道路 @ ${x},${z}`);
+    }
+  }
+});
+
+test("蓝顶邻房门前弯曲主马路露在田面之上，不被前方低田盖住", () => {
+  const road = buildRoad(mats);
+  // 重建地形以带上路廊挖空
+  const groundCut = buildContextGround(mats);
+  groundCut.updateMatrixWorld(true);
+  road.updateMatrixWorld(true);
+  const samples: [number, number][] = [
+    [-20, -23],
+    [-18, -22],
+    [-12, -24],
+    [0, -28],
+    [15, -28],
+  ];
+  for (const [x, z] of samples) {
+    const onRoad = hits(road, x, z);
+    if (!onRoad.length) continue;
+    const onGround = hits(groundCut, x, z);
+    assert.ok(onRoad.length >= 1, `弯曲马路缺口 @ ${x},${z}`);
+    if (onGround.length) {
+      assert.ok(
+        onRoad[0].point.y >= onGround[0].point.y - 0.01,
+        `田面盖住马路 ${onGround[0].point.y.toFixed(2)} ≥ 路 ${onRoad[0].point.y.toFixed(2)} @ ${x},${z}`,
+      );
     }
   }
 });
@@ -234,6 +263,25 @@ test("树干与树冠都在后方木房之后，两侧田地不再生成树木",
   assert.ok(trees.every((t) => t.z - t.r * 2 > c.rearHouse.z + c.rearHouse.d));
 });
 
+test("西侧栏杆北端落在院坪西端外沿，不伸到旧 −2.98", () => {
+  const deck = buildCourtyard(mats);
+  deck.updateMatrixWorld(true);
+  const westFront = contourAt(courtyardFront, 0.12);
+  let minZ = Infinity;
+  deck.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    const box = new THREE.Box3().setFromObject(o);
+    const cx = (box.min.x + box.max.x) / 2;
+    if (Math.abs(cx - 0.12) > 0.08) return;
+    if (box.max.y < 0.8) return;
+    if (box.max.z - box.min.z < 2) return; // 西侧整段扶手，排除前缘弧上的短柱
+    minZ = Math.min(minZ, box.min.z);
+  });
+  assert.ok(Number.isFinite(minZ), "应找到西侧栏杆");
+  assert.ok(Math.abs(minZ - westFront) < 0.25, `西栏杆北端 ${minZ} 应贴近外沿 ${westFront}`);
+  assert.ok(minZ > -1.2, "西栏杆不应再伸到 −2.98");
+});
+
 test("院坪原楼梯洞已填平，辅楼前与右侧通道接到同高梯田", () => {
   const deck = buildCourtyard(mats);
   for (const z of [-4.8, -3.2, -1.4])
@@ -243,18 +291,27 @@ test("院坪原楼梯洞已填平，辅楼前与右侧通道接到同高梯田",
     const ray = new THREE.Raycaster(a, direction.clone().normalize(), 0, direction.length());
     assert.equal(ray.intersectObject(deck, true).length, 0, "人行通道被护栏封住");
   };
-  clear(new THREE.Vector3(5.25, 1, -2), new THREE.Vector3(.48, 1, -2));
-  clear(new THREE.Vector3(.48, 1, -2), new THREE.Vector3(.48, 1, 7));
+  // 西端外沿约 Z=-0.2，通道取辅楼前墙稍北，避免穿出新弧。
+  clear(new THREE.Vector3(5.25, 1, -0.05), new THREE.Vector3(.48, 1, -0.05));
+  clear(new THREE.Vector3(.48, 1, -0.05), new THREE.Vector3(.48, 1, 7));
   clear(new THREE.Vector3(.48, 1, 7), new THREE.Vector3(-.5, 1, 7));
   assert.ok(Math.abs(hits(ground, -.5, 7)[0].point.y) < 1e-5);
-  assert.ok(Math.abs(site.annex.z - site.field.at(-1)![1] - 2.1) < 1e-5);
+  const west = contourAt(courtyardFront, 0);
   const east = contourAt(courtyardFront, site.width);
-  assert.ok(Math.abs(site.main.z - east - 8.6) < 0.05);
-  const midX = site.width / 2;
-  const mid = contourAt(courtyardFront, midX);
-  const west = site.field.at(-1)![1];
+  const mid = contourAt(courtyardFront, 10);
+  assert.ok(Math.abs(west - -0.2) < 0.02);
+  assert.ok(Math.abs(east - -8.6) < 0.02);
+  assert.ok(Math.abs(mid - -5) < 0.05);
+  // 自 Z=0 水泥边起算：西0.2、中5、东8.6；后到前总进深 11／15.8／19.4
+  assert.ok(Math.abs(site.annex.z - west - 0.2) < 0.02);
+  assert.ok(Math.abs(0 - east - 8.6) < 0.02);
+  assert.ok(Math.abs(site.oldDepth - west - 11) < 0.05);
+  assert.ok(Math.abs(site.oldDepth - mid - 15.8) < 0.05);
+  assert.ok(Math.abs(site.oldDepth - east - 19.4) < 0.05);
+  const midX = 10.5;
+  const midArc = contourAt(courtyardFront, midX);
   const chord = west + (east - west) * (midX / site.width);
-  assert.ok(mid < chord - 1);
+  assert.ok(midArc < chord - 0.4, "外沿相对弦线外鼓");
   assert.equal(groundHeight(24, -2), 0);
 });
 

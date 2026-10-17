@@ -1,0 +1,16 @@
+[
+  {
+    "label": "old annex parapet removal - original grass cloned from 20 pixels above",
+    "source": "annex-parapet-local-grass-source.png",
+    "mask": "annex-parapet-local-mask.svg",
+    "d": "M878 595 L910 595 L912 612 L907 615 L903 607 L879 605 Z",
+    "saturation": 1
+  },
+  {
+    "label": "old narrow concrete lip replaced by new paving donor y=659+(y-640)*0.25",
+    "source": "neighbor-floor-local-pave-source.png",
+    "mask": "neighbor-floor-local-mask.svg",
+    "d": "M615 648 L632 640.5 L727 647 L738 651 L738 663 L608 663 Z",
+    "saturation": 0.78
+  }
+]

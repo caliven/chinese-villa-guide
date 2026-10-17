@@ -71,8 +71,8 @@ export interface Floor {
 // 中点取在两端连线以北，圆弧向外鼓，不再朝房子内凹。鼓出量是俯视图修正，不是新的实测。
 const courtyardArcAnchors: [Point, Point, Point] = [
   [0, -3.1],
-  [10.55, -8.15],
-  [21.1, -1 - 8.6],
+  [10.5, -8.15],
+  [21, -1 - 8.6],
 ];
 function circleThrough(anchors: [Point, Point, Point]) {
   const [a, b, c] = anchors;
@@ -111,7 +111,7 @@ export const courtyardFrontControls: Point[] = courtyardArc();
 export const courtyardFront = smoothContour(courtyardFrontControls, 0.3);
 
 export const site = {
-  width: 21.1,
+  width: 21,
   oldDepth: 10.8,
   rearGap: 1.8,
   sideGap: 0.8,
@@ -145,15 +145,15 @@ export const site = {
   // 西端不收尖。东端与旁边木屋前的接通院坪取同一外沿。
   field: [
     [0, 0],
-    [21.1, 0],
+    [21, 0],
     ...courtyardFront.slice().reverse(),
   ] as Point[],
   boundary: [
     [0, 10.8],
-    [21.1, 10.8],
+    [21, 10.8],
     ...courtyardFront.slice().reverse(),
   ] as Point[],
-  cut: { x: 21.1, z: -9.6, w: 5, d: 2.5 },
+  cut: { x: 21, z: -9.6, w: 5, d: 2.5 },
   vehicle: {
     length: 5.218,
     width: 1.998,
@@ -474,9 +474,9 @@ export const facts: Fact[] = [
   },
   {
     label: "东西总面宽",
-    value: "21.1 m",
+    value: "21 m",
     source: "用户提供",
-    note: "全部可用宽度，已包含东侧约0.6米过道，不再外加。",
+    note: "全部可用宽度按 0.8＋4.5＋1.5＋13.5＋0.7＝21 米分配（西侧0.8、东侧0.7），不再外加侧道。",
   },
   {
     label: "旧台地进深",

@@ -3,7 +3,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { getPosition } from "suncalc";
 import { site } from "./data";
-import { materials, line, tag } from "./primitives";
+import { materials, line, tag, setCourtyardFinishes } from "./primitives";
+import { courtyardFinishLabels, type CourtyardFinish } from "./courtyard-finishes";
+import { roofStyleLabels, type RoofStyle } from "./roof-options";
 import { buildVilla, attachRoofs } from "./architecture";
 import { buildL9 } from "./cars";
 import { buildSite, makeRamp } from "./terrain";
@@ -19,6 +21,9 @@ import { projectMeta } from "./project-meta";
 export type CameraName =
   "aerial" | "north" | "south" | "courtyard" | "garage" | "top" | "roadside";
 export interface ViewState {
+  roofStyle: RoofStyle;
+  courtyardFinish: CourtyardFinish;
+  neighborCourtyardFinish: CourtyardFinish;
   existing: boolean;
   roof: boolean;
   dimensions: boolean;
@@ -36,6 +41,9 @@ export interface ViewState {
   annexBuilding: boolean;
 }
 export const defaultView: ViewState = {
+  roofStyle: "joined",
+  courtyardFinish: "concrete",
+  neighborCourtyardFinish: "concrete",
   existing: false,
   roof: true,
   dimensions: false,
@@ -47,7 +55,7 @@ export const defaultView: ViewState = {
   overlap: false,
   sideNeighbor: true,
   rearNeighbor: true,
-  frontNeighbor: true,
+  frontNeighbor: false,
   roadsideNeighbor: true,
   mainBuilding: true,
   annexBuilding: true,
@@ -133,8 +141,8 @@ export class VillaViewer {
   eastBand = this.villa.group.getObjectByName("烤火房回纹横披")!;
   fenShui = site.roofFenShui;
   land = buildSite(this.mat);
-  sun = new THREE.DirectionalLight(0xfff0d9, 3);
-  ambient = new THREE.HemisphereLight(0xe3edf2, 0x786e52, 2.1);
+  sun = new THREE.DirectionalLight(0xfff6e9, 3);
+  ambient = new THREE.HemisphereLight(0xe3edf2, 0x898578, 2.1);
   state: ViewState = { ...defaultView };
   activeCamera: CameraName = "aerial";
   movingCar = buildL9(this.mat);
@@ -166,7 +174,9 @@ export class VillaViewer {
       preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6));
+    // 1倍屏也给细回纹留足采样；手机限制上限，避免整片场地无谓增加负载。
+    const desktop = window.innerWidth >= 900;
+    this.renderer.setPixelRatio(Math.min(Math.max(window.devicePixelRatio, desktop ? 1.5 : 1.25), desktop ? 2 : 1.6));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
@@ -185,15 +195,16 @@ export class VillaViewer {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const room = new RoomEnvironment();
     this.scene.environment = pmrem.fromScene(room, 0.04).texture;
-    this.scene.environmentIntensity = 0.32;
+    this.scene.environmentIntensity = 0.4;
     room.dispose();
     pmrem.dispose();
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    this.sun.shadow.camera.left = -40;
-    this.sun.shadow.camera.right = 40;
-    this.sun.shadow.camera.top = 40;
-    this.sun.shadow.camera.bottom = -40;
+    const shadowSize = Math.min(desktop ? 4096 : 2048, this.renderer.capabilities.maxTextureSize);
+    this.sun.shadow.mapSize.set(shadowSize, shadowSize);
+    this.sun.shadow.camera.left = -32;
+    this.sun.shadow.camera.right = 32;
+    this.sun.shadow.camera.top = 32;
+    this.sun.shadow.camera.bottom = -32;
     this.sun.shadow.camera.near = 0.5;
     this.sun.shadow.camera.far = 150;
     this.sun.shadow.bias = -0.00018;
@@ -354,22 +365,22 @@ export class VillaViewer {
       ],
       // 站在院坪北侧外沿之外，俯看整块铺装和前檐，不再贴着门厅柱。
       courtyard: [
-        [10.55, 15, -42],
-        [10.55, 1.6, -3.5],
+        [10.5, 15, -42],
+        [10.5, 1.6, -3.5],
       ],
       garage: [
         [48, 30, -43],
         [26.5, -1.4, -9.5],
       ],
       top: [
-        [10.55, 42, 4.01],
-        [10.55, 0, 4],
+        [10.5, 42, 4.01],
+        [10.5, 0, 4],
       ],
     };
     let [p, t] = views[name];
     if (this.state.floor !== null && name === "top") {
       const y = this.state.floor * 3.6,
-        x = this.state.floor === 0 ? 10.55 : 13.55;
+        x = this.state.floor === 0 ? 10.5 : 13.55;
       p = [x, y + (this.state.floor === 0 ? 37 : 29), 4.01];
       t = [x, y, 4];
     }
@@ -410,6 +421,8 @@ export class VillaViewer {
   setState(next: Partial<ViewState>) {
     Object.assign(this.state, next);
     const s = this.state;
+    if (s.roofStyle !== this.builtRoofStyle) this.setRoofFenShui(this.fenPending ?? this.fenShui);
+    setCourtyardFinishes(this.mat, s.courtyardFinish, s.neighborCourtyardFinish);
     this.land.existing.visible = s.existing;
     this.land.neighborDeck.visible = !s.existing && !s.garage;
     this.land.proposed.visible = !s.existing;
@@ -483,6 +496,7 @@ export class VillaViewer {
   }
   private fenFrame = 0;
   private fenPending: number | null = null;
+  private builtRoofStyle: RoofStyle = "joined";
   setRoofFenShui(fenShui: number) {
     this.fenPending = fenShui;
     if (this.fenFrame) return;
@@ -490,12 +504,18 @@ export class VillaViewer {
       this.fenFrame = 0;
       const next = this.fenPending;
       this.fenPending = null;
-      if (next == null || Math.abs(next - this.fenShui) < 1e-4) return;
+      if (next == null || (Math.abs(next - this.fenShui) < 1e-4 && this.state.roofStyle === this.builtRoofStyle)) return;
+      // 官帽样式切换或悬浮分水变化时，柱高／装饰随檐口走，须整栋重建；仅原有官帽分水变化可只重挂屋面。
+      if (this.state.roofStyle !== this.builtRoofStyle || this.state.roofStyle === "floating") {
+        this.rebuildAfterParams(next);
+        return;
+      }
       this.fenShui = next;
+      this.builtRoofStyle = this.state.roofStyle;
       const keep = new Set<THREE.Material>(Object.values(this.mat));
       for (const root of [this.villa.roof, this.villa.annexRoof])
         disposeReplaced(root, this.scene, keep);
-      attachRoofs(this.villa.roof, this.villa.annexRoof, this.mat, next);
+      attachRoofs(this.villa.roof, this.villa.annexRoof, this.mat, next, this.builtRoofStyle);
       const created: THREE.Mesh[] = [];
       for (const root of [this.villa.roof, this.villa.annexRoof]) {
         root.traverse((obj) => {
@@ -507,6 +527,79 @@ export class VillaViewer {
       this.renderer.shadowMap.needsUpdate = true;
       this.needsRender = true;
     });
+  }
+
+  /** 方案尺寸参数变更后：按当前 data／site 重砌主辅楼与场地（邻房示意可能仍有绝对坐标）。 */
+  rebuildAfterParams(fenShui = site.roofFenShui) {
+    const keep = new Set<THREE.Material>(Object.values(this.mat));
+    for (const root of [this.villa.group, this.land.context, this.land.fixed, this.land.existing, this.land.proposed, this.land.dimensions]) {
+      this.scene.remove(root);
+      disposeReplaced(root, this.scene, keep);
+    }
+    this.routeGroup.clear();
+    this.villa = buildVilla(this.mat, true, fenShui, this.state.roofStyle);
+    this.livingGlass = this.villa.group.getObjectByName("挑空客厅一二层通高玻璃")!;
+    this.entryBay = this.villa.group.getObjectByName("门厅一二层通高门")!;
+    this.eastBand = this.villa.group.getObjectByName("烤火房回纹横披")!;
+    this.land = buildSite(this.mat);
+    this.fenShui = fenShui;
+    this.builtRoofStyle = this.state.roofStyle;
+    for (const g of this.villa.levels) batch(g);
+    batch(this.villa.portico);
+    for (const g of [this.livingGlass, this.entryBay, this.eastBand]) batch(g);
+    for (const g of [
+      this.villa.roof,
+      this.villa.annex,
+      this.villa.annexRoof,
+      this.villa.balcony,
+      this.land.fixed,
+      this.land.existing,
+      this.land.deck,
+      this.land.road,
+      this.land.neighborDeck,
+      this.land.sideNeighbor,
+      this.land.rearNeighbor,
+      this.land.frontNeighbor,
+      this.land.roadsideNeighbor,
+    ])
+      batch(g);
+    batch(this.land.garage, new Set([this.land.parked]));
+    batch(this.land.parked);
+    batch(
+      this.land.context,
+      new Set([
+        this.land.cutPiece,
+        this.land.cutOutline,
+        this.land.road,
+        this.land.neighborDeck,
+        this.land.sideNeighbor,
+        this.land.rearNeighbor,
+        this.land.frontNeighbor,
+        this.land.roadsideNeighbor,
+      ]),
+    );
+    this.scene.add(
+      this.land.context,
+      this.land.fixed,
+      this.land.existing,
+      this.land.proposed,
+      this.land.dimensions,
+      this.villa.group,
+    );
+    this.ramp.removeFromParent();
+    this.ramp.traverse((o) => {
+      if (o instanceof THREE.Mesh || o instanceof THREE.Line) {
+        o.geometry.dispose();
+        if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+        else o.material.dispose();
+      }
+    });
+    this.land.road.position.y = this.roadY - surroundings.road.entryY;
+    this.ramp = makeRamp(this.land.proposed, this.mat, this.roadY, this.rampLength);
+    this.drawRoute();
+    this.setState({});
+    this.renderer.shadowMap.needsUpdate = true;
+    this.needsRender = true;
   }
   setSun(date: string, hour: number) {
     const result = sunDirection(date, hour);
@@ -705,7 +798,7 @@ export class VillaViewer {
     ctx.font = `${font}px system-ui,sans-serif`;
     const lines = [
       `安化山居 · ${projectMeta.revision} / ${projectMeta.date} · 当前${this.state.existing ? "现状" : "新建"}模型 · 机位 ${this.activeCamera}`,
-      `${projectMeta.datum} · 分水${this.fenShui.toFixed(1)} · 非测绘／施工图`,
+      `${projectMeta.datum} · ${roofStyleLabels[this.state.roofStyle]} · 分水${this.fenShui.toFixed(1)} · 自家${courtyardFinishLabels[this.state.courtyardFinish]}／邻居${courtyardFinishLabels[this.state.neighborCourtyardFinish]} · 非测绘／施工图`,
       this.state.garage ? "车辆通行未确认；道路与最低梁底待测；拟切口协商待确认" : "结构、净高、通行与排水待专业设计核实；周边含照片估算",
     ];
     lines.forEach((label, i) => ctx.fillText(label, font, source.height + font * (1.4 + i * 1.4), canvas.width - font * 2));

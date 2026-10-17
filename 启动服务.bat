@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-set "PORT=8000"
+set "PORT=18888"
 
 where py >nul 2>nul
 if %errorlevel%==0 (
@@ -16,12 +16,9 @@ if %errorlevel%==0 (
   set "PYTHON=python"
 )
 
-:find_port
 netstat -ano | findstr /R /C:":%PORT% .*LISTENING" >nul
 if not errorlevel 1 (
-  set /a PORT+=1
-  if %PORT% LEQ 8010 goto find_port
-  echo 端口 8000 到 8010 均已被占用，请关闭其他服务后重试。
+  echo 端口 %PORT% 已被占用，请关闭占用该端口的服务后重试。
   pause
   exit /b 1
 )

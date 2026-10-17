@@ -1,0 +1,73 @@
+{
+  "version": "20261016-multiview1",
+  "views": {
+    "left": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "4ae94295a96e5a21658abb7a2cddbec489ab9eca8380cbd354c763592c52c1e3",
+      "outputSha256": "08496eb2ea7ccd123ffb762983e8a45021886110789883798a21e44914463ab3",
+      "outsidePixels": 4522948,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 90.632,
+      "layers": [
+        {
+          "source": "references/multiview-2026-10-17/left-construction-source.png",
+          "sourceSha256": "f2b70fe9a612f40bc7e7d6c614fdcb69a5c802332a4dae935fe62b0b8ca402c3",
+          "mask": "references/multiview-2026-10-17/left-construction-mask.png",
+          "maskSha256": "62061f96d0eb827b0022a38640270bf5cba66cb004de7b2ad8b03635afd22e61",
+          "selectedPixels": 240387
+        },
+        {
+          "source": "references/multiview-2026-10-17/left-courtyard-expanded-source.png",
+          "sourceSha256": "b3b75f3958092a64974e0960cc173b59e8fd2c7b4cd139670897a5b692773d2b",
+          "mask": "references/multiview-2026-10-17/left-courtyard-mask.png",
+          "maskSha256": "7481edf3e54cf9a9edcc030a104513f545a6ea0a66c36eeb0c36a34ac8823d66",
+          "selectedPixels": 317104
+        }
+      ]
+    },
+    "right": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "719b96f98c0ecb956666f11f43229a6c3a146eb5f3e71033f14e7bf84a631164",
+      "outputSha256": "aa2d7fd26ac25cf65390597ffd37bde674a5741e1159a0d70448d5c81c16a621",
+      "outsidePixels": 4398246,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 88.133,
+      "layers": [
+        {
+          "source": "references/multiview-2026-10-17/right-construction-source.png",
+          "sourceSha256": "b0855552a92e3a9b77e61e88c54f3353a82e19869792ccf3eda154eef1c4b2e9",
+          "mask": "references/multiview-2026-10-17/right-construction-mask.png",
+          "maskSha256": "3ad9ecc9112ba63c277105d90d5e34b837f8dc8183b9338bd7769c78db4c575c",
+          "selectedPixels": 556249
+        },
+        {
+          "source": "references/multiview-2026-10-17/right-connection-source.png",
+          "sourceSha256": "bcbb46c36f959acfb520a76d86076d2ad1fbb6dc562e3e3a98b223d5898181e5",
+          "mask": "references/multiview-2026-10-17/right-connection-mask.png",
+          "maskSha256": "e758e5685c0b4d0d96a58ead8ef1512a02a7753e0bde77f093e5e5e2c6a1231c",
+          "selectedPixels": 49867
+        }
+      ]
+    },
+    "overhead": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "40d1fbd38583f2bbfb02009a9b010a4a5cea03bace9e16588e6072f51d37256c",
+      "outputSha256": "dafae4ea0e0472f2dcb9918c327d8ca3ca6213bfa63cf80fe043f7b836153e1a",
+      "outsidePixels": 4718233,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 94.545,
+      "layers": [
+        {
+          "source": "references/multiview-2026-10-17/overhead-construction-source.png",
+          "sourceSha256": "04038c09bd85e2ace356ae94e56ef4ad9ae06fceebb5da82821257f391819d76",
+          "mask": "references/multiview-2026-10-17/overhead-construction-mask.svg",
+          "maskSha256": "5eac26540ed150d49bd1c7dadc535b63d1333c34232a8e02fe3dcbf4fba0e051",
+          "selectedPixels": 272231
+        }
+      ]
+    }
+  }
+}

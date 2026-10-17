@@ -30,10 +30,10 @@ svg { display: block; width: 18px; height: 18px; flex-shrink: 0; }
 .original-model-link:hover { color: var(--green); }
 .original-model-link svg { width: 15px; height: 15px; }
 .workspace { width: min(1600px, 100%); padding: 26px clamp(20px, 4vw, 64px) 22px; margin: 0 auto; }
-.toolbar { display: flex; align-items: flex-end; gap: 28px; margin-bottom: 22px; }
-.view-picker { border: 0; padding: 0; margin: 0; min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 28px; margin-bottom: 22px; }
+.view-picker { border: 0; padding: 0; margin: 0; min-width: 0; flex-basis: 100%; }
 .view-buttons, .mode-buttons { display: flex; gap: 2px; align-items: center; }
-.view-buttons { padding: 4px; border: 1px solid #d9ddd2; border-radius: 6px; background: #eeeee7; }
+.view-buttons { width: fit-content; max-width: 100%; flex-wrap: wrap; padding: 4px; border: 1px solid #d9ddd2; border-radius: 6px; background: #eeeee7; }
 .view-buttons button { border: 0; background: transparent; padding: 9px 19px; font-size: 13px; border-radius: 4px; color: #7b8279; white-space: nowrap; }
 .view-buttons button[aria-pressed="true"] { color: var(--green); background: var(--paper); box-shadow: 0 1px 4px #24362312; font-weight: 600; }
 .mode-buttons { flex: 1; gap: 25px; align-self: flex-end; }
@@ -74,9 +74,8 @@ svg { display: block; width: 18px; height: 18px; flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) { .loading-dot { animation: none; } }
 @media (max-width: 1080px) {
   .toolbar { flex-wrap: wrap; gap: 18px 24px; }
-  .view-picker { order: 0; }
-  .download-button { order: 1; margin-left: auto; }
-  .mode-buttons { order: 2; flex-basis: 100%; flex-grow: 0; gap: 28px; }
+  .download-button { margin-left: auto; }
+  .mode-buttons { gap: 28px; }
   .mode-buttons button { padding-top: 5px; }
   .image-frame { width: min(100%, max(620px, calc((100svh - 280px) * 1.5))); }
 }
@@ -92,8 +91,11 @@ svg { display: block; width: 18px; height: 18px; flex-shrink: 0; }
   .original-model-link svg { width: 13px; height: 13px; }
   .workspace { padding: 20px 14px; }
   .toolbar { gap: 17px 8px; margin-bottom: 14px; }
-  .view-buttons { padding: 3px; }
+  .view-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; padding: 3px; }
   .view-buttons button { padding: 9px 12px; font-size: 11px; min-height: 36px; }
+  .view-picker { order: 0; }
+  .mode-buttons { order: 1; flex-basis: 100%; }
+  .download-button { order: 2; }
   .download-button { padding: 11px 10px; font-size: 10px; gap: 5px; min-height: 44px; }
   .download-button svg { width: 14px; height: 14px; }
   .mode-buttons { justify-content: space-between; gap: 9px; }
@@ -109,6 +111,7 @@ svg { display: block; width: 18px; height: 18px; flex-shrink: 0; }
   .asset-status { padding: 0 15px 16px; font-size: 11px; }
 }
 @media (max-width: 340px) {
+  .view-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .download-button span { max-width: 58px; }
   .view-buttons button { padding-left: 8px; padding-right: 8px; }
 }
