@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { floors, site, courtyardArcAnchors, courtyardFront, annexFurniture, frontElevation } from "../src/data";
+import { floors, site, courtyardArcAnchors, courtyardFront, annexFurniture, frontElevation, roadsideVilla } from "../src/data";
 import {
   applyVillaParams,
   DEFAULT_VILLA_PARAMS,
@@ -13,6 +13,9 @@ import { clonePublishedLayout, scaleLayoutDraftToEnvelope, envelopeFromSite } fr
 import { garageLayout } from "../src/garage-layout";
 import { surroundings, terraceContours } from "../src/surroundings";
 import { contourAt } from "../src/contours";
+import { facades, mainEaveY, mainFrontOpeningX } from "../src/facades";
+import { mainRoofFootprint } from "../src/architecture";
+import { placeRoadsideVilla } from "../src/roadside-villa-layout";
 
 test("东墙锚定：西侧由其余面宽反推；过宽时校验失败", () => {
   const ok = validateVillaParams(DEFAULT_VILLA_PARAMS);
@@ -191,6 +194,44 @@ test("三楼短柱与门厅柱、包角柱同轴，改门厅参数后一起挪",
   assert.equal(e2.balustradePosts[1].w, 0.9);
   assert.ok(Math.abs(e2.porticoColumnZ - (site.main.z - 2.1 - 0.45)) < 1e-9);
   assert.ok(Math.abs(e2.postZ - site.main.z - 0.25) < 1e-9);
+  resetVillaParams();
+});
+
+test("层高／面宽／辅楼高／北退／邻居／蓝顶房随参数联动", () => {
+  resetVillaParams();
+  applyVillaParams({
+    ...DEFAULT_VILLA_PARAMS,
+    floor1Height: 3.8,
+    floor2Height: 3.5,
+    floor3Height: 3.1,
+    mainWidth: 14,
+    annexHeight: 4.0,
+    thirdSetback: 2.0,
+    neighborWoodWidth: 14,
+    neighborWoodDepth: 9.2,
+    eastGap: 0.6,
+  });
+  assert.ok(Math.abs(mainEaveY() - (3.8 + 3.5 + 3.1)) < 1e-9);
+  assert.ok(Math.abs(mainRoofFootprint().eave - mainEaveY()) < 1e-9);
+  assert.ok(Math.abs(frontElevation.hatEave - mainEaveY()) < 1e-9);
+  assert.equal(site.annex.height, 4.0);
+  assert.ok(Math.abs(mainFrontOpeningX(2.35) - (site.main.x + 2.35 * (14 / 13.5))) < 1e-6);
+  assert.ok(Math.abs(floors[2].front - (site.main.z + 2.0)) < 1e-9);
+  for (const r of floors[2].rooms) assert.ok(r.z + 1e-9 >= floors[2].front, r.id);
+  for (const w of floors[2].partitions) {
+    assert.ok(w.a[1] + 1e-9 >= floors[2].front);
+    assert.ok(w.b[1] + 1e-9 >= floors[2].front);
+  }
+  assert.equal(surroundings.sideHouse.w, 14);
+  assert.equal(surroundings.sideHouse.d, 9.2);
+  const expectedRoadsideX = placeRoadsideVilla(
+    site.annex.x,
+    site.garageFloor - site.frontFieldDrop - site.frontHouseDrop,
+  ).x;
+  assert.ok(Math.abs(roadsideVilla.x - expectedRoadsideX) < 1e-9);
+  const front = facades(0).find((f) => Math.abs(f.a[1] - f.b[1]) < 0.02)!;
+  assert.ok(Math.abs(front.a[0] - site.main.x) < 0.2);
+  assert.ok(Math.abs(front.b[0] - (site.main.x + site.main.w)) < 0.2);
   resetVillaParams();
 });
 

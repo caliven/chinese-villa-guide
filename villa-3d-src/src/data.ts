@@ -219,7 +219,7 @@ export const buildingAreas = {
  * 户型「院坪」总图用的邻居木房占位。
  * 面宽13米、水泥2＋木房8.8＝10.8：用户2026-10-16口述。
  * 水泥外院坪北缘与自家东界外沿最宽处齐平（不再北伸）；yardBeyondCement 由 rebuildCourtyardGeometry 写入。
- * 与3D里仍约12米面宽的邻房模型可不一致，以本表作平面核对，不是测绘。
+ * 3D 左侧邻居木房随 neighborWood* 同步；前后邻房仅随东缘微调。不是测绘。
  * 平面北上东右：与自家东界（X=21）相接后往东排。
  */
 export const neighborCourtyardPlan = {

@@ -1,6 +1,6 @@
 import { site, floors, frontFieldLevel, courtyardFront, roadsideVilla, contains, type Point } from "./data";
 import { contourAt, insetContour, smoothContour } from "./contours";
-import { roadsideToWorld } from "./roadside-villa-layout";
+import { placeRoadsideVilla, roadsideToWorld } from "./roadside-villa-layout";
 
 // 全部左右关系按站在北侧、面对房子描述：画面左侧为 X 增大。
 // 对齐关系来自用户；周边房屋尺寸、未测标高和田坎折点仍是航拍估算。
@@ -100,30 +100,79 @@ export const surroundings = {
 // 道路宽度与曲线都是照片估算；与上坡支路不同，这一段与前方砖房首层同高。
 // 路心贴近门厅前坪外沿（约 2.1 m），避免房前露出大块空白田面把路面“吃掉”。
 const villageRoadWidth = 3.5;
-const villageRoadFront = -roadsideVilla.d / 2 - roadsideVilla.portico.d - 2.1;
-export const villageRoadCenter = smoothContour([
-  [surroundings.extent.left, -14.5],
-  roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2 - 1.2, villageRoadFront),
-  roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2, villageRoadFront),
-  roadsideToWorld(roadsideVilla, 2, villageRoadFront),
-  roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w, villageRoadFront),
-  roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w + 1.5, villageRoadFront - 0.4),
-  [-5, -29.25], [2, -28.25], [20, -28.25], [surroundings.extent.right, -28.25],
-], 0.45);
-export const villageRoadEdges = (() => {
+
+function buildVillageRoadCenter(): Point[] {
+  const villageRoadFront = -roadsideVilla.d / 2 - roadsideVilla.portico.d - 2.1;
+  return smoothContour([
+    [surroundings.extent.left, -14.5],
+    roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2 - 1.2, villageRoadFront),
+    roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2, villageRoadFront),
+    roadsideToWorld(roadsideVilla, 2, villageRoadFront),
+    roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w, villageRoadFront),
+    roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w + 1.5, villageRoadFront - 0.4),
+    [-5, -29.25], [2, -28.25], [20, -28.25], [surroundings.extent.right, -28.25],
+  ], 0.45);
+}
+
+function buildVillageRoadEdges(center: Point[]) {
   const front: Point[] = [], back: Point[] = [];
-  for (let i = 0; i < villageRoadCenter.length; i++) {
-    const p = villageRoadCenter[i];
-    const a = villageRoadCenter[Math.max(0, i - 1)], b = villageRoadCenter[Math.min(villageRoadCenter.length - 1, i + 1)];
+  for (let i = 0; i < center.length; i++) {
+    const p = center[i];
+    const a = center[Math.max(0, i - 1)], b = center[Math.min(center.length - 1, i + 1)];
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const end = i === 0 || i === villageRoadCenter.length - 1;
+    const end = i === 0 || i === center.length - 1;
     const nx = end ? 0 : -(b[1] - a[1]) / length;
     const nz = end ? 1 : (b[0] - a[0]) / length;
     front.push([p[0] - nx * villageRoadWidth / 2, p[1] - nz * villageRoadWidth / 2]);
     back.push([p[0] + nx * villageRoadWidth / 2, p[1] + nz * villageRoadWidth / 2]);
   }
   return { front, back, outline: [...front, ...back.slice().reverse()] };
-})();
+}
+
+export const villageRoadCenter = buildVillageRoadCenter();
+export const villageRoadEdges = buildVillageRoadEdges(villageRoadCenter);
+
+/** 蓝顶邻房重定位后刷新弯道路心／路缘（原地替换数组，供 groundHeight 与场地重建共用）。 */
+export function rebuildVillageRoad() {
+  const next = buildVillageRoadCenter();
+  replacePoints(villageRoadCenter, next);
+  const edges = buildVillageRoadEdges(next);
+  replacePoints(villageRoadEdges.front, edges.front);
+  replacePoints(villageRoadEdges.back, edges.back);
+  replacePoints(villageRoadEdges.outline, edges.outline);
+}
+
+/**
+ * 邻居木房面宽／进深写入 3D `sideHouse`，并刷新马路东缘、邻院、前后邻房面宽。
+ * 木房前墙 Z 仍与自家旧木房对齐（口述），不随参移动。
+ */
+export function syncNeighborFootprint(width: number, depth: number) {
+  sideHouse.w = width;
+  sideHouse.d = depth;
+  const left = sideHouse.x + sideHouse.w;
+  const ordinary = sideHouse.w / (2 + sideHallScale);
+  const hallCenter = sideHouse.x + sideHouse.w - ordinary - (ordinary * sideHallScale) / 2;
+  const yardWest = hallCenter - 0.5;
+  surroundings.neighborYard.x = yardWest;
+  surroundings.neighborYard.w = left - yardWest;
+  surroundings.neighborYard.d = sideHouse.z - surroundings.neighborYard.z;
+  surroundings.road.x = left;
+  surroundings.leftPlatform.x = left + surroundings.road.w;
+  surroundings.rearHouse.w = left - surroundings.rearHouse.x;
+  surroundings.frontHouse.w = left - surroundings.frontHouse.x;
+  const span = surroundings.frontHouse.w;
+  if (span > 0.1) surroundings.frontHouse.wingRatio = (left - yardWest) / span;
+}
+
+/** 按当前辅楼西墙重算蓝顶邻房世界坐标，并刷新弯道。 */
+export function syncRoadsideVillaPlacement() {
+  const next = placeRoadsideVilla(
+    site.annex.x,
+    site.garageFloor - site.frontFieldDrop - site.frontHouseDrop,
+  );
+  Object.assign(roadsideVilla, next);
+  rebuildVillageRoad();
+}
 
 // 俯瞰航拍里西侧田埂远离房子后朝南弯。整条上田田埂按这条原弧向北平移
 // rightTerraceAdvance，靠屋终点仍落在 rightStep。

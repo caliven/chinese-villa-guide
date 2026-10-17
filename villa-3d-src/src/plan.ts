@@ -9,6 +9,7 @@ import {
   annexPartitions,
   construction,
   courtyardFront,
+  courtyardArcAnchors,
   neighborCourtyardPlan,
   type Floor,
   type Room,
@@ -527,7 +528,15 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean, o
       ${text((eastOuter + eastEnd) / 2, columnNorth - 0.32, "朝东", "room-size")}
       ${text((westOuter + westEnd) / 2, columnNorth - 0.32, "朝西", "room-size")}`
     : "";
-  const diningFurniture = src.annexFurniture.filter((item) => options.dining !== "daily" || !(item.kind === "roundTable" || (item.kind === "chair" && Math.hypot(item.x - 2.9, item.z - 1.12) < 1.6)));
+  const roundTable = src.annexFurniture.find((item) => item.kind === "roundTable");
+  const roundCx = roundTable?.x ?? 2.9;
+  const roundCz = roundTable?.z ?? 1.12;
+  // 圆桌椅在半径约 1.28 m 的环上；勿用过大圆域，以免误收小桌旁椅。
+  const isRoundChair = (item: (typeof src.annexFurniture)[number]) =>
+    item.kind === "chair" && Math.abs(Math.hypot(item.x - roundCx, item.z - roundCz) - 1.28) < 0.2;
+  const diningFurniture = src.annexFurniture.filter(
+    (item) => options.dining !== "daily" || !(item.kind === "roundTable" || isRoundChair(item)),
+  );
   // 子孙道竖排标注放在通辅楼门洞以北，避免压到门洞与「通辅楼」字。
   const laneLabelX = (site.annex.x + site.annex.w + site.main.x) / 2;
   const laneLabelZ = src.sideDoorZ - src.sideDoorWidth / 2 - 1.9;
@@ -603,8 +612,8 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean, o
       const yardZ = contourAt(courtyardFront, 3);
       const pathD = site.annex.z - yardZ;
       return rect(.18, yardZ, 5.12, pathD, 'fill="none" stroke="#a9b9a1" stroke-width=".04" stroke-dasharray=".14 .12"')
-        + text(3, (yardZ + site.annex.z) / 2, `辅楼前约${pathD.toFixed(1)}m · 内退1m`, "room-size")
-        + hDim(site.annex.x, site.annex.x + 1.2, site.main.z - 0.35, "内退 1.0 m");
+        + text(3, (yardZ + site.annex.z) / 2, `辅楼前约${pathD.toFixed(1)}m · 内退${(site.annex.z - site.main.z).toFixed(1)}m`, "room-size")
+        + hDim(site.annex.x, site.annex.x + 1.2, site.main.z - 0.35, `内退 ${(site.annex.z - site.main.z).toFixed(1)} m`);
     })() : ""}
     ${allRooms.map((r) => room(r, editable)).join("")}
     ${options.useZones ? allFurniture.map(useZone).join("") : ""}
@@ -618,8 +627,13 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean, o
     ${showWallWidth ? text(index === 0 ? 3.2 : 8.2, northClear - 3.35, `墙厚标注 · 外墙${Math.round(construction.outsideWall * 1000)}／隔墙${Math.round(construction.partition * 1000)}（毫米 · 示意）`, "wall-thick-legend") : ""}
     ${index === 1 ? `<path d="M${src.livingVoid.x + src.livingVoid.w} ${src.livingVoid.z + 0.16} V${src.livingVoid.z + src.livingVoid.d} H${src.livingVoid.x + 0.16}" class="balustrade"/>` : ""}
     ${index === 0 ? `<path d="M${site.annex.x + site.annex.w} ${src.sideDoorZ - src.sideDoorWidth / 2} H${site.main.x} M${site.annex.x + site.annex.w} ${src.sideDoorZ + src.sideDoorWidth / 2} H${site.main.x}" class="dim-line"/>${text(laneLabelX, src.sideDoorZ, "通辅楼", "room-size")}` : ""}
-    ${index === 0 && clearance ? `${options.dining !== "daily" ? '<circle cx="2.9" cy="1.12" r="1.85" class="clearance"/>' : text(2.9, 1.6, "日常示意：圆桌收起 · 收纳待定", "room-size")}<rect x="1.09" y="2.89" width="3.72" height="2.42" class="clearance"/>` : ""}
-    ${balcony && index === 2 ? rect(12.65, site.main.z + site.main.d, 2.5, 1.2, 'class="clearance"') + text(13.9, site.main.z + site.main.d + 0.7, "局部浅阳台", "room-size") : ""}
+    ${index === 0 && clearance ? `${options.dining !== "daily" ? `<circle cx="${roundCx}" cy="${roundCz}" r="1.85" class="clearance"/>` : text(roundCx, roundCz + 0.48, "日常示意：圆桌收起 · 收纳待定", "room-size")}<rect x="1.09" y="2.89" width="3.72" height="2.42" class="clearance"/>` : ""}
+    ${balcony && index === 2 ? (() => {
+      const bx = site.main.x + site.main.w * (12.65 - 6.8) / 13.5;
+      const bw = 2.5 * (site.main.w / 13.5);
+      const bz = site.main.z + site.main.d;
+      return rect(bx, bz, bw, 1.2, 'class="clearance"') + text(bx + bw / 2, bz + 0.7, "局部浅阳台", "room-size");
+    })() : ""}
     ${selection}
     ${/* 家具画在墙／房间之上，避免点选被房间或隔墙热区抢走 */ ""}
     ${floorFurniture.map((item, i) => furniture(item, i, editable, selectedFurniture.has(i), selected?.kind === "furniture" && selected.index === i)).join("")}
@@ -796,7 +810,8 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
 
   const westFront = frontAt(0);
   const eastFront = frontAt(site.width);
-  const midFront = frontAt(10);
+  const midX = courtyardArcAnchors[1][0];
+  const midFront = frontAt(midX);
   const annexEastX = annex.x + annex.w;
   const annexEastFront = frontAt(annexEastX);
   const eastCornerFront = frontAt(eastCornerX);
@@ -871,7 +886,7 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
     yardVDim(annexEastFront, annexFront, annexEastX, annexCornerDim, `辅楼角→外沿 ${meters(wallDepthAnnexE)}`, {
       id: "v-annex-corner-front", side: "east", small: true, style: insideV(annexCornerDim), shift: sh("v-annex-corner-front"),
     }),
-    yardVDim(midFront, siteRear, 10, 11.35, `中总进深 ${meters(totalMid)}`, {
+    yardVDim(midFront, siteRear, midX, midX + 1.35, `中总进深 ${meters(totalMid)}`, {
       id: "v-mid-total", side: "east", style: "direct", shift: sh("v-mid-total"),
     }),
     yardVDim(eastCornerFront, wallZ, eastCornerX, eastCornerDim, `主楼前墙→外沿 ${meters(wallDepthE)}`, {

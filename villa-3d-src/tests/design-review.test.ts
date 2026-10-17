@@ -7,7 +7,7 @@ import { emptySession, mergeSessions, parseSession, validateMeetingView, viewFla
 import { meetingBooklet } from "../src/meeting-booklet";
 import { courtyardSitePlan, floorPlan } from "../src/plan";
 import { facades } from "../src/facades";
-import { DEFAULT_VILLA_PARAMS } from "../src/villa-params";
+import { DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params";
 
 const view = (): MeetingView => ({
   roofStyle: "joined",
@@ -76,7 +76,8 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
   assert.match(svg, /data-edge=/);
   assert.match(svg, /data-base-dim=/);
   // 图内「内退」「中总进深」「主楼前墙→外沿」默认贴边，无虚线；黄点在 edge
-  for (const label of ["内退 1.0 m", "中总进深 15.8 m", "主楼前墙→外沿"]) {
+  // 辅楼默认进深 8 → 相对主楼内退 2.0 m
+  for (const label of ["内退 2.0 m", "中总进深 15.8 m", "主楼前墙→外沿"]) {
     const at = svg.indexOf(label);
     const open = svg.lastIndexOf("<g class=\"yard-dim", at);
     const g = svg.slice(open, svg.indexOf("</g>", at) + 4);
@@ -88,7 +89,7 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
   const shifted = courtyardSitePlan({ "v-setback": 1.5 });
   assert.match(shifted, /data-yard-dim="v-setback"[^>]*data-shift="1\.5"/);
   {
-    const at = shifted.indexOf("内退 1.0 m");
+    const at = shifted.indexOf("内退 2.0 m");
     const open = shifted.lastIndexOf("<g class=\"yard-dim", at);
     const g = shifted.slice(open, shifted.indexOf("</g>", at) + 4);
     assert.match(g, /dim-ext/);
@@ -105,6 +106,8 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
   assert.ok(!svg.includes('data-room='));
 });
 test("日常餐厅只作为平面备选，原双桌与车辆尺寸不被修改", () => {
+  // 与并行的 villa-params 测试共享模块状态，先还原默认外包络／家具坐标。
+  resetVillaParams();
   const full = floorPlan(0, true, false, { dining: "full" });
   const daily = floorPlan(0, true, false, { dining: "daily" });
   const chairs = (s: string) => [...s.matchAll(/class="furniture chair"/g)].length;

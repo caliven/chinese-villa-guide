@@ -143,7 +143,7 @@ const groups: ParamGroup[] = [
   {
     id: "neighbor",
     title: "邻居占位",
-    note: "仅影响户型「院坪」总图占位；3D邻房示意暂不随参。",
+    note: "平面总图与左侧邻居木房 3D 示意同步；前后邻房／弯道仅随面宽东缘微调，细部仍为照片估算。",
     fields: [
       { key: "neighborWoodWidth", label: "邻居木房面宽" },
       { key: "neighborWoodDepth", label: "邻居木房进深" },

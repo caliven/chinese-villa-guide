@@ -303,7 +303,8 @@ test("院坪原楼梯洞已填平，辅楼前与右侧通道接到同高梯田",
   assert.ok(Math.abs(east - -8.6) < 0.02);
   assert.ok(Math.abs(mid - -5) < 0.05);
   // 自 Z=0 水泥边起算：西0.2、中5、东8.6；后到前总进深 11／15.8／19.4
-  assert.ok(Math.abs(site.annex.z - west - 0.2) < 0.02);
+  // 辅楼默认进深 8、内退 2：前墙 Z=1.6，相对西端外沿约 1.8 m
+  assert.ok(Math.abs(site.annex.z - west - 1.8) < 0.02);
   assert.ok(Math.abs(0 - east - 8.6) < 0.02);
   assert.ok(Math.abs(site.oldDepth - west - 11) < 0.05);
   assert.ok(Math.abs(site.oldDepth - mid - 15.8) < 0.05);

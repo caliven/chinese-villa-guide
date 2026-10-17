@@ -31,8 +31,9 @@ import {
   roofTileInset,
   syncRoofTileInset,
 } from "./roof-options";
-import { rebuildTerraceLinkage } from "./surroundings";
+import { rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings";
 import { rebuildGarageLayout } from "./garage-layout";
+import { mainEaveY } from "./facades";
 
 export const LOCKED_SITE_WIDTH = 21;
 /** @deprecated 已改存 scheme 文件，仅供旧迁移识别。 */
@@ -351,6 +352,37 @@ function scaleWall(w: Wall, oE: number, oS: number, nE: number, nS: number, sx: 
   };
 }
 
+/** 三楼北退加大时，把穿出露台的房间／隔墙／家具北缘钳到 floors[2].front。 */
+function clampThirdFloorNorth(floor: Floor, front: number): Floor {
+  const clampZ = (z: number) => Math.max(z, front);
+  const rooms = floor.rooms.map((r) => {
+    const south = r.z + r.d;
+    if (south <= front + 0.05) {
+      // 整间已在露台内：收到退台墙内侧最小进深，避免消失。
+      return { ...r, z: front, d: 0.4, label: r.label ? [r.label[0], clampZ(r.label[1])] as Point : r.label };
+    }
+    if (r.z >= front) return r;
+    return {
+      ...r,
+      z: front,
+      d: Math.max(0.4, south - front),
+      label: r.label ? [r.label[0], clampZ(r.label[1])] as Point : r.label,
+    };
+  });
+  const partitions = floor.partitions
+    .map((w) => ({
+      ...w,
+      a: [w.a[0], clampZ(w.a[1])] as Point,
+      b: [w.b[0], clampZ(w.b[1])] as Point,
+    }))
+    .filter((w) => Math.hypot(w.a[0] - w.b[0], w.a[1] - w.b[1]) > 0.01);
+  const furniture = floor.furniture.map((f) => ({
+    ...f,
+    z: clampZ(f.z),
+  }));
+  return { ...floor, rooms, partitions, furniture };
+}
+
 function replaceArray<T>(target: T[], next: T[]) {
   target.length = 0;
   target.push(...next);
@@ -460,14 +492,16 @@ export function applyVillaParams(params: VillaParams) {
   courtyardArcAnchors[0] = [0, params.oldDepth - params.courtyardWestTotal];
   courtyardArcAnchors[1] = [midX, params.oldDepth - params.courtyardMidTotal];
   courtyardArcAnchors[2] = [LOCKED_SITE_WIDTH, params.oldDepth - params.courtyardEastTotal];
-  rebuildCourtyardGeometry();
-  rebuildTerraceLinkage();
-  rebuildGarageLayout();
-
   neighborCourtyardPlan.x = site.width;
   neighborCourtyardPlan.w = params.neighborWoodWidth;
   neighborCourtyardPlan.woodDepth = params.neighborWoodDepth;
   neighborCourtyardPlan.cementDepth = params.neighborCementDepth;
+  // 先写邻居／蓝顶房再重建梯田与地库，避免路边 X 仍用旧值。
+  syncNeighborFootprint(params.neighborWoodWidth, params.neighborWoodDepth);
+  syncRoadsideVillaPlacement();
+  rebuildCourtyardGeometry();
+  rebuildTerraceLinkage();
+  rebuildGarageLayout();
   // 邻院北缘已在 rebuildCourtyardGeometry 里与自家东界外沿拉齐；回写派生值供面板显示。
   synced.neighborYardBeyondCement = neighborCourtyardPlan.yardBeyondCement;
   currentParams = synced;
@@ -496,7 +530,7 @@ export function applyVillaParams(params: VillaParams) {
     const rooms = floor.rooms.map((r) => scaleRoom(r, oE, oS, nE, nS, sx, sz));
     const partitions = floor.partitions.map((w) => scaleWall(w, oE, oS, nE, nS, sx, sz));
     const furniture = floor.furniture.map((f) => scaleFurniture(f, oE, oS, nE, nS, sx, sz));
-    return {
+    const next: Floor = {
       ...floor,
       y: ys[i] ?? floor.y,
       height: heights[i] ?? floor.height,
@@ -505,6 +539,7 @@ export function applyVillaParams(params: VillaParams) {
       partitions,
       furniture,
     };
+    return i === 2 ? clampThirdFloorNorth(next, next.front) : next;
   });
   replaceArray(floors, nextFloors);
 
@@ -614,6 +649,8 @@ function syncFrontElevation(params: VillaParams) {
   ];
   frontElevation.hatFront = main.z - 0.98 * (params.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection);
   frontElevation.hatWidth = porch.w + 1.04;
+  // 官帽檐口随三层层高累加；悬浮方案另有 floatingHatLayout 抬高。
+  frontElevation.hatEave = mainEaveY();
 }
 
 export function resetVillaParams() {

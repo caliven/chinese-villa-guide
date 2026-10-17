@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { getPosition } from "suncalc";
-import { site } from "./data";
+import { floors, site } from "./data";
 import { materials, line, tag, setCourtyardFinishes } from "./primitives";
 import { courtyardFinishLabels, type CourtyardFinish } from "./courtyard-finishes";
 import { roofStyleLabels, type RoofStyle } from "./roof-options";
@@ -379,8 +379,9 @@ export class VillaViewer {
     };
     let [p, t] = views[name];
     if (this.state.floor !== null && name === "top") {
-      const y = this.state.floor * 3.6,
-        x = this.state.floor === 0 ? 10.5 : 13.55;
+      const floor = floors[this.state.floor];
+      const y = floor?.y ?? this.state.floor * 3.6;
+      const x = this.state.floor === 0 ? site.width / 2 : site.main.x + site.main.w / 2;
       p = [x, y + (this.state.floor === 0 ? 37 : 29), 4.01];
       t = [x, y, 4];
     }
@@ -464,12 +465,15 @@ export class VillaViewer {
     this.land.garage.traverse((o) => {
       if (o instanceof THREE.Sprite) o.visible = s.garage;
     });
+    // 分层展示：楼面／屋面按默认 0／3.6／7.2／10.5 → 0／4.5／9／13.5 的视觉间距比例拉开。
+    const explodeGap = 4.5 / 3.6;
     this.villa.levels.forEach((g, i) => {
       g.visible = s.mainBuilding && (s.floor === null || s.exploded || i === s.floor);
-      g.position.y = s.exploded ? i * 4.5 : 0;
+      g.position.y = s.exploded ? floors[i].y * explodeGap : 0;
     });
-    this.villa.roof.position.y = s.exploded ? 13.5 : 0;
-    this.villa.balcony.position.y = s.exploded ? 9 : 0;
+    const eaveY = floors[0].height + floors[1].height + floors[2].height;
+    this.villa.roof.position.y = s.exploded ? (eaveY / 10.5) * 13.5 : 0;
+    this.villa.balcony.position.y = s.exploded ? floors[2].y * explodeGap : 0;
     if (s.exploded) {
       const pos = new THREE.Vector3(37, 29, -34);
       const target = new THREE.Vector3(12, 10, 3);

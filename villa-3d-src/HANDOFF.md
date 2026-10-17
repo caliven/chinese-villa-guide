@@ -50,6 +50,17 @@
 
 外观、茶室户型、院坪弧、尺寸面板、scheme 落盘等多轮改动大量待用户强刷核对。车辆通行、梁底净高、邻居切口、报建面积、法定日照均未通过专业校核。细节见文末「已知未决项」与 README。
 
+## 最新：方案尺寸 → 几何联动补齐（2026-10-17）
+
+按审计优先级打通改参后的立面／檐口／辅楼／北退／邻居／蓝顶房／院坪中线／剖切：
+
+- **立面洞口与装饰 X**：`facades.ts`／`architecture.ts` 相对 `site.main`／`site.annex` 比例定位，不再绑死默认 13.5 m 绝对坐标。
+- **檐口与层高**：`mainEaveY()`＝三层层高累加；`mainRoofFootprint().eave`、官帽柱顶、二层玻璃顶、通高玻璃横档、辅楼墙高读 `site.annex.height`。
+- **三楼北退**：`applyVillaParams` 后房间／隔墙／家具北缘钳到 `floors[2].front`。
+- **邻居／蓝顶房**：`syncNeighborFootprint` 写 3D `sideHouse`；`syncRoadsideVillaPlacement` 按辅楼西墙重定位并刷新弯道。
+- **院坪中线标注**：读 `courtyardArcAnchors[1]`；立体剖看／分层展示读 `floors[].y`。
+- `npm run check` **84** 项全过；`villa-3d/` 已重建。请强刷后改面宽／层高／北退／邻居面宽核对立面与邻房。
+
 ## 最新：原始资料浏览（2026-10-17）
 
 顶栏新增「原始资料」Tab，嵌入根目录 `original-materials/` 静态图库；文档中心也有入口。51 个文件（50 张图片、1 份 Excel），支持分类、搜索、大图、键盘翻阅与下载。`scripts/index-original-materials.mjs` 扫描 `原始资料/`，Vite 启动／构建自动生成清单。部署需发布仓库根目录，包含原始资料与图库，说明见 `../original-materials/README.md`。本轮构建／类型检查通过；浏览器验证分类、搜索、大图翻阅及390px无横向溢出。全套83项测试80通过、3失败，涉及院坪／餐厅尺寸断言，未修改这些模型与测试。
