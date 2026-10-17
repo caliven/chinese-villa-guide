@@ -18,6 +18,7 @@ import {
   construction,
   courtyardArcAnchors,
   rebuildCourtyardGeometry,
+  syncSideDoorToLivingBridge,
   type Floor,
   type Room,
   type Wall,
@@ -34,6 +35,7 @@ import {
 import { rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings";
 import { rebuildGarageLayout } from "./garage-layout";
 import { mainEaveY } from "./facades";
+import { ensureFurnitureWallClearance } from "./layout-align";
 
 export const LOCKED_SITE_WIDTH = 21;
 /** @deprecated 已改存 scheme 文件，仅供旧迁移识别。 */
@@ -55,6 +57,8 @@ export interface VillaParams {
   porticoProjection: number;
   porticoColumnSize: number;
   porticoColumnWallGap: number;
+  /** 包角柱比墙面外凸（米）；正面／侧面同值，默认 0.15＝15 cm */
+  cornerProject: number;
   annexWidth: number;
   annexDepth: number;
   annexHeight: number;
@@ -115,7 +119,9 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   porticoWidth: 4.8,
   porticoProjection: 2,
   porticoColumnSize: 0.8,
-  porticoColumnWallGap: 1.8,
+  /** 派生：外伸 − 半柱；柱心在北沿角上时内侧到前墙＝外伸−半柱。 */
+  porticoColumnWallGap: 1.6,
+  cornerProject: 0.15,
   annexWidth: 4.5,
   annexDepth: 8,
   annexHeight: 3.6,
@@ -152,9 +158,19 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   neighborYardBeyondCement: 8.6,
 };
 
-/** 柱心距（只读派生）＝门厅面宽 − 柱截面 */
+/**
+ * 柱心距（只读派生）＝门厅面宽。
+ * 约定：两根门厅柱心落在外伸投影北沿左右两角的直角处，故心距等于面宽。
+ */
 export function porticoColumnSpacing(p: VillaParams) {
-  return p.porticoWidth - p.porticoColumnSize;
+  return p.porticoWidth;
+}
+
+/** 柱内侧（靠墙一面）到前墙外皮：外伸 − 半个柱截面。 */
+export function derivedPorticoColumnWallGap(
+  p: Pick<VillaParams, "porticoProjection" | "porticoColumnSize">,
+) {
+  return p.porticoProjection - p.porticoColumnSize / 2;
 }
 
 /** 面板存整数度；旧稿 0～0.05 为小数坡度（0.01＝1%）。 */
@@ -201,7 +217,7 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
     "westGap", "eastGap", "lane", "mainWidth", "mainDepth",
     "floor1Height", "floor2Height", "floor3Height", "thirdSetback",
     "secondFrontEave", "thirdEave", "porticoWidth", "porticoProjection",
-    "porticoColumnSize", "porticoColumnWallGap", "annexWidth", "annexDepth",
+    "porticoColumnSize", "porticoColumnWallGap", "cornerProject", "annexWidth", "annexDepth",
     "annexHeight", "annexEave", "roofFenShui", "gutterClearWidth", "gutterClearDepth",
     "gutterInnerDepth", "gutterOuterTopWidth",
     "corbelLength", "corbelSpacing", "corbelCornerSpacing", "eyelidToFasciaGap",
@@ -224,6 +240,9 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   }
   if (p.porticoWidth <= p.porticoColumnSize) {
     issues.push({ field: "porticoWidth", message: "门厅面宽须大于柱截面" });
+  }
+  if (p.cornerProject > 0.5) {
+    issues.push({ field: "cornerProject", message: "包角柱突出墙面不宜超过 0.5 m（50 cm）" });
   }
   if (p.porticoWidth > p.mainWidth) {
     issues.push({ field: "porticoWidth", message: "门厅面宽不能超过主楼面宽" });
@@ -585,10 +604,14 @@ export function applyVillaParams(params: VillaParams) {
     w: lv.w * sx,
     d: lv.d * sz,
   };
-  circulation.sideDoorZ = nS - (oS - base.circulation.sideDoorZ) * sz;
-  circulation.sideDoorWidth = base.circulation.sideDoorWidth * sz;
+  // 通辅楼门宽不随进深比例放大（保持房门洞口）；中线对齐过道。
+  circulation.sideDoorWidth = base.circulation.sideDoorWidth;
+  syncSideDoorToLivingBridge();
 
   syncFrontElevation(synced);
+
+  // 改尺后家具仍可能压在墙中线上，再钳到墙内皮。
+  ensureFurnitureWallClearance();
 
   return { sx, sz, asx, asz };
 }
@@ -601,19 +624,23 @@ function syncFrontElevation(params: VillaParams) {
   const main = site.main;
   const porch = site.portico;
   const half = params.porticoColumnSize / 2;
-  const project = frontElevation.cornerProject;
+  frontElevation.cornerProject = params.cornerProject;
+  const project = params.cornerProject;
   const leg = frontElevation.cornerLeg;
   const shortW = frontElevation.shortPostWidth;
 
-  frontElevation.postXs = [porch.x + half, porch.x + porch.w - half];
+  // 门厅柱心落在外伸投影北沿左右两角的直角处（用户约定）：X＝门厅左右边，Z＝北沿。
+  frontElevation.postXs = [porch.x, porch.x + porch.w];
   // 官帽柱／墙内构造柱：北皮贴一层前墙外皮（recessedHatPier 进深 0.5 m，中心在外皮以南半深）。
   frontElevation.postZ = main.z + 0.25;
   frontElevation.wallCornerXs = [main.x + 0.27, main.x + main.w - 0.27];
   frontElevation.cornerWestX = main.x + 0.12;
   frontElevation.cornerEastX = main.x + main.w - 0.12;
-  frontElevation.porticoColumnWallGap = params.porticoColumnWallGap;
+  const wallGap = derivedPorticoColumnWallGap(params);
+  params.porticoColumnWallGap = wallGap;
+  frontElevation.porticoColumnWallGap = wallGap;
   frontElevation.porticoColumnDepth = params.porticoColumnSize;
-  frontElevation.porticoColumnZ = main.z - params.porticoColumnWallGap - params.porticoColumnSize / 2;
+  frontElevation.porticoColumnZ = main.z - params.porticoProjection;
 
   // 包角柱正面段中心（与下层 L 形柱身同轴）。
   const cornerShaft = (cornerX: number, outward: number) => ({

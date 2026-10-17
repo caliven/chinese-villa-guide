@@ -13,7 +13,7 @@ const roomKindOptions = [
   ["bath", "卫生间"],
   ["store", "储物"],
 ] as const;
-import { roofPitch } from "./architecture";
+import { roofPitch, villaLayoutFromDraft } from "./architecture";
 import { surroundings } from "./surroundings";
 import { garageLayout } from "./garage-layout";
 import { formatRouteRanges, routeRanges, type SweepCell } from "./vehicle-route";
@@ -170,7 +170,7 @@ document.querySelector("#app")!.innerHTML = `
         )
         .join("")}</div>
       <div class="compass" id="compass"><span>N</span><svg viewBox="0 0 52 52" aria-label="指北针"><circle cx="26" cy="26" r="23"/><g id="compass-arrow"><path d="m26 7 9 34-9-7-9 7Z"/></g></svg></div>
-      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills"><button data-floor="-1" type="button">院坪</button>${floors.map((f, i) => `<button data-floor="${i}" type="button" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}</div><div class="plan-toolbar-actions"><span id="plan-orient-hint">北 ↑ · 东 →</span><button type="button" id="toggle-wall-width" class="secondary-button" aria-pressed="false" title="显示或隐藏墙厚毫米标注">墙厚</button><button type="button" id="toggle-layout-edit" class="secondary-button" aria-pressed="false">编辑布局</button><label class="layout-version-label">户型版本
+      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills"><button data-floor="-1" type="button">院坪</button>${floors.map((f, i) => `<button data-floor="${i}" type="button" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}</div><div class="plan-toolbar-actions"><span id="plan-orient-hint">南 ↑ · 西 →</span><button type="button" id="toggle-wall-width" class="secondary-button" aria-pressed="false" title="显示或隐藏墙厚毫米标注">墙厚</button><button type="button" id="toggle-layout-edit" class="secondary-button" aria-pressed="false">编辑布局</button><label class="layout-version-label">户型版本
             <select id="layout-version-select" aria-label="选择已保存的户型版本（一二三楼一体）">
               <option value="">（当前草稿）</option>
             </select>
@@ -182,6 +182,7 @@ document.querySelector("#app")!.innerHTML = `
             <button type="button" data-edit-tool="room" id="tool-room" aria-expanded="false">房间</button>
             <button type="button" data-edit-tool="door" id="tool-door" aria-expanded="false">门窗</button>
             <button type="button" data-edit-tool="furniture" id="tool-furniture" aria-expanded="false">家具</button>
+            <button type="button" id="layout-magnet-snap" class="active" aria-pressed="true" title="拖墙／家具时自动对齐附近墙线与墙尖；接近居中时吸居中。按住 Shift 拖可暂时关闭">吸附对齐</button>
           </div>
           <div class="layout-edit-actions">
             <span id="layout-save-status" class="layout-save-status" aria-live="polite"></span>
@@ -212,7 +213,7 @@ document.querySelector("#app")!.innerHTML = `
         <button class="notice notice-button" id="open-garage">${icon("info")}<span><strong>地库车辆路线待校核</strong><small>查看车身扫掠、净高待核区与柱墙潜在冲突。<br/>道路与梁底待测，切口协商待确认。</small></span><span>↗</span></button>
       </div>
       <div id="floor-controls" hidden>
-        <section><h2>分层户型</h2><div class="segmented"><button data-plan-mode="2d" class="active">平面图</button><button data-plan-mode="3d">立体剖看</button></div><fieldset id="floor-select" class="floor-choices"><legend>选择楼层</legend><div>${floors.map((f, i) => `<label><input type="radio" name="floor" value="${i}" ${i === 0 ? "checked" : ""}/><span><strong>${f.name}</strong><small>${bedroomSummary(i)}</small></span></label>`).join("")}</div></fieldset>${check("explode", "楼层分离展示")}${check("chair-clearance", "餐厅拉椅范围", true)}${check("room-inside", "模型内侧参考尺寸", true)}${check("room-clearance", "家具使用讨论留位")}<label class="select-label">餐厅平面情景<select id="dining-mode"><option value="full">双桌满座 · 18座／偏紧</option><option value="daily">日常建议 · 小桌6座</option></select></label><button class="secondary-button" data-design-issue="D08">记录房间深化意见 ↗</button></section>
+        <section><h2>分层户型</h2><div class="segmented"><button data-plan-mode="2d" class="active">平面图</button><button data-plan-mode="3d">立体剖看</button></div><fieldset id="floor-select" class="floor-choices"><legend>选择楼层</legend><div>${floors.map((f, i) => `<label><input type="radio" name="floor" value="${i}" ${i === 0 ? "checked" : ""}/><span><strong>${f.name}</strong><small>${bedroomSummary(i)}</small></span></label>`).join("")}</div></fieldset>${check("explode", "楼层分离展示")}${check("chair-clearance", "餐厅拉椅范围", true)}${check("room-inside", "模型内侧参考尺寸", true)}${check("room-clearance", "家具使用讨论留位")}<label class="select-label">辅楼前圆桌情景<select id="dining-mode"><option value="full">室外圆桌 · 6座</option><option value="daily">圆桌收起 · 日常</option></select></label><button class="secondary-button" data-design-issue="D08">记录房间深化意见 ↗</button></section>
         <section><h2 id="floor-summary-title">一层 · 1间卧室＋1间用途待定</h2><p id="floor-summary" class="description"></p><div id="room-detail" class="room-detail" hidden></div></section>
         <section id="dining-check"><h2>餐厅满座</h2><p class="description">圆桌12座＋小桌6座。</p><div class="notice"><span><strong>拉椅空间偏紧</strong><small id="dining-warning"></small></span></div></section>
       </div>
@@ -282,8 +283,12 @@ let layoutEditor: LayoutEditor | null = null;
 let unbindLayoutEditor: (() => void) | null = null;
 let unbindCourtyardDims: (() => void) | null = null;
 let courtyardDimLayout: CourtyardDimLayout = loadCourtyardDimLayout();
-/** 拖放模型时忽略随后的 click，避免误切选中项。 */
-let paletteDragActive = false;
+/**
+ * 拖放模型后短暂忽略 click：浏览器在 dragend 之后仍可能冒泡一次 click。
+ * 不可用「拖放全程锁死」——轻微拖动就会 dragstart，若用 setTimeout 清标志，
+ * click 会在清之前被拦掉，表现为切几次模型后芯片再也点不动。
+ */
+let suppressPaletteClickUntil = 0;
 let planZoom = 1;
 const planZoomMin = 0.5;
 const planZoomMax = 3;
@@ -518,6 +523,7 @@ async function applyLayoutVersion(doc: LayoutVersionDocument) {
     layoutEditor.loadDraft(doc.layoutDraft);
   }
   drawPlan();
+  applyLayoutDraftTo3d();
   toast(`已载入户型版本：${doc.title}（一二三楼）`);
 }
 
@@ -603,7 +609,7 @@ async function deleteLayoutVersion() {
   }
 }
 
-/** 户型图「保存」→ data/户型/，一二三楼一体一个版本。 */
+/** 户型图「保存」→ data/户型/；已选版本则覆盖该文件，未选则新建。 */
 async function saveLayoutVersion() {
   try {
     layoutEditor?.saveNow({ silent: true });
@@ -616,20 +622,34 @@ async function saveLayoutVersion() {
       toast("户型版本必须包含一二三楼，无法按单层保存");
       return;
     }
-    const title = makeDataVersionTitle("户型");
-    const doc = buildLayoutVersionDocument(draft, { id: title, title });
+    const select = document.getElementById("layout-version-select") as HTMLSelectElement | null;
+    const selectedFile = select?.value?.trim() || "";
     const index = await loadDataVersionsIndex("户型");
+    const existing = selectedFile
+      ? index.versions.find((v) => v.file === selectedFile || `${v.id}.json` === selectedFile)
+      : undefined;
+    const doc = existing
+      ? buildLayoutVersionDocument(draft, { id: existing.id, title: existing.title })
+      : (() => {
+          const title = makeDataVersionTitle("户型");
+          return buildLayoutVersionDocument(draft, { id: title, title });
+        })();
+    const file = existing?.file ?? `${doc.id}.json`;
     const nextIndex = prependVersionMeta(index, {
       id: doc.id,
       title: doc.title,
       savedAt: doc.savedAt,
-      file: `${doc.id}.json`,
+      file,
     });
     const result = await persistDataVersion({ kind: "户型", document: doc, index: nextIndex });
     await refreshLayoutVersionSelect(nextIndex);
+    if (select) select.value = file;
     const status = document.getElementById("layout-save-status");
-    if (status) status.textContent = result.message;
-    toast(result.message);
+    const msg = existing
+      ? `已更新户型版本「${doc.title}」`
+      : result.message;
+    if (status) status.textContent = msg;
+    toast(msg);
   } catch (error) {
     toast(error instanceof Error ? error.message : "户型版本保存失败");
   }
@@ -999,7 +1019,10 @@ function drawPlan() {
       positionLayoutInspector();
     });
     const orient = document.getElementById("plan-orient-hint");
-    if (orient) orient.title = "院坪总图 · 北向上，东向右 · 尺寸线可拖 · 左右按面对房子";
+    if (orient) {
+      orient.textContent = "北 ↑ · 东 →";
+      orient.title = "院坪总图 · 北向上，东向右 · 尺寸线可拖 · 左右按面对房子";
+    }
     refreshLayoutInspector();
     applyPlanZoom();
     return;
@@ -1020,7 +1043,11 @@ function drawPlan() {
     ? layoutEditor.selection.kind === "room"
       ? { kind: "room", id: layoutEditor.selection.id }
       : layoutEditor.selection.kind === "furniture"
-        ? { kind: "furniture", index: layoutEditor.selection.index }
+        ? {
+            kind: "furniture",
+            index: layoutEditor.selection.index,
+            annex: layoutEditor.selection.annex,
+          }
         : layoutEditor.selection.kind === "door"
           ? {
               kind: "door",
@@ -1040,7 +1067,7 @@ function drawPlan() {
     layoutEditing && layoutEditor
       ? layoutEditor.selections
           .filter((s): s is Extract<typeof s, { kind: "furniture" }> => s.kind === "furniture" && s.floor === level)
-          .map((s) => s.index)
+          .map((s) => (s.annex ? 1000 + s.index : s.index))
       : [];
   const selectedRooms =
     layoutEditing && layoutEditor
@@ -1074,10 +1101,10 @@ function drawPlan() {
   $("floor-summary-title").textContent =
     `${floors[level].name} · ${bedroomSummary(level)}`;
   $("floor-summary").textContent = layoutEditing
-    ? "编辑草稿中。外墙锁定；房间、隔墙、门洞、家具、楼梯和门厅可拖。定稿后导出 JSON，再回写模型。"
+    ? "编辑草稿中。外墙锁定；房间、隔墙、门洞、家具、楼梯和门厅可拖。松手后立体会按草稿重绘（示意）；导出 JSON 仍可回写源码定稿。"
     : [
-    "面对房子时，右侧是挑空客厅，左侧前部是 4.5×3 米茶室，茶室和尊亲房中间是楼梯。尊亲房靠南，带内卫。右后是一间用途待定的房间。堂屋后面只留空位。辅楼厨房未改。",
-    "挑空仍在右侧。茶室上方是一间 3 米进深的东前卧室；主卧改到楼梯南侧，带内卫。西侧另有一间卧室。楼梯和公卫与一楼对齐。",
+    "默认版本1：右侧挑空客厅与堂屋进深持平；茶室与楼梯、堂屋开敞；楼梯西缘内收1米并设公卫；后跨为临时餐厅；尊亲房带横向内卫。辅楼前室外圆桌，南窗居中，柴火灶横向靠南窗。",
+    "挑空仍在右侧。茶室上方是一间 3 米进深的东前卧室；主卧在楼梯南侧，带内卫。西侧另有一间卧室。楼梯井与一楼对齐（西缘内收1米）。",
     "中间仍是家庭多功能厅。西侧前为主卧，后部是影音室。东侧楼梯与下面对齐，楼梯北是通东侧露台的过厅，南侧是卧室和内卫。",
   ][level];
   $("room-detail").hidden = true;
@@ -1087,6 +1114,15 @@ function drawPlan() {
   $("toggle-layout-edit").setAttribute("aria-pressed", String(layoutEditing));
   $("toggle-layout-edit").classList.toggle("active", layoutEditing);
   $("toggle-layout-edit").textContent = layoutEditing ? "退出编辑" : "编辑布局";
+  const undoBtn = document.getElementById("layout-undo") as HTMLButtonElement | null;
+  const redoBtn = document.getElementById("layout-redo") as HTMLButtonElement | null;
+  if (undoBtn) undoBtn.disabled = !layoutEditor || !layoutEditor.canUndo;
+  if (redoBtn) redoBtn.disabled = !layoutEditor || !layoutEditor.canRedo;
+  const magnetBtn = document.getElementById("layout-magnet-snap");
+  if (magnetBtn && layoutEditor) {
+    magnetBtn.classList.toggle("active", layoutEditor.magnetSnap);
+    magnetBtn.setAttribute("aria-pressed", String(layoutEditor.magnetSnap));
+  }
   syncLayoutPalette();
   requestAnimationFrame(() => {
     syncLayoutChromeHeight();
@@ -1094,11 +1130,12 @@ function drawPlan() {
   });
   const orient = document.getElementById("plan-orient-hint");
   if (orient) {
+    orient.textContent = "南 ↑ · 西 →";
     orient.title = layoutEditing
-      ? "编辑：⌘S 暂存内存 · 改完请「保存到文件／版本」· Shift 多选 · 方向键微调"
+      ? "编辑：⌘S 暂存 ·「保存」写户型版本 · 吸附对齐可关 · Shift 拖暂关吸附／点选多选 · 方向键微调"
       : level === 0 && $<HTMLSelectElement>("dining-mode").value === "daily"
         ? "日常6座示意；尺寸与留位仅作模型参考"
-        : "外轮廓／内侧参考未扣装修；北向上，东向右";
+        : "外轮廓／内侧参考未扣装修；南向上、西向右（门头朝下）";
   }
   refreshLayoutInspector();
   if (layoutEditing && layoutEditor) {
@@ -1121,9 +1158,24 @@ function formatSaveStatus(updatedAt: string, manual: boolean) {
   return manual ? `已写入内存 ${clock} · 可点「保存」` : `已暂存 ${clock}`;
 }
 
+/** 平面草稿 → 立体：防抖重砌，避免拖拽每帧全量重建。 */
+let layout3dSyncTimer = 0;
+function applyLayoutDraftTo3d() {
+  if (!viewer) return;
+  const draft = layoutEditor?.draft ?? loadLayoutDraft();
+  viewer.rebuildAfterParams(
+    getVillaParams().roofFenShui,
+    draft ? villaLayoutFromDraft(draft) : null,
+  );
+}
+function scheduleSyncLayoutTo3d() {
+  window.clearTimeout(layout3dSyncTimer);
+  layout3dSyncTimer = window.setTimeout(() => applyLayoutDraftTo3d(), 220);
+}
 function setLayoutSaveStatus(updatedAt: string, manual: boolean) {
   const el = document.getElementById("layout-save-status");
   if (el) el.textContent = formatSaveStatus(updatedAt, manual);
+  scheduleSyncLayoutTo3d();
 }
 
 function setLayoutEditing(on: boolean) {
@@ -1146,6 +1198,7 @@ function setLayoutEditing(on: boolean) {
   } else if (on && layoutEditor) {
     setLayoutSaveStatus(layoutEditor.draft.updatedAt, false);
   }
+  if (on) applyLayoutDraftTo3d();
   if (!on) {
     const el = document.getElementById("layout-save-status");
     if (el) el.textContent = "";
@@ -1520,7 +1573,18 @@ document.addEventListener("click", (event) => {
     if (planMode === "3d" && !checked("explode")) viewer?.setCamera("top");
   }
   if (el.id === "toggle-layout-edit") setLayoutEditing(!layoutEditing);
+  if (el.id === "layout-magnet-snap" && layoutEditor) {
+    layoutEditor.magnetSnap = !layoutEditor.magnetSnap;
+    el.classList.toggle("active", layoutEditor.magnetSnap);
+    el.setAttribute("aria-pressed", String(layoutEditor.magnetSnap));
+    toast(
+      layoutEditor.magnetSnap
+        ? "已开吸附：拖墙／家具对齐附近墙线；Shift 拖可暂关"
+        : "已关吸附：拖移不再自动对齐",
+    );
+  }
   if (el.dataset.editTool && layoutEditor) {
+    suppressPaletteClickUntil = 0;
     const next = el.dataset.editTool as "select" | "wall" | "room" | "door" | "furniture";
     // 再点同一类别则收起面板，回到选择
     if (
@@ -1536,7 +1600,7 @@ document.addEventListener("click", (event) => {
     refreshLayoutInspector();
   }
   if (el.dataset.paletteKind && layoutEditor) {
-    if (paletteDragActive) return;
+    if (Date.now() < suppressPaletteClickUntil) return;
     const kind = el.dataset.paletteKind;
     if (layoutEditor.tool === "room") {
       layoutEditor.roomKind = kind as typeof layoutEditor.roomKind;
@@ -1581,6 +1645,14 @@ document.addEventListener("click", (event) => {
   if (el.dataset.alignCenter === "opening") layoutEditor?.centerSelectedOpeningInBay();
   if (el.dataset.alignCenter === "furniture") layoutEditor?.centerSelectedFurnitureInRoom();
   if (el.dataset.alignCenter === "portico") layoutEditor?.centerSelectedPorticoInBay();
+  if (
+    el.dataset.alignWall === "left" ||
+    el.dataset.alignWall === "right" ||
+    el.dataset.alignWall === "up" ||
+    el.dataset.alignWall === "down"
+  ) {
+    layoutEditor?.alignSelectedWall(el.dataset.alignWall);
+  }
   if (el.dataset.photo) openPhoto(Number(el.dataset.photo));
   if (el.dataset.photoModal) openPhoto(Number(el.dataset.photoModal), true);
   if (el.dataset.season) {
@@ -1652,7 +1724,17 @@ $("layout-import").addEventListener("change", async (event) => {
 $("layout-palette-chips").addEventListener("dragstart", (event) => {
   const chip = (event.target as Element).closest<HTMLElement>("[data-palette-kind]");
   if (!chip || !(event instanceof DragEvent) || !event.dataTransfer) return;
-  paletteDragActive = true;
+  // 拖放开始时同步选中该模型，避免只靠 click（拖后 click 常被吞）
+  if (layoutEditor) {
+    const kind = chip.dataset.paletteKind;
+    if (kind && layoutEditor.tool === "room") {
+      layoutEditor.roomKind = kind as typeof layoutEditor.roomKind;
+    } else if (kind && layoutEditor.tool === "door") {
+      layoutEditor.openingKind = kind as typeof layoutEditor.openingKind;
+    } else if (kind && layoutEditor.tool === "furniture") {
+      layoutEditor.furnitureKind = kind as typeof layoutEditor.furnitureKind;
+    }
+  }
   const payload = JSON.stringify({
     category: chip.dataset.paletteCategory,
     kind: chip.dataset.paletteKind,
@@ -1667,9 +1749,9 @@ $("layout-palette-chips").addEventListener("dragend", (event) => {
   const chip = (event.target as Element).closest<HTMLElement>("[data-palette-kind]");
   chip?.classList.remove("dragging");
   $("plan-drawing").classList.remove("layout-drop-target");
-  setTimeout(() => {
-    paletteDragActive = false;
-  }, 0);
+  // 仅压制紧随其后的幽灵 click，不长期锁死芯片
+  suppressPaletteClickUntil = Date.now() + 120;
+  syncLayoutPalette();
 });
 $("plan-drawing").addEventListener("dragover", (event) => {
   if (!layoutEditing || !layoutEditor) return;
@@ -1723,13 +1805,18 @@ window.addEventListener("resize", () => {
 $("layout-inspector").addEventListener("change", (event) => {
   const el = event.target as HTMLElement;
   if (!layoutEditor) return;
-  if (el.id === "edit-room-name") {
+  if (el.id === "edit-model-name") {
     layoutEditor.updateSelectedName((el as HTMLInputElement).value);
     return;
   }
   const openingField = el.getAttribute("data-opening-field");
   if (openingField && el instanceof HTMLSelectElement) {
     layoutEditor.updateOpeningField(openingField, el.value);
+    return;
+  }
+  const wallField = el.getAttribute("data-wall-field");
+  if (wallField && el instanceof HTMLSelectElement) {
+    layoutEditor.updateWallField(wallField, el.value);
     return;
   }
   const field = el.getAttribute("data-edit-field");
@@ -1746,9 +1833,12 @@ $("layout-inspector").addEventListener("change", (event) => {
 $("layout-inspector").addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   const el = event.target;
-  if (!(el instanceof HTMLInputElement) || !el.hasAttribute("data-edit-field")) return;
-  event.preventDefault();
-  el.blur(); // 触发 change，提交尺寸
+  if (!(el instanceof HTMLInputElement)) return;
+  // 尺寸字段与名称：回车即失焦触发 change 提交。
+  if (el.id === "edit-model-name" || el.hasAttribute("data-edit-field")) {
+    event.preventDefault();
+    el.blur();
+  }
 });
 function layoutEditorTypingTarget(target: EventTarget | null) {
   const el = target as HTMLElement | null;
@@ -2083,35 +2173,9 @@ updateFenShui();
 const clear = diningClearance();
 $("dining-warning").textContent =
   `按当前拉椅包络，西侧余量${clear.west.toFixed(2)} m、北侧${clear.north.toFixed(2)} m；东侧仅${clear.east.toFixed(2)} m。两桌拉椅包络局部相交，满座上菜需错让。`;
-await new Promise((resolve) => requestAnimationFrame(resolve));
-try {
-  viewer = new VillaViewer($("viewport"));
-  viewer.onCompass = (angle) =>
-    $("compass-arrow").setAttribute(
-      "transform",
-      `rotate(${(angle * 180) / Math.PI} 26 26)`,
-    );
-  viewer.onContextLoss = () => {
-    $("loading").hidden = false;
-    $("loading").innerHTML =
-      "<strong>图形上下文已中断</strong><p>请刷新页面恢复3D；仍可查看分层平面与资料。</p>";
-  };
-  updateSun();
-  updateRamp();
-  updateScene();
-  const initialView = new URLSearchParams(location.search).get("view");
-  if (initialView === "roadside" || initialView === "garage") setCamera(initialView);
-  $("loading").hidden = true;
-} catch (error) {
-  console.error(error);
-  $("loading").innerHTML =
-    "<strong>当前环境未能启动3D</strong><p>请在支持WebGL2的浏览器打开。分层平面与资料仍可查看。</p>";
-  toast("3D加载失败，平面图与资料可以继续查看。");
-}
-const initialTab = new URLSearchParams(location.search).get("tab");
-if (initialTab && ["model", "floor", "sun", "sources", "real", "design", "originals"].includes(initialTab)) switchTab(initialTab);
 
-// 从 scheme 文件载入方案；若无文件则尝试迁移旧 localStorage 一次后清空缓存键。
+// 先载入方案并对齐 site（含门厅居中），再创建 3D。
+// 否则首帧用 data.ts 占位，方案应用后门厅会左右弹一下再回正。
 {
   let boot = await loadCurrentScheme();
   if (!boot) {
@@ -2134,3 +2198,33 @@ if (initialTab && ["model", "floor", "sun", "sources", "real", "design", "origin
   await refreshSizeVersionSelect();
   await refreshLayoutVersionSelect();
 }
+
+await new Promise((resolve) => requestAnimationFrame(resolve));
+try {
+  viewer = new VillaViewer($("viewport"));
+  viewer.onCompass = (angle) =>
+    $("compass-arrow").setAttribute(
+      "transform",
+      `rotate(${(angle * 180) / Math.PI} 26 26)`,
+    );
+  viewer.onContextLoss = () => {
+    $("loading").hidden = false;
+    $("loading").innerHTML =
+      "<strong>图形上下文已中断</strong><p>请刷新页面恢复3D；仍可查看分层平面与资料。</p>";
+  };
+  updateSun();
+  updateRamp();
+  // 已有布局草稿时立体与平面一致（含挑空边实体墙替栏杆）
+  applyLayoutDraftTo3d();
+  updateScene();
+  const initialView = new URLSearchParams(location.search).get("view");
+  if (initialView === "roadside" || initialView === "garage") setCamera(initialView);
+  $("loading").hidden = true;
+} catch (error) {
+  console.error(error);
+  $("loading").innerHTML =
+    "<strong>当前环境未能启动3D</strong><p>请在支持WebGL2的浏览器打开。分层平面与资料仍可查看。</p>";
+  toast("3D加载失败，平面图与资料可以继续查看。");
+}
+const initialTab = new URLSearchParams(location.search).get("tab");
+if (initialTab && ["model", "floor", "sun", "sources", "real", "design", "originals"].includes(initialTab)) switchTab(initialTab);

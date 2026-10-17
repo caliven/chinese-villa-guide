@@ -1,4 +1,13 @@
-import { annexPartitions, construction, floors, frontElevation, site, stairLayout, type Room } from "./data";
+import {
+  annexPartitions,
+  construction,
+  floors,
+  frontElevation,
+  site,
+  stairLayout,
+  type Room,
+  type Wall,
+} from "./data";
 import { facades } from "./facades";
 
 export const floorFinish = (index: number) => floors[index].y + (index === 0 ? site.entranceRise : 0);
@@ -33,27 +42,69 @@ export function stairMetrics() {
   }));
 }
 
-// 只计算模型墙线内侧的矩形包络。门洞、部分隔墙与嵌套套卫不能据此认定为实用净面积。
-export function roomReference(room: Room, index: number) {
+/**
+ * 西／东／北／南四边向内缩进：贴外墙扣整墙厚，贴隔墙扣半厚，开敞边为 0。
+ * partitionsOverride：编辑草稿时传入当前层隔墙，套内净空随拖墙更新。
+ */
+export function roomEdgeInsets(
+  room: Room,
+  index: number,
+  partitionsOverride?: Wall[],
+): [number, number, number, number] {
   const annex = room.x < site.main.x;
-  const body = annex ? site.annex : { ...site.main, z: floors[index].front, d: site.main.z + site.main.d - floors[index].front };
-  const partitions = annex ? annexPartitions : floors[index].partitions;
+  const body = annex
+    ? site.annex
+    : { ...site.main, z: floors[index].front, d: site.main.z + site.main.d - floors[index].front };
+  const partitions = partitionsOverride ?? (annex ? annexPartitions : floors[index].partitions);
   const near = (a: number, b: number) => Math.abs(a - b) < 0.015;
-  const overlaps = (a: number, b: number, c: number, d: number) => Math.min(a, b) < d - 0.01 && Math.max(a, b) > c + 0.01;
-  const cuts = [
-    near(room.x, body.x), near(room.x + room.w, body.x + body.w),
-    near(room.z, body.z), near(room.z + room.d, body.z + body.d),
-  ].map((outer, edge) => {
+  const overlaps = (a: number, b: number, c: number, d: number) =>
+    Math.min(a, b) < d - 0.01 && Math.max(a, b) > c + 0.01;
+  return ([
+    near(room.x, body.x),
+    near(room.x + room.w, body.x + body.w),
+    near(room.z, body.z),
+    near(room.z + room.d, body.z + body.d),
+  ] as const).map((outer, edge) => {
     if (outer) return construction.outsideWall;
-    const axis = edge < 2 ? 0 : 1, other = axis === 0 ? 1 : 0;
+    const axis = edge < 2 ? 0 : 1;
+    const other = axis === 0 ? 1 : 0;
     const at = [room.x, room.x + room.w, room.z, room.z + room.d][edge];
-    const start = other === 0 ? room.x : room.z, end = start + (other === 0 ? room.w : room.d);
-    return partitions.some((p) => near(p.a[axis], at) && near(p.b[axis], at) && overlaps(p.a[other], p.b[other], start, end))
-      ? construction.partition / 2 : 0;
-  });
-  const nested = floors[index].rooms.filter((r) => r.id !== room.id && r.x >= room.x - 0.01 && r.z >= room.z - 0.01 && r.x + r.w <= room.x + room.w + 0.01 && r.z + r.d <= room.z + room.d + 0.01);
+    const start = other === 0 ? room.x : room.z;
+    const end = start + (other === 0 ? room.w : room.d);
+    return partitions.some(
+      (p) => near(p.a[axis], at) && near(p.b[axis], at) && overlaps(p.a[other], p.b[other], start, end),
+    )
+      ? construction.partition / 2
+      : 0;
+  }) as [number, number, number, number];
+}
+
+/** 套内净空矩形（色块／家具占位）：落在墙线内侧；开敞相邻边不缩，避免白缝。 */
+export function roomFillBounds(room: Room, index: number, partitionsOverride?: Wall[]) {
+  const [west, east, north, south] = roomEdgeInsets(room, index, partitionsOverride);
   return {
-    w: room.w - cuts[0] - cuts[1], d: room.d - cuts[2] - cuts[3], nested,
+    x: room.x + west,
+    z: room.z + north,
+    w: Math.max(0.05, room.w - west - east),
+    d: Math.max(0.05, room.d - north - south),
+  };
+}
+
+// 只计算模型墙线内侧的矩形包络。门洞、部分隔墙与嵌套套卫不能据此认定为实用净面积。
+export function roomReference(room: Room, index: number, partitionsOverride?: Wall[]) {
+  const cuts = roomEdgeInsets(room, index, partitionsOverride);
+  const nested = floors[index].rooms.filter(
+    (r) =>
+      r.id !== room.id &&
+      r.x >= room.x - 0.01 &&
+      r.z >= room.z - 0.01 &&
+      r.x + r.w <= room.x + room.w + 0.01 &&
+      r.z + r.d <= room.z + room.d + 0.01,
+  );
+  return {
+    w: room.w - cuts[0] - cuts[1],
+    d: room.d - cuts[2] - cuts[3],
+    nested,
     note: `仅扣当前外墙${construction.outsideWall.toFixed(2)}m及贴边隔墙半厚${(construction.partition / 2).toFixed(2)}m；局部墙线按整边参考。未扣装修、柱、设备${nested.length ? `；包含${nested.map((r) => r.name).join("、")}，不可与子房间面积相加` : ""}。开敞边不代表存在实体墙，非实测净尺寸或使用面积。`,
   };
 }
@@ -86,7 +137,7 @@ export const designIssues: DesignIssue[] = [
   { id: "D06", title: "贯通轴网、梁底与基础", phase: "先核实", current: "外沿和房前墙下两排示意柱；0.45m是结构占用预留，没有承载计算。", action: "结合勘察比较少柱、大跨与局部调整，协调挑空、门窗、停车、梁底及净高目标。", owner: "结构主责／建筑协调", output: "初步结构方案、梁底控制及基础条件", target: "garage" },
   { id: "D07", title: "挡土、防水与雨水全路径", phase: "先核实", current: "屋后高田暂+2.5m；屋面有天沟，外墙落水管按外观要求删除；排水去向未知。", action: "确定后山截排水、挡墙泄水、院坪坡向、地库截水及防倒灌；补天沟、三块露台的落水、溢流和维护路径。", owner: "岩土／结构／建筑／给排水", output: "场地与屋面排水图、挡土防水剖面", target: "site" },
   { id: "D08", title: "房间净尺寸与家具使用空间", phase: "深化方案", current: "平面尺寸为外轮廓；套卫嵌套于卧室，不能重复计面积。模型内侧参考仍未扣装修和柱。", action: "以老人实际需要核定床边、柜门、洁具、淋浴和门扇空间，补净尺寸与门窗表。", owner: "建筑／室内／业主", output: "家具净尺寸平面、卫生间放大图、门窗表", target: "floor", floor: 0, room: "elder" },
-  { id: "D09", title: "双桌餐厅日常与满座", phase: "深化方案", current: "现有2m圆桌12座＋小桌6座，满座拉椅包络相交；页面日常示意只使用小桌。", action: "保留双桌意图，比较桌径、座数、活动桌、收纳及上菜通道。日常收起圆桌的位置和方式待确认。", owner: "业主／建筑／室内", output: "日常与节庆两套家具及服务通道平面", target: "floor", floor: 0, room: "dining" },
+  { id: "D09", title: "辅楼前圆桌与临时餐厅", phase: "深化方案", current: "默认版本1：辅楼前室外圆桌6座；主楼后跨为临时餐厅；辅楼室内不再摆方桌。", action: "比较圆桌收纳、上菜通道与临时餐厅家具；确认雨棚／地面铺装。", owner: "业主／建筑／室内", output: "日常与节庆两套家具及服务通道平面", target: "floor", floor: 0, room: "dining" },
   { id: "D10", title: "卧室数量与公共空间用途", phase: "深化方案", current: "现有6间用途明确的卧室＋一层1间待定房；用户原七间意图需确认口径。堂屋后按要求留空。", action: "确认待定房是否计入卧室指标，说明后过道、二层起居和三层家庭厅的日常功能。", owner: "业主与家人／建筑", output: "逐层房间任务书与可调整项", target: "floor", floor: 0, room: "spare" },
   { id: "D11", title: "日常厨房、柴火与烟道", phase: "深化方案", current: "辅楼有双桌餐厅、日常灶台和柴火区；烟囱为造型示意。", action: "核对燃料、柴储、补风、排烟、耐火隔热、清扫及烟囱与窗檐关系，明确备餐洗涤动线。", owner: "建筑／设备／业主", output: "厨房放大平面、烟道剖面与设备清单", target: "floor", floor: 0, room: "cook" },
   { id: "D12", title: "湿区、家政与机电维护", phase: "深化方案", current: "各层已摆洁具，立管、洗衣晾晒、空调外机、电气和检修空间未形成系统。", action: "协调卫生间叠合、污废水及通气管，明确洗衣、热水、空调、电箱与维护点位，避免后补穿梁。", owner: "建筑／给排水／暖通／电气", output: "设备点位及竖向管线综合示意", target: "floor", floor: 1 },

@@ -4,6 +4,7 @@ import {
   derivedAnnexSetback,
   derivedWestGap,
   getVillaParams,
+  derivedPorticoColumnWallGap,
   porticoColumnSpacing,
   type VillaParams,
 } from "./villa-params";
@@ -46,7 +47,7 @@ const groups: ParamGroup[] = [
   {
     id: "main",
     title: "主楼",
-    note: "面宽加大只向西扩，进深加大只向北扩；东南角不动。",
+    note: "面宽加大只向西扩，进深加大只向北扩；东南角不动。包角柱突出＝柱身比墙面外凸的距离（正面与侧面同值），默认 0.15 m＝15 cm。",
     fields: [
       { key: "mainWidth", label: "主楼面宽" },
       { key: "mainDepth", label: "主楼进深" },
@@ -54,16 +55,17 @@ const groups: ParamGroup[] = [
       { key: "floor2Height", label: "二层层高" },
       { key: "floor3Height", label: "三层层高" },
       { key: "thirdSetback", label: "三楼北向退台" },
+      { key: "cornerProject", label: "包角柱突出墙面", min: 0.05, max: 0.5 },
     ],
   },
   {
     id: "portico",
     title: "门厅",
+    note: "两根门厅柱心落在外伸投影北沿左右两角的直角处；柱内侧至前墙由外伸与柱截面自动算出。",
     fields: [
       { key: "porticoWidth", label: "门厅面宽" },
       { key: "porticoProjection", label: "门厅外伸" },
       { key: "porticoColumnSize", label: "门厅柱截面" },
-      { key: "porticoColumnWallGap", label: "柱内侧至前墙" },
     ],
   },
   {
@@ -287,7 +289,11 @@ export function villaParamsPanelHtml(params: VillaParams = getVillaParams()) {
             </div>
             <div class="params-meta-item">
               <dt>门厅柱心距</dt>
-              <dd><strong id="villa-params-portico-span">${porticoColumnSpacing(params).toFixed(2)}</strong><span>m · 派生</span></dd>
+              <dd><strong id="villa-params-portico-span">${porticoColumnSpacing(params).toFixed(2)}</strong><span>m · 角心＝面宽</span></dd>
+            </div>
+            <div class="params-meta-item">
+              <dt>柱内侧至前墙</dt>
+              <dd><strong id="villa-params-portico-wall-gap">${derivedPorticoColumnWallGap(params).toFixed(2)}</strong><span>m · 派生</span></dd>
             </div>
           </dl>
           <p class="params-meta-warn" id="villa-params-width-sum" hidden></p>
@@ -374,6 +380,7 @@ export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = do
   setText("villa-params-west-gap", west.toFixed(2));
   setText("villa-params-annex-setback", Math.max(0, setback).toFixed(2));
   setText("villa-params-portico-span", porticoColumnSpacing(params).toFixed(2));
+  setText("villa-params-portico-wall-gap", derivedPorticoColumnWallGap(params).toFixed(2));
   const meta = root.querySelector("#villa-params-meta");
   meta?.classList.toggle("is-invalid", !ok);
   const warn = root.querySelector<HTMLElement>("#villa-params-width-sum");

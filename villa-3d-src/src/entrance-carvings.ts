@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { frontElevation } from "./data";
 import { box, type Mats } from "./primitives";
 
 type XY = [number, number];
@@ -329,7 +330,7 @@ export function referenceCornerPilaster(parent: THREE.Object3D, cornerX: number,
   const g = group(parent,"包角柱");
   g.userData.ornamentReference = "corner-carving-2026-10-15";
   g.position.set(cornerX,base,cornerZ);
-  const project = .15, leg = .5, s = .82;
+  const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg, s = .82;
   const outer = outward*project, inner = -outward*leg;
   const placeL = (y0: number,y1: number,lip: number,material: THREE.Material,topLip=lip) => {
     // 两段轮廓合成一块L形柱箍，转角不留对穿或重叠的接缝。

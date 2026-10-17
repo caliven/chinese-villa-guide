@@ -1,5 +1,5 @@
-import type { Furniture, Room, Wall, Point } from "./data";
-import { site } from "./data";
+import type { Furniture, Room, Wall, Point, WallRole } from "./data";
+import { site, wallRoleOf } from "./data";
 import {
   type LayoutDraft,
   clonePublishedLayout,
@@ -23,8 +23,13 @@ import { downloadFile, escapeHtml } from "./project-meta";
 import { renderDrawGuide, type DrawGuide } from "./plan";
 import {
   createFurniture,
+  furnitureDisplayName,
   furnitureLabels,
-  furnitureLocalToWorld,
+  furnitureOrientationHint,
+  furnitureHasFacing,
+  FURNITURE_LOCAL_FRAME,
+  furnitureCornerLocal,
+  resizeFurnitureFromCorner,
   worldToFurnitureLocal,
   snapRotation,
   normalizeRotation,
@@ -41,44 +46,74 @@ import {
 } from "./openings";
 import { facades } from "./facades";
 import {
+  alignWallToNearestSide,
   bayAlongWall,
   centerFurnitureAgainstNearestWall,
   centerOpeningInBay,
   collectBayStations,
+  collectCornerSnapPoints,
   collectRoomSnapAxes,
   findRoomContaining,
   formatMeters,
   furnitureUsesWallCenter,
   nearestRoomWall,
+  pullFurnitureClearOfWalls,
+  resizeRoomFromCorner,
   roomMargins,
   roomWallLabels,
   porticoBayAlign,
   centerPorticoInBay,
+  resizeOwnedWallsWithRoom,
+  snapFurnitureDuringDrag,
   snapRoomToNearestWalls,
+  snapWallDuringDrag,
+  translateFurnitureInsideRoom,
+  translateOwnedWallsWithRoom,
   type OpeningBay,
   type PorticoBayAlign,
   type RoomMargins,
+  type WallAlignSide,
 } from "./layout-align";
 
 export type EditorTool = "select" | "wall" | "room" | "door" | "furniture";
 export type SelectionItem =
-  | { kind: "room"; id: string; floor: number }
+  | { kind: "room"; id: string; floor: number; annex?: boolean }
   | { kind: "wall"; index: number; floor: number; annex?: boolean }
   | { kind: "door"; index: number; floor: number; annex?: boolean; exterior?: boolean }
-  | { kind: "furniture"; index: number; floor: number }
+  | { kind: "furniture"; index: number; floor: number; annex?: boolean }
   | { kind: "stair" }
   | { kind: "portico" };
 export type Selection = SelectionItem | null;
 
 type GroupMoveItem =
-  | { kind: "furniture"; index: number; orig: Furniture }
-  | { kind: "room"; id: string; orig: Room };
+  | { kind: "furniture"; index: number; annex: boolean; orig: Furniture }
+  | { kind: "room"; id: string; annex: boolean; orig: Room };
 
 type DragState =
-  | { type: "group-move"; startX: number; startZ: number; items: GroupMoveItem[] }
-  | { type: "room-handle"; id: string; corner: string; orig: Room }
-  | { type: "furniture-handle"; index: number; corner: string; orig: Furniture }
-  | { type: "furniture-rotate"; index: number; startAngle: number; origRotation: number; orig: Furniture }
+  | {
+      type: "group-move";
+      startX: number;
+      startZ: number;
+      items: GroupMoveItem[];
+      /** 拖始隔墙／房间／家具快照（独占墙与房内家具跟移用）。 */
+      partitionsOrig: Wall[];
+      annexPartitionsOrig: Wall[];
+      roomsOrig: Room[];
+      annexRoomsOrig: Room[];
+      furnitureOrig: Furniture[];
+      annexFurnitureOrig: Furniture[];
+    }
+  | {
+      type: "room-handle";
+      id: string;
+      annex: boolean;
+      corner: string;
+      orig: Room;
+      partitionsOrig: Wall[];
+      roomsOrig: Room[];
+    }
+  | { type: "furniture-handle"; index: number; annex: boolean; corner: string; orig: Furniture; grabDlx: number; grabDlz: number }
+  | { type: "furniture-rotate"; index: number; annex: boolean; startAngle: number; origRotation: number; orig: Furniture }
   | { type: "wall"; index: number; annex: boolean; end: "a" | "b" | "move"; startX: number; startZ: number; orig: Wall }
   | { type: "door"; index: number; annex: boolean; exterior: boolean; startOffset: number; startX: number; startZ: number; origOpening: WallOpening; wallA: Point; wallB: Point }
   | { type: "door-handle"; index: number; annex: boolean; exterior: boolean; end: "start" | "end"; origOpening: WallOpening; wallA: Point; wallB: Point }
@@ -108,19 +143,35 @@ const PASTE_STEP = 0.5;
 
 type LayoutClipboard = {
   furniture: Furniture[];
+  annexFurniture: Furniture[];
   rooms: Room[];
+  annexRooms: Room[];
   walls: Wall[];
   annexWalls: Wall[];
 };
 
+/** 平面图辅楼家具／隔墙共用的下标偏移（≥1000 表示辅楼）。 */
+const ANNEX_INDEX_BASE = 1000;
+
 export class LayoutEditor {
   draft: LayoutDraft;
   tool: EditorTool = "select";
+  /**
+   * 拖墙／家具时自动吸附附近墙线、墙尖与居中线。
+   * 按住 Shift 拖可暂时关闭；也可用顶栏「吸附对齐」关掉。
+   */
+  magnetSnap = true;
   /** 多选列表；末项为属性面板主选。 */
   selections: SelectionItem[] = [];
   private history: string[] = [];
   private future: string[] = [];
+  /** 最近一次入栈内容指纹（忽略 updatedAt），避免点选空松手污染撤销栈。 */
+  private lastHistoryKey = "";
+  /** 拖拽开始时的内容指纹；松手时若未变则不提交历史。 */
+  private dragStartKey = "";
   private drag: DragState = null;
+  /** 拖拽吸附引导线（重绘／getDrawGuide 用）。 */
+  private dragGuides: { ax: number; az: number; xs: number[]; zs: number[] } | null = null;
   private host: LayoutEditorHost;
   private clipboard: LayoutClipboard | null = null;
   private pasteCount = 0;
@@ -134,8 +185,8 @@ export class LayoutEditor {
   }
 
   private selKey(s: SelectionItem): string {
-    if (s.kind === "room") return `room:${s.floor}:${s.id}`;
-    if (s.kind === "furniture") return `furniture:${s.floor}:${s.index}`;
+    if (s.kind === "room") return `room:${s.floor}:${s.annex ? 1 : 0}:${s.id}`;
+    if (s.kind === "furniture") return `furniture:${s.floor}:${s.annex ? 1 : 0}:${s.index}`;
     if (s.kind === "wall") return `wall:${s.floor}:${s.annex ? 1 : 0}:${s.index}`;
     if (s.kind === "door") {
       return `door:${s.floor}:${s.annex ? 1 : 0}:${s.exterior ? 1 : 0}:${s.index}`;
@@ -157,11 +208,11 @@ export class LayoutEditor {
     const items: GroupMoveItem[] = [];
     for (const s of this.selections) {
       if (s.kind === "furniture" && s.floor === floor) {
-        const item = this.floorData(floor).furniture[s.index];
-        if (item) items.push({ kind: "furniture", index: s.index, orig: structuredClone(item) });
+        const item = this.furnitureList(floor, !!s.annex)[s.index];
+        if (item) items.push({ kind: "furniture", index: s.index, annex: !!s.annex, orig: structuredClone(item) });
       } else if (s.kind === "room" && s.floor === floor) {
-        const room = this.floorData(floor).rooms.find((r) => r.id === s.id);
-        if (room) items.push({ kind: "room", id: s.id, orig: structuredClone(room) });
+        const found = this.findRoomRef(s.id, floor, !!s.annex);
+        if (found) items.push({ kind: "room", id: s.id, annex: found.annex, orig: structuredClone(found.room) });
       }
     }
     return items;
@@ -181,14 +232,15 @@ export class LayoutEditor {
     let moved = 0;
     for (const s of this.selections) {
       if (s.kind === "furniture" && s.floor === floor) {
-        const item = this.floorData(floor).furniture[s.index];
+        const item = this.furnitureList(floor, !!s.annex)[s.index];
         if (!item) continue;
         item.x = snapMeter(item.x + dx);
         item.z = snapMeter(item.z + dz);
         moved += 1;
       } else if (s.kind === "room" && s.floor === floor) {
-        const room = this.floorData(floor).rooms.find((r) => r.id === s.id);
-        if (!room) continue;
+        const found = this.findRoomRef(s.id, floor, !!s.annex);
+        if (!found) continue;
+        const room = found.room;
         room.x = snapMeter(room.x + dx);
         room.z = snapMeter(room.z + dz);
         if (room.label) {
@@ -311,6 +363,7 @@ export class LayoutEditor {
       /* ignore */
     }
     this.history = [JSON.stringify(this.draft)];
+    this.lastHistoryKey = this.contentKey();
     this.future = [];
     this.selection = null;
     this.host.redraw();
@@ -323,11 +376,19 @@ export class LayoutEditor {
     return this.future.length > 0;
   }
 
+  /** 布局内容指纹：忽略 updatedAt，否则每次暂存都会当成新步骤。 */
+  private contentKey(draft: LayoutDraft = this.draft): string {
+    return JSON.stringify({ ...draft, updatedAt: "" });
+  }
+
   private pushHistory() {
-    const json = JSON.stringify(this.draft);
-    if (this.history[this.history.length - 1] === json) return;
-    this.history.push(json);
-    if (this.history.length > MAX_HISTORY) this.history.shift();
+    const key = this.contentKey();
+    if (key === this.lastHistoryKey) return;
+    this.history.push(JSON.stringify(this.draft));
+    this.lastHistoryKey = key;
+    if (this.history.length > MAX_HISTORY) {
+      this.history.shift();
+    }
     this.future = [];
   }
 
@@ -344,23 +405,41 @@ export class LayoutEditor {
   }
 
   undo() {
-    if (this.history.length < 2) return;
-    const current = this.history.pop()!;
-    this.future.push(current);
-    this.draft = ensureExteriorManaged(parseLayoutDraft(this.history[this.history.length - 1]!));
-    saveLayoutDraft(this.draft);
-    this.selection = null;
-    this.host.redraw();
+    if (this.history.length < 2) {
+      this.host.toast("没有可撤销的操作");
+      return;
+    }
+    try {
+      const current = this.history.pop()!;
+      this.future.push(current);
+      this.draft = ensureExteriorManaged(parseLayoutDraft(this.history[this.history.length - 1]!));
+      this.draft = saveLayoutDraft(this.draft);
+      this.lastHistoryKey = this.contentKey();
+      this.host.onDraftSaved?.(this.draft.updatedAt, false);
+      this.selection = null;
+      this.host.redraw();
+    } catch (error) {
+      this.host.toast(error instanceof Error ? error.message : "撤销失败");
+    }
   }
 
   redo() {
     const next = this.future.pop();
-    if (!next) return;
-    this.history.push(next);
-    this.draft = ensureExteriorManaged(parseLayoutDraft(next));
-    saveLayoutDraft(this.draft);
-    this.selection = null;
-    this.host.redraw();
+    if (!next) {
+      this.host.toast("没有可重做的操作");
+      return;
+    }
+    try {
+      this.history.push(next);
+      this.draft = ensureExteriorManaged(parseLayoutDraft(next));
+      this.draft = saveLayoutDraft(this.draft);
+      this.lastHistoryKey = this.contentKey();
+      this.host.onDraftSaved?.(this.draft.updatedAt, false);
+      this.selection = null;
+      this.host.redraw();
+    } catch (error) {
+      this.host.toast(error instanceof Error ? error.message : "重做失败");
+    }
   }
 
   resetToPublished() {
@@ -421,9 +500,11 @@ export class LayoutEditor {
 
   placeRoomAt(x: number, z: number) {
     const floor = this.host.getFloor();
+    const annex = this.inAnnexFootprint(x, z, floor);
+    const list = this.roomList(floor, annex);
     const room: Room = {
-      id: newRoomId("room", this.floorData(floor).rooms),
-      name: "新房间",
+      id: newRoomId("room", list),
+      name: annex ? "辅楼房间" : "新房间",
       x: snapMeter(x - 1.5),
       z: snapMeter(z - 1.5),
       w: 3,
@@ -431,18 +512,25 @@ export class LayoutEditor {
       kind: this.roomKind,
       note: "编辑器新增，设计建议。",
     };
-    this.floorData(floor).rooms.push(room);
+    list.push(room);
     this.snapRoomEdges(room, floor);
-    this.selection = { kind: "room", id: room.id, floor };
+    this.selection = { kind: "room", id: room.id, floor, annex: annex || undefined };
     this.tool = "select";
     this.commit();
   }
 
   placeFurnitureAt(x: number, z: number) {
     const floor = this.host.getFloor();
+    const annex = this.inAnnexFootprint(x, z, floor);
+    const list = this.furnitureList(floor, annex);
     const item = createFurniture(this.furnitureKind, snapMeter(x), snapMeter(z));
-    this.floorData(floor).furniture.push(item);
-    this.selection = { kind: "furniture", index: this.floorData(floor).furniture.length - 1, floor };
+    list.push(item);
+    this.selection = {
+      kind: "furniture",
+      index: list.length - 1,
+      floor,
+      annex: annex || undefined,
+    };
     this.tool = "select";
     this.commit();
   }
@@ -526,25 +614,81 @@ export class LayoutEditor {
     return this.host.getFloor();
   }
 
+  /** 点是否落在辅楼外轮廓内（一层才有辅楼）。 */
+  private inAnnexFootprint(x: number, z: number, floor = this.host.getFloor()) {
+    if (floor !== 0) return false;
+    const a = site.annex;
+    return x >= a.x && x <= a.x + a.w && z >= a.z && z <= a.z + a.d;
+  }
+
+  private roomList(floor: number, annex: boolean): Room[] {
+    return annex ? this.draft.annexRooms : this.floorData(floor).rooms;
+  }
+
+  private furnitureList(floor: number, annex: boolean): Furniture[] {
+    return annex ? this.draft.annexFurniture : this.floorData(floor).furniture;
+  }
+
+  private findRoomRef(id: string, floor: number, annexHint?: boolean): { room: Room; annex: boolean } | null {
+    if (annexHint) {
+      const room = this.draft.annexRooms.find((r) => r.id === id);
+      return room ? { room, annex: true } : null;
+    }
+    if (annexHint === false) {
+      const room = this.floorData(floor).rooms.find((r) => r.id === id);
+      return room ? { room, annex: false } : null;
+    }
+    const main = this.floorData(floor).rooms.find((r) => r.id === id);
+    if (main) return { room: main, annex: false };
+    if (floor === 0) {
+      const annex = this.draft.annexRooms.find((r) => r.id === id);
+      if (annex) return { room: annex, annex: true };
+    }
+    return null;
+  }
+
+  private parseEditIndex(raw: string | undefined): { index: number; annex: boolean } {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return { index: -1, annex: false };
+    if (n >= ANNEX_INDEX_BASE) return { index: n - ANNEX_INDEX_BASE, annex: true };
+    return { index: n, annex: false };
+  }
+
   clearSelectionOnFloorChange() {
     this.selection = null;
     this.cancelWallDraft(false);
   }
 
   getDrawGuide(): DrawGuide | null {
-    if (!this.wallDraft) return null;
-    const { ax, az, bx, bz, guideXs, guideZs, freeAngle } = this.wallDraft;
-    const length = Math.hypot(bx - ax, bz - az);
-    return {
-      ax,
-      az,
-      bx,
-      bz,
-      guideXs,
-      guideZs,
-      length,
-      hint: "水平／竖直 · Esc 取消",
-    };
+    if (this.wallDraft) {
+      const { ax, az, bx, bz, guideXs, guideZs } = this.wallDraft;
+      const length = Math.hypot(bx - ax, bz - az);
+      return {
+        ax,
+        az,
+        bx,
+        bz,
+        guideXs,
+        guideZs,
+        length,
+        hint: "水平／竖直 · Esc 取消",
+      };
+    }
+    if (this.dragGuides && (this.dragGuides.xs.length || this.dragGuides.zs.length)) {
+      return {
+        ax: this.dragGuides.ax,
+        az: this.dragGuides.az,
+        guideXs: this.dragGuides.xs,
+        guideZs: this.dragGuides.zs,
+        hint: this.magnetSnap ? "已吸附 · Shift 暂关" : undefined,
+      };
+    }
+    return null;
+  }
+
+  /** 是否对本次拖拽启用吸附（总开关开，且未按 Shift）。 */
+  private magnetActive(event: PointerEvent) {
+    return this.magnetSnap && !event.shiftKey;
   }
 
   cancelWallDraft(redraw = true) {
@@ -579,7 +723,9 @@ export class LayoutEditor {
     const pt = svg.createSVGPoint();
     pt.x = clientX;
     pt.y = clientY;
-    const ctm = svg.getScreenCTM();
+    // 户型图内容在 .plan-world（可整体旋转 180°）；用该组 CTM 才能得到世界米制坐标。
+    const world = svg.querySelector(".plan-world") as SVGGElement | null;
+    const ctm = world?.getScreenCTM() ?? svg.getScreenCTM();
     if (!ctm) return { x: 0, z: 0 };
     const local = pt.matrixTransform(ctm.inverse());
     return { x: local.x, z: local.y };
@@ -587,6 +733,11 @@ export class LayoutEditor {
 
   private currentSvg(fallback?: SVGSVGElement | null) {
     return (document.querySelector("svg.floor-svg") as SVGSVGElement | null) ?? fallback ?? null;
+  }
+
+  /** 引导线画在 .plan-world 内，与房间／墙同一坐标系。 */
+  private planWorldRoot(svg: SVGSVGElement) {
+    return (svg.querySelector(".plan-world") as SVGGElement | null) ?? svg;
   }
 
   private paintDrawGuide(svg: SVGSVGElement) {
@@ -601,7 +752,7 @@ export class LayoutEditor {
       existing.outerHTML = html;
       return;
     }
-    svg.insertAdjacentHTML("beforeend", html);
+    this.planWorldRoot(svg).insertAdjacentHTML("beforeend", html);
   }
 
   bind(svg: SVGSVGElement) {
@@ -671,12 +822,22 @@ export class LayoutEditor {
         const wall: Wall = {
           a: [this.wallDraft.ax, this.wallDraft.az],
           b: [end.x, end.z],
+          role: "partition",
         };
         forceOrthoWall(wall);
         this.detachWallPreview();
         this.wallDraft = null;
-        this.floorData(floor).partitions.push(wall);
-        this.selection = { kind: "wall", index: this.floorData(floor).partitions.length - 1, floor };
+        const midX = (wall.a[0] + wall.b[0]) / 2;
+        const midZ = (wall.a[1] + wall.b[1]) / 2;
+        const annex = this.inAnnexFootprint(midX, midZ, floor);
+        const walls = annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
+        walls.push(wall);
+        this.selection = {
+          kind: "wall",
+          index: walls.length - 1,
+          floor,
+          annex: annex || undefined,
+        };
         this.commit();
         return;
       }
@@ -709,9 +870,15 @@ export class LayoutEditor {
 
       if (kind === "room") {
         const id = edit.dataset.id!;
-        const room = this.floorData(floor).rooms.find((r) => r.id === id);
-        if (!room) return;
-        const target: SelectionItem = { kind: "room", id, floor };
+        const annex = edit.dataset.annex === "1";
+        const found = this.findRoomRef(id, floor, annex);
+        if (!found) return;
+        const target: SelectionItem = {
+          kind: "room",
+          id,
+          floor,
+          annex: found.annex || undefined,
+        };
         if (additive) {
           this.toggleSelectable(target);
           this.host.redraw();
@@ -723,19 +890,40 @@ export class LayoutEditor {
           type: "group-move",
           startX: x,
           startZ: z,
-          items: items.length ? items : [{ kind: "room", id, orig: structuredClone(room) }],
+          items: items.length
+            ? items
+            : [{ kind: "room", id, annex: found.annex, orig: structuredClone(found.room) }],
+          partitionsOrig: structuredClone(this.floorData(floor).partitions),
+          annexPartitionsOrig: structuredClone(this.draft.annexPartitions),
+          roomsOrig: structuredClone(this.floorData(floor).rooms),
+          annexRoomsOrig: structuredClone(this.draft.annexRooms),
+          furnitureOrig: structuredClone(this.floorData(floor).furniture),
+          annexFurnitureOrig: structuredClone(this.draft.annexFurniture),
         };
       } else if (kind === "room-handle") {
         const id = edit.dataset.id!;
-        const room = this.floorData(floor).rooms.find((r) => r.id === id);
-        if (!room) return;
-        this.selection = { kind: "room", id, floor };
-        this.drag = { type: "room-handle", id, corner: edit.dataset.corner!, orig: structuredClone(room) };
+        const annex = edit.dataset.annex === "1";
+        const found = this.findRoomRef(id, floor, annex);
+        if (!found) return;
+        this.selection = { kind: "room", id, floor, annex: found.annex || undefined };
+        this.drag = {
+          type: "room-handle",
+          id,
+          annex: found.annex,
+          corner: edit.dataset.corner!,
+          orig: structuredClone(found.room),
+          partitionsOrig: structuredClone(
+            found.annex ? this.draft.annexPartitions : this.floorData(floor).partitions,
+          ),
+          roomsOrig: structuredClone(
+            found.annex ? this.draft.annexRooms : this.floorData(floor).rooms,
+          ),
+        };
       } else if (kind === "furniture") {
-        const index = Number(edit.dataset.index);
-        const item = this.floorData(floor).furniture[index];
+        const { index, annex } = this.parseEditIndex(edit.dataset.index);
+        const item = this.furnitureList(floor, annex)[index];
         if (!item || index < 0) return;
-        const target: SelectionItem = { kind: "furniture", index, floor };
+        const target: SelectionItem = { kind: "furniture", index, floor, annex: annex || undefined };
         if (additive) {
           this.toggleSelectable(target);
           this.host.redraw();
@@ -747,32 +935,50 @@ export class LayoutEditor {
           type: "group-move",
           startX: x,
           startZ: z,
-          items: items.length ? items : [{ kind: "furniture", index, orig: structuredClone(item) }],
+          items: items.length
+            ? items
+            : [{ kind: "furniture", index, annex, orig: structuredClone(item) }],
+          partitionsOrig: structuredClone(this.floorData(floor).partitions),
+          annexPartitionsOrig: structuredClone(this.draft.annexPartitions),
+          roomsOrig: structuredClone(this.floorData(floor).rooms),
+          annexRoomsOrig: structuredClone(this.draft.annexRooms),
+          furnitureOrig: structuredClone(this.floorData(floor).furniture),
+          annexFurnitureOrig: structuredClone(this.draft.annexFurniture),
         };
       } else if (kind === "furniture-handle") {
-        const index = Number(edit.dataset.index);
-        const item = this.floorData(floor).furniture[index];
+        const { index, annex } = this.parseEditIndex(edit.dataset.index);
+        const item = this.furnitureList(floor, annex)[index];
         if (!item || index < 0) return;
-        this.selection = { kind: "furniture", index, floor };
-        this.drag = { type: "furniture-handle", index, corner: edit.dataset.corner!, orig: structuredClone(item) };
+        const corner = edit.dataset.corner ?? "se";
+        this.selection = { kind: "furniture", index, floor, annex: annex || undefined };
+        const cornerLocal = furnitureCornerLocal(item, corner);
+        const tip = worldToFurnitureLocal(x, z, item);
+        this.drag = {
+          type: "furniture-handle",
+          index,
+          annex,
+          corner,
+          orig: structuredClone(item),
+          grabDlx: tip.lx - cornerLocal.lx,
+          grabDlz: tip.lz - cornerLocal.lz,
+        };
       } else if (kind === "furniture-rotate") {
         // 蓝点只旋转已选中家具；周边空白与未选中时都不当选中入口。
-        const index = Number(edit.dataset.index);
-        const item = this.floorData(floor).furniture[index];
+        const { index, annex } = this.parseEditIndex(edit.dataset.index);
+        const item = this.furnitureList(floor, annex)[index];
         if (!item || index < 0) return;
-        const target: SelectionItem = { kind: "furniture", index, floor };
+        const target: SelectionItem = { kind: "furniture", index, floor, annex: annex || undefined };
         if (!this.isSelectedItem(target)) return;
         this.drag = {
           type: "furniture-rotate",
           index,
+          annex,
           startAngle: Math.atan2(z - item.z, x - item.x),
           origRotation: item.rotation ?? 0,
           orig: structuredClone(item),
         };
       } else if (kind === "wall" || kind === "wall-handle") {
-        const index = Number(edit.dataset.index);
-        const annex = index >= 1000;
-        const wallIndex = annex ? index - 1000 : index;
+        const { index: wallIndex, annex } = this.parseEditIndex(edit.dataset.index);
         const wall = (annex ? this.draft.annexPartitions : this.floorData(floor).partitions)[wallIndex];
         if (!wall) return;
         this.selection = { kind: "wall", index: wallIndex, floor, annex };
@@ -784,9 +990,9 @@ export class LayoutEditor {
         forceOrthoWall(wall);
         this.drag = { type: "wall", index: wallIndex, annex, end, startX: x, startZ: z, orig: structuredClone(wall) };
       } else if (kind === "door" || kind === "door-handle") {
-        const index = Number(edit.dataset.index);
         const exterior = edit.dataset.exterior === "1";
         if (exterior) {
+          const index = Number(edit.dataset.index);
           const item = this.draft.exteriorOpenings[index];
           if (!item) return;
           const facade = facades(item.floor)[item.facadeIndex];
@@ -818,8 +1024,7 @@ export class LayoutEditor {
             };
           }
         } else {
-          const annex = index >= 1000;
-          const wallIndex = annex ? index - 1000 : index;
+          const { index: wallIndex, annex } = this.parseEditIndex(edit.dataset.index);
           const wall = (annex ? this.draft.annexPartitions : this.floorData(floor).partitions)[wallIndex];
           if (!wall?.door) return;
           this.selection = { kind: "door", index: wallIndex, floor, annex };
@@ -892,6 +1097,7 @@ export class LayoutEditor {
       }
 
       // 拖拽期间 SVG 会整页重绘，监听挂在 window 上以免 pointerup 丢失。
+      this.dragStartKey = this.contentKey();
       attachWindowDrag();
       this.host.redraw();
     };
@@ -907,15 +1113,17 @@ export class LayoutEditor {
         const drag = this.drag;
         const dx = x - drag.startX;
         const dz = z - drag.startZ;
+        this.dragGuides = null;
         for (const item of drag.items) {
           if (item.kind === "furniture") {
-            const furn = this.floorData(floor).furniture[item.index];
+            const furn = this.furnitureList(floor, item.annex)[item.index];
             if (!furn) continue;
             furn.x = snapMeter(item.orig.x + dx);
             furn.z = snapMeter(item.orig.z + dz);
           } else {
-            const room = this.floorData(floor).rooms.find((r) => r.id === item.id);
-            if (!room) continue;
+            const found = this.findRoomRef(item.id, floor, item.annex);
+            if (!found) continue;
+            const room = found.room;
             room.x = snapMeter(item.orig.x + dx);
             room.z = snapMeter(item.orig.z + dz);
             if (item.orig.label) {
@@ -928,57 +1136,87 @@ export class LayoutEditor {
             }
           }
         }
+        // 单件家具：边贴墙／角贴墙尖；接近居中线时吸居中。Shift 暂关。
+        if (this.magnetActive(event) && drag.items.length === 1 && drag.items[0]!.kind === "furniture") {
+          const only = drag.items[0]!;
+          const furn = this.furnitureList(floor, only.annex)[only.index];
+          if (furn) {
+            const ctx = this.furnitureMagnetContext(floor);
+            const room = findRoomContaining(furn, ctx.rooms);
+            const guides = snapFurnitureDuringDrag(furn, ctx.xs, ctx.zs, {
+              corners: ctx.corners,
+              room,
+              floorIndex: floor,
+              allowCenter: true,
+            });
+            this.setDragGuides(furn.x, furn.z, guides.guideXs, guides.guideZs);
+          }
+        } else if (this.magnetActive(event) && drag.items.length === 1 && drag.items[0]!.kind === "room") {
+          const only = drag.items[0]!;
+          const found = this.findRoomRef(only.id, floor, only.annex);
+          if (found) {
+            const before = { x: found.room.x, z: found.room.z };
+            this.snapRoomEdges(found.room, floor, 0.15);
+            if (found.room.x !== before.x || found.room.z !== before.z) {
+              this.setDragGuides(found.room.x + found.room.w / 2, found.room.z + found.room.d / 2, [found.room.x, found.room.x + found.room.w], [found.room.z, found.room.z + found.room.d]);
+            }
+          }
+        }
+        // 独占隔墙、房内家具按房间最终位移（含磁吸）从拖始快照对齐。
+        for (const item of drag.items) {
+          if (item.kind !== "room") continue;
+          const found = this.findRoomRef(item.id, floor, item.annex);
+          if (!found) continue;
+          const rdx = found.room.x - item.orig.x;
+          const rdz = found.room.z - item.orig.z;
+          const walls = item.annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
+          const wallOrigs = item.annex ? drag.annexPartitionsOrig : drag.partitionsOrig;
+          const rooms = item.annex ? drag.annexRoomsOrig : drag.roomsOrig;
+          translateOwnedWallsWithRoom(item.orig, rdx, rdz, walls, wallOrigs, rooms);
+          const furn = item.annex ? this.draft.annexFurniture : this.floorData(floor).furniture;
+          const furnOrig = item.annex ? drag.annexFurnitureOrig : drag.furnitureOrig;
+          const skip = new Set(
+            drag.items
+              .filter((it): it is Extract<GroupMoveItem, { kind: "furniture" }> =>
+                it.kind === "furniture" && it.annex === item.annex,
+              )
+              .map((it) => it.index),
+          );
+          translateFurnitureInsideRoom(item.orig, rdx, rdz, furn, furnOrig, rooms, skip);
+        }
         this.host.redraw();
       } else if (this.drag.type === "room-handle") {
         const drag = this.drag;
-        const room = this.floorData(floor).rooms.find((r) => r.id === drag.id);
-        if (!room) return;
-        const o = drag.orig;
-        let x0 = o.x, z0 = o.z, x1 = o.x + o.w, z1 = o.z + o.d;
-        if (drag.corner.includes("w")) x0 = x;
-        if (drag.corner.includes("e")) x1 = x;
-        if (drag.corner.includes("n")) z0 = z;
-        if (drag.corner.includes("s")) z1 = z;
-        room.x = snapMeter(Math.min(x0, x1));
-        room.z = snapMeter(Math.min(z0, z1));
-        room.w = Math.max(0.8, snapMeter(Math.abs(x1 - x0)));
-        room.d = Math.max(0.8, snapMeter(Math.abs(z1 - z0)));
+        const found = this.findRoomRef(drag.id, floor, drag.annex);
+        if (!found) return;
+        const room = found.room;
+        const next = resizeRoomFromCorner(drag.orig, drag.corner, x, z);
+        room.x = next.x;
+        room.z = next.z;
+        room.w = next.w;
+        room.d = next.d;
         room.label = [room.x + room.w / 2, room.z + room.d / 2];
+        const walls = drag.annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
+        resizeOwnedWallsWithRoom(drag.orig, room, walls, drag.partitionsOrig, drag.roomsOrig);
         this.host.redraw();
       } else if (this.drag.type === "furniture-handle") {
         const drag = this.drag;
-        const item = this.floorData(floor).furniture[drag.index];
+        const item = this.furnitureList(floor, drag.annex)[drag.index];
         if (!item) return;
         const o = drag.orig;
-        const local = worldToFurnitureLocal(x, z, o);
-        let x0 = -o.w / 2;
-        let z0 = -o.d / 2;
-        let x1 = o.w / 2;
-        let z1 = o.d / 2;
-        if (drag.corner.includes("w")) x0 = local.lx;
-        if (drag.corner.includes("e")) x1 = local.lx;
-        if (drag.corner.includes("n")) z0 = local.lz;
-        if (drag.corner.includes("s")) z1 = local.lz;
-        const w = Math.max(0.3, snapMeter(Math.abs(x1 - x0)));
-        const d = Math.max(0.3, snapMeter(Math.abs(z1 - z0)));
-        const cx = (Math.min(x0, x1) + Math.max(x0, x1)) / 2;
-        const cz = (Math.min(z0, z1) + Math.max(z0, z1)) / 2;
-        const world = furnitureLocalToWorld(cx, cz, o);
-        if (o.kind === "roundTable") {
-          const size = Math.max(w, d);
-          item.w = size;
-          item.d = size;
-        } else {
-          item.w = w;
-          item.d = d;
-        }
-        item.x = snapMeter(world.x);
-        item.z = snapMeter(world.z);
+        const next = resizeFurnitureFromCorner(o, drag.corner, x, z, 0.3, {
+          dlx: drag.grabDlx,
+          dlz: drag.grabDlz,
+        });
+        item.w = next.w;
+        item.d = next.d;
+        item.x = next.x;
+        item.z = next.z;
         item.rotation = o.rotation;
         this.host.redraw();
       } else if (this.drag.type === "furniture-rotate") {
         const drag = this.drag;
-        const item = this.floorData(floor).furniture[drag.index];
+        const item = this.furnitureList(floor, drag.annex)[drag.index];
         if (!item) return;
         const angle = Math.atan2(z - drag.orig.z, x - drag.orig.x);
         let next = drag.origRotation + (angle - drag.startAngle);
@@ -994,6 +1232,7 @@ export class LayoutEditor {
         if (!wall) return;
         // 隔墙始终水平／竖直：平移只走垂直于墙的方向，拉端点只沿原轴向伸缩。
         const axis = wallAxis(this.drag.orig);
+        this.dragGuides = null;
         if (this.drag.end === "move") {
           let dx = x - this.drag.startX;
           let dz = z - this.drag.startZ;
@@ -1018,6 +1257,18 @@ export class LayoutEditor {
             wall.b = other;
           }
           forceOrthoWall(wall);
+        }
+        if (this.magnetActive(event)) {
+          const anchors = this.roomSnapAxes(floor);
+          const guides = snapWallDuringDrag(
+            wall,
+            this.drag.end,
+            this.wallMagnetCandidates(floor, this.drag.index, this.drag.annex),
+            anchors,
+          );
+          const midX = (wall.a[0] + wall.b[0]) / 2;
+          const midZ = (wall.a[1] + wall.b[1]) / 2;
+          this.setDragGuides(midX, midZ, guides.guideXs, guides.guideZs);
         }
         this.host.redraw();
       } else if (this.drag.type === "door") {
@@ -1076,16 +1327,12 @@ export class LayoutEditor {
       } else if (this.drag.type === "stair-handle") {
         const drag = this.drag;
         const o = drag.origRoom;
-        let x0 = o.x, z0 = o.z, x1 = o.x + o.w, z1 = o.z + o.d;
-        if (drag.corner.includes("w")) x0 = x;
-        if (drag.corner.includes("e")) x1 = x;
-        if (drag.corner.includes("n")) z0 = z;
-        if (drag.corner.includes("s")) z1 = z;
         const room = this.draft.stairLayout.room;
-        room.x = snapMeter(Math.min(x0, x1));
-        room.z = snapMeter(Math.min(z0, z1));
-        room.w = Math.max(2.4, snapMeter(Math.abs(x1 - x0)));
-        room.d = Math.max(2.4, snapMeter(Math.abs(z1 - z0)));
+        const next = resizeRoomFromCorner(o, drag.corner, x, z, 2.4);
+        room.x = next.x;
+        room.z = next.z;
+        room.w = next.w;
+        room.d = next.d;
         const sx = room.w / o.w;
         const sz = room.d / o.d;
         this.draft.stairLayout.x = snapMeter(room.x + (drag.origX - o.x) * sx);
@@ -1109,19 +1356,49 @@ export class LayoutEditor {
       const ended = this.drag;
       const floorNow = this.selectionFloor();
       this.drag = null;
+      this.dragGuides = null;
       detachWindowDrag();
-      // 房间拖移／拉角后贴最近两面墙。
+      // 房间拖移／拉角后贴最近两面墙，并再对齐独占隔墙；家具拖完退出墙厚。
       if (ended.type === "room-handle") {
-        const room = this.floorData(floorNow).rooms.find((r) => r.id === ended.id);
-        if (room) this.snapRoomEdges(room, floorNow);
+        const found = this.findRoomRef(ended.id, floorNow, ended.annex);
+        if (found) {
+          this.snapRoomEdges(found.room, floorNow);
+          const walls = ended.annex ? this.draft.annexPartitions : this.floorData(floorNow).partitions;
+          resizeOwnedWallsWithRoom(ended.orig, found.room, walls, ended.partitionsOrig, ended.roomsOrig);
+        }
       } else if (ended.type === "group-move") {
         for (const item of ended.items) {
-          if (item.kind !== "room") continue;
-          const room = this.floorData(floorNow).rooms.find((r) => r.id === item.id);
-          if (room) this.snapRoomEdges(room, floorNow);
+          if (item.kind === "room") {
+            const found = this.findRoomRef(item.id, floorNow, item.annex);
+            if (found) {
+              this.snapRoomEdges(found.room, floorNow);
+              const rdx = found.room.x - item.orig.x;
+              const rdz = found.room.z - item.orig.z;
+              const walls = item.annex ? this.draft.annexPartitions : this.floorData(floorNow).partitions;
+              const wallOrigs = item.annex ? ended.annexPartitionsOrig : ended.partitionsOrig;
+              const rooms = item.annex ? ended.annexRoomsOrig : ended.roomsOrig;
+              translateOwnedWallsWithRoom(item.orig, rdx, rdz, walls, wallOrigs, rooms);
+              const furn = item.annex ? this.draft.annexFurniture : this.floorData(floorNow).furniture;
+              const furnOrig = item.annex ? ended.annexFurnitureOrig : ended.furnitureOrig;
+              const skip = new Set(
+                ended.items
+                  .filter((it): it is Extract<GroupMoveItem, { kind: "furniture" }> =>
+                    it.kind === "furniture" && it.annex === item.annex,
+                  )
+                  .map((it) => it.index),
+              );
+              translateFurnitureInsideRoom(item.orig, rdx, rdz, furn, furnOrig, rooms, skip);
+            }
+          } else {
+            this.clearFurnitureFromWalls(floorNow, item.annex, item.index);
+          }
         }
+      } else if (ended.type === "furniture-handle" || ended.type === "furniture-rotate") {
+        this.clearFurnitureFromWalls(floorNow, ended.annex, ended.index);
       }
-      this.commit();
+      // 仅点选、未真正改几何时不入撤销栈（否则点一次撤销像没反应）。
+      if (this.contentKey() !== this.dragStartKey) this.commit();
+      else this.host.redraw();
     };
 
     svg.addEventListener("pointerdown", onPointerDown);
@@ -1135,6 +1412,79 @@ export class LayoutEditor {
       // 拖拽／画墙预览挂在 window，重绘 unbind 时勿摘掉。
       if (!this.drag) detachWindowDrag();
     };
+  }
+
+  /** 拖隔墙时的其它墙候选（本楼隔墙＋外墙＋辅楼隔墙，排除自身）。 */
+  private wallMagnetCandidates(floor: number, index: number, annex: boolean): Wall[] {
+    const main = this.floorData(floor).partitions;
+    const annexWalls = floor === 0 ? this.draft.annexPartitions : [];
+    const list: Wall[] = [];
+    main.forEach((w, i) => {
+      if (!annex && i === index) return;
+      list.push(w);
+    });
+    annexWalls.forEach((w, i) => {
+      if (annex && i === index) return;
+      list.push(w);
+    });
+    for (const facade of facades(floor)) {
+      list.push({ a: [...facade.a] as Point, b: [...facade.b] as Point });
+    }
+    if (floor === 0) {
+      for (const facade of facades(3)) {
+        list.push({ a: [...facade.a] as Point, b: [...facade.b] as Point });
+      }
+    }
+    return list;
+  }
+
+  private furnitureMagnetContext(floor: number) {
+    const { xs, zs } = this.roomSnapAxes(floor);
+    const partitions = [
+      ...this.floorData(floor).partitions,
+      ...(floor === 0 ? this.draft.annexPartitions : []),
+    ];
+    for (const facade of facades(floor)) {
+      partitions.push({ a: [...facade.a] as Point, b: [...facade.b] as Point });
+    }
+    const rooms =
+      floor === 0
+        ? [...this.floorData(0).rooms, ...this.draft.annexRooms]
+        : this.floorData(floor).rooms;
+    const bounds =
+      floor === 0
+        ? [
+            {
+              x0: site.annex.x,
+              x1: site.annex.x + site.annex.w,
+              z0: site.annex.z,
+              z1: site.annex.z + site.annex.d,
+            },
+            {
+              x0: site.main.x,
+              x1: site.main.x + site.main.w,
+              z0: site.main.z,
+              z1: site.main.z + site.main.d,
+            },
+          ]
+        : [
+            {
+              x0: site.main.x,
+              x1: site.main.x + site.main.w,
+              z0: this.floorData(floor).front,
+              z1: site.main.z + site.main.d,
+            },
+          ];
+    const corners = collectCornerSnapPoints({ partitions, rooms, bounds });
+    return { xs, zs, corners, rooms };
+  }
+
+  private setDragGuides(ax: number, az: number, xs: number[], zs: number[]) {
+    if (!xs.length && !zs.length) {
+      this.dragGuides = null;
+      return;
+    }
+    this.dragGuides = { ax, az, xs, zs };
   }
 
   /** 当前层可吸附轴线：隔墙、其他房间边、主／辅楼外轮廓、外墙。 */
@@ -1196,8 +1546,9 @@ export class LayoutEditor {
     const sel = this.selection;
     if (!sel) return;
     if (sel.kind === "room") {
-      const room = this.floorData(floor).rooms.find((r) => r.id === sel.id);
-      if (!room) return;
+      const found = this.findRoomRef(sel.id, floor, !!sel.annex);
+      if (!found) return;
+      const room = found.room;
       if (field === "x" || field === "z" || field === "w" || field === "d") {
         const next = field === "w" || field === "d" ? Math.max(0.8, value) : value;
         room[field] = snapMeter(next);
@@ -1207,9 +1558,18 @@ export class LayoutEditor {
         }
       }
     } else if (sel.kind === "furniture") {
-      const item = this.floorData(floor).furniture[sel.index];
+      const item = this.furnitureList(floor, !!sel.annex)[sel.index];
       if (!item) return;
-      if (field === "x" || field === "z" || field === "w" || field === "d") item[field] = snapMeter(value);
+      if (field === "x" || field === "z") item[field] = snapMeter(value);
+      if (field === "w" || field === "d") {
+        const next = Math.max(0.3, snapMeter(value));
+        if (item.kind === "roundTable") {
+          item.w = next;
+          item.d = next;
+        } else {
+          item[field] = next;
+        }
+      }
       if (field === "rotationDeg") item.rotation = degToRotation(value);
       if (field === "rotation") item.rotation = normalizeRotation(value);
     } else if (sel.kind === "door") {
@@ -1240,17 +1600,27 @@ export class LayoutEditor {
   }
 
   updateSelectedName(name: string) {
-    if (this.selection?.kind !== "room") return;
-    const id = this.selection.id;
-    const room = this.floorData(this.selectionFloor()).rooms.find((r) => r.id === id);
-    if (!room) return;
-    room.name = name.slice(0, 40);
-    this.commit();
+    const sel = this.selection;
+    if (!sel) return;
+    const next = name.slice(0, 40);
+    if (sel.kind === "room") {
+      const found = this.findRoomRef(sel.id, this.selectionFloor(), !!sel.annex);
+      if (!found) return;
+      found.room.name = next;
+      this.commit();
+      return;
+    }
+    if (sel.kind === "furniture") {
+      const item = this.furnitureList(this.selectionFloor(), !!sel.annex)[sel.index];
+      if (!item) return;
+      item.label = next;
+      this.commit();
+    }
   }
 
   rotateSelectedFurniture(deltaDeg: number) {
     if (this.selection?.kind !== "furniture") return;
-    const item = this.floorData(this.selectionFloor()).furniture[this.selection.index];
+    const item = this.furnitureList(this.selectionFloor(), !!this.selection.annex)[this.selection.index];
     if (!item) return;
     item.rotation = snapRotation((item.rotation ?? 0) + degToRotation(deltaDeg), 15);
     this.commit();
@@ -1267,21 +1637,31 @@ export class LayoutEditor {
       if (!facade) return null;
       return { a: [...facade.a] as Point, b: [...facade.b] as Point };
     }
-    const walls = sel.annex ? this.draft.annexPartitions : this.floorData(sel.floor).partitions;
+    const data = this.draft.floors[sel.floor];
+    const walls = sel.annex ? this.draft.annexPartitions : (data?.partitions ?? []);
     const wall = walls[sel.index];
     if (!wall) return null;
     return { a: [...wall.a] as Point, b: [...wall.b] as Point };
   }
 
+  /**
+   * 开间站点用的布局楼层。facades(3) 是辅楼外墙键，没有 draft.floors[3]。
+   */
+  private bayLayoutFloor(floor: number, annex: boolean): { layoutFloor: number; useAnnex: boolean } {
+    if (floor === 3 || annex) return { layoutFloor: 0, useAnnex: true };
+    return { layoutFloor: floor, useAnnex: floor === 0 };
+  }
+
   private bayStationsForWall(a: Point, b: Point, floor: number, annex: boolean) {
+    const { layoutFloor, useAnnex } = this.bayLayoutFloor(floor, annex);
+    const data = this.draft.floors[layoutFloor];
     const partitions = [
-      ...this.floorData(floor).partitions,
-      ...(floor === 0 || annex ? this.draft.annexPartitions : []),
+      ...(data?.partitions ?? []),
+      ...(useAnnex ? this.draft.annexPartitions : []),
     ];
-    const rooms =
-      floor === 0 || annex
-        ? [...this.floorData(0).rooms, ...this.draft.annexRooms]
-        : this.floorData(floor).rooms;
+    const rooms = useAnnex
+      ? [...(this.draft.floors[0]?.rooms ?? []), ...this.draft.annexRooms]
+      : (data?.rooms ?? []);
     return collectBayStations(a, b, partitions, rooms);
   }
 
@@ -1294,22 +1674,40 @@ export class LayoutEditor {
     const floor = sel.exterior
       ? (this.draft.exteriorOpenings[sel.index]?.floor ?? this.selectionFloor())
       : sel.floor;
-    const stations = this.bayStationsForWall(wall.a, wall.b, floor, !!sel.annex);
+    const annex = !!sel.annex || floor === 3;
+    const stations = this.bayStationsForWall(wall.a, wall.b, floor, annex);
     return bayAlongWall(wall.a, wall.b, opening, stations);
   }
 
   getSelectedFurnitureMargins(): RoomMargins | null {
     const sel = this.selection;
     if (!sel || sel.kind !== "furniture") return null;
-    const item = this.floorData(sel.floor).furniture[sel.index];
+    const item = this.furnitureList(sel.floor, !!sel.annex)[sel.index];
     if (!item) return null;
     const rooms =
       sel.floor === 0
         ? [...this.floorData(0).rooms, ...this.draft.annexRooms]
         : this.floorData(sel.floor).rooms;
+    const partitions = sel.annex
+      ? this.draft.annexPartitions
+      : this.floorData(sel.floor).partitions;
     const room = findRoomContaining(item, rooms);
     if (!room) return null;
-    return roomMargins(item, room);
+    return roomMargins(item, room, sel.floor, partitions);
+  }
+
+  /** 拖完家具后退出墙厚，按套内净空（扣墙）贴墙内皮。 */
+  private clearFurnitureFromWalls(floor: number, annex: boolean, index: number) {
+    const item = this.furnitureList(floor, annex)[index];
+    if (!item) return;
+    const rooms = annex
+      ? this.draft.annexRooms
+      : floor === 0
+        ? [...this.floorData(0).rooms, ...this.draft.annexRooms]
+        : this.floorData(floor).rooms;
+    const partitions = annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
+    const room = findRoomContaining(item, rooms);
+    if (room) pullFurnitureClearOfWalls(item, room, annex ? 0 : floor, undefined, partitions);
   }
 
   getSelectedPorticoAlign(): PorticoBayAlign | null {
@@ -1369,7 +1767,7 @@ export class LayoutEditor {
   centerSelectedFurnitureInRoom() {
     const sel = this.selection;
     if (!sel || sel.kind !== "furniture") return;
-    const item = this.floorData(sel.floor).furniture[sel.index];
+    const item = this.furnitureList(sel.floor, !!sel.annex)[sel.index];
     if (!item) return;
     if (!furnitureUsesWallCenter(item.kind)) {
       this.host.toast("桌椅等可灵活摆放，不提供靠墙居中");
@@ -1380,10 +1778,14 @@ export class LayoutEditor {
       this.host.toast("未找到所在房间，无法靠墙居中");
       return;
     }
-    const before = nearestRoomWall(item, m.room);
-    centerFurnitureAgainstNearestWall(item, m.room);
+    const floor = sel.floor;
+    const partitions = sel.annex
+      ? this.draft.annexPartitions
+      : this.floorData(floor).partitions;
+    const before = nearestRoomWall(item, m.room, floor, partitions);
+    centerFurnitureAgainstNearestWall(item, m.room, floor, undefined, partitions);
     this.commit();
-    this.host.toast(`已靠${roomWallLabels[before.side]}居中`);
+    this.host.toast(`已靠${roomWallLabels[before.side]}居中（套内墙内皮）`);
   }
 
   centerSelectedPorticoInBay() {
@@ -1391,6 +1793,47 @@ export class LayoutEditor {
     centerPorticoInBay(this.draft.portico, this.floorData(0).rooms);
     this.commit();
     this.host.toast("门厅已按中开间居中");
+  }
+
+  /** 当前层可对齐候选墙：其它隔墙＋外墙轮廓（不含自身）。 */
+  private wallAlignCandidates(floor: number, excludeIndex: number, annex: boolean): Wall[] {
+    const out: Wall[] = [];
+    const push = (w: Wall, skip: boolean) => {
+      if (!skip) out.push(w);
+    };
+    this.floorData(floor).partitions.forEach((w, i) => push(w, !annex && i === excludeIndex));
+    if (floor === 0) {
+      this.draft.annexPartitions.forEach((w, i) => push(w, annex && i === excludeIndex));
+    }
+    for (const facade of facades(floor)) {
+      out.push({ a: [...facade.a] as Point, b: [...facade.b] as Point });
+    }
+    if (floor === 0) {
+      for (const facade of facades(3)) {
+        out.push({ a: [...facade.a] as Point, b: [...facade.b] as Point });
+      }
+    }
+    return out;
+  }
+
+  alignSelectedWall(side: WallAlignSide) {
+    const sel = this.selection;
+    if (!sel || sel.kind !== "wall") return;
+    const floor = this.selectionFloor();
+    const walls = sel.annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
+    const wall = walls[sel.index];
+    if (!wall) return;
+    const result = alignWallToNearestSide(
+      wall,
+      side,
+      this.wallAlignCandidates(floor, sel.index, !!sel.annex),
+    );
+    if (!result.ok) {
+      this.host.toast(result.reason);
+      return;
+    }
+    this.commit();
+    this.host.toast(`已靠${result.sideLabel}侧最近墙对齐`);
   }
 
   private getOpeningRef(index: number, annex: boolean, exterior: boolean): WallOpening | null {
@@ -1437,6 +1880,18 @@ export class LayoutEditor {
     this.commit();
   }
 
+  updateWallField(field: string, value: string) {
+    if (this.selection?.kind !== "wall") return;
+    const floor = this.selectionFloor();
+    const walls = this.selection.annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
+    const wall = walls[this.selection.index];
+    if (!wall) return;
+    if (field === "role" && (value === "bearing" || value === "partition")) {
+      wall.role = value as WallRole;
+      this.commit();
+    }
+  }
+
   /** 复制当前可复制选中项（家具／房间／隔墙）；门厅、楼梯、外墙洞口不复制。 */
   copySelection() {
     if (!this.selections.length) {
@@ -1445,17 +1900,19 @@ export class LayoutEditor {
     }
     const floor = this.selectionFloor();
     const furniture: Furniture[] = [];
+    const annexFurniture: Furniture[] = [];
     const rooms: Room[] = [];
+    const annexRooms: Room[] = [];
     const walls: Wall[] = [];
     const annexWalls: Wall[] = [];
     let skipped = false;
     for (const s of this.selections) {
       if (s.kind === "furniture" && s.floor === floor) {
-        const item = this.floorData(floor).furniture[s.index];
-        if (item) furniture.push(structuredClone(item));
+        const item = this.furnitureList(floor, !!s.annex)[s.index];
+        if (item) (s.annex ? annexFurniture : furniture).push(structuredClone(item));
       } else if (s.kind === "room" && s.floor === floor) {
-        const room = this.floorData(floor).rooms.find((r) => r.id === s.id);
-        if (room) rooms.push(structuredClone(room));
+        const found = this.findRoomRef(s.id, floor, !!s.annex);
+        if (found) (found.annex ? annexRooms : rooms).push(structuredClone(found.room));
       } else if (s.kind === "wall" && s.floor === floor) {
         const list = s.annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
         const wall = list[s.index];
@@ -1464,13 +1921,26 @@ export class LayoutEditor {
         skipped = true;
       }
     }
-    if (!furniture.length && !rooms.length && !walls.length && !annexWalls.length) {
+    if (
+      !furniture.length &&
+      !annexFurniture.length &&
+      !rooms.length &&
+      !annexRooms.length &&
+      !walls.length &&
+      !annexWalls.length
+    ) {
       this.host.toast(skipped ? "门厅、楼梯和外墙洞口不支持复制" : "没有可复制的内容");
       return;
     }
-    this.clipboard = { furniture, rooms, walls, annexWalls };
+    this.clipboard = { furniture, annexFurniture, rooms, annexRooms, walls, annexWalls };
     this.pasteCount = 0;
-    const n = furniture.length + rooms.length + walls.length + annexWalls.length;
+    const n =
+      furniture.length +
+      annexFurniture.length +
+      rooms.length +
+      annexRooms.length +
+      walls.length +
+      annexWalls.length;
     this.host.toast(skipped ? `已复制 ${n} 项（部分类型已跳过）` : `已复制 ${n} 项`);
   }
 
@@ -1480,8 +1950,15 @@ export class LayoutEditor {
       this.host.toast("剪贴板为空，请先复制");
       return;
     }
-    const { furniture, rooms, walls, annexWalls } = this.clipboard;
-    if (!furniture.length && !rooms.length && !walls.length && !annexWalls.length) {
+    const { furniture, annexFurniture, rooms, annexRooms, walls, annexWalls } = this.clipboard;
+    if (
+      !furniture.length &&
+      !annexFurniture.length &&
+      !rooms.length &&
+      !annexRooms.length &&
+      !walls.length &&
+      !annexWalls.length
+    ) {
       this.host.toast("剪贴板为空，请先复制");
       return;
     }
@@ -1491,25 +1968,45 @@ export class LayoutEditor {
     const floor = this.host.getFloor();
     const next: SelectionItem[] = [];
 
-    for (const src of furniture) {
-      const item = structuredClone(src);
-      item.x = snapMeter(item.x + dx);
-      item.z = snapMeter(item.z + dz);
-      this.floorData(floor).furniture.push(item);
-      next.push({ kind: "furniture", index: this.floorData(floor).furniture.length - 1, floor });
-    }
-    for (const src of rooms) {
-      const room = structuredClone(src);
-      room.id = newRoomId("room", this.floorData(floor).rooms);
-      room.x = snapMeter(room.x + dx);
-      room.z = snapMeter(room.z + dz);
-      if (room.label) {
-        room.label = [snapMeter(room.label[0] + dx), snapMeter(room.label[1] + dz)];
+    const pasteFurniture = (srcList: Furniture[], annex: boolean) => {
+      if (annex && floor !== 0) return;
+      const target = this.furnitureList(floor, annex);
+      for (const src of srcList) {
+        const item = structuredClone(src);
+        item.x = snapMeter(item.x + dx);
+        item.z = snapMeter(item.z + dz);
+        target.push(item);
+        next.push({
+          kind: "furniture",
+          index: target.length - 1,
+          floor,
+          annex: annex || undefined,
+        });
       }
-      this.floorData(floor).rooms.push(room);
-      next.push({ kind: "room", id: room.id, floor });
-    }
+    };
+    pasteFurniture(furniture, false);
+    pasteFurniture(annexFurniture, true);
+
+    const pasteRooms = (srcList: Room[], annex: boolean) => {
+      if (annex && floor !== 0) return;
+      const target = this.roomList(floor, annex);
+      for (const src of srcList) {
+        const room = structuredClone(src);
+        room.id = newRoomId("room", target);
+        room.x = snapMeter(room.x + dx);
+        room.z = snapMeter(room.z + dz);
+        if (room.label) {
+          room.label = [snapMeter(room.label[0] + dx), snapMeter(room.label[1] + dz)];
+        }
+        target.push(room);
+        next.push({ kind: "room", id: room.id, floor, annex: annex || undefined });
+      }
+    };
+    pasteRooms(rooms, false);
+    pasteRooms(annexRooms, true);
+
     const pasteWalls = (srcList: Wall[], annex: boolean) => {
+      if (annex && floor !== 0) return;
       const target = annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
       for (const src of srcList) {
         const wall = structuredClone(src);
@@ -1536,17 +2033,19 @@ export class LayoutEditor {
         SelectionItem,
         { kind: "room" }
       >[];
-      const furniture = this.selections
-        .filter((s) => s.kind === "furniture" && s.floor === floor)
-        .map((s) => (s as Extract<SelectionItem, { kind: "furniture" }>).index)
-        .sort((a, b) => b - a);
+      const furniture = (
+        this.selections.filter((s) => s.kind === "furniture" && s.floor === floor) as Extract<
+          SelectionItem,
+          { kind: "furniture" }
+        >[]
+      ).sort((a, b) => b.index - a.index);
       for (const s of rooms) {
-        const list = this.floorData(floor).rooms;
+        const list = this.roomList(floor, !!s.annex);
         const i = list.findIndex((r) => r.id === s.id);
         if (i >= 0) list.splice(i, 1);
       }
-      for (const index of furniture) {
-        this.floorData(floor).furniture.splice(index, 1);
+      for (const s of furniture) {
+        this.furnitureList(floor, !!s.annex).splice(s.index, 1);
       }
       this.selection = null;
       this.commit();
@@ -1555,11 +2054,11 @@ export class LayoutEditor {
     const sel = this.selection;
     if (!sel) return;
     if (sel.kind === "room") {
-      const rooms = this.floorData(floor).rooms;
+      const rooms = this.roomList(floor, !!sel.annex);
       const i = rooms.findIndex((r) => r.id === sel.id);
       if (i >= 0) rooms.splice(i, 1);
     } else if (sel.kind === "furniture") {
-      this.floorData(floor).furniture.splice(sel.index, 1);
+      this.furnitureList(floor, !!sel.annex).splice(sel.index, 1);
     } else if (sel.kind === "wall" || sel.kind === "door") {
       if (sel.kind === "door" && sel.exterior) {
         this.draft.exteriorOpenings.splice(sel.index, 1);
@@ -1609,16 +2108,18 @@ export class LayoutEditor {
     const floor = this.selectionFloor();
 
     if (sel.kind === "room") {
-      const room = this.floorData(floor).rooms.find((r) => r.id === sel.id);
-      if (!room) return "";
-      return `${head("房间")}
-        ${field("名称", `<input type="text" id="edit-room-name" value="${escapeHtml(room.name)}"/>`)}
+      const found = this.findRoomRef(sel.id, floor, !!sel.annex);
+      if (!found) return "";
+      const room = found.room;
+      return `${head(found.annex ? "辅楼房间" : "房间")}
+        ${field("名称", `<input type="text" id="edit-model-name" value="${escapeHtml(room.name)}"/>`)}
         ${num("x", "X 东", room.x)}${num("z", "Z 南", room.z)}${num("w", "宽", room.w)}${num("d", "进深", room.d)}`;
     }
     if (sel.kind === "furniture") {
-      const item = this.floorData(floor).furniture[sel.index];
+      const item = this.furnitureList(floor, !!sel.annex)[sel.index];
       if (!item) return "";
-      const label = furnitureLabels[item.kind as FurnitureKind] ?? item.kind;
+      const kindLabel = furnitureLabels[item.kind as FurnitureKind] ?? item.kind;
+      const displayName = furnitureDisplayName(item);
       const margins = this.getSelectedFurnitureMargins();
       const wallCenter = furnitureUsesWallCenter(item.kind);
       let align = `<p class="layout-align-hint">未落入房间轮廓，无法计算边距</p>`;
@@ -1635,10 +2136,15 @@ export class LayoutEditor {
         item.kind === "bed"
           ? `<p class="layout-align-hint">宽／深为占地外轮廓（米），含两侧床头柜，与房间墙同比例 1:1</p>`
           : `<p class="layout-align-hint">宽／深为占地外轮廓（米），与房间墙同比例 1:1</p>`;
-      return `${head(`家具 · ${escapeHtml(label)}`)}
+      const facingHint = furnitureHasFacing(item.kind)
+        ? `<p class="layout-align-hint">方位：${escapeHtml(furnitureOrientationHint(item.kind))}。${escapeHtml(FURNITURE_LOCAL_FRAME)}。平面尖角＝前方（人坐／站／看的一侧）。</p>`
+        : `<p class="layout-align-hint">方位：${escapeHtml(furnitureOrientationHint(item.kind))}（无固定前后）。</p>`;
+      return `${head(`${sel.annex ? "辅楼家具" : "家具"} · ${escapeHtml(kindLabel)}`)}
+        ${field("名称", `<input type="text" id="edit-model-name" value="${escapeHtml(displayName)}"/>`)}
         ${num("x", "X", item.x)}${num("z", "Z", item.z)}${num("w", "宽", item.w)}${num("d", "深", item.d)}
         ${num("rotationDeg", "旋转°", rotationToDeg(item.rotation ?? 0), 15)}
         ${sizeHint}
+        ${facingHint}
         <div class="layout-rotate-row">
           <button type="button" class="secondary-button" data-furn-rotate="-90">左转 90°</button>
           <button type="button" class="secondary-button" data-furn-rotate="90">右转 90°</button>
@@ -1664,25 +2170,48 @@ export class LayoutEditor {
         ${field(
           "铰链侧",
           `<select data-opening-field="hinge" ${hingeDisabled}>
-          <option value="start" ${o.hinge === "start" ? "selected" : ""}>靠起点（左）</option>
-          <option value="end" ${o.hinge === "end" ? "selected" : ""}>靠终点（右）</option>
+          <option value="start" ${o.hinge === "start" ? "selected" : ""}>靠墙段起点</option>
+          <option value="end" ${o.hinge === "end" ? "selected" : ""}>靠墙段终点</option>
         </select>`,
         )}
         ${field(
-          "开启侧",
+          "扇叶开向",
           `<select data-opening-field="side" ${o.kind === "window" || o.kind === "slidingDoor" ? "disabled" : ""}>
-          <option value="out" ${o.side === "out" ? "selected" : ""}>外开（沿墙左侧）</option>
-          <option value="in" ${o.side === "in" ? "selected" : ""}>内开（沿墙右侧）</option>
+          <option value="out" ${o.side === "out" ? "selected" : ""}>沿墙前进方向左侧</option>
+          <option value="in" ${o.side === "in" ? "selected" : ""}>沿墙前进方向右侧</option>
         </select>`,
         )}
+        <p class="layout-align-hint">竖墙由北向南：左侧＝西、右侧＝东。横墙由西向东：左侧＝南、右侧＝北。日常「内开入房间」看扇叶落在哪一侧房间。</p>
         ${align}`;
     }
     if (sel.kind === "wall") {
       const walls = sel.annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
       const wall = walls[sel.index];
       if (!wall) return "";
-      return `${head("隔墙")}
-        ${num("length", "长度", wallLength(wall))}`;
+      const role = wallRoleOf(wall);
+      const axis = wallAxis(wall);
+      const alignBtns =
+        axis === "h"
+          ? `<button type="button" class="layout-align-link" data-align-wall="left">靠西对齐</button>
+             <button type="button" class="layout-align-link" data-align-wall="right">靠东对齐</button>`
+          : `<button type="button" class="layout-align-link" data-align-wall="up">靠北对齐</button>
+             <button type="button" class="layout-align-link" data-align-wall="down">靠南对齐</button>`;
+      return `${head(role === "bearing" ? "内承重墙 · 示意" : "隔墙 · 示意")}
+        ${field(
+          "角色",
+          `<select data-wall-field="role">
+            <option value="bearing" ${role === "bearing" ? "selected" : ""}>承重（绿系实线）</option>
+            <option value="partition" ${role === "partition" ? "selected" : ""}>隔墙（灰色）</option>
+          </select>`,
+        )}
+        ${num("length", "长度", wallLength(wall))}
+        <p class="layout-align-hint">${
+          axis === "h"
+            ? "横墙：靠西／靠东＝西／东端贴最近竖墙"
+            : "竖墙：靠北／靠南＝北／南端贴最近横墙"
+        }（按方位，不按图面上下；平移、长度不变）。</p>
+        <div class="layout-align-actions">${alignBtns}</div>
+        <p class="layout-align-hint">方案示意，非结构施工认定；外墙另绘，一律按承重。</p>`;
     }
     if (sel.kind === "portico") {
       const p = this.draft.portico;

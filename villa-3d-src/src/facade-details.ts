@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { box, slab, rect, type Mats } from "./primitives";
 import { addTiledRoof, hipRoofSurfaces, hatRoofSurfaces, joinRoofFaces, cutRoofOpenings, type RoofFace } from "./roof-surfaces";
-import type { Point } from "./data";
+import { frontElevation, type Point } from "./data";
 import {
   apronFasciaBottom,
   eaveTrimDesign,
@@ -192,8 +192,9 @@ export function cornerPilaster(
   g.position.set(cornerX, base, cornerZ);
   g.name = "包角柱";
   parent.add(g);
-  const project = 0.15;
-  const leg = 0.5;
+  // 突出量随方案尺寸「包角柱突出墙面」；侧面贴墙段长度仍为造型 0.5 m。
+  const project = frontElevation.cornerProject;
+  const leg = frontElevation.cornerLeg;
   const xOuter = outward * project;
   const xInner = -outward * leg;
   const frontW = leg + project;

@@ -1068,10 +1068,20 @@ input[type="range"] {
   cursor: move;
 }
 .floor-svg.editing .edit-selection {
-  stroke: #a5752b;
-  stroke-width: 0.08;
-  stroke-dasharray: 0.12 0.08;
+  stroke: #c4782a;
+  stroke-width: 0.05;
+  stroke-dasharray: 0.1 0.07;
   pointer-events: none;
+}
+/* 房间选中框：固定线宽；贴边绿墙在绘制时已抠掉，四边视觉粗细一致 */
+.floor-svg.editing .edit-selection-room {
+  stroke: #d4892e;
+  stroke-width: 0.045;
+  stroke-dasharray: none;
+  stroke-linejoin: miter;
+}
+.floor-svg.editing .room-fill-lifted {
+  filter: brightness(0.97);
 }
 .floor-svg.editing .edit-handle {
   fill: #a5752b;
@@ -1271,13 +1281,14 @@ body.plan-editor-focus .plan-toolbar {
 .floor-svg text {
   font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
 }
+/* 房间中心名／尺寸：全版本户型图统一字号（勿按单层或单版本改） */
 .room-name {
-  font-size: 0.29px;
+  font-size: 0.2px;
   font-weight: 500;
   fill: #35513e;
 }
 .room-size {
-  font-size: 0.24px;
+  font-size: 0.16px;
   font-weight: 650;
   fill: #1a4a34;
 }
@@ -1294,21 +1305,39 @@ body.plan-editor-focus .plan-toolbar {
 .room-fill {
   transition: filter 0.15s;
 }
-.room-fill:hover,
-.selected .room-fill {
-  filter: brightness(0.95);
-  stroke: #557756;
-  stroke-width: 0.06;
+.room-fill:hover {
+  filter: brightness(0.96);
 }
+/* 选中框用暖色，与墙体绿区分；线宽略细 */
+.selected .room-fill {
+  filter: brightness(0.97);
+  stroke: #c4782a;
+  stroke-width: 0.035;
+}
+/* 编辑态由 edit-selection 画框，避免与邻房色块／墙线叠出粗细不一 */
+.floor-svg.editing .selected .room-fill {
+  stroke: none;
+}
+/* 外墙／内承重：恢复原绿系；仅室内非承重隔墙用灰色区分 */
 .outside-wall {
   stroke: #51614e;
   stroke-width: 0.23;
   fill: none;
 }
+.bearing-wall {
+  stroke: #51614e;
+  stroke-width: 0.22;
+  fill: none;
+}
 .partition {
-  stroke: #687565;
+  stroke: #9a9a9a;
   stroke-width: 0.12;
   fill: none;
+}
+.wall-role-legend,
+.wall-thick-legend {
+  font-size: 0.22px;
+  fill: #5a6558;
 }
 .door-gap {
   stroke: #fbfaf6;
@@ -1347,6 +1376,30 @@ body.plan-editor-focus .plan-toolbar {
   stroke: #c47b12;
   stroke-width: 0.03; /* 原 0.045，缩小约 1/3 */
   fill: none;
+}
+/* 户型图链式墙距：引出线＋斜短划＋毫米数字（仿参考户型图标法） */
+.floor-svg:not(.courtyard-site-svg) .dim-ext {
+  stroke: #c47b12;
+  stroke-width: 0.018;
+  fill: none;
+  opacity: 0.45;
+}
+.floor-svg:not(.courtyard-site-svg) .dim-tick-slash {
+  stroke: #8a3d00;
+  stroke-width: 0.032;
+  fill: none;
+  stroke-linecap: round;
+}
+.dim-mm {
+  font-size: 0.24px;
+  font-weight: 700;
+  fill: #8a4b00;
+  letter-spacing: 0.01px;
+}
+.dim-unit {
+  font-size: 0.2px;
+  font-weight: 600;
+  fill: #9a6a30;
 }
 /* 院坪总图：虚线引出＋边上圆点指边；粗实线＋箭头＝尺寸本身（线宽均缩小约 1/3） */
 .courtyard-site-svg .dim-ext {
@@ -1468,17 +1521,52 @@ body.plan-editor-focus .plan-toolbar {
   fill: #d8cfc0;
   stroke: #a89880;
 }
+.furniture.sofa-arm {
+  fill: #cfc4b2;
+}
+.furniture.sofa-back {
+  fill: #c4b8a4;
+}
+.furniture.facing-mark {
+  fill: #6b7a6e;
+  stroke: none;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.furniture.door-seam {
+  fill: none;
+  stroke: #8a7d6c;
+  stroke-width: 0.03;
+}
+.furniture.door-knob {
+  fill: none;
+  stroke: #8a7d6c;
+  stroke-width: 0.035;
+}
+.furniture.chair-back,
+.furniture.toilet-tank {
+  fill: #dfe6e6;
+  stroke: #9aa8a8;
+}
 .furniture.toilet,
 .furniture.squatToilet,
-.furniture.basin {
+.furniture.basin,
+.furniture.shower {
   fill: #eef2f2;
   stroke: #9aa8a8;
 }
 .furniture.squat-hole,
-.furniture.basin-bowl {
+.furniture.basin-bowl,
+.furniture.shower-drain {
   fill: #d5e0e0;
   stroke: #8a9898;
   stroke-width: 0.02;
+}
+.furniture.shower-door {
+  fill: none;
+  stroke: #8a9898;
+  stroke-width: 0.035;
+  stroke-dasharray: 0.08 0.06;
 }
 .furniture.mirror-base {
   fill: #c5d0d8;
@@ -2701,7 +2789,7 @@ dialog .secondary-button {
 /* 设计沟通资料与当前模型共页，独立滚动，兼顾图纸横向阅读。 */
 .main-tabs { min-width: 0; overflow-x: auto; }
 .main-tabs button { flex-shrink: 0; white-space: nowrap; }
-.inside-label { font-size: .20px; fill: #697863; }
+.inside-label { font-size: .14px; fill: #697863; }
 .floor-svg > :not([data-room]) { pointer-events: none; }
 .floor-svg.editing > :not([data-room]) { pointer-events: none; }
 .floor-svg.editing [data-room],
@@ -2719,7 +2807,7 @@ dialog .secondary-button {
   pointer-events: all;
 }
 .floor-svg [data-room]:focus { outline: none; }
-.floor-svg [data-room]:focus-visible .room-fill { stroke: #a5752b; stroke-width: .08; }
+.floor-svg [data-room]:focus-visible .room-fill { stroke: #c4782a; stroke-width: .04; }
 .floor-choices small { white-space: normal; line-height: 1.5; }
 .floor-choices label>span { min-width: 0; }
 .use-zone { fill: #bb893b08; stroke: #b98946; stroke-width: .027; stroke-dasharray: .10 .08; }

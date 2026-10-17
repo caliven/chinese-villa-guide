@@ -14,13 +14,15 @@ import {
   type Floor,
   type Room,
   type Wall,
+  wallRoleOf,
   type Furniture,
 } from "./data";
 import { contourAt } from "./contours";
 import { facades, type Facade } from "./facades";
-import { roomReference } from "./design-data";
+import { roomFillBounds, roomReference } from "./design-data";
+import { ensureFurnitureWallClearance } from "./layout-align";
 import type { LayoutDraft, StairDraft, PorticoDraft, VoidDraft, ExteriorOpeningDraft } from "./layout-draft";
-import { bedLayout, furnitureLocalBounds } from "./furniture-catalog";
+import { bedLayout, furnitureHasFacing, furnitureLocalBounds } from "./furniture-catalog";
 import { openingSymbolSvg, openingHandlesSvg, normalizeOpening } from "./openings";
 import {
   type CourtyardDimLayout,
@@ -41,101 +43,312 @@ const colors: Record<Room["kind"], string> = {
   store: "#e5dfd1",
   void: "url(#void)",
 };
-const text = (x: number, y: number, content: string, cls = "room-name") =>
-  `<text x="${x}" y="${y}" class="${cls}" text-anchor="middle">${content}</text>`;
+/**
+ * 户型平面图整体旋转 180°：门头（北）朝下、屋后（南）朝上。
+ * 世界坐标仍为 X 东、Z 南；仅改变 SVG 观看方向。院坪总图不转。
+ */
+export const PLAN_ENTRANCE_DOWN = true;
+
+/** 文字在旋转组内再转 180°，屏幕上保持正读；extraRotate 用于竖排尺寸等。 */
+const text = (x: number, y: number, content: string, cls = "room-name", extraRotate?: number) => {
+  const parts: string[] = [];
+  if (PLAN_ENTRANCE_DOWN) parts.push(`rotate(180 ${x} ${y})`);
+  if (extraRotate != null) parts.push(`rotate(${extraRotate} ${x} ${y})`);
+  const tAttr = parts.length ? ` transform="${parts.join(" ")}"` : "";
+  return `<text x="${x}" y="${y}" class="${cls}" text-anchor="middle"${tAttr}>${content}</text>`;
+};
 const rect = (x: number, z: number, w: number, d: number, attrs = "") =>
   `<rect x="${x}" y="${z}" width="${w}" height="${d}" ${attrs}/>`;
 
-/** 平面白底与视口：北向为门厅与多层面宽标线留空，四周比主体再放大一圈。 */
+/**
+ * 平面白底与视口：四周为链式墙距标线留空（内档墙间＋外档总宽／总进深）。
+ * 编辑拖墙时标线随 PlanSource 重算，故视口略放大以免短边溢出。
+ */
 function planFrame(index: number) {
   if (index === 0) {
     return {
-      viewBox: "-3.6 -8.6 29.0 24.2",
-      board: { x: -3.3, z: -8.3, w: 28.4, h: 23.6 },
+      viewBox: "-5.2 -10.4 32.4 27.2",
+      board: { x: -4.9, z: -10.1, w: 31.8, h: 26.6 },
     };
   }
   return {
-    viewBox: "3.2 -8.0 20.8 23.2",
-    board: { x: 3.5, z: -7.7, w: 20.2, h: 22.6 },
+    viewBox: "1.6 -9.8 24.2 26.0",
+    board: { x: 1.9, z: -9.5, w: 23.6, h: 25.4 },
   };
+}
+
+function planViewCenter(viewBox: string) {
+  const [vx, vz, vw, vh] = viewBox.split(/\s+/).map(Number);
+  return { cx: vx + vw / 2, cy: vz + vh / 2 };
 }
 
 const dimN = (n: number) => Number(n.toFixed(3));
 
-/** 水平面宽／总宽尺寸线（Z 向上为北；labelSide 决定文字在标线北侧或南侧）。 */
-function hDim(x0: number, x1: number, z: number, label: string, labelSide: "north" | "south" = "north") {
-  const mid = dimN((x0 + x1) / 2);
-  const z0 = dimN(z);
-  const ly = dimN(labelSide === "north" ? z - 0.4 : z + 0.48);
-  return `<path d="M${dimN(x0)} ${z0} H${dimN(x1)} M${dimN(x0)} ${dimN(z - 0.28)} V${dimN(z + 0.28)} M${dimN(x1)} ${dimN(z - 0.28)} V${dimN(z + 0.28)}" class="dim-line"/>${text(mid, ly, label, "dim-label")}`;
+/** 户型图链式标注间距（米）：贴边 → 墙间档 → 总长档。 */
+const PLAN_DIM_FACE = 0.5;
+const PLAN_DIM_CHAIN = 0.82;
+/** 短于该长度的墙间不写数字（仍保留分档短划）。 */
+const PLAN_DIM_MIN_LABEL = 0.18;
+
+function mmLabel(meters: number) {
+  return String(Math.round(Math.abs(meters) * 1000));
 }
 
-/** 竖直进深尺寸线；side 决定标注在东或西（旋转方向与原东／西侧标注一致）。 */
-function vDim(z0: number, z1: number, x: number, label: string, side: "east" | "west" = "east") {
-  const mid = dimN((z0 + z1) / 2);
-  const xx = dimN(x);
-  const lx = dimN(side === "east" ? x + 0.32 : x - 0.32);
-  const rot = side === "east" ? 90 : -90;
-  return `<path d="M${xx} ${dimN(z0)} V${dimN(z1)} M${dimN(x - 0.28)} ${dimN(z0)} h.56 M${dimN(x - 0.28)} ${dimN(z1)} h.56" class="dim-line"/><text class="dim-label" x="${lx}" y="${mid}" text-anchor="middle" transform="rotate(${rot} ${lx} ${mid})">${label}</text>`;
+/** 合并邻近轴线，避免墙厚双侧重复。 */
+function mergeAxes(values: number[], eps = 0.07): number[] {
+  const sorted = values
+    .map((v) => Number(v.toFixed(3)))
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+  const out: number[] = [];
+  for (const v of sorted) {
+    if (!out.length || Math.abs(v - out[out.length - 1]) > eps) out.push(v);
+  }
+  return out;
+}
+
+function clipAxes(values: number[], lo: number, hi: number, pad = 0.04): number[] {
+  return mergeAxes(values.filter((v) => v >= lo - pad && v <= hi + pad));
 }
 
 /**
- * 标准户型图四边尺寸：北／南为面宽（一层另加辅楼与总宽），东／西为进深。
- * 北侧标线抬到门厅台阶以北，避免被门厅投影遮挡。
+ * 按「贴哪一边」收集分档轴，避免把内卫／梯下公卫短墙投影到整边。
+ * 例：茶室北侧只出现贴北房间的开间（4500×3），不会出现内卫西墙造成的三个 1500。
+ */
+function collectPlanAxes(
+  index: number,
+  front: number,
+  south: number,
+  source: PlanSource,
+): {
+  northXs: number[];
+  southXs: number[];
+  eastZs: number[];
+  westZs: number[];
+  annexZs: number[];
+} {
+  const main = site.main;
+  const eastFace = main.x + main.w;
+  const westFace = main.x;
+  const rooms = [...source.floor.rooms, ...(index === 0 ? source.annexRooms : [])];
+  const walls = [...source.floor.partitions, ...(index === 0 ? source.annexPartitions : [])];
+  const near = (a: number, b: number, tol = 0.12) => Math.abs(a - b) < tol;
+
+  const northXs: number[] = [westFace, eastFace];
+  const southXs: number[] = [westFace, eastFace];
+  const eastZs: number[] = [front, south];
+  const westZs: number[] = [front, south];
+  const annexZs: number[] = [];
+
+  if (index === 0) {
+    // 一层北／南总宽含西侧间距、辅楼、子孙道
+    for (const xs of [northXs, southXs]) {
+      xs.push(0, site.sideGap, site.annex.x, site.annex.x + site.annex.w, site.main.x, site.width);
+    }
+    annexZs.push(site.annex.z, site.annex.z + site.annex.d);
+  }
+
+  // 贴该立面的房间边 → 该边尺寸链（含公卫／内卫／过道；只进贴边的链，不投到对面）
+  for (const r of rooms) {
+    const inAnnex = r.x < westFace - 0.2;
+    if (near(r.z, front)) {
+      northXs.push(r.x, r.x + r.w);
+    }
+    if (near(r.z + r.d, south) || (inAnnex && near(r.z + r.d, site.annex.z + site.annex.d))) {
+      southXs.push(r.x, r.x + r.w);
+    }
+    if (near(r.x + r.w, eastFace) || (index === 0 && near(r.x + r.w, site.width))) {
+      eastZs.push(r.z, r.z + r.d);
+    }
+    if (near(r.x, westFace) || (index === 0 && near(r.x, 0))) {
+      westZs.push(r.z, r.z + r.d);
+    }
+    if (inAnnex) {
+      annexZs.push(r.z, r.z + r.d);
+    }
+  }
+
+  // 贴边的隔墙：须真正伸到该边；短于约一开间的不投对面（防茶室北侧假 1500）
+  const edgeReach = 0.9;
+  const minFacadeSpan = 3.2;
+  for (const w of walls) {
+    const dx = Math.abs(w.b[0] - w.a[0]);
+    const dz = Math.abs(w.b[1] - w.a[1]);
+    const x0 = Math.min(w.a[0], w.b[0]);
+    const x1 = Math.max(w.a[0], w.b[0]);
+    const z0 = Math.min(w.a[1], w.b[1]);
+    const z1 = Math.max(w.a[1], w.b[1]);
+    const inAnnex = x1 < westFace - 0.2;
+    if (dx < 0.05 && dz >= minFacadeSpan) {
+      const x = (w.a[0] + w.b[0]) / 2;
+      if (z0 <= front + edgeReach) northXs.push(x);
+      if (z1 >= south - edgeReach) southXs.push(x);
+    } else if (dz < 0.05 && dx >= minFacadeSpan) {
+      const z = (w.a[1] + w.b[1]) / 2;
+      if (inAnnex) {
+        annexZs.push(z);
+        continue;
+      }
+      if (x1 >= eastFace - edgeReach) eastZs.push(z);
+      if (x0 <= westFace + edgeReach) westZs.push(z);
+    }
+  }
+
+  const widthLo = index === 0 ? 0 : westFace;
+  const widthHi = index === 0 ? site.width : eastFace;
+  return {
+    northXs: clipAxes(northXs, widthLo, widthHi),
+    southXs: clipAxes(southXs, widthLo, widthHi),
+    eastZs: clipAxes(eastZs, front, south),
+    westZs: clipAxes(westZs, front, south),
+    annexZs: index === 0 ? clipAxes(annexZs, site.annex.z, site.annex.z + site.annex.d) : [],
+  };
+}
+
+/** 参考户型图：尺寸端点用斜短划，不用正交端线。 */
+function dimSlash(x: number, z: number) {
+  // 斜短划约为原先 1/3，避免挡毫米数字
+  const s = 0.04;
+  return `<path d="M${dimN(x - s)} ${dimN(z + s)} L${dimN(x + s)} ${dimN(z - s)}" class="dim-tick-slash"/>`;
+}
+
+/**
+ * 水平链式墙距（毫米数字，仿参考图）。
+ * fromZ＝被量边，引出线连到标注档。
+ */
+function hDimChain(
+  breaks: number[],
+  z: number,
+  opts: { labelSide: "north" | "south"; fromZ: number },
+) {
+  if (breaks.length < 2) return "";
+  const z0 = dimN(z);
+  const from = dimN(opts.fromZ);
+  const ext = breaks
+    .map((x) => `<path d="M${dimN(x)} ${from} V${z0}" class="dim-ext"/>`)
+    .join("");
+  const x0 = dimN(breaks[0]);
+  const x1 = dimN(breaks[breaks.length - 1]);
+  const line = `<path d="M${x0} ${z0} H${x1}" class="dim-line"/>`;
+  const ticks = breaks.map((x) => dimSlash(x, z)).join("");
+  let labels = "";
+  for (let i = 0; i < breaks.length - 1; i++) {
+    const a = breaks[i];
+    const b = breaks[i + 1];
+    const seg = b - a;
+    if (seg < PLAN_DIM_MIN_LABEL) continue;
+    const mid = dimN((a + b) / 2);
+    const ly = dimN(opts.labelSide === "north" ? z - 0.3 : z + 0.36);
+    labels += text(mid, ly, mmLabel(seg), "dim-mm");
+  }
+  return `${ext}${line}${ticks}${labels}`;
+}
+
+/** 竖直链式墙距（毫米）。 */
+function vDimChain(
+  breaks: number[],
+  x: number,
+  opts: { side: "east" | "west"; fromX: number },
+) {
+  if (breaks.length < 2) return "";
+  const xx = dimN(x);
+  const from = dimN(opts.fromX);
+  const ext = breaks
+    .map((z) => `<path d="M${from} ${dimN(z)} H${xx}" class="dim-ext"/>`)
+    .join("");
+  const z0 = dimN(breaks[0]);
+  const z1 = dimN(breaks[breaks.length - 1]);
+  const line = `<path d="M${xx} ${z0} V${z1}" class="dim-line"/>`;
+  const ticks = breaks.map((z) => dimSlash(x, z)).join("");
+  const rot = opts.side === "east" ? 90 : -90;
+  let labels = "";
+  for (let i = 0; i < breaks.length - 1; i++) {
+    const a = breaks[i];
+    const b = breaks[i + 1];
+    const seg = b - a;
+    if (seg < PLAN_DIM_MIN_LABEL) continue;
+    const mid = dimN((a + b) / 2);
+    const lx = dimN(opts.side === "east" ? x + 0.3 : x - 0.3);
+    labels += text(lx, mid, mmLabel(seg), "dim-mm", rot);
+  }
+  return `${ext}${line}${ticks}${labels}`;
+}
+
+/**
+ * 四边链式尺寸：内档＝各墙轴线间距，外档＝总面宽／总进深（毫米，参考新中式户型图标法）。
+ * 数据取自当前 PlanSource，编辑拖墙／改房间后 redraw 即更新。
  */
 function planOuterDimensions(
   index: number,
-  floorHeight: number,
   front: number,
   depth: number,
   northClear: number,
+  source: PlanSource,
 ) {
   const main = site.main;
-  const annex = site.annex;
   const south = front + depth;
-  const gap = 0.55;
-  // 由近到远：靠建筑 → 总宽在最外侧
-  const n0 = northClear - 0.75;
-  const n1 = n0 - gap;
-  const n2 = n1 - gap;
-  const s0 = south + 0.75;
-  const s1 = s0 + gap;
-  const s2 = s1 + gap;
-  const heightNote = text(
-    index === 0 ? site.width + 0.05 : main.x + main.w + 0.05,
-    n0 - 0.08,
-    `层高 ${floorHeight.toFixed(1)} m`,
-    "dim-label",
+  const { northXs, southXs, eastZs, westZs, annexZs } = collectPlanAxes(
+    index,
+    front,
+    south,
+    source,
   );
+  const xLo = Math.min(northXs[0] ?? main.x, southXs[0] ?? main.x);
+  const xHi = Math.max(
+    northXs[northXs.length - 1] ?? main.x + main.w,
+    southXs[southXs.length - 1] ?? main.x + main.w,
+  );
+  const zLo = front;
+  const zHi = south;
 
-  if (index === 0) {
-    const eastGap = site.width - main.x - main.w;
-    return [
-      // 北：辅楼 → 主楼 → 总宽
-      hDim(annex.x, annex.x + annex.w, n0, `辅楼面宽 ${annex.w.toFixed(1)} m`),
-      hDim(main.x, main.x + main.w, n1, `主楼面宽 ${main.w.toFixed(1)} m`),
-      hDim(0, site.width, n2, `东西总宽 ${site.width.toFixed(1)} m`),
-      heightNote,
-      // 南：同样三根面宽（文字在标线以南）
-      hDim(annex.x, annex.x + annex.w, s0, `辅楼面宽 ${annex.w.toFixed(1)} m`, "south"),
-      hDim(main.x, main.x + main.w, s1, `主楼面宽 ${main.w.toFixed(1)} m`, "south"),
-      hDim(0, site.width, s2, `东西总宽 ${site.width.toFixed(1)} m`, "south"),
-      // 西／东：进深；两侧过道净宽贴在建筑前墙外；辅楼相对主楼前墙内退
-      vDim(annex.z, annex.z + annex.d, -0.75, `辅楼进深 ${annex.d.toFixed(1)} m`, "west"),
-      vDim(front, annex.z, -1.9, `内退 ${(annex.z - front).toFixed(1)} m`, "west"),
-      vDim(front, south, site.width + 0.55, `主楼进深 ${depth.toFixed(1)} m`, "east"),
-      hDim(0, site.sideGap, front - 0.42, `西侧 ${site.sideGap.toFixed(1)} m`),
-      hDim(main.x + main.w, site.width, front - 0.42, `东侧 ${eastGap.toFixed(1)} m`),
-    ].join("");
-  }
+  const nInner = northClear - PLAN_DIM_FACE;
+  const nOuter = nInner - PLAN_DIM_CHAIN;
+  const sInner = south + PLAN_DIM_FACE;
+  const sOuter = sInner + PLAN_DIM_CHAIN;
+  const eastFace = index === 0 ? site.width : main.x + main.w;
+  const westFace = index === 0 ? 0 : main.x;
+  const eInner = eastFace + PLAN_DIM_FACE;
+  const eOuter = eInner + PLAN_DIM_CHAIN;
+  const wInner = westFace - PLAN_DIM_FACE;
+  const wOuter = wInner - PLAN_DIM_CHAIN;
 
-  return [
-    hDim(main.x, main.x + main.w, n0, `主楼面宽 ${main.w.toFixed(1)} m`),
-    heightNote,
-    hDim(main.x, main.x + main.w, s0, `主楼面宽 ${main.w.toFixed(1)} m`, "south"),
-    vDim(front, south, main.x - 0.55, `进深 ${depth.toFixed(1)} m`, "west"),
-    vDim(front, south, main.x + main.w + 0.55, `进深 ${depth.toFixed(1)} m`, "east"),
-  ].join("");
+  const unitNote = text(xLo + 0.35, nOuter - 0.55, "单位 mm", "dim-unit");
+
+  const parts = [
+    // 北／南：只按贴该边的开间分档＋总宽
+    hDimChain(northXs, nInner, { labelSide: "north", fromZ: northClear }),
+    hDimChain([xLo, xHi], nOuter, { labelSide: "north", fromZ: nInner }),
+    hDimChain(southXs, sInner, { labelSide: "south", fromZ: south }),
+    hDimChain([xLo, xHi], sOuter, { labelSide: "south", fromZ: sInner }),
+    // 东：只按贴东墙的进深分档＋总进深
+    vDimChain(eastZs, eInner, { side: "east", fromX: eastFace }),
+    vDimChain([zLo, zHi], eOuter, { side: "east", fromX: eInner }),
+    // 西：一层辅楼进深；二／三楼贴西墙进深
+    index === 0 && annexZs.length >= 2
+      ? [
+          vDimChain(annexZs, wInner, { side: "west", fromX: westFace }),
+          vDimChain([annexZs[0], annexZs[annexZs.length - 1]], wOuter, {
+            side: "west",
+            fromX: wInner,
+          }),
+        ].join("")
+      : [
+          vDimChain(westZs, wInner, { side: "west", fromX: westFace }),
+          vDimChain([zLo, zHi], wOuter, { side: "west", fromX: wInner }),
+        ].join(""),
+    unitNote,
+  ];
+  return parts.join("");
+}
+
+/** 南侧最外一档尺寸线 Z，供屋后说明避让。 */
+function planSouthDimOuter(south: number) {
+  return south + PLAN_DIM_FACE + PLAN_DIM_CHAIN;
+}
+
+/** 房间开间×进深（毫米），与外边链式标注同一口径。 */
+function roomSizeMm(r: Room) {
+  return `${Math.round(r.w * 1000)}×${Math.round(r.d * 1000)}`;
 }
 
 /** 墙段中点旁标注厚度（毫米），短墙段跳过。 */
@@ -207,10 +420,14 @@ function partition(
   selectedDoor = false,
   selectedWall = false,
   showWallWidth = false,
+  /** null＝整段；否则只画保留段（选中房间贴边已抠掉）。 */
+  strokeKeep: [number, number][] | null = null,
 ) {
   const angle = (Math.atan2(p.b[1] - p.a[1], p.b[0] - p.a[0]) * 180) / Math.PI,
     len = Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]);
-  const thick = construction.partition;
+  const bearing = wallRoleOf(p) === "bearing";
+  const thick = bearing ? construction.outsideWall : construction.partition;
+  const cls = bearing ? "bearing-wall" : "partition";
   const hit = editable
     ? `<path d="M0 0 H${len}" class="edit-hit" data-edit="wall" data-index="${index}" stroke-width=".35"/>`
     : "";
@@ -232,7 +449,8 @@ function partition(
   const widthMark = showWallWidth
     ? wallThicknessLabel(p.a, p.b, thick)
     : "";
-  return `<g transform="translate(${p.a[0]} ${p.a[1]}) rotate(${angle})" data-wall="${index}">${hit}<path d="M0 0 H${len}" class="partition" stroke-width="${thick}"/>${opening}${wallSel}</g>${widthMark}`;
+  const stroke = wallStrokePaths(strokeKeep, len, cls, thick);
+  return `<g transform="translate(${p.a[0]} ${p.a[1]}) rotate(${angle})" data-wall="${index}" data-wall-role="${bearing ? "bearing" : "partition"}">${hit}${stroke}${opening}${wallSel}</g>${widthMark}`;
 }
 function cornerColumn(x: number, z: number, outward: number, outwardZ = -1) {
   const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg;
@@ -251,6 +469,8 @@ function facade(
   selectedExteriorIndex: number | null,
   exteriorManaged: boolean,
   showWallWidth = false,
+  /** null＝整段；否则只画保留段（选中房间贴边已抠掉）。 */
+  strokeKeep: [number, number][] | null = null,
 ) {
   const angle = (Math.atan2(p.b[1] - p.a[1], p.b[0] - p.a[0]) * 180) / Math.PI,
     len = Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]);
@@ -262,14 +482,21 @@ function facade(
   const published = exteriorManaged
     ? ""
     : p.openings
-        .map(
-          (o) =>
-            `<path d="M${o.at - o.w / 2} 0 h${o.w}" class="door-gap" stroke-width="${thick + 0.02}"/>${
-              o.open
-                ? ""
-                : `<path d="M${o.at - o.w / 2} -.07 h${o.w} M${o.at - o.w / 2} .07 h${o.w}" class="window ${o.door ? "entry-door" : ""}"/>`
-            }`,
-        )
+        .map((o) => {
+          const gap = `<path d="M${o.at - o.w / 2} 0 h${o.w}" class="door-gap" stroke-width="${thick + 0.02}"/>`;
+          if (o.open) return gap;
+          if (o.door) {
+            const wallO = normalizeOpening({
+              offset: o.at - o.w / 2,
+              width: o.w,
+              kind: o.double ? "doubleDoor" : "door",
+              hinge: o.hinge,
+              side: o.side,
+            });
+            return gap + openingSymbolSvg(wallO);
+          }
+          return `${gap}<path d="M${o.at - o.w / 2} -.07 h${o.w} M${o.at - o.w / 2} .07 h${o.w}" class="window"/>`;
+        })
         .join("");
   const extras = draftOpenings
     .map((item, globalIndex) => {
@@ -286,16 +513,32 @@ function facade(
   const widthMark = showWallWidth && len >= 1.2
     ? wallThicknessLabel(p.a, p.b, thick, -1)
     : "";
-  return `<g transform="translate(${p.a[0]} ${p.a[1]}) rotate(${angle})" data-facade="${facadeIndex}">${hit}<path d="M0 0 H${len}" class="outside-wall" stroke-width="${thick}"/>${published}${extras}</g>${widthMark}`;
+  const stroke = wallStrokePaths(strokeKeep, len, "outside-wall", thick);
+  return `<g transform="translate(${p.a[0]} ${p.a[1]}) rotate(${angle})" data-facade="${facadeIndex}">${hit}${stroke}${published}${extras}</g>${widthMark}`;
 }
+/**
+ * 家具平面符号局部约定（与 furniture-catalog 一致）：
+ * +Z＝后方（靠背／床头／贴墙），−Z＝前方（落座／使用），±X＝左右扶手。
+ * 前方尖角示意「人站／坐／看」的一侧。
+ */
+function furnitureFacingMark(f: Furniture, pick: string) {
+  if (!furnitureHasFacing(f.kind)) return "";
+  const tip = -f.d / 2 - 0.06;
+  const base = -f.d / 2 + Math.min(0.12, f.d * 0.12);
+  const half = Math.min(0.1, f.w * 0.12);
+  return `<path d="M0 ${tip} L${-half} ${base} L${half} ${base} Z" class="furniture facing-mark"${pick}/>`;
+}
+
 /** pick：写在真实绘制图形上，空白／外包矩形不能点选。 */
 function furnitureSymbol(f: Furniture, pick = "") {
   const cls = `furniture ${f.kind}`;
   const a = (classes: string, extra = "") => `${extra} class="${classes}"${pick}`.trim();
+  const face = furnitureFacingMark(f, pick);
   if (f.kind === "roundTable") {
     return `<circle cx="0" cy="0" r="${f.w / 2}" ${a(cls)}/><circle r="${Math.min(0.58, f.w * 0.28)}" ${a("furniture")}/>`;
   }
   if (f.kind === "bed") {
+    // 后方＝床头（枕头＋床头柜）；前方＝床尾
     const layout = bedLayout(f);
     const mattress = rect(
       -layout.mattressW / 2,
@@ -320,35 +563,55 @@ function furnitureSymbol(f: Furniture, pick = "") {
           })
           .join("")
       : "";
-    return `${mattress}${pillow}${night}`;
+    return `${mattress}${pillow}${night}${face}`;
   }
   if (f.kind === "tv") {
-    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".04"'))}${rect(-f.w / 2 + 0.06, -f.d / 2 + 0.04, f.w - 0.12, f.d * 0.35, a("furniture tv-screen"))}`;
+    // 前方＝屏幕（−Z）；后方＝机背贴墙
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".04"'))}${rect(-f.w / 2 + 0.06, -f.d / 2 + 0.04, f.w - 0.12, f.d * 0.35, a("furniture tv-screen"))}${face}`;
   }
   if (f.kind === "sofa") {
-    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".08"'))}${rect(-f.w / 2, -f.d / 2, 0.14, f.d, a("furniture sofa-arm", 'rx=".04"'))}${rect(-f.w / 2, f.d / 2 - 0.16, f.w, 0.16, a("furniture sofa-back", 'rx=".04"'))}`;
+    // 后方靠背、前方落座、左右双侧扶手
+    const arm = 0.14;
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".08"'))}${rect(-f.w / 2, -f.d / 2, arm, f.d, a("furniture sofa-arm", 'rx=".04"'))}${rect(f.w / 2 - arm, -f.d / 2, arm, f.d, a("furniture sofa-arm", 'rx=".04"'))}${rect(-f.w / 2 + arm, f.d / 2 - 0.16, f.w - 2 * arm, 0.16, a("furniture sofa-back", 'rx=".04"'))}${face}`;
   }
   if (f.kind === "toilet") {
-    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d * 0.55, a(cls, 'rx=".08"'))}${rect(-f.w / 2, -f.d / 2 + f.d * 0.5, f.w, f.d * 0.5, a(cls, 'rx=".04"'))}`;
+    // 前方坐盆，后方水箱
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d * 0.55, a(cls, 'rx=".08"'))}${rect(-f.w / 2, -f.d / 2 + f.d * 0.5, f.w, f.d * 0.5, a("furniture toilet-tank", 'rx=".04"'))}${face}`;
   }
   if (f.kind === "squatToilet") {
-    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".05"'))}<ellipse cx="0" cy="0" rx="${f.w * 0.22}" ry="${f.d * 0.32}" ${a("furniture squat-hole")}/>`;
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".05"'))}<ellipse cx="0" cy="0" rx="${f.w * 0.22}" ry="${f.d * 0.32}" ${a("furniture squat-hole")}/>${face}`;
   }
   if (f.kind === "basin") {
-    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".05"'))}<ellipse cx="0" cy="0" rx="${f.w * 0.32}" ry="${f.d * 0.28}" ${a("furniture basin-bowl")}/>`;
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".05"'))}<ellipse cx="0" cy="${-f.d * 0.06}" rx="${f.w * 0.32}" ry="${f.d * 0.28}" ${a("furniture basin-bowl")}/>${face}`;
+  }
+  if (f.kind === "shower") {
+    // 托盘＋地漏；前方开门侧用虚线表示玻璃门
+    const door = `<path d="M${-f.w / 2 + 0.06} ${-f.d / 2} H${f.w / 2 - 0.06}" class="furniture shower-door"${pick}/>`;
+    const drain = `<circle cx="0" cy="${f.d * 0.12}" r="${Math.min(f.w, f.d) * 0.08}" class="furniture shower-drain"${pick}/>`;
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".04"'))}${drain}${door}${face}`;
   }
   if (f.kind === "chair") {
-    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d * 0.62, a(cls, 'rx=".05"'))}${rect(-f.w / 2, f.d / 2 - 0.08, f.w, 0.08, a(cls))}`;
+    // 前方坐面，后方靠背条
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d * 0.62, a(cls, 'rx=".05"'))}${rect(-f.w / 2, f.d / 2 - 0.08, f.w, 0.08, a("furniture chair-back"))}${face}`;
   }
   if (f.kind === "dressingTable") {
-    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".05"'))}${rect(-f.w / 2 + 0.08, -f.d / 2, f.w - 0.16, 0.06, a("furniture mirror-base"))}`;
+    // 前方镜面／人坐侧
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".05"'))}${rect(-f.w / 2 + 0.08, -f.d / 2, f.w - 0.16, 0.06, a("furniture mirror-base"))}${face}`;
+  }
+  if (f.kind === "wardrobe" || f.kind === "cabinet") {
+    // 前方柜门中缝
+    const door = `<path d="M0 ${-f.d / 2} V${f.d / 2}" class="furniture door-seam"${pick}/><path d="M${-f.w / 4} ${-f.d / 2 + 0.08} H${-f.w / 4 + 0.06} M${f.w / 4} ${-f.d / 2 + 0.08} H${f.w / 4 - 0.06}" class="furniture door-knob"${pick}/>`;
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".06"'))}${door}${face}`;
   }
   if (f.kind === "shrine") {
-    // 湖南堂屋神龛：贴墙柜体 + 三层龛台示意（靠后墙一侧）。
+    // 后方贴墙柜背（+Z），前方龛台朝人（−Z）
     const shelf = [-0.28, 0, 0.28]
       .map((t) => rect(-f.w / 2 + 0.1, t * f.d * 0.55 - 0.04, f.w - 0.2, 0.08, a("furniture shrine-shelf")))
       .join("");
-    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".04"'))}${shelf}${rect(-f.w / 2 + 0.06, -f.d / 2, f.w - 0.12, 0.06, a("furniture shrine-back"))}`;
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".04"'))}${shelf}${rect(-f.w / 2 + 0.06, f.d / 2 - 0.06, f.w - 0.12, 0.06, a("furniture shrine-back"))}${face}`;
+  }
+  if (f.kind === "counter" || f.kind === "stove" || f.kind === "hob" || f.kind === "sink" || f.kind === "altar") {
+    return `${rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".06"'))}${face}`;
   }
   return rect(-f.w / 2, -f.d / 2, f.w, f.d, a(cls, 'rx=".06"'));
 }
@@ -371,12 +634,95 @@ function furniture(f: Furniture, index: number, editable: boolean, selected = fa
         <circle cx="0" cy="${b.z0 - 0.35}" r=".12" class="edit-rotate-handle" data-edit="furniture-rotate" data-index="${index}"/>
         <path d="M0 ${b.z0} V${b.z0 - 0.35}" class="edit-rotate-stem"/>`
       : "";
-  const caption = f.label ? text(f.x, f.z + 0.06, f.label, "furniture-label") : "";
-  return `<g class="furniture-root" transform="translate(${f.x} ${f.z}) rotate(${(-(f.rotation ?? 0) * 180) / Math.PI})" data-furniture="${index}">${furnitureSymbol(f, pick)}${outline}${handles}</g>${caption}`;
+  // 家具不在图上写名称，避免与房间标注抢视线；名称只在属性卡片里改。
+  return `<g class="furniture-root" transform="translate(${f.x} ${f.z}) rotate(${(-(f.rotation ?? 0) * 180) / Math.PI})" data-furniture="${index}">${furnitureSymbol(f, pick)}${outline}${handles}</g>`;
 }
-function room(r: Room, editable: boolean) {
-  const hit = editable ? ` data-edit="room" data-id="${r.id}"` : "";
-  return `<g tabindex="0" role="button" data-room="${r.id}" aria-label="${r.name}，${r.note ?? "点击查看空间说明"}"${hit}>${rect(r.x + 0.08, r.z + 0.08, r.w - 0.16, r.d - 0.16, `fill="${colors[r.kind]}" class="room-fill"`)}</g>`;
+function room(r: Room, floorIndex: number, editable: boolean, annex = false, partitions?: Wall[]) {
+  const hit = editable
+    ? ` data-edit="room" data-id="${r.id}"${annex ? ' data-annex="1"' : ""}`
+    : "";
+  // 房间 x/z/w/d 是开间外轮廓；色块缩到墙内侧（套内）。开敞边不缩，相邻房间色块相接无白缝。
+  const b = roomFillBounds(r, floorIndex, partitions);
+  return `<g tabindex="0" role="button" data-room="${r.id}" aria-label="${r.name}，${r.note ?? "点击查看空间说明"}"${hit}>${rect(b.x, b.z, b.w, b.d, `fill="${colors[r.kind]}" class="room-fill"`)}</g>`;
+}
+
+/** 墙段参数区间：与选中房间外包络重合的部分（用来藏绿墙线，避免与橙框叠粗）。 */
+function wallHideIntervalsForRoom(w: Pick<Wall, "a" | "b">, r: Room): [number, number][] {
+  const len = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
+  if (len < 1e-6) return [];
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.02;
+  const toT = (x: number, z: number) => {
+    const dx = x - w.a[0];
+    const dz = z - w.a[1];
+    return (dx * (w.b[0] - w.a[0]) + dz * (w.b[1] - w.a[1])) / len;
+  };
+  const occlude = (at: number, lo: number, hi: number, axis: 0 | 1): [number, number] | null => {
+    if (!near(w.a[axis], at) || !near(w.b[axis], at)) return null;
+    const other = (1 - axis) as 0 | 1;
+    const w0 = Math.min(w.a[other], w.b[other]);
+    const w1 = Math.max(w.a[other], w.b[other]);
+    const o0 = Math.max(w0, lo);
+    const o1 = Math.min(w1, hi);
+    if (o1 - o0 <= 0.05) return null;
+    const p0: [number, number] = axis === 0 ? [at, o0] : [o0, at];
+    const p1: [number, number] = axis === 0 ? [at, o1] : [o1, at];
+    const t0 = toT(p0[0], p0[1]);
+    const t1 = toT(p1[0], p1[1]);
+    return [Math.min(t0, t1), Math.max(t0, t1)];
+  };
+  return [
+    occlude(r.x, r.z, r.z + r.d, 0),
+    occlude(r.x + r.w, r.z, r.z + r.d, 0),
+    occlude(r.z, r.x, r.x + r.w, 1),
+    occlude(r.z + r.d, r.x, r.x + r.w, 1),
+  ].filter((x): x is [number, number] => !!x);
+}
+
+function mergeIntervals(intervals: [number, number][]): [number, number][] {
+  if (!intervals.length) return [];
+  const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
+  const out: [number, number][] = [[sorted[0][0], sorted[0][1]]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = out[out.length - 1];
+    if (sorted[i][0] <= last[1] + 0.01) last[1] = Math.max(last[1], sorted[i][1]);
+    else out.push([sorted[i][0], sorted[i][1]]);
+  }
+  return out;
+}
+
+/** 去掉选中房间贴边后，墙线仍应保留的段。 */
+function wallStrokeKeepSegments(
+  w: Pick<Wall, "a" | "b">,
+  rooms: Room[],
+): [number, number][] | null {
+  if (!rooms.length) return null;
+  const len = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
+  const hide = mergeIntervals(
+    rooms.flatMap((r) => wallHideIntervalsForRoom(w, r)).map(([a, b]) => [Math.max(0, a), Math.min(len, b)]),
+  );
+  if (!hide.length) return null;
+  const keep: [number, number][] = [];
+  let cursor = 0;
+  for (const [h0, h1] of hide) {
+    if (h0 > cursor + 0.02) keep.push([cursor, h0]);
+    cursor = Math.max(cursor, h1);
+  }
+  if (len > cursor + 0.02) keep.push([cursor, len]);
+  return keep;
+}
+
+function wallStrokePaths(
+  keep: [number, number][] | null,
+  len: number,
+  className: string,
+  thick: number,
+) {
+  if (keep === null) {
+    return `<path d="M0 0 H${len}" class="${className}" stroke-width="${thick}"/>`;
+  }
+  return keep
+    .map(([t0, t1]) => `<path d="M${t0} 0 H${t1}" class="${className}" stroke-width="${thick}"/>`)
+    .join("");
 }
 export interface DrawGuide {
   ax: number;
@@ -399,7 +745,7 @@ export interface PlanOptions {
   dining?: "full" | "daily";
   editable?: boolean;
   selected?: { kind: string; id?: string; index?: number; annex?: boolean; exterior?: boolean } | null;
-  /** 多选高亮（含主选）。 */
+  /** 多选高亮（含主选）。辅楼家具下标为 1000+index，与隔墙约定一致。 */
   selectedFurniture?: number[];
   selectedRooms?: string[];
   /** 显示墙厚毫米标注（外墙／隔墙）。 */
@@ -460,14 +806,18 @@ function useZone(f: Furniture) {
   return `<g pointer-events="none" transform="translate(${f.x} ${f.z}) rotate(${(-(f.rotation ?? 0) * 180) / Math.PI})">${rect(b.x0 - .6, b.z0 - .6, b.x1 - b.x0 + 1.2, b.z1 - b.z0 + 1.2, 'class="use-zone"')}<title>家具四周0.60m讨论留位；使用方向、门扇及实际净宽待设计</title></g>`;
 }
 
+/** 平面门厅柱：柱心在外伸北沿左右两角（与 frontElevation / syncFrontElevation 一致）。 */
 function porticoPosts(porch: PorticoDraft) {
+  const w = frontElevation.porticoColumnDepth;
   return [
-    { x: porch.x + 0.38, w: 0.8 },
-    { x: porch.x + porch.w - 0.38, w: 0.8 },
+    { x: porch.x, w },
+    { x: porch.x + porch.w, w },
   ];
 }
 
 export function floorPlan(index: number, clearance: boolean, balcony: boolean, options: PlanOptions = {}, source?: PlanSource) {
+  // 未托管草稿时，把源码家具钳到墙内皮外侧，避免压墙线。
+  if (!source) ensureFurnitureWallClearance();
   const src = source ?? planSourceFromPublished(index);
   const f = src.floor;
   const editable = !!options.editable;
@@ -483,11 +833,27 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean, o
   const sideFront = elevation.terraceFront;
   const terraceRails = `<path d="M${westPost.x} ${wallFace} V${sideFront} H${middleWest.x} M${eastPost.x} ${wallFace} V${sideFront} H${middleEast.x} M${middleWest.x} ${elevation.postZ} V${middleWest.z} H${middleEast.x} V${elevation.postZ}" class="balustrade"/>`;
   const s = `<defs><pattern id="void" patternUnits="userSpaceOnUse" width=".28" height=".28" patternTransform="rotate(45)"><rect width=".28" height=".28" fill="#f4f3ee"/><path d="M0 0 V.28" stroke="#d8d6cc" stroke-width=".045"/></pattern></defs>`;
+  const mainPartitions = f.partitions;
+  const annexParts = src.annexPartitions;
+  const partitionsFor = (r: Room) => (src.annexRooms.some((a) => a.id === r.id) ? annexParts : mainPartitions);
+  const bodyDepth = index === 2 ? site.main.d - site.setback : site.main.d;
+  const bodySouth = f.front + bodyDepth;
   const labels = allRooms
     .map((r) => {
       const [x, z] = r.label ?? [r.x + r.w / 2, r.z + r.d / 2];
-      const ref = roomReference(r, index);
-      return `<g class="room-label" pointer-events="none">${text(x, z - 0.05, r.name)}${text(x, z + 0.37, r.kind === "void" ? "两层通高 · 无楼板" : `${r.w.toFixed(1)} × ${r.d.toFixed(1)} m`, "room-size")}${options.inside && r.kind !== "void" ? text(x, z + .67, `内侧约${ref.w.toFixed(2)}×${ref.d.toFixed(2)}${ref.nested.length ? " · 含套内空间" : ""}`, "inside-label") : ""}</g>`;
+      const ref = roomReference(r, index, partitionsFor(r));
+      const sizeTxt =
+        r.kind === "void" ? "两层通高 · 无楼板" : roomSizeMm(r);
+      const insideTxt =
+        options.inside && r.kind !== "void"
+          ? text(
+              x,
+              z + 0.5,
+              `内侧约${Math.round(ref.w * 1000)}×${Math.round(ref.d * 1000)}${ref.nested.length ? " · 含套内空间" : ""}`,
+              "inside-label",
+            )
+          : "";
+      return `<g class="room-label" pointer-events="none">${text(x, z - 0.04, r.name)}${text(x, z + 0.28, sizeTxt, "room-size")}${insideTxt}</g>`;
     })
     .join("");
   const stair = src.stair;
@@ -497,46 +863,19 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean, o
       ? `<path d="M${sx + i * stair.tread} ${sz} v${flight} M${sx + (8 - i) * stair.tread} ${sz + flight + gap} v${flight}" class="step-line"/>`
       : `<path d="M${sx} ${sz + i * stair.tread} h${flight} M${sx + flight + gap} ${sz + (8 - i) * stair.tread} h${flight}" class="step-line"/>`;
   }).join("");
+  // 户型图不画门厅柱间三步与左右侧坡道（仅立体模型保留）。
   const columnNorth = elevation.porticoColumnZ - elevation.porticoColumnDepth / 2;
-  const landingFront = columnNorth - construction.entranceLandingOffset;
-  const tread = construction.entranceTread;
-  const stepFront = landingFront - tread * 2;
-  const westOuter = middleWest.x - middleWest.w / 2;
-  const westInner = middleWest.x + middleWest.w / 2;
-  const eastInner = middleEast.x - middleEast.w / 2;
-  const eastOuter = middleEast.x + middleEast.w / 2;
-  const rampRun = construction.entranceRampRun;
-  const eastEnd = eastOuter + rampRun;
-  const westEnd = westOuter - rampRun;
-  const stone = `fill="#3a2422" stroke="#241614" stroke-width=".02"`;
-  const grooves = (x0: number, x1: number) => {
-    const dir = Math.sign(x1 - x0);
-    let marks = "";
-    for (let traveled = 0.28; traveled < rampRun - 0.18; traveled += 0.3)
-      marks += `<path d="M${x0 + dir * traveled} ${columnNorth - 0.08} V${site.main.z + 0.08}" stroke="#5a4038" stroke-width=".016"/>`;
-    return marks;
-  };
-  const approach = index === 0
-    ? `<rect x="${westInner}" y="${stepFront}" width="${eastInner - westInner}" height="${landingFront - stepFront}" fill="#3a2422"/>
-      <rect x="${westOuter}" y="${stepFront}" width="${westInner - westOuter}" height="${landingFront - stepFront}" fill="#3a2422"/>
-      <rect x="${eastInner}" y="${stepFront}" width="${eastOuter - eastInner}" height="${landingFront - stepFront}" fill="#3a2422"/>
-      <path d="M${westInner} ${landingFront - tread} H${eastInner} M${westInner} ${stepFront} H${eastInner}" class="step-line"/>
-      <path d="M${eastOuter} ${columnNorth} H${eastEnd} V${site.main.z} H${eastOuter} Z" ${stone}/>
-      <path d="M${westEnd} ${columnNorth} H${westOuter} V${site.main.z} H${westEnd} Z" ${stone}/>
-      ${grooves(eastOuter, eastEnd)}${grooves(westOuter, westEnd)}
-      ${text((westInner + eastInner) / 2, stepFront - 0.28, "柱间三步", "room-size")}
-      ${text((eastOuter + eastEnd) / 2, columnNorth - 0.32, "朝东", "room-size")}
-      ${text((westOuter + westEnd) / 2, columnNorth - 0.32, "朝西", "room-size")}`
-    : "";
   const roundTable = src.annexFurniture.find((item) => item.kind === "roundTable");
-  const roundCx = roundTable?.x ?? 2.9;
-  const roundCz = roundTable?.z ?? 1.12;
-  // 圆桌椅在半径约 1.28 m 的环上；勿用过大圆域，以免误收小桌旁椅。
+  const roundCx = roundTable?.x ?? site.annex.x + site.annex.w / 2;
+  const roundCz = roundTable?.z ?? site.annex.z - 1.35;
+  const roundChairR = 1.05;
+  // 圆桌椅环半径与摆放一致；勿用过大圆域。
   const isRoundChair = (item: (typeof src.annexFurniture)[number]) =>
-    item.kind === "chair" && Math.abs(Math.hypot(item.x - roundCx, item.z - roundCz) - 1.28) < 0.2;
+    item.kind === "chair" && Math.abs(Math.hypot(item.x - roundCx, item.z - roundCz) - roundChairR) < 0.25;
   const diningFurniture = src.annexFurniture.filter(
     (item) => options.dining !== "daily" || !(item.kind === "roundTable" || isRoundChair(item)),
   );
+  const dineClear = diningClearance();
   // 子孙道竖排标注放在通辅楼门洞以北，避免压到门洞与「通辅楼」字。
   const laneLabelX = (site.annex.x + site.annex.w + site.main.x) / 2;
   const laneLabelZ = src.sideDoorZ - src.sideDoorWidth / 2 - 1.9;
@@ -552,7 +891,9 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean, o
     : "";
   const selected = options.selected;
   const selectedFurniture = new Set(options.selectedFurniture ?? []);
-  if (selected?.kind === "furniture" && selected.index != null) selectedFurniture.add(selected.index);
+  if (selected?.kind === "furniture" && selected.index != null) {
+    selectedFurniture.add(selected.annex ? 1000 + selected.index : selected.index);
+  }
   const selectedRooms = new Set(options.selectedRooms ?? []);
   if (selected?.kind === "room" && selected.id) selectedRooms.add(selected.id);
   const selectedDoorIndex =
@@ -561,21 +902,36 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean, o
     selected?.kind === "wall" ? { index: selected.index, annex: !!selected.annex } : null;
   const selectedExteriorIndex =
     selected?.kind === "door" && selected.exterior ? selected.index ?? null : null;
-  const roomSelections = editable
+  const selectedRoomList = editable
     ? [...selectedRooms]
-        .map((id) => {
-          const r = allRooms.find((room) => room.id === id);
-          if (!r) return "";
-          const primary = selected?.kind === "room" && selected.id === id;
-          const handles = primary
-            ? [["nw", r.x, r.z], ["ne", r.x + r.w, r.z], ["sw", r.x, r.z + r.d], ["se", r.x + r.w, r.z + r.d]]
-                .map(([c, x, z]) => `<rect x="${Number(x) - 0.12}" y="${Number(z) - 0.12}" width=".24" height=".24" class="edit-handle" data-edit="room-handle" data-corner="${c}" data-id="${r.id}"/>`)
-                .join("")
-            : "";
-          return `${rect(r.x, r.z, r.w, r.d, 'class="edit-selection" fill="none"')}${handles}`;
-        })
-        .join("")
-    : "";
+        .map((id) => allRooms.find((room) => room.id === id))
+        .filter((r): r is Room => !!r)
+    : [];
+  const roomSelections = selectedRoomList
+    .map((r) => {
+      const annex = src.annexRooms.some((room) => room.id === r.id);
+      const primary = selected?.kind === "room" && selected.id === r.id;
+      const b = roomFillBounds(r, index, partitionsFor(r));
+      // 抬到最上层：本房色块盖住邻房共边
+      const lift = rect(b.x, b.z, b.w, b.d, `fill="${colors[r.kind]}" class="room-fill room-fill-lifted"`);
+      // 框按房间外包络统一内缩，四边同粗；贴边绿墙已在墙线上抠掉，不再叠粗
+      const pad = 0.05;
+      const fx = r.x + pad;
+      const fz = r.z + pad;
+      const fw = Math.max(0.1, r.w - 2 * pad);
+      const fd = Math.max(0.1, r.d - 2 * pad);
+      const frame = rect(fx, fz, fw, fd, 'class="edit-selection edit-selection-room" fill="none"');
+      const handles = primary
+        ? [["nw", r.x, r.z], ["ne", r.x + r.w, r.z], ["sw", r.x, r.z + r.d], ["se", r.x + r.w, r.z + r.d]]
+            .map(
+              ([c, x, z]) =>
+                `<rect x="${Number(x) - 0.12}" y="${Number(z) - 0.12}" width=".24" height=".24" class="edit-handle" data-edit="room-handle" data-corner="${c}" data-id="${r.id}"${annex ? ' data-annex="1"' : ""}/>`,
+            )
+            .join("")
+        : "";
+      return `<g class="room-selection-top" pointer-events="none">${lift}${frame}</g>${handles}`;
+    })
+    .join("");
   const selection =
     roomSelections ||
     (editable && selected?.kind === "portico"
@@ -589,73 +945,143 @@ export function floorPlan(index: number, clearance: boolean, balcony: boolean, o
 
   const frame = planFrame(index);
   const showWallWidth = !!options.showWallWidth;
-  const bodyDepth = index === 2 ? site.main.d - site.setback : site.main.d;
   const northClear =
-    index === 0
-      ? Math.min(porchFront, stepFront, columnNorth)
-      : index === 2
-        ? Math.min(elevation.centerFront, elevation.terraceFront, porchY)
-        : Math.min(porchFront, columnNorth);
-  const southDimOuter = f.front + bodyDepth + 0.75 + (index === 0 ? 1.1 : 0);
-  const noteZ = southDimOuter + 1.15;
-  const compassZ = southDimOuter + 1.35;
-  const footnoteZ = southDimOuter + 2.15;
-  return `<svg class="floor-svg ${index > 0 ? "main-floor-svg" : ""} ${editable ? "editing" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="${frame.viewBox}" aria-label="${f.name}户型平面图，北向上，东向右${options.dining === "daily" ? "，餐厅日常6座建议情景" : ""}${editable ? "，编辑模式" : ""}">
+    index === 2
+      ? Math.min(elevation.centerFront, elevation.terraceFront, porchY)
+      : Math.min(porchFront, columnNorth);
+  const southEdge = bodySouth;
+  const southDimOuter = planSouthDimOuter(southEdge);
+  const noteZ = southDimOuter + 0.95;
+  const { cx, cy } = planViewCenter(frame.viewBox);
+  const orientLabel = PLAN_ENTRANCE_DOWN ? "南向上，西向右（门头朝下）" : "北向上，东向右";
+  const worldOpen = PLAN_ENTRANCE_DOWN
+    ? `<g class="plan-world" transform="rotate(180 ${dimN(cx)} ${dimN(cy)})">`
+    : `<g class="plan-world">`;
+  return `<svg class="floor-svg ${index > 0 ? "main-floor-svg" : ""} ${editable ? "editing" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="${frame.viewBox}" aria-label="${f.name}户型平面图，${orientLabel}${options.dining === "daily" ? "，餐厅日常6座建议情景" : ""}${editable ? "，编辑模式" : ""}">
     ${s}<rect x="${frame.board.x}" y="${frame.board.z}" width="${frame.board.w}" height="${frame.board.h}" rx=".2" fill="#fbfaf6"/>
-    ${planOuterDimensions(index, f.height, f.front, bodyDepth, northClear)}
+    ${worldOpen}
+    ${planOuterDimensions(index, f.front, bodyDepth, northClear, src)}
     ${index === 2 ? `${elevation.sideTerraces.map(t => rect(t.x, elevation.terraceFront, t.w, elevation.terraceBack - elevation.terraceFront, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width=".06"')).join("")}${text(8.85, -0.2, "西侧露台", "dim-label")}${text(18.4, -0.2, "东侧露台", "dim-label")}` : ""}
     ${porticoHit}${rect(porch.x, porchY, porch.w, porchH, `fill="${index === 1 ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width=".06"`)}
     ${text(porch.x + porch.w / 2, -1.95, index === 2 ? "中央露台 · 前方敞开" : index === 1 ? "门厅上空 · 无楼板" : `门厅 ${porch.w.toFixed(1)}×${porch.projection.toFixed(1)} m · 另计`, "dim-label")}
-    ${approach}
-    ${index < 2 ? `${posts.map(p => rect(p.x - p.w / 2, elevation.porticoColumnZ - elevation.porticoColumnDepth / 2, p.w, elevation.porticoColumnDepth, 'fill="#879183"')).join("")}${cornerColumn(elevation.cornerWestX, f.front - 0.12, -1)}${cornerColumn(elevation.cornerEastX, f.front - 0.12, 1)}` : `${terraceRails}${elevation.balustradePosts.map(p => rect(p.x - p.w / 2, p.z - p.w / 2, p.w, p.w, 'fill="#c3bba9" stroke="#777872" stroke-width=".04"')).join("")}${posts.map(p => rect(p.x - elevation.dividerWidth / 2, elevation.postZ - .25, elevation.dividerWidth, .5, 'fill="#879183"')).join("")}${text(13.7, -0.48, "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱", "room-size")}`}${cornerColumn(site.main.x, site.main.z + site.main.d, -1, 1)}${cornerColumn(site.main.x + site.main.w, site.main.z + site.main.d, 1, 1)}
-    ${index === 0 ? (() => {
-      const yardZ = contourAt(courtyardFront, 3);
-      const pathD = site.annex.z - yardZ;
-      return rect(.18, yardZ, 5.12, pathD, 'fill="none" stroke="#a9b9a1" stroke-width=".04" stroke-dasharray=".14 .12"')
-        + text(3, (yardZ + site.annex.z) / 2, `辅楼前约${pathD.toFixed(1)}m · 内退${(site.annex.z - site.main.z).toFixed(1)}m`, "room-size")
-        + hDim(site.annex.x, site.annex.x + 1.2, site.main.z - 0.35, `内退 ${(site.annex.z - site.main.z).toFixed(1)} m`);
-    })() : ""}
-    ${allRooms.map((r) => room(r, editable)).join("")}
+    ${index < 2 ? `${posts.map(p => rect(p.x - p.w / 2, elevation.porticoColumnZ - elevation.porticoColumnDepth / 2, p.w, elevation.porticoColumnDepth, 'fill="#879183"')).join("")}${cornerColumn(site.main.x + 0.12, f.front + 0.12, -1)}${cornerColumn(site.main.x + site.main.w - 0.12, f.front + 0.12, 1)}` : `${terraceRails}${elevation.balustradePosts.map(p => rect(p.x - p.w / 2, p.z - p.w / 2, p.w, p.w, 'fill="#c3bba9" stroke="#777872" stroke-width=".04"')).join("")}${posts.map(p => rect(p.x - elevation.dividerWidth / 2, elevation.postZ - .25, elevation.dividerWidth, .5, 'fill="#879183"')).join("")}${text(13.7, -0.48, "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱", "room-size")}`}${cornerColumn(site.main.x + 0.12, site.main.z + site.main.d - 0.12, -1, 1)}${cornerColumn(site.main.x + site.main.w - 0.12, site.main.z + site.main.d - 0.12, 1, 1)}
+    ${f.rooms.map((r) => room(r, index, editable, false, mainPartitions)).join("")}
+    ${index === 0 ? src.annexRooms.map((r) => room(r, index, editable, true, annexParts)).join("") : ""}
     ${options.useZones ? allFurniture.map(useZone).join("") : ""}
     ${stairHit}${stepLines}
-    ${f.partitions.map((p, i) => partition(p, i, editable, selectedDoorIndex === i && !selected?.annex, !!selectedWallIndex && !selectedWallIndex.annex && selectedWallIndex.index === i, showWallWidth)).join("")}
-    ${facades(index).map((p, fi) => facade(p, fi, index, editable, src.exteriorOpenings, selectedExteriorIndex, src.exteriorManaged, showWallWidth)).join("")}
+    ${f.partitions
+      .map((p, i) =>
+        partition(
+          p,
+          i,
+          editable,
+          selectedDoorIndex === i && !selected?.annex,
+          !!selectedWallIndex && !selectedWallIndex.annex && selectedWallIndex.index === i,
+          showWallWidth,
+          wallStrokeKeepSegments(p, selectedRoomList),
+        ),
+      )
+      .join("")}
+    ${facades(index)
+      .map((p, fi) =>
+        facade(
+          p,
+          fi,
+          index,
+          editable,
+          src.exteriorOpenings,
+          selectedExteriorIndex,
+          src.exteriorManaged,
+          showWallWidth,
+          wallStrokeKeepSegments(p, selectedRoomList),
+        ),
+      )
+      .join("")}
     ${index === 0
-      ? src.annexPartitions.map((p, i) => partition(p, 1000 + i, editable, selectedDoorIndex === i && !!selected?.annex, !!selectedWallIndex && selectedWallIndex.annex && selectedWallIndex.index === i, showWallWidth)).join("")
-        + facades(3).map((p, fi) => facade(p, fi, 3, editable, src.exteriorOpenings, selectedExteriorIndex, src.exteriorManaged, showWallWidth)).join("")
+      ? src.annexPartitions
+          .map((p, i) =>
+            partition(
+              p,
+              1000 + i,
+              editable,
+              selectedDoorIndex === i && !!selected?.annex,
+              !!selectedWallIndex && selectedWallIndex.annex && selectedWallIndex.index === i,
+              showWallWidth,
+              wallStrokeKeepSegments(p, selectedRoomList),
+            ),
+          )
+          .join("") +
+        facades(3)
+          .map((p, fi) =>
+            facade(
+              p,
+              fi,
+              3,
+              editable,
+              src.exteriorOpenings,
+              selectedExteriorIndex,
+              src.exteriorManaged,
+              showWallWidth,
+              wallStrokeKeepSegments(p, selectedRoomList),
+            ),
+          )
+          .join("")
       : ""}
-    ${showWallWidth ? text(index === 0 ? 3.2 : 8.2, northClear - 3.35, `墙厚标注 · 外墙${Math.round(construction.outsideWall * 1000)}／隔墙${Math.round(construction.partition * 1000)}（毫米 · 示意）`, "wall-thick-legend") : ""}
+    ${text(
+      index === 0 ? 3.2 : 8.2,
+      northClear - 3.35,
+      showWallWidth
+        ? `墙示意 · 外墙／内承重${Math.round(construction.outsideWall * 1000)} · 隔墙（灰）${Math.round(construction.partition * 1000)}（毫米 · 非结构图）`
+        : "墙示意 · 绿系实线＝承重 · 灰色＝室内隔墙（方案非结构图）",
+      "wall-role-legend",
+    )}
     ${index === 1 ? `<path d="M${src.livingVoid.x + src.livingVoid.w} ${src.livingVoid.z + 0.16} V${src.livingVoid.z + src.livingVoid.d} H${src.livingVoid.x + 0.16}" class="balustrade"/>` : ""}
     ${index === 0 ? `<path d="M${site.annex.x + site.annex.w} ${src.sideDoorZ - src.sideDoorWidth / 2} H${site.main.x} M${site.annex.x + site.annex.w} ${src.sideDoorZ + src.sideDoorWidth / 2} H${site.main.x}" class="dim-line"/>${text(laneLabelX, src.sideDoorZ, "通辅楼", "room-size")}` : ""}
-    ${index === 0 && clearance ? `${options.dining !== "daily" ? `<circle cx="${roundCx}" cy="${roundCz}" r="1.85" class="clearance"/>` : text(roundCx, roundCz + 0.48, "日常示意：圆桌收起 · 收纳待定", "room-size")}<rect x="1.09" y="2.89" width="3.72" height="2.42" class="clearance"/>` : ""}
+    ${index === 0 && clearance ? `${options.dining !== "daily" ? `<circle cx="${dineClear.cx}" cy="${dineClear.cz}" r="${dineClear.radius}" class="clearance"/>` : text(roundCx, roundCz + 0.48, "日常示意：圆桌收起 · 收纳待定", "room-size")}` : ""}
     ${balcony && index === 2 ? (() => {
       const bx = site.main.x + site.main.w * (12.65 - 6.8) / 13.5;
       const bw = 2.5 * (site.main.w / 13.5);
       const bz = site.main.z + site.main.d;
       return rect(bx, bz, bw, 1.2, 'class="clearance"') + text(bx + bw / 2, bz + 0.7, "局部浅阳台", "room-size");
     })() : ""}
-    ${selection}
     ${/* 家具画在墙／房间之上，避免点选被房间或隔墙热区抢走 */ ""}
-    ${floorFurniture.map((item, i) => furniture(item, i, editable, selectedFurniture.has(i), selected?.kind === "furniture" && selected.index === i)).join("")}
-    ${index === 0 ? diningFurniture.map((item) => furniture(item, -1, false)).join("") : ""}
-    ${labels}${index === 0 ? `<text x="${laneLabelX}" y="${laneLabelZ}" class="dim-label" text-anchor="middle" transform="rotate(-90 ${laneLabelX} ${laneLabelZ})">子孙道 · ${site.lane.toFixed(1)} m</text>` : ""}
+    ${floorFurniture.map((item, i) => furniture(item, i, editable, selectedFurniture.has(i), selected?.kind === "furniture" && !selected.annex && selected.index === i)).join("")}
+    ${index === 0
+      ? diningFurniture
+          .map((item, i) =>
+            furniture(
+              item,
+              1000 + i,
+              editable,
+              selectedFurniture.has(1000 + i),
+              selected?.kind === "furniture" && !!selected.annex && selected.index === i,
+            ),
+          )
+          .join("")
+      : ""}
+    ${/* 选中房间最后抬到最上层：色块盖住邻房共边，框线整圈等宽 */ ""}
+    ${selection}
+    ${labels}${index === 0 ? text(laneLabelX, laneLabelZ, `子孙道 · ${site.lane.toFixed(1)} m`, "dim-label", -90) : ""}
     ${text(13.55, noteZ, `南侧高田 +2.5 m · 屋后留 ${site.rearGap} m`, "dim-label")}
-    <g transform="translate(${index === 0 ? ".5" : "6.5"} ${compassZ})"><path d="M0 .8 V-.55 m-.15 .25 .15-.25 .15 .25" class="dim-line"/>${text(0, -0.85, "北 N", "dim-label")}<path d="M.45 .8 H2.6 m0-.12 v.24" class="dim-line"/>${text(2.6, 1.4, "东 E", "room-size")}</g>
-    ${text(13.1, footnoteZ, editable ? "编辑 · Shift多选 · 方向键微调 · 0.1m吸附 · 北向上" : "主数字为外轮廓 · 内侧约值未扣装修柱及套内占用 · 北向上", "footnote")}
-    ${index === 0 ? text(site.width / 2, footnoteZ + 0.4, "地库柱：外沿一排、房前墙下一排，柱距4.2m，见地库视图", "footnote") : ""}
     ${options.drawGuide ? renderDrawGuide(options.drawGuide) : ""}
     ${options.alignGuide ? renderAlignGuide(options.alignGuide) : ""}
+    </g>
   </svg>`;
 }
 
 export function diningClearance() {
-  const wallX = site.annex.x + 0.24,
-    wallZ = site.annex.z + 0.24;
-  const radius = 1.85;
+  // 圆桌在辅楼餐厅居中；半径按桌＋椅占地示意。
+  const round = annexFurniture.find((f) => f.kind === "roundTable");
+  const cx = round?.x ?? site.annex.x + site.annex.w / 2;
+  const cz = round?.z ?? site.annex.z + 2.4;
+  const radius = (round?.w ?? 1.6) / 2 + 0.55;
   return {
-    west: 2.9 - radius - wallX,
-    north: 1.12 - radius - wallZ,
-    east: site.annex.x + site.annex.w - 0.24 - 2.9 - radius,
+    west: cx - radius - site.annex.x,
+    north: cz - radius - site.annex.z,
+    east: site.annex.x + site.annex.w - (cx + radius),
+    cx,
+    cz,
+    radius,
   };
 }
 

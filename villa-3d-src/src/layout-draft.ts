@@ -81,10 +81,14 @@ export function facadeOpeningToWallOpening(o: FacadeOpening): WallOpening {
   let kind: OpeningKind = "window";
   if (o.door) {
     if (o.pattern === "sliding" || o.glazed) kind = "slidingDoor";
+    else if (o.double) kind = "doubleDoor";
     else if (o.open) kind = "door";
-    else kind = "doubleDoor";
+    else kind = o.hinge || o.side ? "door" : "doubleDoor";
   }
-  return createOpening(kind, o.at - o.w / 2, o.w);
+  const opening = createOpening(kind, o.at - o.w / 2, o.w);
+  if (o.hinge === "start" || o.hinge === "end") opening.hinge = o.hinge;
+  if (o.side === "in" || o.side === "out") opening.side = o.side;
+  return opening;
 }
 
 /** 从当前方案立面收集全部外墙门窗，供编辑器接管。 */
@@ -175,7 +179,8 @@ function parseOpening(value: unknown, label: string): WallOpening {
   if (!OPENING_KINDS.includes(kind)) throw new Error(`${label} 类型无效`);
   return normalizeOpening({
     offset: num(value.offset, `${label} 偏移`, 0, 40),
-    width: num(value.width, `${label} 宽`, 0.4, 6),
+    // 与编辑器最小门宽 0.3 m 一致，避免历史回放时解析失败导致撤销／重做中断。
+    width: num(value.width, `${label} 宽`, 0.3, 6),
     kind,
     hinge: value.hinge === "end" ? "end" : "start",
     side: value.side === "in" ? "in" : "out",
@@ -186,6 +191,7 @@ function parseWall(value: unknown, i: number): Wall {
   if (!isRecord(value)) throw new Error(`隔墙 ${i} 格式不对`);
   const wall: Wall = { a: point(value.a, `隔墙 ${i} a`), b: point(value.b, `隔墙 ${i} b`) };
   if (value.door !== undefined) wall.door = parseOpening(value.door, `隔墙 ${i} 门窗`);
+  if (value.role === "bearing" || value.role === "partition") wall.role = value.role;
   // 旧草稿里可能带 roomId（曾自动造墙），忽略即可。
   return wall;
 }

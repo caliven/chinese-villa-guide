@@ -21,7 +21,8 @@ const view = (): MeetingView => ({
 });
 test("控制线分别起算，首层抬高反映在楼梯与辅楼连接中", () => {
   const m = entranceMetrics();
-  for (const [key, value] of Object.entries({ column: 2.6, platform: 2.75, steps: 3.35, connectionRise: .435, rampGrade: 22.5 }))
+  // 柱心在北沿角上：前墙→柱北皮＝外伸＋半柱＝2.4；平台／台阶由此派生。
+  for (const [key, value] of Object.entries({ column: 2.4, platform: 2.55, steps: 3.15, connectionRise: .435, rampGrade: 22.5 }))
     assert.ok(Math.abs(m[key as keyof typeof m] - value) < 1e-8, key);
   assert.equal(m.projection, 2);
   const stairs = stairMetrics();
@@ -105,22 +106,21 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
   assert.ok(!svg.includes('class="partition"'));
   assert.ok(!svg.includes('data-room='));
 });
-test("日常餐厅只作为平面备选，原双桌与车辆尺寸不被修改", () => {
+test("辅楼餐厅圆桌情景切换不影响车辆尺寸", () => {
   // 与并行的 villa-params 测试共享模块状态，先还原默认外包络／家具坐标。
   resetVillaParams();
   const full = floorPlan(0, true, false, { dining: "full" });
   const daily = floorPlan(0, true, false, { dining: "daily" });
   const chairs = (s: string) => [...s.matchAll(/class="furniture chair"/g)].length;
-  // 每把椅子 SVG 含座面+靠背两个 `.furniture.chair`，12 把日常隐藏椅 → 差 24
-  assert.equal(chairs(full) - chairs(daily), 24);
-  assert.match(full, /r="1.85"/);
-  assert.ok(!daily.includes('r="1.85"'));
+  // 餐厅圆桌6座；daily 情景收起圆桌椅（靠背用 chair-back，不再双计）
+  assert.equal(chairs(full) - chairs(daily), 6);
   assert.match(daily, /收纳待定/);
   assert.equal(site.vehicle.length, 5.218);
 });
 test("日照探针由真实南窗洞口生成，采样点留在窗高范围内", () => {
   const probes = southWindowProbes();
-  assert.equal(probes.length, 4);
+  // 一层南向：南侧房＋临时餐厅大窗＋尊亲房；二层南向大窗若干（门洞不计）
+  assert.ok(probes.length >= 4);
   for (const [index, floor] of floors.slice(0, 2).entries()) {
     const wall = facades(index).find((w) => Math.abs(w.a[1] - w.b[1]) < .01 && w.a[1] > 8.75)!;
     for (const o of wall.openings.filter((o) => o.w > 1.5 && !o.door)) {

@@ -1,4 +1,12 @@
-import { floors, site, frontElevation, circulation, type Point } from "./data";
+import { floors, site, frontElevation, circulation, stairLayout, annexRooms, type Point } from "./data";
+import {
+  DOOR_OPENING,
+  FLOOR1_WINDOW,
+  FRONT_OPENING,
+  doorCenterAgainstHinge,
+  type DoorHinge,
+  type DoorSide,
+} from "./openings";
 import { fasciaBottomY, openingBelowFasciaClearance } from "./roof-options";
 
 export interface Opening {
@@ -7,9 +15,14 @@ export interface Opening {
   sill: number;
   h: number;
   door?: boolean;
+  /** 双扇平开（堂屋大门等）；默认单开 */
+  double?: boolean;
   glazed?: boolean;
   open?: boolean;
   pattern?: "villa" | "panorama" | "lattice" | "sliding";
+  /** 平面门扇铰链／开向；仅 door 洞口使用 */
+  hinge?: DoorHinge;
+  side?: DoorSide;
   // 挑空客厅和正中大门：下层接到本层墙顶，上层从墙底接上，中间不砌墙。
   span?: "lower" | "upper";
 }
@@ -45,13 +58,13 @@ export function secondFloorSideGlassHeadY() {
   return floors[1].y + floors[1].height - 0.8;
 }
 
-/** 烤火房一二层之间的回纹横披（相对一层顶）。 */
+/** 茶室开间一二层之间的回纹横披（相对一层顶；宽随正立面茶室窗）。 */
 export function eastTransomBand() {
   const f1 = floors[0].height;
   return {
     bottom: f1 - 0.32,
     top: f1 + 0.32,
-    width: 2.5 * (site.main.w / MAIN_W0),
+    width: FRONT_OPENING.tea.w * (site.main.w / MAIN_W0),
   };
 }
 
@@ -86,6 +99,29 @@ function scaleAnnexAlong(at0: number, along0: number) {
   return at0 * (site.annex.d / along0);
 }
 
+/** 市面常用窗宽（米）；按墙段净长选档并居中。 */
+const WINDOW_WIDTHS = [1.2, 1.5, 1.8, 2.1, 2.4] as const;
+
+/**
+ * 在墙段长度 spanLen 内选主流窗宽并居中。
+ * @returns at＝洞口中心距墙段起点（与 facades Opening.at 约定一致）；w＝洞宽
+ */
+export function centeredWindowOnSpan(
+  spanLen: number,
+  preferred = 1.8,
+  opts?: { maxRatio?: number; edgeClear?: number },
+): { at: number; w: number } {
+  const maxRatio = opts?.maxRatio ?? 0.55;
+  const edgeClear = opts?.edgeClear ?? 0.35;
+  const maxW = Math.max(0.9, Math.min(spanLen * maxRatio, spanLen - 2 * edgeClear));
+  const fit = WINDOW_WIDTHS.filter((w) => w <= maxW + 1e-6);
+  const w =
+    fit.length === 0
+      ? Math.min(1.2, maxW)
+      : fit.reduce((best, c) => (Math.abs(c - preferred) < Math.abs(best - preferred) ? c : best), fit[0]);
+  return { at: spanLen / 2, w };
+}
+
 /** 正面洞口中心世界 X（at0 为默认 13.5 m 墙长上的中心距西端）。 */
 export function mainFrontOpeningX(at0: number) {
   return site.main.x + scaleMainAt(at0);
@@ -103,44 +139,72 @@ export function facades(index: number): Facade[] {
     const side1 = back - 0.12;
     const west = ax + 0.12;
     const east = ax + aw - 0.12;
-    const d0 = 8; // 默认辅楼进深（DEFAULT annexDepth），侧墙洞口沿进深比例
+    const sideLen = side1 - side0;
+    // 南／北窗居中；西墙按餐厅／厨房分段各居中一樘；东墙仅餐厅通楼门（无厨东门／无厨东窗）
+    const northWin = centeredWindowOnSpan(aw, FLOOR1_WINDOW.diningNorth.w);
+    const southWin = centeredWindowOnSpan(aw, FLOOR1_WINDOW.cookSouth.w, { maxRatio: 0.6 });
+    const dining = annexRooms.find((r) => r.id === "dining")!;
+    const cook = annexRooms.find((r) => r.id === "cook")!;
+    const seg = (z0: number, z1: number) => {
+      const a = Math.max(0, z0 - side0);
+      const b = Math.min(sideLen, z1 - side0);
+      return { a, len: Math.max(0.8, b - a) };
+    };
+    const diningSeg = seg(dining.z, dining.z + dining.d);
+    const cookSeg = seg(cook.z, cook.z + cook.d);
+    const diningWestWin = centeredWindowOnSpan(diningSeg.len, FLOOR1_WINDOW.diningWest.w);
+    const cookWestWin = centeredWindowOnSpan(cookSeg.len, FLOOR1_WINDOW.cookWest.w);
+    const doorW = circulation.sideDoorWidth;
+    // 与主楼西墙通辅楼门同轴。口语约定：站在门外面对门说往左／往右。
+    // 东墙 a→b＝北→南；side=out 扇叶进餐厅（西）；hinge=start 铰链在北
+    // → 面对门推入时门扇往右手边（北）。
+    const doorCenter = Math.max(
+      doorW / 2,
+      Math.min(sideLen - doorW / 2, circulation.sideDoorZ - side0),
+    );
+    const eastOpenings: Opening[] = [
+      {
+        at: doorCenter,
+        w: doorW,
+        sill: site.entranceRise,
+        h: Math.max(1.8, site.annex.height - 0.2 - site.entranceRise),
+        door: true,
+        hinge: "start",
+        side: "out",
+      },
+    ];
     return [
-      wall(
-        [ax, front],
-        [ax + aw, front],
-        [{ at: scaleAnnexAt(2.25), w: scaleAnnexAt(2.7), sill: 0.65, h: 2.35 }],
-      ),
-      wall(
-        [west, side0],
-        [west, side1],
-        [
-          { at: scaleAnnexAlong(2.1, d0), w: scaleAnnexAlong(1.6, d0), sill: 0.7, h: 2.2 },
-          { at: scaleAnnexAlong(6.5, d0), w: scaleAnnexAlong(1, d0), sill: 1.3, h: 1.5 },
-        ],
-      ),
-      wall(
-        [east, side0],
-        [east, side1],
-        [
-          {
-            at: circulation.sideDoorZ - side0,
-            w: circulation.sideDoorWidth,
-            sill: site.entranceRise,
-            h: Math.max(1.8, site.annex.height - 0.2 - site.entranceRise),
-            door: true,
-            open: true,
-          },
-          { at: scaleAnnexAlong(5.8, d0), w: scaleAnnexAlong(1.2, d0), sill: 1.2, h: 1.5 },
-        ],
-      ),
-      wall(
-        [ax, back],
-        [ax + aw, back],
-        [
-          { at: scaleAnnexAt(1.1), w: scaleAnnexAt(0.9), sill: 1.3, h: 1.5 },
-          { at: scaleAnnexAt(3.3), w: scaleAnnexAt(1.1), sill: 1.1, h: 1.65 },
-        ],
-      ),
+      wall([ax, front], [ax + aw, front], [
+        {
+          at: northWin.at,
+          w: northWin.w,
+          sill: FLOOR1_WINDOW.diningNorth.sill,
+          h: FLOOR1_WINDOW.diningNorth.h,
+        },
+      ]),
+      wall([west, side0], [west, side1], [
+        {
+          at: diningSeg.a + diningWestWin.at,
+          w: diningWestWin.w,
+          sill: FLOOR1_WINDOW.diningWest.sill,
+          h: FLOOR1_WINDOW.diningWest.h,
+        },
+        {
+          at: cookSeg.a + cookWestWin.at,
+          w: cookWestWin.w,
+          sill: FLOOR1_WINDOW.cookWest.sill,
+          h: FLOOR1_WINDOW.cookWest.h,
+        },
+      ]),
+      wall([east, side0], [east, side1], eastOpenings),
+      wall([ax, back], [ax + aw, back], [
+        {
+          at: southWin.at,
+          w: southWin.w,
+          sill: FLOOR1_WINDOW.cookSouth.sill,
+          h: FLOOR1_WINDOW.cookSouth.h,
+        },
+      ]),
     ];
   }
 
@@ -156,7 +220,15 @@ export function facades(index: number): Facade[] {
   const transom = eastTransomBand();
   const upperHead = glassHead - h0;
   const sideHead = sideGlassHead - h0;
-  const eastSill = site.entranceRise + 0.34;
+  // 正立面三开间：西挑空通高、中堂屋大门、东茶室高窗（均偏大气）
+  const livingAt = scaleMainAt(FRONT_OPENING.livingVoid.at);
+  const livingW = scaleMainW(FRONT_OPENING.livingVoid.w);
+  const hallAt = scaleMainAt(FRONT_OPENING.hall.at);
+  const hallW = scaleMainW(FRONT_OPENING.hall.w);
+  const teaAt = scaleMainAt(FRONT_OPENING.tea.at);
+  const teaW = transom.width;
+  const teaSill = FRONT_OPENING.tea.sill;
+  const teaLowerH = FRONT_OPENING.tea.h;
   const out: Facade[] =
     index < 2
       ? [
@@ -166,34 +238,36 @@ export function facades(index: number): Facade[] {
             index === 0
               ? [
                   {
-                    at: scaleMainAt(2.35),
-                    w: scaleMainW(3.15),
+                    at: livingAt,
+                    w: livingW,
                     sill: site.entranceRise,
                     h: h0 - site.entranceRise,
                     span: "lower",
                   },
                   {
-                    at: scaleMainAt(6.9),
-                    w: scaleMainW(2.3),
+                    at: hallAt,
+                    w: hallW,
                     sill: site.entranceRise,
                     h: h0 - site.entranceRise,
                     door: true,
+                    double: true,
+                    side: "out",
                     span: "lower",
                   },
                   {
-                    at: scaleMainAt(11.15),
-                    w: transom.width,
-                    sill: eastSill,
-                    h: transom.bottom - eastSill,
+                    at: teaAt,
+                    w: teaW,
+                    sill: teaSill,
+                    h: teaLowerH,
                     pattern: "villa",
                   },
                 ]
               : [
-                  { at: scaleMainAt(2.35), w: scaleMainW(3.15), sill: 0, h: sideHead, span: "upper" },
-                  { at: scaleMainAt(6.9), w: scaleMainW(2.3), sill: 0, h: upperHead, span: "upper" },
+                  { at: livingAt, w: livingW, sill: 0, h: sideHead, span: "upper" },
+                  { at: hallAt, w: hallW, sill: 0, h: upperHead, span: "upper" },
                   {
-                    at: scaleMainAt(11.15),
-                    w: transom.width,
+                    at: teaAt,
+                    w: teaW,
                     sill: transom.top - h0,
                     h: sideGlassHead - transom.top + 0.04,
                     pattern: "villa",
@@ -209,15 +283,39 @@ export function facades(index: number): Facade[] {
               [me, front + 0.12],
               [
                 clampOpeningHead(
-                  { at: scaleMainAt(2.35), w: scaleMainW(3.2), sill: 0, h: 2.7, door: true, glazed: true, pattern: "sliding" },
+                  {
+                    at: livingAt,
+                    w: livingW,
+                    sill: 0,
+                    h: 2.7,
+                    door: true,
+                    glazed: true,
+                    pattern: "sliding",
+                  },
                   maxH,
                 ),
                 clampOpeningHead(
-                  { at: scaleMainAt(6.9), w: scaleMainW(3.1), sill: 0, h: 2.55, door: true, glazed: true, pattern: "sliding" },
+                  {
+                    at: hallAt,
+                    w: hallW,
+                    sill: 0,
+                    h: 2.55,
+                    door: true,
+                    glazed: true,
+                    pattern: "sliding",
+                  },
                   maxH,
                 ),
                 clampOpeningHead(
-                  { at: scaleMainAt(11.15), w: scaleMainW(2.75), sill: 0, h: 2.7, door: true, glazed: true, pattern: "sliding" },
+                  {
+                    at: teaAt,
+                    w: teaW,
+                    sill: 0,
+                    h: 2.7,
+                    door: true,
+                    glazed: true,
+                    pattern: "sliding",
+                  },
                   maxH,
                 ),
               ],
@@ -230,30 +328,100 @@ export function facades(index: number): Facade[] {
       out.push(wall([x, frontElevation.postZ + 0.12], [x, front + 0.12]));
 
   const thirdMax = index === 2 ? thirdFloorMaxOpeningHead() : Infinity;
-  const southScale = mw / MAIN_W0;
+  const bay = mw / 3; // 三开间等分示意（4.5 / 13.5）
   const south =
     index === 0
-      ? [
-          { at: 2.25 * southScale, w: 2.1 * southScale, sill: 0.55, h: 2.5 },
-          { at: 7.15 * southScale, w: 0.8 * southScale, sill: 1.45, h: 1.15 },
-          { at: 11.7 * southScale, w: 2.3 * southScale, sill: 0.55, h: 2.55 },
-        ]
-      : index === 1
-        ? [
-            { at: 2.25 * southScale, w: 2.1 * southScale, sill: 0.45, h: 2.6 },
-            { at: 7.15 * southScale, w: 0.8 * southScale, sill: 1.45, h: 1.15 },
-            { at: 11.5 * southScale, w: 2.2 * southScale, sill: 0.55, h: 2.45 },
-          ]
-        : [
-            clampOpeningHead({ at: 2.15 * southScale, w: 1.8 * southScale, sill: 0.55, h: 2.15 }, thirdMax),
-            clampOpeningHead({ at: 7.05 * southScale, w: 0.9 * southScale, sill: 1.35, h: 1.2 }, thirdMax),
-            clampOpeningHead({ at: 10.15 * southScale, w: 1.5 * southScale, sill: 0.7, h: 1.9 }, thirdMax),
-            clampOpeningHead({ at: 12.35 * southScale, w: 1.1 * southScale, sill: 1.2, h: 1.3 }, thirdMax),
+      ? (() => {
+          // 横墙向东：in＝扇叶向北（内开入室），out＝向南。屋后看铰链左＝西＝start
+          const spareWin = centeredWindowOnSpan(bay, FLOOR1_WINDOW.spare.w);
+          const elderWin = centeredWindowOnSpan(bay, FLOOR1_WINDOW.elder.w);
+          const dineDoorW = DOOR_OPENING.room;
+          const dineDoorCenter = doorCenterAgainstHinge(bay, bay, dineDoorW, "start");
+          const dineWinSeg0 = dineDoorCenter + dineDoorW / 2 + 0.2;
+          const dineWinSegLen = Math.max(1.2, bay * 2 - dineWinSeg0);
+          const dineWin = centeredWindowOnSpan(dineWinSegLen, FLOOR1_WINDOW.corridor.w, {
+            maxRatio: 0.7,
+            edgeClear: 0.2,
+          });
+          return [
+            {
+              at: spareWin.at,
+              w: spareWin.w,
+              sill: FLOOR1_WINDOW.spare.sill,
+              h: FLOOR1_WINDOW.spare.h,
+            },
+            {
+              at: dineDoorCenter,
+              w: dineDoorW,
+              sill: 0,
+              h: 2.4,
+              door: true,
+              hinge: "start",
+              side: "in",
+            },
+            {
+              at: dineWinSeg0 + dineWin.at,
+              w: dineWin.w,
+              sill: FLOOR1_WINDOW.corridor.sill,
+              h: FLOOR1_WINDOW.corridor.h,
+            },
+            {
+              at: bay * 2 + elderWin.at,
+              w: elderWin.w,
+              sill: FLOOR1_WINDOW.elder.sill,
+              h: FLOOR1_WINDOW.elder.h,
+            },
           ];
+        })()
+      : index === 1
+        ? (() => {
+            // 与一层同开间模数：西主卧／东卧室＝1.8；中开间衣帽间＋公卫用高窗
+            const masterWin = centeredWindowOnSpan(bay, FLOOR1_WINDOW.spare.w);
+            const closetWin = centeredWindowOnSpan(bay / 2, 1.2);
+            const bathWin = centeredWindowOnSpan(bay / 2, FLOOR1_WINDOW.stair.w);
+            const eastBedWin = centeredWindowOnSpan(bay, FLOOR1_WINDOW.elder.w);
+            return [
+              {
+                at: masterWin.at,
+                w: masterWin.w,
+                sill: FLOOR1_WINDOW.spare.sill,
+                h: FLOOR1_WINDOW.spare.h,
+              },
+              {
+                at: bay + closetWin.at,
+                w: closetWin.w,
+                sill: 1.2,
+                h: 1.35,
+              },
+              {
+                at: bay + bay / 2 + bathWin.at,
+                w: bathWin.w,
+                sill: FLOOR1_WINDOW.stair.sill,
+                h: FLOOR1_WINDOW.stair.h,
+              },
+              {
+                at: bay * 2 + eastBedWin.at,
+                w: eastBedWin.w,
+                sill: FLOOR1_WINDOW.elder.sill,
+                h: FLOOR1_WINDOW.elder.h,
+              },
+            ];
+          })()
+        : (() => {
+            const a = centeredWindowOnSpan(bay, 1.5);
+            const b = centeredWindowOnSpan(bay, 1.2);
+            const c = centeredWindowOnSpan(bay * 0.55, 1.5);
+            const d = centeredWindowOnSpan(bay * 0.45, 1.2);
+            return [
+              clampOpeningHead({ at: a.at, w: a.w, sill: 0.55, h: 2.0 }, thirdMax),
+              clampOpeningHead({ at: bay + b.at, w: b.w, sill: 1.2, h: 1.25 }, thirdMax),
+              clampOpeningHead({ at: bay * 2 + c.at, w: c.w, sill: 0.7, h: 1.85 }, thirdMax),
+              clampOpeningHead({ at: bay * 2.55 + d.at, w: d.w, sill: 1.15, h: 1.25 }, thirdMax),
+            ];
+          })();
   out.push(wall([mx, back - 0.12], [me, back - 0.12], south));
 
-  const depth0 = 10;
-  const sideScale = site.main.d / depth0;
+  const sideLen = back - 0.24 - (front + 0.24);
   const westX = mx + 0.12;
   const eastX = me - 0.12;
   out.push(
@@ -261,26 +429,29 @@ export function facades(index: number): Facade[] {
       [westX, front + 0.24],
       [westX, back - 0.24],
       index === 2
-        ? [
-            clampOpeningHead({ at: 1.4 * sideScale, w: 1.5 * sideScale, sill: 0.55, h: 2.2 }, thirdMax),
-            clampOpeningHead({ at: 6.5 * sideScale, w: 1.3 * sideScale, sill: 0.7, h: 1.9 }, thirdMax),
-          ]
-        : [
-            { at: 2.05 * sideScale, w: 1.7 * sideScale, sill: 0.55, h: 2.4 },
-            ...(index === 0
-              ? [
-                  {
-                    at: circulation.sideDoorZ - (front + 0.24),
-                    w: circulation.sideDoorWidth,
-                    sill: site.entranceRise,
-                    h: 2.5 - site.entranceRise,
-                    door: true,
-                    open: true,
-                  },
-                ]
-              : []),
-            { at: 8.05 * sideScale, w: 1.5 * sideScale, sill: 0.55, h: 2.4 },
-          ],
+        ? (() => {
+            const a = centeredWindowOnSpan(sideLen * 0.45, 1.5);
+            const b = centeredWindowOnSpan(sideLen * 0.4, 1.3);
+            return [
+              clampOpeningHead({ at: a.at, w: a.w, sill: 0.55, h: 2.1 }, thirdMax),
+              clampOpeningHead({ at: sideLen * 0.55 + b.at, w: b.w, sill: 0.7, h: 1.85 }, thirdMax),
+            ];
+          })()
+        : index === 0
+          ? [
+              // 通辅楼门：客厅过道中线；扇叶开向主楼内侧（东＝in）
+              {
+                at: circulation.sideDoorZ - (front + 0.24),
+                w: circulation.sideDoorWidth,
+                sill: site.entranceRise,
+                h: 2.5 - site.entranceRise,
+                door: true,
+                hinge: "start",
+                side: "in",
+              },
+            ]
+          : // 二楼西山：挑空客厅与主卧套间均不开窗
+            [],
     ),
   );
   out.push(
@@ -288,21 +459,37 @@ export function facades(index: number): Facade[] {
       [eastX, front + 0.24],
       [eastX, back - 0.24],
       index === 2
-        ? [
-            clampOpeningHead({ at: 2.3 * sideScale, w: 0.9 * sideScale, sill: 1.15, h: 1.25 }, thirdMax),
-            clampOpeningHead({ at: 5.7 * sideScale, w: 1.2 * sideScale, sill: 0.55, h: 2.0 }, thirdMax),
-          ]
-        : index === 0
-          ? [
-              { at: 1.35 * sideScale, w: 1.5 * sideScale, sill: 0.6, h: 2.35 },
-              { at: 4.15 * sideScale, w: 0.8 * sideScale, sill: 1.35, h: 1.15 },
-              { at: 8.45 * sideScale, w: 1.0 * sideScale, sill: 0.6, h: 2.3 },
-            ]
-          : [
-              { at: 1.35 * sideScale, w: 1.4 * sideScale, sill: 0.6, h: 2.35 },
-              { at: 4.15 * sideScale, w: 0.8 * sideScale, sill: 1.2, h: 1.35 },
-              { at: 8.45 * sideScale, w: 1.0 * sideScale, sill: 0.6, h: 2.3 },
-            ],
+        ? (() => {
+            const a = centeredWindowOnSpan(sideLen * 0.35, 1.2);
+            const b = centeredWindowOnSpan(sideLen * 0.4, 1.2);
+            return [
+              clampOpeningHead({ at: sideLen * 0.15 + a.at, w: a.w, sill: 1.15, h: 1.25 }, thirdMax),
+              clampOpeningHead({ at: sideLen * 0.5 + b.at, w: b.w, sill: 0.55, h: 1.95 }, thirdMax),
+            ];
+          })()
+        : index === 0 || index === 1
+          ? (() => {
+              // 一／二楼东山：删卧室东窗；楼梯段一樘居中高窗（同模数）
+              const stairSpan = stairLayout.room.d;
+              const stairStart = stairLayout.room.z - (front + 0.24);
+              const win = centeredWindowOnSpan(stairSpan, FLOOR1_WINDOW.stair.w);
+              return [
+                {
+                  at: Math.max(0, stairStart) + win.at,
+                  w: win.w,
+                  sill: FLOOR1_WINDOW.stair.sill,
+                  h: FLOOR1_WINDOW.stair.h,
+                },
+              ];
+            })()
+          : (() => {
+              const a = centeredWindowOnSpan(sideLen * 0.35, 1.2);
+              const b = centeredWindowOnSpan(sideLen * 0.4, 1.2);
+              return [
+                clampOpeningHead({ at: sideLen * 0.15 + a.at, w: a.w, sill: 1.15, h: 1.25 }, thirdMax),
+                clampOpeningHead({ at: sideLen * 0.5 + b.at, w: b.w, sill: 0.55, h: 1.95 }, thirdMax),
+              ];
+            })(),
     ),
   );
   return out;

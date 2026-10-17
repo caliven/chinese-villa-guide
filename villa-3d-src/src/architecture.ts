@@ -1,5 +1,21 @@
 import * as THREE from "three";
-import { site, floors, frontElevation, stairLayout, construction, circulation, annexPartitions, annexFurniture, type Point } from "./data";
+import {
+  site,
+  floors,
+  frontElevation,
+  stairLayout,
+  construction,
+  circulation,
+  annexPartitions,
+  annexFurniture,
+  type Floor,
+  type Furniture,
+  type Point,
+  type Wall,
+} from "./data";
+import { ensureFurnitureWallClearance } from "./layout-align";
+import type { LayoutDraft, StairDraft, VoidDraft } from "./layout-draft";
+import { FRONT_OPENING } from "./openings";
 import {
   eastTransomBand,
   facades,
@@ -27,6 +43,7 @@ import {
   rect,
   wallWithOpenings,
   railing,
+  stairSoffitClearHeight,
   furnish,
   stairs,
   tag,
@@ -422,7 +439,71 @@ function pavedTerrace(parent: THREE.Object3D, outline: Point[], y: number, thick
   return group;
 }
 
-export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenShui, roofStyle: RoofStyle = "joined") {
+/** 平面草稿驱动立体时的布局覆盖（隔墙／家具／挑空／楼梯）。 */
+export type VillaLayoutLive = {
+  floors: Floor[];
+  annexPartitions: Wall[];
+  annexFurniture: Furniture[];
+  stairLayout: StairDraft;
+  livingVoid: VoidDraft;
+};
+
+export function villaLayoutFromDraft(draft: LayoutDraft): VillaLayoutLive {
+  return {
+    floors: draft.floors,
+    annexPartitions: draft.annexPartitions,
+    annexFurniture: draft.annexFurniture,
+    stairLayout: draft.stairLayout,
+    livingVoid: draft.livingVoid,
+  };
+}
+
+/** 隔墙是否盖住开口边（挑空栏杆处加了实体墙则不再画栏杆）。 */
+function partitionsCoverOpenEdge(
+  partitions: Wall[],
+  axis: "h" | "v",
+  c: number,
+  lo: number,
+  hi: number,
+  tol = 0.18,
+  minCover = 0.45,
+) {
+  const edgeLen = Math.abs(hi - lo);
+  if (edgeLen < 0.15) return false;
+  const a0 = Math.min(lo, hi);
+  const a1 = Math.max(lo, hi);
+  let covered = 0;
+  for (const w of partitions) {
+    const dx = Math.abs(w.b[0] - w.a[0]);
+    const dz = Math.abs(w.b[1] - w.a[1]);
+    if (axis === "h") {
+      if (dz > tol || Math.abs((w.a[1] + w.b[1]) / 2 - c) > tol) continue;
+      const w0 = Math.min(w.a[0], w.b[0]);
+      const w1 = Math.max(w.a[0], w.b[0]);
+      covered += Math.max(0, Math.min(w1, a1) - Math.max(w0, a0));
+    } else {
+      if (dx > tol || Math.abs((w.a[0] + w.b[0]) / 2 - c) > tol) continue;
+      const w0 = Math.min(w.a[1], w.b[1]);
+      const w1 = Math.max(w.a[1], w.b[1]);
+      covered += Math.max(0, Math.min(w1, a1) - Math.max(w0, a0));
+    }
+  }
+  return covered / edgeLen >= minCover;
+}
+
+export function buildVilla(
+  mat: Mats,
+  withLabels = true,
+  fenShui = site.roofFenShui,
+  roofStyle: RoofStyle = "joined",
+  layout?: VillaLayoutLive | null,
+) {
+  ensureFurnitureWallClearance();
+  const floorList = layout?.floors ?? floors;
+  const stairGeom = layout?.stairLayout ?? stairLayout;
+  const livingVoid = layout?.livingVoid ?? circulation.livingVoid;
+  const annexParts = layout?.annexPartitions ?? annexPartitions;
+  const annexFurn = layout?.annexFurniture ?? annexFurniture;
   const group = new THREE.Group(),
     roof = new THREE.Group(),
     balcony = new THREE.Group(),
@@ -433,7 +514,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
   group.add(roof, balcony, annex, annexRoof);
   const m = site.main;
   const elevation = frontElevation;
-  floors.forEach((floor, index) => {
+  floorList.forEach((floor, index) => {
     const g = new THREE.Group();
     g.name = `floor-${index + 1}`;
     levels.push(g);
@@ -442,10 +523,10 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
       back = m.z + m.d,
       base = floor.y,
       h = floor.height;
-    const opening = stairLayout.hole;
+    const opening = stairGeom.hole;
     const holes = index > 0 ? [rect(opening.x, opening.z, opening.w, opening.d)] : [];
-    const voidEast = circulation.livingVoid.x + circulation.livingVoid.w;
-    const voidSouth = circulation.livingVoid.z + circulation.livingVoid.d;
+    const voidEast = livingVoid.x + livingVoid.w;
+    const voidSouth = livingVoid.z + livingVoid.d;
     // 楼板外缘收进墙身。三楼北缘若停在 Z=-1，会和二楼北墙外皮共面，缩放时闪成黄带。
     const inset = 0.05;
     // 侧面再收一些，楼板边不要贴到角柱侧面。
@@ -582,21 +663,59 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
       else if (Math.abs(z - back) <= 0.02) z = back - embed;
       return [x, z];
     };
+    const stairStoryH = h - (index === 0 ? site.entranceRise : 0);
+    const stairSoffit = {
+      x: stairGeom.x,
+      z: stairGeom.z,
+      flight: stairGeom.flight,
+      gap: stairGeom.gap,
+      tread: stairGeom.tread,
+      risers: stairGeom.risers,
+      landing: stairGeom.landing,
+      axis: stairGeom.axis,
+      room: stairGeom.room,
+    };
     for (const part of floor.partitions) {
       const a = bury(part.a),
         b = bury(part.b),
         pulled = Math.hypot(a[0] - part.a[0], a[1] - part.a[1]);
+      // 梯下隔墙顶到楼梯板底，避免穿出踏步／休息平台
+      let wallH = h - 0.15;
+      if (index < 2) {
+        let minSoffit: number | null = null;
+        let underHits = 0;
+        for (let t = 0; t <= 8; t++) {
+          const px = a[0] + (b[0] - a[0]) * (t / 8);
+          const pz = a[1] + (b[1] - a[1]) * (t / 8);
+          const clear = stairSoffitClearHeight(px, pz, stairSoffit, stairStoryH);
+          if (clear != null) {
+            underHits++;
+            minSoffit = minSoffit == null ? clear : Math.min(minSoffit, clear);
+          }
+        }
+        if (underHits >= 4 && minSoffit != null) {
+          // soffit 相对楼梯底板；一层楼梯底在 entranceRise
+          const soffitFromFloor =
+            (index === 0 ? site.entranceRise : 0) + minSoffit - 0.03 - base;
+          wallH = Math.min(wallH, Math.max(0.9, soffitFromFloor));
+        }
+      }
+      const doorH = Math.min(2.2, Math.max(0.85, wallH - 0.08));
       const op: Opening[] = part.door
         ? [
             {
               at: part.door.offset - pulled + part.door.width / 2,
               w: part.door.width,
               sill: 0,
-              h: 2.2,
+              h: doorH,
+              door: true,
+              hinge: part.door.hinge === "end" ? "end" : "start",
+              side: part.door.side === "in" ? "in" : "out",
+              kind: part.door.kind,
             },
           ]
         : [];
-      wallWithOpenings(g, a, b, base, h - 0.15, op, mat, construction.partition, true);
+      wallWithOpenings(g, a, b, base, wallH, op, mat, construction.partition, true);
     }
     for (const f of floor.furniture) furnish(g, f, base + (index === 0 ? site.entranceRise : 0), mat);
     const labelGroup = new THREE.Group();
@@ -617,28 +736,33 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
     }
     if (index < 2)
       stairs(
-        g, stairLayout.x, stairLayout.z,
+        g, stairGeom.x, stairGeom.z,
         base + (index === 0 ? site.entranceRise : 0),
         h - (index === 0 ? site.entranceRise : 0),
         mat,
-        stairLayout.axis,
+        stairGeom.axis,
       );
     if (index === 1) {
       const edge = voidEast + 0.07;
       const southEdge = voidSouth + 0.06;
-      railing(g, [edge, front + 0.16], [edge, southEdge], base, mat);
-      railing(g, [m.x + 0.16, southEdge], [edge, southEdge], base, mat);
+      // 平面加了贴挑空边的实体墙时，立体不再叠栏杆
+      if (!partitionsCoverOpenEdge(floor.partitions, "v", voidEast, front + 0.16, voidSouth)) {
+        railing(g, [edge, front + 0.16], [edge, southEdge], base, mat);
+      }
+      if (!partitionsCoverOpenEdge(floor.partitions, "h", voidSouth, m.x + 0.16, voidEast)) {
+        railing(g, [m.x + 0.16, southEdge], [edge, southEdge], base, mat);
+      }
     }
     if (index > 0) {
       const { x: hx, z: hz, w: hw, d: hd } = opening;
-      if (stairLayout.axis === "x") {
-        const entry = stairLayout.flight + stairLayout.gap + 0.06;
+      if (stairGeom.axis === "x") {
+        const entry = stairGeom.flight + stairGeom.gap + 0.06;
         railing(g, [hx, hz], [hx + hw, hz], base, mat);
         railing(g, [hx + hw, hz], [hx + hw, hz + hd], base, mat);
         railing(g, [hx, hz + hd], [hx + hw, hz + hd], base, mat);
         railing(g, [hx, hz + entry], [hx, hz + hd], base, mat);
       } else {
-        const northStop = hx + stairLayout.flight + 0.08;
+        const northStop = hx + stairGeom.flight + 0.08;
         railing(g, [hx, hz], [hx, hz + hd], base, mat);
         railing(g, [hx + hw, hz], [hx + hw, hz + hd], base, mat);
         railing(g, [hx, hz + hd], [hx + hw, hz + hd], base, mat);
@@ -649,28 +773,37 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
       const sw = site.main.w / 13.5;
       const transom = eastTransomBand();
       for (const [at0, w0] of [
-        [2.35, 4.7],
-        [11.15, 4.2],
+        [FRONT_OPENING.livingVoid.at, 4.2],
+        [FRONT_OPENING.tea.at, 3.0],
       ] as const)
         box(g, mainFrontOpeningX(at0), 0.22, frontDecorZ(-1.08), w0 * sw, 0.44, 0.14, mat.stone);
-      openingFrame(g, mainFrontOpeningX(2.35), site.entranceRise, frontDecorZ(-1.06), 3.15 * sw, h - site.entranceRise, mat, { top: false });
       openingFrame(
         g,
-        mainFrontOpeningX(11.15),
-        site.entranceRise + 0.34,
+        mainFrontOpeningX(FRONT_OPENING.livingVoid.at),
+        site.entranceRise,
         frontDecorZ(-1.06),
-        transom.width,
-        transom.bottom - site.entranceRise - 0.34,
+        FRONT_OPENING.livingVoid.w * sw,
+        h - site.entranceRise,
         mat,
         { top: false },
       );
-      // 大门上沿停在左侧回纹横披下沿，框顶不封口。
       openingFrame(
         g,
-        mainFrontOpeningX(6.9),
+        mainFrontOpeningX(FRONT_OPENING.tea.at),
+        FRONT_OPENING.tea.sill,
+        frontDecorZ(-1.06),
+        transom.width,
+        FRONT_OPENING.tea.h,
+        mat,
+        { top: false },
+      );
+      // 堂屋大门上沿停在回纹横披下沿，框顶不封口。
+      openingFrame(
+        g,
+        mainFrontOpeningX(FRONT_OPENING.hall.at),
         site.entranceRise,
         frontDecorZ(-1.06),
-        2.3 * sw,
+        FRONT_OPENING.hall.w * sw,
         transom.bottom - site.entranceRise,
         mat,
         { top: false },
@@ -681,10 +814,19 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
       const transom = eastTransomBand();
       const sideHead = secondFloorSideGlassHeadY();
       const glassHead = secondFloorGlassHeadY();
-      openingFrame(g, mainFrontOpeningX(2.35), floors[0].height, frontDecorZ(-1.06), 3.15 * sw, sideHead - floors[0].height, mat, { bottom: false });
       openingFrame(
         g,
-        mainFrontOpeningX(11.15),
+        mainFrontOpeningX(FRONT_OPENING.livingVoid.at),
+        floors[0].height,
+        frontDecorZ(-1.06),
+        FRONT_OPENING.livingVoid.w * sw,
+        sideHead - floors[0].height,
+        mat,
+        { bottom: false },
+      );
+      openingFrame(
+        g,
+        mainFrontOpeningX(FRONT_OPENING.tea.at),
         transom.top,
         frontDecorZ(-1.06),
         transom.width,
@@ -694,10 +836,10 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
       );
       openingFrame(
         g,
-        mainFrontOpeningX(6.9),
+        mainFrontOpeningX(FRONT_OPENING.hall.at),
         transom.top,
         frontDecorZ(-1.06),
-        2.3 * sw,
+        FRONT_OPENING.hall.w * sw,
         glassHead - transom.top,
         mat,
         { bottom: false },
@@ -748,7 +890,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
   const porchFront = m.z - site.portico.projection;
   const columnZ = elevation.porticoColumnZ;
   const columnNorth = columnZ - elevation.porticoColumnDepth / 2;
-  const porticoColTop = floors[2].y - 0.14;
+  const porticoColTop = floorList[2]!.y - 0.14;
   for (const post of elevation.balustradePosts.slice(1, 3)) {
     const x = post.x;
     referencePorticoColumn(portico, x, columnZ, site.entranceRise - 0.02, porticoColTop - site.entranceRise, post.w, elevation.porticoColumnDepth, mat);
@@ -757,9 +899,9 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
     for (const dx of [-0.05, 0.05])
       box(portico, x + dx, 2.85, columnNorth - 0.166, 0.012, 0.72, 0.016, mat.dark);
   }
-  // 左右包角柱包住正面与侧面的直角，比两面墙都凸出约15厘米。
+  // 左右包角柱包住正面与侧面的直角；外凸量＝方案尺寸「包角柱突出墙面」。
   // 一二层正面柱顶对二楼前檐：下沿线底以下约10厘米，不通到三眼皮／天沟。
-  const frontApronBase = frontApronEaveBase(floors[2].y + elevation.eaveParapet, elevation.tiledEaveDrop);
+  const frontApronBase = frontApronEaveBase(floorList[2]!.y + elevation.eaveParapet, elevation.tiledEaveDrop);
   const frontCornerTop = cornerPilasterTopY(frontApronBase);
   referenceCornerPilaster(portico, elevation.cornerWestX, m.z - 0.12, 0, frontCornerTop, -1, mat);
   referenceCornerPilaster(portico, elevation.cornerEastX, m.z - 0.12, 0, frontCornerTop, 1, mat);
@@ -778,7 +920,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
     .name = "横向过道至辅楼的地面连接";
   // 浅阳台位于三层公共过厅外，避免直接放在老人房上方。
   const rearBalconyZ = m.z + m.d;
-  const rearBalconyY = floors[2].y;
+  const rearBalconyY = floorList[2]!.y;
   const rearBalconyX = m.x + m.w * (12.65 - 6.8) / 13.5;
   const rearBalconyW = 2.5 * (m.w / 13.5);
   pavedTerrace(balcony, rect(rearBalconyX, rearBalconyZ, rearBalconyW, 1.2), rearBalconyY, 0.18, mat);
@@ -819,7 +961,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
     else if (Math.abs(z - (a.z + a.d)) <= 0.02) z = a.z + a.d - annexEmbed;
     return [x, z];
   };
-  for (const p of annexPartitions) {
+  for (const p of annexParts) {
     const aa = buryAnnex(p.a),
       bb = buryAnnex(p.b),
       pulled = Math.hypot(aa[0] - p.a[0], aa[1] - p.a[1]);
@@ -836,6 +978,10 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
               w: p.door.width,
               sill: 0,
               h: 2.2,
+              door: true,
+              hinge: p.door.hinge === "end" ? "end" : "start",
+              side: p.door.side === "in" ? "in" : "out",
+              kind: p.door.kind,
             },
           ]
         : [],
@@ -844,7 +990,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
       true,
     );
   }
-  annexFurniture.forEach((f) => furnish(annex, f, site.entranceRise, mat));
+  annexFurn.forEach((f) => furnish(annex, f, site.entranceRise, mat));
   attachRoofs(roof, annexRoof, mat, fenShui, roofStyle);
   // 洞口仍是一二层通高，中间不砌墙。玻璃顶与大门、烤火房对齐，不顶到二楼楼板。
   const curtain = new THREE.Group();
@@ -857,7 +1003,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
   const glassTop = secondFloorSideGlassHeadY();
   const glassH = glassTop - glassBottom;
   const glassMid = (glassBottom + glassTop) / 2;
-  const f1Top = floors[0].height;
+  const f1Top = floorList[0]!.height;
   box(curtain, glassCx, glassMid, frontDecorZ(-0.835), glassW, glassH, 0.02, mat.glass, false);
   const bar = 0.05;
   const glassLeft = glassCx - glassW / 2;

@@ -625,6 +625,13 @@ export interface Opening {
   open?: boolean;
   pattern?: "villa" | "panorama" | "lattice" | "sliding";
   span?: "lower" | "upper";
+  /** 与 WallOpening 一致：铰链贴洞口起点／终点。 */
+  hinge?: "start" | "end";
+  /**
+   * 开启侧：与平面 openingSymbolSvg 相同——in 扇叶沿墙局部 −Z，out 沿 ＋Z。
+   */
+  side?: "in" | "out";
+  kind?: "door" | "doubleDoor" | "slidingDoor" | "window";
 }
 export function wallWithOpenings(
   parent: THREE.Object3D,
@@ -706,18 +713,23 @@ export function wallWithOpenings(
   g.add(wallMesh);
   for (const o of openings) {
     if (interior) {
-      // 门扇停在打开位置，保留实际通行洞口。
-      const door = box(
-        g,
-        o.at - o.w / 2,
-        o.h / 2,
-        o.w / 2,
-        0.045,
-        o.h,
-        o.w,
-        mat.wood,
-      );
-      door.castShadow = false;
+      // 室内门扇打开 90°：hinge／side 符号与 openingSymbolSvg 一致（in→局部 −Z，out→＋Z）。
+      if (o.door && o.kind !== "slidingDoor" && o.pattern !== "sliding") {
+        const s = o.side === "in" ? -1 : 1;
+        const leafZ = (len: number) => (s * len) / 2;
+        if (o.kind === "doubleDoor") {
+          const half = o.w / 2;
+          for (const end of ["start", "end"] as const) {
+            const hx = end === "end" ? o.at + half : o.at - half;
+            const leaf = box(g, hx, o.h / 2, leafZ(half), 0.045, o.h, half, mat.wood);
+            leaf.castShadow = false;
+          }
+        } else {
+          const hx = o.hinge === "end" ? o.at + o.w / 2 : o.at - o.w / 2;
+          const leaf = box(g, hx, o.h / 2, leafZ(o.w), 0.045, o.h, o.w, mat.wood);
+          leaf.castShadow = false;
+        }
+      }
       continue;
     }
     // 玻璃靠室内一侧，框料彼此只相接、不叠面，避免窗角和横档发暗闪。
@@ -1118,15 +1130,19 @@ export function furnish(
     if (f.kind === "chair")
       box(g, 0, 0.69, f.d / 2 - 0.04, f.w, 0.44, 0.06, mat.wood);
   } else if (f.kind === "sofa") {
-    box(g, 0, 0.32, 0, f.w, 0.48, f.d, mat.fabric);
-    box(g, -f.w / 2 + 0.08, 0.65, 0, 0.17, 0.45, f.d, mat.fabric);
+    // 与平面一致：+Z 靠背，−Z 落座，±X 双侧扶手
+    const armW = 0.17;
+    box(g, 0, 0.32, 0, f.w - armW * 2, 0.42, f.d - 0.12, mat.fabric);
+    box(g, 0, 0.72, f.d / 2 - 0.08, f.w - armW * 2, 0.5, 0.14, mat.fabric);
+    for (const side of [-1, 1])
+      box(g, side * (f.w / 2 - armW / 2), 0.55, 0, armW, 0.55, f.d, mat.fabric);
   } else if (f.kind === "wardrobe") {
     box(g, 0, 1.02, 0, f.w, 2.04, f.d, mat.wood);
   } else if (f.kind === "shrine") {
-    // 湖南堂屋神龛示意：贴墙高柜、三层开放龛台，供祖先牌位／香烛。
+    // +Z 贴墙柜背，−Z 龛台朝人（与平面／catalog 约定一致）
     const h = 2.2;
     box(g, 0, h / 2, 0, f.w, h, f.d, mat.wood);
-    box(g, 0, h - 0.06, -f.d / 2 + 0.03, f.w + 0.04, 0.12, 0.06, mat.wood);
+    box(g, 0, h - 0.06, f.d / 2 - 0.03, f.w + 0.04, 0.12, 0.06, mat.wood);
     for (const y of [0.55, 1.05, 1.55]) {
       box(g, 0, y, 0.02, f.w - 0.12, 0.04, f.d - 0.1, mat.inside);
       box(g, 0, y + 0.18, -f.d / 2 + 0.06, f.w - 0.2, 0.28, 0.04, mat.dark);
@@ -1180,10 +1196,78 @@ export function furnish(
     if (f.kind === "basin") {
       box(g, 0, 0.86, 0, f.w * 0.7, 0.04, f.d * 0.55, mat.metal);
     }
+  } else if (f.kind === "shower") {
+    // 托盘＋三面矮玻（前方开口）；示意用，非卫浴施工详图。
+    box(g, 0, 0.05, 0, f.w, 0.1, f.d, mat.inside);
+    const glassH = 1.85;
+    const t = 0.03;
+    box(g, 0, glassH / 2, f.d / 2 - t / 2, f.w, glassH, t, mat.glass);
+    box(g, -f.w / 2 + t / 2, glassH / 2, 0, t, glassH, f.d, mat.glass);
+    box(g, f.w / 2 - t / 2, glassH / 2, 0, t, glassH, f.d, mat.glass);
   } else {
     box(g, 0, 0.4, 0, f.w, 0.8, f.d, mat.wood);
   }
   return g;
+}
+
+/** 楼梯示意几何（与 stairLayout／草稿 stair 字段对齐）。 */
+export type StairSoffitGeom = {
+  x: number;
+  z: number;
+  flight: number;
+  gap: number;
+  tread: number;
+  risers: number;
+  landing: number;
+  axis: "x" | "z";
+  room: { x: number; z: number; w: number; d: number };
+};
+
+const STAIR_TREAD_THICK = 0.055;
+const STAIR_LANDING_THICK = 0.18;
+
+/**
+ * 点位在楼梯板底的净空高度（相对楼梯 base）；不在梯下则 null。
+ * 用于梯下公卫隔墙封顶，避免穿出踏步／休息平台。
+ */
+export function stairSoffitClearHeight(
+  px: number,
+  pz: number,
+  stair: StairSoffitGeom,
+  storyHeight: number,
+): number | null {
+  const rise = storyHeight / Math.max(1, stair.risers);
+  const along = stair.axis === "x" ? px - stair.x : pz - stair.z;
+  const across = stair.axis === "x" ? pz - stair.z : px - stair.x;
+  const run = 9 * stair.tread;
+  const flight = stair.flight;
+  const gap = stair.gap;
+  const midY = storyHeight / 2;
+  const room = stair.room;
+  const inRoom =
+    px >= room.x - 0.08 &&
+    px <= room.x + room.w + 0.08 &&
+    pz >= room.z - 0.08 &&
+    pz <= room.z + room.d + 0.08;
+  if (!inRoom) return null;
+
+  const inLower = across >= -0.08 && across <= flight + 0.08;
+  const inUpper = across >= flight + gap - 0.08 && across <= 2 * flight + gap + 0.08;
+  const inWell = across > flight - 0.02 && across < flight + gap + 0.02;
+  const landingLo = run - 0.05;
+  const landingHi = run + stair.landing + 0.2;
+
+  if (along >= landingLo && along <= landingHi && (inLower || inUpper || inWell)) {
+    return midY - STAIR_LANDING_THICK;
+  }
+  if (inLower && along >= -0.05 && along <= run + 0.08) {
+    return Math.max(0.4, rise * (along / stair.tread) - STAIR_TREAD_THICK);
+  }
+  if (inUpper && along >= -0.05 && along <= run + 0.08) {
+    return Math.max(midY, midY + rise * ((run - along) / stair.tread) - STAIR_TREAD_THICK);
+  }
+  // 梯间其余（含东侧公卫贴外墙区）：按休息平台板底封顶
+  return midY - STAIR_LANDING_THICK;
 }
 
 export function stairs(
@@ -1196,10 +1280,13 @@ export function stairs(
   axis: "x" | "z" = "z",
 ) {
   // axis z：两跑沿南北，下跑向南。axis x：两跑沿东西，下跑向东。x、z 为下跑起始侧的外侧角。
+  // 踏步用薄板（踏面＋踢面），不做从地面堆高的实心楔块。
   const rise = height / stairLayout.risers,
     tread = stairLayout.tread,
     flight = stairLayout.flight,
     gap = stairLayout.gap;
+  const treadThick = STAIR_TREAD_THICK;
+  const riserThick = 0.04;
   const put = (
     across: number,
     y: number,
@@ -1212,12 +1299,27 @@ export function stairs(
       box(parent, x + across, base + y, z + along, acrossSize, ySize, alongSize, mat.paving);
     else box(parent, x + along, base + y, z + across, alongSize, ySize, acrossSize, mat.paving);
   };
+  const flightAcross = flight / 2;
+  const returnAcross = flight + gap + flight / 2;
   for (let i = 0; i < 9; i++) {
-    put(flight / 2, (rise * (i + 1)) / 2, tread * (i + 0.5), flight, rise * (i + 1), tread);
-    const h = height / 2 + rise * (i + 1);
-    put(flight + gap + flight / 2, h / 2, tread * (8.5 - i), flight, h, tread);
+    // 下跑：向 along 正向上
+    const y1 = rise * (i + 1);
+    put(flightAcross, y1 - treadThick / 2, tread * (i + 0.5), flight, treadThick, tread);
+    put(flightAcross, y1 - rise / 2, tread * i + riserThick / 2, flight, rise, riserThick);
+    // 上跑：折返沿 along 负向上
+    const y2 = height / 2 + rise * (i + 1);
+    put(returnAcross, y2 - treadThick / 2, tread * (8.5 - i), flight, treadThick, tread);
+    put(returnAcross, y2 - rise / 2, tread * (9 - i) - riserThick / 2, flight, rise, riserThick);
   }
-  put(flight + gap / 2, height / 2 - 0.09, 9 * tread + 0.4, flight * 2 + gap, 0.18, 0.8);
+  // 休息平台：薄楼板
+  put(
+    flight + gap / 2,
+    height / 2 - STAIR_LANDING_THICK / 2,
+    9 * tread + 0.4,
+    flight * 2 + gap,
+    STAIR_LANDING_THICK,
+    0.8,
+  );
   for (const side of [0, 1]) {
     const across = side === 0 ? flight - 0.06 : flight + gap + 0.06;
     const reverse = side === 1;

@@ -6,7 +6,7 @@ import { floors, site } from "./data";
 import { materials, line, tag, setCourtyardFinishes } from "./primitives";
 import { courtyardFinishLabels, type CourtyardFinish } from "./courtyard-finishes";
 import { roofStyleLabels, type RoofStyle } from "./roof-options";
-import { buildVilla, attachRoofs } from "./architecture";
+import { buildVilla, attachRoofs, type VillaLayoutLive } from "./architecture";
 import { buildL9 } from "./cars";
 import { buildSite, makeRamp } from "./terrain";
 import { surroundings } from "./surroundings";
@@ -135,6 +135,8 @@ export class VillaViewer {
   camera = new THREE.PerspectiveCamera(38, 1, 0.1, 350);
   controls: OrbitControls;
   mat = materials();
+  /** 平面布局草稿覆盖；null＝只用源码默认户型。 */
+  layoutLive: VillaLayoutLive | null = null;
   villa = buildVilla(this.mat);
   livingGlass = this.villa.group.getObjectByName("挑空客厅一二层通高玻璃")!;
   entryBay = this.villa.group.getObjectByName("门厅一二层通高门")!;
@@ -351,8 +353,9 @@ export class VillaViewer {
         [roadsideEye[0], roadside.y + 18, roadsideEye[1]],
         [roadsideTarget[0], roadside.y + 4.8, roadsideTarget[1]],
       ],
+      // 鸟瞰／俯视与平面图同向：南↑西→（相对旧机位绕竖直轴转 180°）；北／南立面仍按地理朝向。
       aerial: [
-        [42, 36, -49],
+        [-10, 36, 55],
         [16, 2.5, 3],
       ],
       north: [
@@ -372,8 +375,9 @@ export class VillaViewer {
         [48, 30, -43],
         [26.5, -1.4, -9.5],
       ],
+      // 镜头略偏北，俯视时南在画面上方、西在右，对齐平面「南↑西→」
       top: [
-        [10.5, 42, 4.01],
+        [10.5, 42, 3.99],
         [10.5, 0, 4],
       ],
     };
@@ -382,7 +386,7 @@ export class VillaViewer {
       const floor = floors[this.state.floor];
       const y = floor?.y ?? this.state.floor * 3.6;
       const x = this.state.floor === 0 ? site.width / 2 : site.main.x + site.main.w / 2;
-      p = [x, y + (this.state.floor === 0 ? 37 : 29), 4.01];
+      p = [x, y + (this.state.floor === 0 ? 37 : 29), 3.99];
       t = [x, y, 4];
     }
     const target = new THREE.Vector3(...t);
@@ -533,15 +537,19 @@ export class VillaViewer {
     });
   }
 
-  /** 方案尺寸参数变更后：按当前 data／site 重砌主辅楼与场地（邻房示意可能仍有绝对坐标）。 */
-  rebuildAfterParams(fenShui = site.roofFenShui) {
+  /**
+   * 方案尺寸／户型草稿变更后重砌主辅楼与场地。
+   * layout：传入覆盖用草稿几何；undefined＝保持现有 layoutLive；null＝清回源码默认户型。
+   */
+  rebuildAfterParams(fenShui = site.roofFenShui, layout?: VillaLayoutLive | null) {
+    if (layout !== undefined) this.layoutLive = layout;
     const keep = new Set<THREE.Material>(Object.values(this.mat));
     for (const root of [this.villa.group, this.land.context, this.land.fixed, this.land.existing, this.land.proposed, this.land.dimensions]) {
       this.scene.remove(root);
       disposeReplaced(root, this.scene, keep);
     }
     this.routeGroup.clear();
-    this.villa = buildVilla(this.mat, true, fenShui, this.state.roofStyle);
+    this.villa = buildVilla(this.mat, true, fenShui, this.state.roofStyle, this.layoutLive);
     this.livingGlass = this.villa.group.getObjectByName("挑空客厅一二层通高玻璃")!;
     this.entryBay = this.villa.group.getObjectByName("门厅一二层通高门")!;
     this.eastBand = this.villa.group.getObjectByName("烤火房回纹横披")!;

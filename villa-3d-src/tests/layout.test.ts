@@ -382,13 +382,21 @@ test("低田边界保持异形，车辆尺寸不把车身宽冒充含镜宽", ()
   assert.ok(polygonArea(carCorners(0, 0, 0, 0.12)) > polygonArea(c));
 });
 
-test("双桌18座均在辅楼内，拉椅空间不足被保留为真实问题", () => {
-  assert.equal(annexFurniture.filter((f) => f.kind === "chair").length, 18);
-  for (const f of annexFurniture.filter((f) => f.kind === "chair")) {
-    assert.ok(f.x - f.w / 2 >= 1.04 && f.x + f.w / 2 <= 5.06);
-    assert.ok(f.z - f.d / 2 >= site.annex.z - 0.76 && f.z + f.d / 2 <= site.annex.z + site.annex.d - 2.71);
-  }
-  assert.ok(diningClearance().east < 0.6);
+test("默认版本1：辅楼餐厅圆桌6座居中，室内不再摆方桌", () => {
+  const chairs = annexFurniture.filter((f) => f.kind === "chair");
+  const tables = annexFurniture.filter((f) => f.kind === "table");
+  const rounds = annexFurniture.filter((f) => f.kind === "roundTable");
+  const sinks = annexFurniture.filter((f) => f.kind === "sink");
+  assert.equal(chairs.length, 6);
+  assert.equal(tables.length, 0);
+  assert.equal(rounds.length, 1);
+  assert.equal(sinks.length, 0);
+  const round = rounds[0]!;
+  const dining = { x: site.annex.x, z: site.annex.z, w: site.annex.w, d: 4.8 };
+  assert.ok(Math.abs(round.x - (dining.x + dining.w / 2)) < 0.2);
+  assert.ok(Math.abs(round.z - (dining.z + dining.d / 2)) < 0.2);
+  assert.ok(round.z - round.d / 2 >= dining.z - 0.05);
+  assert.ok(round.z + round.d / 2 <= dining.z + dining.d + 0.05);
 });
 
 test("太阳使用北京时间、北起顺时针度数，四季结果符合当地季节方向", () => {

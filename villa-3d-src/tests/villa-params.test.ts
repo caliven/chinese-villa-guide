@@ -167,10 +167,14 @@ test("三楼短柱与门厅柱、包角柱同轴，改门厅参数后一起挪",
   resetVillaParams();
   const e = frontElevation;
   const [west, midW, midE, east] = e.balustradePosts;
+  // 默认：柱心在门厅北沿左右角
+  assert.equal(midW.x, site.portico.x);
+  assert.equal(midE.x, site.portico.x + site.portico.w);
   assert.equal(midW.x, e.postXs[0]);
   assert.equal(midE.x, e.postXs[1]);
   assert.equal(midW.z, e.porticoColumnZ);
   assert.equal(midE.z, e.porticoColumnZ);
+  assert.ok(Math.abs(midW.z - (site.main.z - site.portico.projection)) < 1e-9);
   assert.equal(midW.w, DEFAULT_VILLA_PARAMS.porticoColumnSize);
   const project = e.cornerProject, leg = e.cornerLeg;
   assert.ok(Math.abs(west.x - (e.cornerWestX - (project - leg) / 2)) < 1e-9);
@@ -179,22 +183,28 @@ test("三楼短柱与门厅柱、包角柱同轴，改门厅参数后一起挪",
   // 官帽柱／构造柱北皮贴一层前墙外皮。
   assert.ok(Math.abs(e.postZ - 0.25 - site.main.z) < 1e-9);
 
+  // 柱心在外伸北沿左右两角；改截面／面宽／外伸后仍贴角。
   applyVillaParams({
     ...DEFAULT_VILLA_PARAMS,
-    porticoColumnWallGap: 2.1,
     porticoColumnSize: 0.9,
     porticoWidth: 5.0,
-    // 总宽锁定：主楼仍 13.5，门厅面宽变不影响面宽合计
+    porticoProjection: 2.2,
   });
   const e2 = frontElevation;
-  const half = 0.45;
-  assert.equal(e2.balustradePosts[1].x, site.portico.x + half);
-  assert.equal(e2.balustradePosts[2].x, site.portico.x + site.portico.w - half);
+  assert.equal(e2.balustradePosts[1].x, site.portico.x);
+  assert.equal(e2.balustradePosts[2].x, site.portico.x + site.portico.w);
   assert.equal(e2.balustradePosts[1].z, e2.porticoColumnZ);
   assert.equal(e2.balustradePosts[1].w, 0.9);
-  assert.ok(Math.abs(e2.porticoColumnZ - (site.main.z - 2.1 - 0.45)) < 1e-9);
+  assert.ok(Math.abs(e2.porticoColumnZ - (site.main.z - 2.2)) < 1e-9);
+  assert.ok(Math.abs(e2.porticoColumnWallGap - (2.2 - 0.45)) < 1e-9);
   assert.ok(Math.abs(e2.postZ - site.main.z - 0.25) < 1e-9);
+
+  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, cornerProject: 0.22 });
+  assert.equal(frontElevation.cornerProject, 0.22);
+  const [west2] = frontElevation.balustradePosts;
+  assert.ok(Math.abs(west2.z - (site.main.z - 0.12 - 0.22 / 2)) < 1e-9);
   resetVillaParams();
+  assert.equal(frontElevation.cornerProject, DEFAULT_VILLA_PARAMS.cornerProject);
 });
 
 test("层高／面宽／辅楼高／北退／邻居／蓝顶房随参数联动", () => {

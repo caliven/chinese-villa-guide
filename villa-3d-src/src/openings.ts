@@ -3,13 +3,100 @@ export type OpeningKind = "door" | "doubleDoor" | "slidingDoor" | "window";
 export type DoorHinge = "start" | "end";
 export type DoorSide = "in" | "out";
 
+/** 单开门铰链侧到墙角（或分段端）的统一净距（米）。 */
+export const DOOR_HINGE_CORNER_GAP = 0.1;
+
+/**
+ * 门洞宽度（米）＝墙上网口宽，不是门扇净宽。
+ * 依据浙标／沪标下限与市面成品门主流洞口：卧室／过道约 900，厨约 800，卫约 750。
+ */
+export const DOOR_OPENING = {
+  /** 卧室、过道、通辅楼等室内房门 */
+  room: 0.9,
+  /** 厨房门（平开） */
+  kitchen: 0.8,
+  /** 卫生间／内卫门 */
+  bath: 0.75,
+  /** 餐厅—厨房等隔墙推拉门洞口（双扇示意） */
+  sliding: 1.5,
+} as const;
+
+/**
+ * 正立面洞口（米）· 三开间都偏大气：西挑空通高、中堂屋大门、东茶室高窗。
+ * 默认 13.5 m 面宽上的中心距西端；实际随主楼面宽比例缩放。
+ */
+export const FRONT_OPENING = {
+  /** 西开间挑空客厅：通到二楼；两侧约各留 0.45 墙垛 */
+  livingVoid: { at: 2.25, w: 3.6 },
+  /** 中开间堂屋双开大门（一层）；二层上段玻璃同宽 */
+  hall: { at: 6.9, w: 3.2 },
+  /** 东开间茶室：竖向长方（高＞宽）；宽略大于 2100，洞高 2700 */
+  tea: { at: 11.25, w: 2.4, sill: 0.75, h: 2.7 },
+} as const;
+
+/**
+ * 一层非正立面外窗（米）· 背立面／山墙／辅楼取适中档。
+ */
+export const FLOOR1_WINDOW = {
+  /** @deprecated 正立面改用 FRONT_OPENING；保留字段以免旧引用 */
+  livingVoid: FRONT_OPENING.livingVoid,
+  tea: { w: FRONT_OPENING.tea.w, sill: FRONT_OPENING.tea.sill, h: FRONT_OPENING.tea.h },
+  /** 南侧房南 */
+  spare: { w: 1.8, sill: 0.9, h: 1.8 },
+  /** 临时餐厅南（门旁） */
+  corridor: { w: 2.1, sill: 0.9, h: 1.8 },
+  /** 尊亲房南 */
+  elder: { w: 1.8, sill: 0.9, h: 1.8 },
+  /** 楼梯间东高窗 */
+  stair: { w: 1.2, sill: 1.2, h: 1.2 },
+  /** 辅楼餐厅北（朝院） */
+  diningNorth: { w: 2.1, sill: 0.9, h: 1.8 },
+  /** 辅楼餐厅西 */
+  diningWest: { w: 1.5, sill: 0.9, h: 1.8 },
+  /** 辅楼厨房西（台面上方） */
+  cookWest: { w: 1.5, sill: 1.0, h: 1.5 },
+  /** 辅楼厨房南 */
+  cookSouth: { w: 2.1, sill: 0.9, h: 1.5 },
+} as const;
+
+/**
+ * 按铰链侧贴墙角摆门：返回沿墙 offset（洞口起点）。
+ * hinge=start → 贴 a 端；hinge=end → 贴 b 端。
+ */
+export function doorOffsetAgainstHinge(
+  wallLen: number,
+  width: number,
+  hinge: DoorHinge,
+  gap = DOOR_HINGE_CORNER_GAP,
+): number {
+  const w = Math.max(0.3, width);
+  const g = Math.max(0, gap);
+  const maxStart = Math.max(g, wallLen - w - g);
+  if (hinge === "end") return maxStart;
+  return Math.min(g, maxStart);
+}
+
+/** 立面用：洞口中心沿墙定位（分段起点 + offset + 半宽）。 */
+export function doorCenterAgainstHinge(
+  segStart: number,
+  segLen: number,
+  width: number,
+  hinge: DoorHinge,
+  gap = DOOR_HINGE_CORNER_GAP,
+): number {
+  return segStart + doorOffsetAgainstHinge(segLen, width, hinge, gap) + width / 2;
+}
+
 export interface WallOpening {
   offset: number;
   width: number;
   kind?: OpeningKind;
   /** 铰链在门洞起点或终点；双开／推拉／窗忽略 */
   hinge?: DoorHinge;
-  /** 开启侧：沿墙 a→b 的左侧为 out，右侧为 in */
+  /**
+   * 开启侧：沿墙 a→b 的左侧为 out，右侧为 in（内部坐标，≠口语内外开）。
+   * 与用户沟通时一律用「站在门外面对这扇门，往左／往右」描述门扇叠靠侧。
+   */
   side?: DoorSide;
 }
 
@@ -25,7 +112,7 @@ export const openingLabels: Record<OpeningKind, string> = {
 export function defaultOpeningWidth(kind: OpeningKind): number {
   switch (kind) {
     case "door":
-      return 0.9;
+      return DOOR_OPENING.room;
     case "doubleDoor":
       return 1.8;
     case "slidingDoor":
