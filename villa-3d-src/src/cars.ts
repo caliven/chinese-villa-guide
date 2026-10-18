@@ -29,7 +29,7 @@ function profileBody(
   profile: [number, number][],
   width: number,
   material: THREE.Material,
-  bevel = 0.04,
+  bevel = 40,
 ) {
   const shape = new THREE.Shape(profile.map(([z, y]) => new THREE.Vector2(z, y)));
   const geo = new THREE.ExtrudeGeometry(shape, {
@@ -120,7 +120,7 @@ function wheel(
     const angle = (i / spokes) * Math.PI * 2;
     const dir = new THREE.Vector3(0, Math.sin(angle), Math.cos(angle));
     const spoke = new THREE.Mesh(
-      new THREE.BoxGeometry(tireWidth * 0.28, spokes > 6 ? 0.035 : 0.055, radius * 0.5),
+      new THREE.BoxGeometry(tireWidth * 0.28, spokes > 6 ? 35 : 55, radius * 0.5),
       rim,
     );
     spoke.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
@@ -136,10 +136,10 @@ function arch(
   radius: number,
   material: THREE.Material,
 ) {
-  const geo = new THREE.TorusGeometry(radius, 0.045, 8, 18, Math.PI);
+  const geo = new THREE.TorusGeometry(radius, 45, 8, 18, Math.PI);
   geo.rotateY(Math.PI / 2);
   const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(Math.sign(x) * (Math.abs(x) - 0.02), radius * 0.72, z);
+  mesh.position.set(Math.sign(x) * (Math.abs(x) - 20), radius * 0.72, z);
   mesh.castShadow = true;
   parent.add(mesh);
 }
@@ -153,8 +153,8 @@ function mirror(
   glass: THREE.Material,
 ) {
   const sign = Math.sign(x) || 1;
-  part(parent, x, y, z, 0.22, 0.1, 0.12, material);
-  part(parent, x + sign * 0.08, y + 0.02, z + 0.02, 0.11, 0.07, 0.02, glass);
+  part(parent, x, y, z, 220, 100, 120, material);
+  part(parent, x + sign * 80, y + 20, z + 20, 110, 70, 20, glass);
 }
 
 /** 2022 款理想 L9 Max。车身尺寸沿用已确认的公开参数，黑色金属漆。 */
@@ -165,75 +165,75 @@ export function buildL9(_mat: Mats) {
   const half = v.length / 2;
   const frontAxle = -half + v.frontOverhang;
   const rearAxle = frontAxle + v.wheelbase;
-  const paint = paintOf(0x161616, 0.34);
-  const black = paintOf(0x0c0c0c, 0.55);
-  const chrome = paintOf(0xb7bcc2, 0.22);
+  const paint = paintOf(0x161616, 340);
+  const black = paintOf(0x0c0c0c, 550);
+  const chrome = paintOf(0xb7bcc2, 220);
   const glass = glassOf();
-  const tire = paintOf(0x1a1a1a, 0.85);
-  const rim = paintOf(0xc5c8cc, 0.28);
-  const bodyW = 1.9;
+  const tire = paintOf(0x1a1a1a, 850);
+  const rim = paintOf(0xc5c8cc, 280);
+  const bodyW = 1900;
   profileBody(
     g,
     [
-      [-2.5, 0.34],
-      [-2.58, 0.52],
-      [-2.54, 0.82],
-      [-2.28, 1.02],
-      [-1.15, 1.16],
-      [-0.32, 1.64],
-      [0.15, 1.72],
-      [1.65, 1.74],
-      [2.18, 1.68],
-      [2.4, 1.28],
-      [2.56, 0.9],
-      [2.58, 0.5],
-      [2.4, 0.34],
-      [-2.15, 0.32],
+      [-2500, 340],
+      [-2580, 520],
+      [-2540, 820],
+      [-2280, 1020],
+      [-1150, 1160],
+      [-320, 1640],
+      [150, 1720],
+      [1650, 1740],
+      [2180, 1680],
+      [2400, 1280],
+      [2560, 900],
+      [2580, 500],
+      [2400, 340],
+      [-2150, 320],
     ],
     bodyW,
     paint,
-    0.035,
+    35,
   );
-  part(g, 0, 0.42, 0.05, bodyW - 0.12, 0.16, v.length - 0.7, black);
+  part(g, 0, 420, 50, bodyW - 120, 160, v.length - 700, black);
   slopedPanel(
     g,
-    new THREE.Vector3(0, 1.18, -1.08),
-    new THREE.Vector3(0, 1.64, -0.28),
-    1.55,
-    0.03,
+    new THREE.Vector3(0, 1180, -1080),
+    new THREE.Vector3(0, 1640, -280),
+    1550,
+    30,
     glass,
   );
   slopedPanel(
     g,
-    new THREE.Vector3(0, 1.22, 2.28),
-    new THREE.Vector3(0, 1.66, 2.12),
-    1.42,
-    0.03,
+    new THREE.Vector3(0, 1220, 2280),
+    new THREE.Vector3(0, 1660, 2120),
+    1420,
+    30,
     glass,
   );
-  for (const x of [-0.97, 0.97]) {
-    part(g, x, 1.4, 0.15, 0.03, 0.4, 0.85, glass);
-    part(g, x, 1.4, 1.2, 0.03, 0.38, 0.7, glass);
-    part(g, x, 1.36, 1.85, 0.03, 0.28, 0.32, glass);
-    part(g, x, 1.18, 0.72, 0.025, 0.025, 2.7, chrome);
-    part(g, x, 0.95, 0.1, 0.035, 0.04, 0.16, chrome);
-    part(g, x, 0.95, 1.15, 0.035, 0.04, 0.16, chrome);
+  for (const x of [-970, 970]) {
+    part(g, x, 1400, 150, 30, 400, 850, glass);
+    part(g, x, 1400, 1200, 30, 380, 700, glass);
+    part(g, x, 1360, 1850, 30, 280, 320, glass);
+    part(g, x, 1180, 720, 25, 25, 2700, chrome);
+    part(g, x, 950, 100, 35, 40, 160, chrome);
+    part(g, x, 950, 1150, 35, 40, 160, chrome);
   }
-  part(g, 0, 0.9, -2.62, 1.62, 0.07, 0.05, lampOf(0xf2f5f8));
-  part(g, 0, 0.9, -2.66, 0.14, 0.09, 0.03, chrome);
-  part(g, 0, 0.62, -2.6, 1.35, 0.28, 0.06, black);
-  part(g, 0, 0.4, -2.6, 1.45, 0.09, 0.06, black);
-  part(g, 0, 1.08, 2.62, 1.55, 0.05, 0.04, lampOf(0xd24a4a));
-  part(g, 0, 0.48, 2.6, 1.2, 0.1, 0.05, black);
-  part(g, 0, 1.8, -0.15, 0.28, 0.08, 0.22, black);
-  for (const x of [-0.62, 0.62])
-    part(g, x, 1.78, 0.7, 0.04, 0.03, 2.1, chrome);
-  mirror(g, -1.08, 1.22, -0.42, paint, glass);
-  mirror(g, 1.08, 1.22, -0.42, paint, glass);
-  for (const x of [-0.98, 0.98])
+  part(g, 0, 900, -2620, 1620, 70, 50, lampOf(0xf2f5f8));
+  part(g, 0, 900, -2660, 140, 90, 30, chrome);
+  part(g, 0, 620, -2600, 1350, 280, 60, black);
+  part(g, 0, 400, -2600, 1450, 90, 60, black);
+  part(g, 0, 1080, 2620, 1550, 50, 40, lampOf(0xd24a4a));
+  part(g, 0, 480, 2600, 1200, 100, 50, black);
+  part(g, 0, 1800, -150, 280, 80, 220, black);
+  for (const x of [-620, 620])
+    part(g, x, 1780, 700, 40, 30, 2100, chrome);
+  mirror(g, -1080, 1220, -420, paint, glass);
+  mirror(g, 1080, 1220, -420, paint, glass);
+  for (const x of [-980, 980])
     for (const z of [frontAxle, rearAxle]) {
-      arch(g, x, z, 0.48, black);
-      wheel(g, x, z, 0.39, 0.26, 10, tire, rim);
+      arch(g, x, z, 480, black);
+      wheel(g, x, z, 390, 260, 10, tire, rim);
     }
   return g;
 }
@@ -242,81 +242,81 @@ export function buildL9(_mat: Mats) {
 export function buildXingyuan(_mat: Mats) {
   const g = new THREE.Group();
   g.name = "吉利星愿";
-  const length = 4.135;
+  const length = 4135;
   const half = length / 2;
-  const frontAxle = -half + 0.735;
-  const rearAxle = frontAxle + 2.65;
-  const silver = paintOf(0xd5d8dc, 0.28);
-  const black = paintOf(0x1a1a1a, 0.5);
+  const frontAxle = -half + 735;
+  const rearAxle = frontAxle + 2650;
+  const silver = paintOf(0xd5d8dc, 280);
+  const black = paintOf(0x1a1a1a, 500);
   const glass = glassOf();
-  const tire = paintOf(0x1a1a1a, 0.85);
-  const rim = paintOf(0xe4e6e8, 0.3);
-  const bodyW = 1.72;
+  const tire = paintOf(0x1a1a1a, 850);
+  const rim = paintOf(0xe4e6e8, 300);
+  const bodyW = 1720;
   profileBody(
     g,
     [
-      [-1.86, 0.3],
-      [-2.02, 0.48],
-      [-1.98, 0.72],
-      [-1.78, 0.9],
-      [-1.28, 1.0],
-      [-0.9, 1.06],
-      [-0.38, 1.44],
-      [0.05, 1.52],
-      [1.1, 1.53],
-      [1.5, 1.44],
-      [1.78, 1.12],
-      [1.96, 0.74],
-      [2.0, 0.46],
-      [1.78, 0.28],
-      [-1.5, 0.28],
+      [-1860, 300],
+      [-2020, 480],
+      [-1980, 720],
+      [-1780, 900],
+      [-1280, 1000],
+      [-900, 1060],
+      [-380, 1440],
+      [50, 1520],
+      [1100, 1530],
+      [1500, 1440],
+      [1780, 1120],
+      [1960, 740],
+      [2000, 460],
+      [1780, 280],
+      [-1500, 280],
     ],
     bodyW,
     silver,
-    0.07,
+    70,
   );
-  part(g, 0, 1.52, 0.45, bodyW + 0.02, 0.12, 1.85, black);
-  part(g, 0, 0.38, 0, bodyW - 0.2, 0.14, length - 0.55, black);
+  part(g, 0, 1520, 450, bodyW + 20, 120, 1850, black);
+  part(g, 0, 380, 0, bodyW - 200, 140, length - 550, black);
   slopedPanel(
     g,
-    new THREE.Vector3(0, 1.08, -0.95),
-    new THREE.Vector3(0, 1.46, -0.32),
-    1.38,
-    0.03,
+    new THREE.Vector3(0, 1080, -950),
+    new THREE.Vector3(0, 1460, -320),
+    1380,
+    30,
     glass,
   );
   slopedPanel(
     g,
-    new THREE.Vector3(0, 1.12, 1.72),
-    new THREE.Vector3(0, 1.46, 1.42),
-    1.2,
-    0.03,
+    new THREE.Vector3(0, 1120, 1720),
+    new THREE.Vector3(0, 1460, 1420),
+    1200,
+    30,
     glass,
   );
-  for (const x of [-0.89, 0.89]) {
-    part(g, x, 1.28, 0.15, 0.03, 0.34, 0.72, glass);
-    part(g, x, 1.28, 1.05, 0.03, 0.32, 0.55, glass);
-    part(g, x, 1.02, -0.15, 0.045, 0.04, 0.11, black);
-    part(g, x, 1.02, 0.85, 0.045, 0.04, 0.11, black);
+  for (const x of [-890, 890]) {
+    part(g, x, 1280, 150, 30, 340, 720, glass);
+    part(g, x, 1280, 1050, 30, 320, 550, glass);
+    part(g, x, 1020, -150, 45, 40, 110, black);
+    part(g, x, 1020, 850, 45, 40, 110, black);
   }
-  for (const x of [-0.55, 0.55]) {
+  for (const x of [-550, 550]) {
     const sign = Math.sign(x);
-    part(g, x, 0.78, -2.02, 0.46, 0.14, 0.08, lampOf(0xf7f8f4), [0, sign * 0.45, sign * -0.08]);
-    part(g, x + sign * 0.08, 0.78, -1.98, 0.2, 0.08, 0.03, black);
+    part(g, x, 780, -2020, 460, 140, 80, lampOf(0xf7f8f4), [0, sign * 0.45, sign * -0.08]);
+    part(g, x + sign * 80, 780, -1980, 200, 80, 30, black);
   }
-  part(g, 0, 0.96, -1.72, 0.16, 0.04, 0.02, black);
-  part(g, 0, 0.42, -1.96, 1.35, 0.12, 0.06, black);
-  for (const x of [-0.62, 0.62])
-    part(g, x, 0.46, -1.98, 0.05, 0.16, 0.03, lampOf(0xf4f6f2));
-  for (const x of [-0.55, 0.55])
-    part(g, x, 0.82, 1.94, 0.28, 0.1, 0.04, lampOf(0xc43838), [0, Math.sign(x) * -0.4, 0]);
-  part(g, 0, 1.5, 1.55, bodyW - 0.35, 0.04, 0.28, black);
-  mirror(g, -0.98, 1.12, -0.35, black, glass);
-  mirror(g, 0.98, 1.12, -0.35, black, glass);
-  for (const x of [-0.9, 0.9])
+  part(g, 0, 960, -1720, 160, 40, 20, black);
+  part(g, 0, 420, -1960, 1350, 120, 60, black);
+  for (const x of [-620, 620])
+    part(g, x, 460, -1980, 50, 160, 30, lampOf(0xf4f6f2));
+  for (const x of [-550, 550])
+    part(g, x, 820, 1940, 280, 100, 40, lampOf(0xc43838), [0, Math.sign(x) * -0.4, 0]);
+  part(g, 0, 1500, 1550, bodyW - 350, 40, 280, black);
+  mirror(g, -980, 1120, -350, black, glass);
+  mirror(g, 980, 1120, -350, black, glass);
+  for (const x of [-900, 900])
     for (const z of [frontAxle, rearAxle]) {
-      arch(g, x, z, 0.4, black);
-      wheel(g, x, z, 0.326, 0.2, 5, tire, rim);
+      arch(g, x, z, 400, black);
+      wheel(g, x, z, 326, 200, 5, tire, rim);
     }
   return g;
 }

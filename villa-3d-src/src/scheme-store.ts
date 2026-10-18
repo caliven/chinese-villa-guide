@@ -17,6 +17,14 @@ import {
 import type { CourtyardDimLayout } from "./courtyard-dim-drag";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
 import { parseRoofStyle, type RoofStyle } from "./roof-options";
+import {
+  LENGTH_UNITS,
+  isMeterLayoutDraft,
+  isMeterLengthPayload,
+  migrateCourtyardDimLayoutToMm,
+  migrateLayoutLengthsToMm,
+  migrateVillaParamsToMm,
+} from "./units";
 
 export const schemeSchema = "anhua-villa-scheme-v1";
 export const schemeCurrentUrl = "./scheme/current.json";
@@ -24,6 +32,8 @@ export const schemeVersionsIndexUrl = "./scheme/versions/index.json";
 
 export type SchemeDocument = {
   schema: typeof schemeSchema;
+  /** 长度单位；缺省或 "m" 视为旧米制稿，读入时迁成毫米。 */
+  units: typeof LENGTH_UNITS;
   id: string;
   title: string;
   savedAt: string;
@@ -58,9 +68,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * 判断载入文档是否为旧米制：units 标记优先；否则看 villaParams.mainWidth<100，
+ * 或户型草稿一层层高<100。
+ */
+export function isMeterSchemePayload(raw: Record<string, unknown>): boolean {
+  const mainWidth = isRecord(raw.villaParams) ? raw.villaParams.mainWidth : undefined;
+  if (raw.units === "mm") return false;
+  if (raw.units === "m") return true;
+  return (
+    isMeterLengthPayload(raw, { mainWidth: typeof mainWidth === "number" ? mainWidth : undefined }) ||
+    isMeterLayoutDraft(raw.layoutDraft)
+  );
+}
+
+/** 米制稿 → 毫米（villaParams 先迁再与默认值合并，避免米／毫米混合）。 */
+export function migrateSchemeRawToMm(raw: Record<string, unknown>): Record<string, unknown> {
+  if (!isMeterSchemePayload(raw)) return raw;
+  const out: Record<string, unknown> = { ...raw, units: LENGTH_UNITS };
+  if (isRecord(raw.villaParams)) out.villaParams = migrateVillaParamsToMm(raw.villaParams);
+  if (raw.layoutDraft != null) out.layoutDraft = migrateLayoutLengthsToMm(raw.layoutDraft);
+  if (isRecord(raw.courtyardDimLayout)) {
+    out.courtyardDimLayout = migrateCourtyardDimLayoutToMm(raw.courtyardDimLayout as Record<string, number>);
+  }
+  return out;
+}
+
 export function createEmptyScheme(title = "当前方案"): SchemeDocument {
   return {
     schema: schemeSchema,
+    units: LENGTH_UNITS,
     id: "current",
     title,
     savedAt: formatSavedAt(),
@@ -73,9 +110,10 @@ export function createEmptyScheme(title = "当前方案"): SchemeDocument {
   };
 }
 
-export function parseSchemeDocument(raw: unknown): SchemeDocument {
-  if (!isRecord(raw)) throw new Error("方案文件不是对象");
-  if (raw.schema !== schemeSchema) throw new Error(`方案版本应为 ${schemeSchema}`);
+export function parseSchemeDocument(input: unknown): SchemeDocument {
+  if (!isRecord(input)) throw new Error("方案文件不是对象");
+  if (input.schema !== schemeSchema) throw new Error(`方案版本应为 ${schemeSchema}`);
+  const raw = migrateSchemeRawToMm(input);
   const villaParams = { ...DEFAULT_VILLA_PARAMS, ...(isRecord(raw.villaParams) ? raw.villaParams : {}) } as VillaParams;
   villaParams.gutterBedSlope = normalizeGutterBedSlopeDegrees(villaParams.gutterBedSlope);
   const issues = validateVillaParams(villaParams);
@@ -95,6 +133,7 @@ export function parseSchemeDocument(raw: unknown): SchemeDocument {
 
   return {
     schema: schemeSchema,
+    units: LENGTH_UNITS,
     id: typeof raw.id === "string" && raw.id ? raw.id : "current",
     title: typeof raw.title === "string" && raw.title ? raw.title : "方案",
     savedAt: typeof raw.savedAt === "string" ? raw.savedAt : formatSavedAt(),
@@ -122,6 +161,7 @@ export function buildSchemeDocument(input: {
 }): SchemeDocument {
   return {
     schema: schemeSchema,
+    units: LENGTH_UNITS,
     id: input.id ?? "current",
     title: input.title ?? "当前方案",
     savedAt: formatSavedAt(),
@@ -320,13 +360,18 @@ export function migrateLegacyLocalStorage(): Partial<SchemeDocument> | null {
     const out: Partial<SchemeDocument> = {};
     const paramsRaw = localStorage.getItem("anhua-villa-params-v1");
     if (paramsRaw) {
-      const merged = { ...DEFAULT_VILLA_PARAMS, ...JSON.parse(paramsRaw) };
+      const parsed = JSON.parse(paramsRaw) as Record<string, unknown>;
+      const rawParams = isRecord(parsed) && isMeterLengthPayload(parsed) ? migrateVillaParamsToMm(parsed) : parsed;
+      const merged = { ...DEFAULT_VILLA_PARAMS, ...rawParams } as VillaParams;
       if (validateVillaParams(merged).length === 0) out.villaParams = merged;
     }
     const layoutRaw = localStorage.getItem("anhua-villa-layout-draft-v1");
     if (layoutRaw) {
       try {
-        out.layoutDraft = parseLayoutDraftManaged(layoutRaw);
+        const layoutJson = JSON.parse(layoutRaw) as unknown;
+        out.layoutDraft = parseLayoutDraftManaged(
+          JSON.stringify(isMeterLayoutDraft(layoutJson) ? migrateLayoutLengthsToMm(layoutJson) : layoutJson),
+        );
       } catch {
         /* ignore */
       }
@@ -339,7 +384,10 @@ export function migrateLegacyLocalStorage(): Partial<SchemeDocument> | null {
         for (const [id, value] of Object.entries(parsed)) {
           if (typeof value === "number" && Number.isFinite(value)) courtyardDimLayout[id] = value;
         }
-        out.courtyardDimLayout = courtyardDimLayout;
+        // 旧 localStorage 尺寸线偏移为米（绝对值一般 <20）。
+        const maxAbs = Math.max(0, ...Object.values(courtyardDimLayout).map((v) => Math.abs(v)));
+        out.courtyardDimLayout =
+          maxAbs > 0 && maxAbs < 50 ? migrateCourtyardDimLayoutToMm(courtyardDimLayout) : courtyardDimLayout;
       }
     }
     const roof = localStorage.getItem("anhua-villa-roof-style-v1");

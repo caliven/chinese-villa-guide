@@ -13,7 +13,7 @@ const view = (): MeetingView => ({
   roofStyle: "joined",
   courtyardFinish: "concrete", neighborCourtyardFinish: "concrete",
   tab: "model", camera: "garage", level: 0, planMode: "2d", existing: false, balcony: false,
-  fenShui: 4.5, roadY: -1.86, rampLength: 5, progress: 72,
+  fenShui: 4.5, roadY: -1860, rampLength: 5000, progress: 72,
   sunDate: "2026-09-23", sunTime: 10.5, dining: "full",
   flags: Object.fromEntries(viewFlags.map((key) => [key, true])),
   pose: { position: [48, 30, -43], target: [26.5, -1.4, -9.5], zoom: 1 },
@@ -21,13 +21,13 @@ const view = (): MeetingView => ({
 });
 test("控制线分别起算，首层抬高反映在楼梯与辅楼连接中", () => {
   const m = entranceMetrics();
-  // 柱心在北沿角上：前墙→柱北皮＝外伸＋半柱＝2.4；平台／台阶由此派生。
-  for (const [key, value] of Object.entries({ column: 2.4, platform: 2.55, steps: 3.15, connectionRise: .435, rampGrade: 22.5 }))
-    assert.ok(Math.abs(m[key as keyof typeof m] - value) < 1e-8, key);
-  assert.equal(m.projection, 2);
+  // 柱心在北沿角上：前墙→柱北皮＝外伸＋半柱＝2400；平台／台阶由此派生。
+  for (const [key, value] of Object.entries({ column: 2400, platform: 2550, steps: 3150, connectionRise: 435, rampGrade: 22.5 }))
+    assert.ok(Math.abs(m[key as keyof typeof m] - value) < 1e-6, key);
+  assert.equal(m.projection, 2000);
   const stairs = stairMetrics();
-  assert.deepEqual(stairs.map((s) => s.rise), [3.15, 3.6]);
-  assert.deepEqual(stairs.map((s) => s.riser), [3.15 / 20, 3.6 / 20]);
+  assert.deepEqual(stairs.map((s) => s.rise), [3150, 3600]);
+  assert.deepEqual(stairs.map((s) => s.riser), [3150 / 20, 3600 / 20]);
   assert.ok(stairs.every((s) => s.headroom === null && s.clearWidth === null));
 });
 test("用途待定不计为已确定卧室；套卫包络不转成可用净面积", () => {
@@ -44,7 +44,7 @@ test("用途待定不计为已确定卧室；套卫包络不转成可用净面�
 test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", () => {
   const svg = courtyardSitePlan();
   assert.match(svg, /整体院坪平面图/);
-  assert.match(svg, /邻居面宽 13\.0 m/);
+  assert.match(svg, /邻居面宽 13000/);
   assert.match(svg, /门厅中心前墙→外沿/);
   assert.match(svg, /左柱外缘→外沿/);
   assert.match(svg, /右柱外缘→外沿/);
@@ -55,16 +55,16 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
   assert.match(svg, /右开间墙→外沿/);
   assert.match(svg, /主楼前墙→外沿/);
   assert.match(svg, /主楼右角→外沿/);
-  assert.match(svg, /子孙道 1\.5 m/);
+  assert.match(svg, /子孙道 1800/);
   assert.ok(!svg.includes(">过道 "));
   assert.ok(!/>子孙道</.test(svg));
   assert.match(svg, /罗马柱门厅/);
-  assert.match(svg, /4\.8×2\.0/);
+  assert.match(svg, /4600×2000/);
   assert.ok(!svg.includes("前院东宽西窄"));
-  assert.match(svg, /邻院外 8\.6 m/);
-  assert.match(svg, /西总进深 11\.0 m/);
-  assert.match(svg, /东总进深 19\.4 m/);
-  assert.match(svg, /中总进深 15\.8 m/);
+  assert.match(svg, /邻院外 8600/);
+  assert.match(svg, /西总进深 11000/);
+  assert.match(svg, /东总进深 19400/);
+  assert.match(svg, /中总进深 15800/);
   assert.match(svg, /dim-ext/);
   assert.match(svg, /yard-dim-direct/);
   assert.match(svg, /yard-dim-extend/);
@@ -77,8 +77,8 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
   assert.match(svg, /data-edge=/);
   assert.match(svg, /data-base-dim=/);
   // 图内「内退」「中总进深」「主楼前墙→外沿」默认贴边，无虚线；黄点在 edge
-  // 辅楼默认进深 8 → 相对主楼内退 2.0 m
-  for (const label of ["内退 2.0 m", "中总进深 15.8 m", "主楼前墙→外沿"]) {
+  // 辅楼默认进深 8000 → 相对主楼内退 2000
+  for (const label of ["内退 2000", "中总进深 15800", "主楼前墙→外沿"]) {
     const at = svg.indexOf(label);
     const open = svg.lastIndexOf("<g class=\"yard-dim", at);
     const g = svg.slice(open, svg.indexOf("</g>", at) + 4);
@@ -87,10 +87,10 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
     assert.match(g, /data-edge=/, label);
   }
   // 偏移只改尺寸线位置，黄点 edge 不变
-  const shifted = courtyardSitePlan({ "v-setback": 1.5 });
-  assert.match(shifted, /data-yard-dim="v-setback"[^>]*data-shift="1\.5"/);
+  const shifted = courtyardSitePlan({ "v-setback": 1500 });
+  assert.match(shifted, /data-yard-dim="v-setback"[^>]*data-shift="1500"/);
   {
-    const at = shifted.indexOf("内退 2.0 m");
+    const at = shifted.indexOf("内退 2000");
     const open = shifted.lastIndexOf("<g class=\"yard-dim", at);
     const g = shifted.slice(open, shifted.indexOf("</g>", at) + 4);
     assert.match(g, /dim-ext/);
@@ -115,16 +115,16 @@ test("辅楼餐厅圆桌情景切换不影响车辆尺寸", () => {
   // 餐厅圆桌6座；daily 情景收起圆桌椅（靠背用 chair-back，不再双计）
   assert.equal(chairs(full) - chairs(daily), 6);
   assert.match(daily, /收纳待定/);
-  assert.equal(site.vehicle.length, 5.218);
+  assert.equal(site.vehicle.length, 5218);
 });
 test("日照探针由真实南窗洞口生成，采样点留在窗高范围内", () => {
   const probes = southWindowProbes();
   // 一层南向：南侧房＋临时餐厅大窗＋尊亲房；二层南向大窗若干（门洞不计）
   assert.ok(probes.length >= 4);
   for (const [index, floor] of floors.slice(0, 2).entries()) {
-    const wall = facades(index).find((w) => Math.abs(w.a[1] - w.b[1]) < .01 && w.a[1] > 8.75)!;
-    for (const o of wall.openings.filter((o) => o.w > 1.5 && !o.door)) {
-      const p = probes.find((p) => Math.abs(p.x - wall.a[0] - o.at) < 1e-8 && p.name.startsWith(floor.name))!;
+    const wall = facades(index).find((w) => Math.abs(w.a[1] - w.b[1]) < 10 && w.a[1] > 8750)!;
+    for (const o of wall.openings.filter((o) => o.w > 1500 && !o.door)) {
+      const p = probes.find((p) => Math.abs(p.x - wall.a[0] - o.at) < 1e-6 && p.name.startsWith(floor.name))!;
       assert.ok(p);
       assert.ok(p.y - p.sampleOffset >= floor.y + o.sill);
       assert.ok(p.y + p.sampleOffset <= floor.y + o.sill + o.h);
@@ -171,9 +171,31 @@ test("官帽造型随会议JSON完整回读，旧快照恢复原有官帽", () =
   assert.deepEqual(parseSession(JSON.stringify(session)), session);
   const { roofStyle: _roof, ...legacy } = source;
   assert.equal(validateMeetingView(legacy).roofStyle, "joined");
-  const html = meetingBooklet(session, { fenShui: 4.5, roadY: -1.86, rampLength: 5 }, source);
+  const html = meetingBooklet(session, { fenShui: 4.5, roadY: -1860, rampLength: 5000 }, source);
   assert.match(html, /悬浮官帽/);
   assert.ok(!html.includes("undefined"));
+});
+test("旧米制会议快照（道路标高／坡长／方案尺寸）读回时迁成毫米", () => {
+  const legacy = {
+    ...view(),
+    roadY: -1.86,
+    rampLength: 5,
+    villaParams: { mainWidth: 13.5, mainDepth: 10, floor1Height: 3.6, roofFenShui: 4.5, gutterBedSlope: 1, rearGap: 1.2 },
+  };
+  const restored = validateMeetingView(legacy);
+  assert.equal(restored.roadY, -1860);
+  assert.equal(restored.rampLength, 5000);
+  assert.equal(restored.villaParams.mainWidth, 13500);
+  assert.equal(restored.villaParams.mainDepth, 10000);
+  assert.equal(restored.villaParams.floor1Height, 3600);
+  assert.equal(restored.villaParams.rearGap, 1200);
+  // 非长度字段不乘 1000；未提供的字段保持默认毫米值。
+  assert.equal(restored.villaParams.roofFenShui, 4.5);
+  assert.equal(restored.villaParams.gutterBedSlope, 1);
+  assert.equal(restored.villaParams.westGap, DEFAULT_VILLA_PARAMS.westGap);
+  // 新毫米快照原样回读，不会被再放大。
+  assert.deepEqual(validateMeetingView(view()).villaParams, DEFAULT_VILLA_PARAMS);
+  assert.equal(validateMeetingView(view()).roadY, -1860);
 });
 test("旧会议快照缺方案尺寸时回落默认参数", () => {
   const { villaParams: _p, ...legacy } = view();
@@ -183,14 +205,14 @@ test("旧会议快照缺方案尺寸时回落默认参数", () => {
 test("导出图册转义会议内容，参数变化更新图纸，未知工程条件保持为空", () => {
   const session = emptySession();
   session.brief = '<img src=x onerror="alert(1)"><script>bad()</script>';
-  const options = { fenShui: 4.5, roadY: -1.86, rampLength: 5 };
+  const options = { fenShui: 4.5, roadY: -1860, rampLength: 5000 };
   const html = meetingBooklet(session, options, view());
   assert.ok(!html.includes(session.brief));
   assert.match(html, /&lt;script&gt;bad\(\)&lt;\/script&gt;/);
   assert.match(html, /最低梁底待联测/);
   assert.match(html, /切口协商待确认/);
   assert.ok(!/https?:\/\//.test(html.replaceAll('xmlns="http://www.w3.org/2000/svg"', "")));
-  const base = designDrawings(options), changed = designDrawings({ ...options, fenShui: 6, roadY: -2.5 });
+  const base = designDrawings(options), changed = designDrawings({ ...options, fenShui: 6, roadY: -2500 });
   assert.equal(base.length, 5);
   assert.notEqual(base[0].svg, changed[0].svg);
   assert.notEqual(base[1].svg, changed[1].svg);
@@ -198,7 +220,7 @@ test("导出图册转义会议内容，参数变化更新图纸，未知工程�
   assert.deepEqual(unresolvedConditions, { roadSurveyElevation: null, lowestRetainedSoffitElevation: null, cutAgreementConfirmed: false, stairHeadroom: null, structuralCapacity: null, drainageDestination: null });
 });
 test("允许的坡道极值下，路线标高及车高带仍完整落在绘图区", () => {
-  for (const roadY of [-3.8, 0]) for (const rampLength of [3, 10]) {
+  for (const roadY of [-3800, 0]) for (const rampLength of [3000, 10000]) {
     const svg = designDrawings({ fenShui: 10, roadY, rampLength })[1].svg;
     const polygon = svg.match(/<polygon points="([^"]+)" class="vehicle"/)!;
     assert.ok(polygon);

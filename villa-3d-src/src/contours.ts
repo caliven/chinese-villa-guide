@@ -1,8 +1,8 @@
 import type { Point } from "./data";
 
-// 田埂控制点按 X 递增。保形 Hermite 插值保留转折，不越过相邻点的 Z 范围。
+// 坐标与 spacing、distance 均为毫米。田埂控制点按 X 递增。保形 Hermite 插值保留转折，不越过相邻点的 Z 范围。
 // 采样结果同时供田面、田坎、院坪和高度查询使用，避免各自拟合留下缝隙。
-export function smoothContour(points: Point[], spacing = 0.45): Point[] {
+export function smoothContour(points: Point[], spacing = 450): Point[] {
   const slopes = points.slice(1).map((p, i) =>
     (p[1] - points[i][1]) / (p[0] - points[i][0]),
   );

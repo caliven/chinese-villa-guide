@@ -1,12 +1,20 @@
 import type { Furniture, Point, Room, Wall } from "./data";
-import { annexFurniture, annexRooms, floors, site } from "./data";
+import { annexFurniture, annexRooms, construction, floors, isPhysicalWall, site, wallRoleOf } from "./data";
 import { roomFillBounds } from "./design-data";
 import { furnitureLocalBounds, furnitureLocalToWorld } from "./furniture-catalog";
 import { normalizeOpening, type WallOpening } from "./openings";
-import { forceOrthoWall, snapMeter, wallAxis } from "./layout-draft";
+import {
+  collectWallSnapSegs,
+  extendOrthoEndToFarFace,
+  forceOrthoWall,
+  snapMeter,
+  wallAxis,
+  WALL_EDGE_SNAP_GAP,
+  type WallSnapSeg,
+} from "./layout-draft";
 
-/** 家具贴墙内皮后再留的示意缝（米），避免色块压进墙线。 */
-export const FURNITURE_WALL_FINISH = 0.02;
+/** 家具贴墙内皮后再留的示意缝（mm），避免色块压进墙线。 */
+export const FURNITURE_WALL_FINISH = 20;
 
 export type OpeningBay = {
   bayStart: number;
@@ -62,13 +70,13 @@ function distToWallLine(a: Point, b: Point, x: number, z: number) {
   return Math.hypot(x - px, z - pz);
 }
 
-function pushStation(out: number[], value: number, wallLen: number, pad = 0.02) {
+function pushStation(out: number[], value: number, wallLen: number, pad = 20) {
   if (!Number.isFinite(value)) return;
   if (value < -pad || value > wallLen + pad) return;
   out.push(Math.min(wallLen, Math.max(0, value)));
 }
 
-function uniqueSorted(values: number[], eps = 0.08) {
+function uniqueSorted(values: number[], eps = 80) {
   const sorted = [...values].sort((a, b) => a - b);
   const out: number[] = [];
   for (const v of sorted) {
@@ -89,7 +97,7 @@ export function collectBayStations(
 ): number[] {
   const wallLen = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
   const stations: number[] = [0, wallLen];
-  const near = 0.45;
+  const near = 450;
 
   for (const wall of partitions) {
     for (const p of [wall.a, wall.b] as Point[]) {
@@ -173,7 +181,7 @@ export function bayAlongWall(a: Point, b: Point, opening: WallOpening, stations:
 
 /** 使洞口中心对齐开间中心，宽度不变，夹在开间内。 */
 export function centerOpeningInBay(bay: OpeningBay, width: number) {
-  const w = Math.max(0.3, width);
+  const w = Math.max(300, width);
   const maxOffset = Math.max(bay.bayStart, bay.bayEnd - w);
   const ideal = (bay.bayStart + bay.bayEnd) / 2 - w / 2;
   return snapMeter(Math.min(maxOffset, Math.max(bay.bayStart, ideal)));
@@ -257,6 +265,7 @@ const FREE_PLACE_FURNITURE = new Set([
   "roundTable",
   "chair",
   "coffeeTable",
+  "railing",
 ]);
 
 export function furnitureUsesWallCenter(kind: string) {
@@ -397,12 +406,22 @@ export function centerFurnitureAgainstNearestWall(
   return f;
 }
 
-/** 从隔墙／房间边／外轮廓收集可吸附的竖线 X 与横线 Z。 */
+function wallHalfForSnap(wall: Wall): number {
+  if (!isPhysicalWall(wall)) return 0;
+  return (wallRoleOf(wall) === "bearing" ? construction.outsideWall : construction.partition) / 2;
+}
+
+/**
+ * 房间吸附轴：只取墙体内侧（外墙内皮／隔墙中线内侧），不吸到墙中或外侧。
+ * 按房间中心所在一侧选取内侧；不含其它房间边，避免吸到墙外。
+ */
 export function collectRoomSnapAxes(options: {
   partitions: Wall[];
   rooms: Room[];
   excludeRoomId?: string;
   bounds?: { x0: number; x1: number; z0: number; z1: number }[];
+  /** 正在吸附的房间：用来判断墙的哪一侧是内侧。 */
+  forRoom?: Pick<Room, "x" | "z" | "w" | "d">;
 }): { xs: number[]; zs: number[] } {
   const xs: number[] = [];
   const zs: number[] = [];
@@ -412,22 +431,12 @@ export function collectRoomSnapAxes(options: {
   const pushZ = (v: number) => {
     if (Number.isFinite(v)) zs.push(v);
   };
+  const cx = options.forRoom ? options.forRoom.x + options.forRoom.w / 2 : null;
+  const cz = options.forRoom ? options.forRoom.z + options.forRoom.d / 2 : null;
 
-  for (const wall of options.partitions) {
-    const dx = Math.abs(wall.b[0] - wall.a[0]);
-    const dz = Math.abs(wall.b[1] - wall.a[1]);
-    if (dx <= dz * 0.35) pushX((wall.a[0] + wall.b[0]) / 2);
-    if (dz <= dx * 0.35) pushZ((wall.a[1] + wall.b[1]) / 2);
-  }
-
-  for (const room of options.rooms) {
-    if (room.id === options.excludeRoomId) continue;
-    pushX(room.x);
-    pushX(room.x + room.w);
-    pushZ(room.z);
-    pushZ(room.z + room.d);
-  }
-
+  // 外墙内皮（外皮 ± 外墙厚）——房间外轮廓贴外墙中／内皮时仍用「外皮」作外轮廓轴；
+  // 吸附目标改为内皮对应的外轮廓位置＝外皮（room 外轮廓在外皮，色块再缩）。
+  // 用户要求不吸到外侧：外轮廓轴仍用外皮，但只允许房间整体落在包络内侧。
   for (const b of options.bounds ?? []) {
     pushX(b.x0);
     pushX(b.x1);
@@ -435,18 +444,45 @@ export function collectRoomSnapAxes(options: {
     pushZ(b.z1);
   }
 
-  return { xs: uniqueSorted(xs, 0.04), zs: uniqueSorted(zs, 0.04) };
+  for (const wall of options.partitions) {
+    const dx = Math.abs(wall.b[0] - wall.a[0]);
+    const dz = Math.abs(wall.b[1] - wall.a[1]);
+    const half = wallHalfForSnap(wall);
+    if (dx <= dz * 0.35) {
+      const at = (wall.a[0] + wall.b[0]) / 2;
+      // 外轮廓贴中线＝色块贴内皮；按房间在墙西／东只提供该侧的中线目标
+      if (cx == null || cx < at) pushX(at);
+      if (cx == null || cx > at) pushX(at);
+      // 禁止吸到墙「外侧」：不提供对侧外皮（中线±半厚的外侧）
+      void half;
+    }
+    if (dz <= dx * 0.35) {
+      const at = (wall.a[1] + wall.b[1]) / 2;
+      if (cz == null || cz < at) pushZ(at);
+      if (cz == null || cz > at) pushZ(at);
+    }
+  }
+
+  const prioritized = (values: number[]) => {
+    const kept: number[] = [];
+    for (const v of values) {
+      if (!kept.some((a) => Math.abs(a - v) < 40)) kept.push(v);
+    }
+    return kept.sort((a, b) => a - b);
+  };
+  return { xs: prioritized(xs), zs: prioritized(zs) };
 }
 
 /**
- * 固定宽／进深，把房间贴到最近的竖墙（改 X）与最近的横墙（改 Z）——共两面。
- * maxGap 内才吸附；改尺寸时可用较大阈值，确保贴上最近两面墙。
+ * 固定宽／进深，把房间贴到最近的墙线内侧对应外轮廓轴。
+ * 吸附后钳制：房间不得越过墙中线到另一侧（不会压到墙体上／外侧）。
  */
 export function snapRoomToNearestWalls(
   room: Room,
   xs: number[],
   zs: number[],
-  maxGap = 0.55,
+  maxGap = 550,
+  partitions?: Wall[],
 ) {
   const snapAxis = (edge0: number, size: number, anchors: number[]) => {
     const edge1 = edge0 + size;
@@ -464,6 +500,32 @@ export function snapRoomToNearestWalls(
   if (nextX != null) room.x = snapMeter(nextX);
   const nextZ = snapAxis(room.z, room.d, zs);
   if (nextZ != null) room.z = snapMeter(nextZ);
+
+  // 钳制：房间整体须落在每道隔墙的同一侧，外轮廓不超过墙中线。
+  if (partitions) {
+    const cx = room.x + room.w / 2;
+    const cz = room.z + room.d / 2;
+    for (const wall of partitions) {
+      const dx = Math.abs(wall.b[0] - wall.a[0]);
+      const dz = Math.abs(wall.b[1] - wall.a[1]);
+      if (dx <= dz * 0.35) {
+        const at = (wall.a[0] + wall.b[0]) / 2;
+        const lo = Math.min(wall.a[1], wall.b[1]);
+        const hi = Math.max(wall.a[1], wall.b[1]);
+        if (cz < lo - 50 || cz > hi + 50) continue;
+        if (cx < at && room.x + room.w > at) room.x = snapMeter(at - room.w);
+        if (cx > at && room.x < at) room.x = snapMeter(at);
+      } else if (dz <= dx * 0.35) {
+        const at = (wall.a[1] + wall.b[1]) / 2;
+        const lo = Math.min(wall.a[0], wall.b[0]);
+        const hi = Math.max(wall.a[0], wall.b[0]);
+        if (cx < lo - 50 || cx > hi + 50) continue;
+        if (cz < at && room.z + room.d > at) room.z = snapMeter(at - room.d);
+        if (cz > at && room.z < at) room.z = snapMeter(at);
+      }
+    }
+  }
+
   room.label = [room.x + room.w / 2, room.z + room.d / 2];
   return room;
 }
@@ -473,7 +535,7 @@ export type RoomEdgeSide = "west" | "east" | "north" | "south";
 
 export type OwnedWallRef = { index: number; edge: RoomEdgeSide };
 
-const ROOM_WALL_EDGE_TOL = 0.08;
+const ROOM_WALL_EDGE_TOL = 80;
 const ROOM_WALL_COVER = 0.85;
 
 function roomEdgeGeom(room: Room, edge: RoomEdgeSide) {
@@ -523,7 +585,7 @@ export function wallTouchesRoomEdge(
     const w1 = axis === "v" ? w.b[1] : w.b[0];
     const edgeLen = g.hi - g.lo;
     const wallLen = Math.abs(w1 - w0);
-    if (edgeLen < 0.05 || wallLen < 0.05) continue;
+    if (edgeLen < 50 || wallLen < 50) continue;
     const overlap = spanOverlap(w0, w1, g.lo, g.hi);
     if (soft != null) {
       if (overlap < soft) continue;
@@ -557,7 +619,7 @@ export function wallsOwnedByRoom(
     const edge = wallTouchesRoomEdge(wall, room, opts);
     if (!edge) continue;
     const shared = others.some(
-      (o) => wallTouchesRoomEdge(wall, o, { tol: opts?.tol, softCover: 0.2 }) != null,
+      (o) => wallTouchesRoomEdge(wall, o, { tol: opts?.tol, softCover: 200 }) != null,
     );
     if (shared) continue;
     out.push({ index: i, edge });
@@ -577,7 +639,6 @@ export function translateOwnedWallsWithRoom(
   wallOrigs: Wall[],
   rooms: Room[],
 ) {
-  if (Math.abs(dx) < 1e-9 && Math.abs(dz) < 1e-9) return;
   const owned = wallsOwnedByRoom(roomOrig, wallOrigs, rooms);
   for (const { index } of owned) {
     const o = wallOrigs[index];
@@ -602,7 +663,6 @@ export function translateFurnitureInsideRoom(
   roomsOrig: Room[],
   skipIndices?: ReadonlySet<number>,
 ) {
-  if (Math.abs(dx) < 1e-9 && Math.abs(dz) < 1e-9) return;
   for (let i = 0; i < furniture.length; i++) {
     if (skipIndices?.has(i)) continue;
     const o = furnitureOrigs[i];
@@ -639,6 +699,204 @@ export function resizeOwnedWallsWithRoom(
       w.b = [snapMeter(g.hi), snapMeter(g.c)];
     }
     forceOrthoWall(w);
+  }
+}
+
+export type EnvelopeRect = { x: number; z: number; w: number; d: number };
+
+/** 房间边是否贴楼体外皮（外墙不可随房间改尺寸挪动）。 */
+export function roomEdgeOnEnvelope(
+  room: Pick<Room, "x" | "z" | "w" | "d">,
+  edge: RoomEdgeSide,
+  body: EnvelopeRect,
+  tol = 120,
+): boolean {
+  if (edge === "west") return Math.abs(room.x - body.x) <= tol;
+  if (edge === "east") return Math.abs(room.x + room.w - (body.x + body.w)) <= tol;
+  if (edge === "north") return Math.abs(room.z - body.z) <= tol;
+  return Math.abs(room.z + room.d - (body.z + body.d)) <= tol;
+}
+
+/**
+ * 把已靠近外皮的房间边吸到楼体外皮精确坐标（消除 12mm 级漂移）。
+ * 例如东缘应贴 20200 却停在 20212 → 拉回外皮，并修正 w／x。
+ */
+export function clampRoomToEnvelope(room: Room, body: EnvelopeRect, tol = 120): Room {
+  const out: Room = { ...room, label: room.label ? ([...room.label] as [number, number]) : undefined };
+  const east = body.x + body.w;
+  const south = body.z + body.d;
+  let x0 = out.x;
+  let x1 = out.x + out.w;
+  let z0 = out.z;
+  let z1 = out.z + out.d;
+  if (Math.abs(x0 - body.x) <= tol) x0 = body.x;
+  if (Math.abs(x1 - east) <= tol) x1 = east;
+  if (Math.abs(z0 - body.z) <= tol) z0 = body.z;
+  if (Math.abs(z1 - south) <= tol) z1 = south;
+  // 越过外皮时也钳回（比 tol 漂移更大时仍不穿出楼体）
+  x0 = Math.max(body.x, Math.min(x0, east - 800));
+  x1 = Math.min(east, Math.max(x1, body.x + 800));
+  z0 = Math.max(body.z, Math.min(z0, south - 800));
+  z1 = Math.min(south, Math.max(z1, body.z + 800));
+  if (x1 - x0 < 800) {
+    if (Math.abs(x1 - east) <= Math.abs(x0 - body.x)) x0 = x1 - 800;
+    else x1 = x0 + 800;
+  }
+  if (z1 - z0 < 800) {
+    if (Math.abs(z1 - south) <= Math.abs(z0 - body.z)) z0 = z1 - 800;
+    else z1 = z0 + 800;
+  }
+  out.x = snapMeter(x0);
+  out.z = snapMeter(z0);
+  out.w = snapMeter(x1 - x0);
+  out.d = snapMeter(z1 - z0);
+  out.label = [out.x + out.w / 2, out.z + out.d / 2];
+  return out;
+}
+
+/**
+ * 改建筑宽／进深时锁定贴外皮的边：外墙不动，只推内侧边。
+ * 贴外皮时锁的是楼体外皮坐标（body），不是房间当前可能已漂移的边。
+ * 宽：东贴外皮则动西缘；西贴外皮则动东缘；双侧都贴则钳制为外包络宽。
+ * 进深：南／北同理。
+ */
+export function anchorRoomSizeAgainstEnvelope(
+  room: Room,
+  field: "w" | "d",
+  nextSize: number,
+  body: EnvelopeRect,
+): Room {
+  const size = Math.max(800, snapMeter(nextSize));
+  // 先吸回外皮，再判锁边，避免用 20212 这种漂移边当「外墙」
+  const base = clampRoomToEnvelope(room, body);
+  const out: Room = { ...base, label: base.label ? ([...base.label] as [number, number]) : undefined };
+  if (field === "w") {
+    const westLock = roomEdgeOnEnvelope(base, "west", body);
+    const eastLock = roomEdgeOnEnvelope(base, "east", body);
+    if (westLock && eastLock) {
+      out.x = snapMeter(body.x);
+      out.w = snapMeter(body.w);
+    } else if (eastLock && !westLock) {
+      const east = body.x + body.w;
+      out.w = Math.min(size, snapMeter(east - body.x - 800));
+      out.x = snapMeter(east - out.w);
+    } else if (westLock && !eastLock) {
+      out.x = snapMeter(body.x);
+      out.w = Math.min(size, snapMeter(body.x + body.w - out.x));
+    } else {
+      out.x = snapMeter(base.x);
+      out.w = size;
+    }
+  } else {
+    const northLock = roomEdgeOnEnvelope(base, "north", body);
+    const southLock = roomEdgeOnEnvelope(base, "south", body);
+    if (northLock && southLock) {
+      out.z = snapMeter(body.z);
+      out.d = snapMeter(body.d);
+    } else if (southLock && !northLock) {
+      const south = body.z + body.d;
+      out.d = Math.min(size, snapMeter(south - body.z - 800));
+      out.z = snapMeter(south - out.d);
+    } else if (northLock && !southLock) {
+      out.z = snapMeter(body.z);
+      out.d = Math.min(size, snapMeter(body.z + body.d - out.z));
+    } else {
+      out.z = snapMeter(base.z);
+      out.d = size;
+    }
+  }
+  out.label = [out.x + out.w / 2, out.z + out.d / 2];
+  return clampRoomToEnvelope(out, body);
+}
+
+/**
+ * 房间宽深变更后：把贴在「非外皮边」上的内墙推到新边中线（含与邻房共用的内墙）。
+ * 外皮边不改墙。共用内墙挪动后，邻房对应边跟着对齐，避免一边 3900、标注 3945。
+ * 邻房只传播一层（A→B）；更长的房间链暂不递归。
+ */
+export function syncInteriorWallsToRoom(
+  roomOrig: Room,
+  roomNext: Room,
+  walls: Wall[],
+  rooms: Room[],
+  body: EnvelopeRect,
+): void {
+  const edges: RoomEdgeSide[] = ["west", "east", "north", "south"];
+  for (const edge of edges) {
+    const g0 = roomEdgeGeom(roomOrig, edge);
+    const g1 = roomEdgeGeom(roomNext, edge);
+    const cMoved = Math.abs(g0.c - g1.c) >= 0.5;
+    const spanMoved =
+      Math.abs(g0.lo - g1.lo) >= 0.5 || Math.abs(g0.hi - g1.hi) >= 0.5;
+    if (!cMoved && !spanMoved) continue;
+    // 外皮边：中线不动；若仅开间变化仍可伸长贴外皮的横／竖墙沿向
+    const exterior = roomEdgeOnEnvelope(roomOrig, edge, body);
+    if (exterior && cMoved) continue;
+
+    for (const wall of walls) {
+      const touch = wallTouchesRoomEdge(wall, roomOrig, { softCover: 200, tol: 120 });
+      if (touch !== edge) continue;
+      forceOrthoWall(wall);
+      const axis = wallAxis(wall);
+      if (axis === "v" && (edge === "west" || edge === "east")) {
+        if (exterior && cMoved) continue; // 外皮竖墙中线不挪
+        const z0 = Math.min(wall.a[1], wall.b[1]);
+        const z1 = Math.max(wall.a[1], wall.b[1]);
+        let lo = z0;
+        let hi = z1;
+        if (Math.abs(z0 - g0.lo) <= 120) lo = g1.lo;
+        else lo = Math.min(z0, g1.lo);
+        if (Math.abs(z1 - g0.hi) <= 120) hi = g1.hi;
+        else hi = Math.max(z1, g1.hi);
+        const at = exterior ? (wall.a[0] + wall.b[0]) / 2 : g1.c;
+        wall.a = [snapMeter(at), snapMeter(Math.min(lo, hi))];
+        wall.b = [snapMeter(at), snapMeter(Math.max(lo, hi))];
+      } else if (axis === "h" && (edge === "north" || edge === "south")) {
+        if (exterior && cMoved) continue;
+        const x0 = Math.min(wall.a[0], wall.b[0]);
+        const x1 = Math.max(wall.a[0], wall.b[0]);
+        // 沿向跟新开间：端点若贴旧房角则跟到新角，否则保留更长贯通
+        let lo = x0;
+        let hi = x1;
+        if (Math.abs(x0 - g0.lo) <= 120) lo = g1.lo;
+        else lo = Math.min(x0, g1.lo);
+        if (Math.abs(x1 - g0.hi) <= 120) hi = g1.hi;
+        else hi = Math.max(x1, g1.hi);
+        const at = exterior ? (wall.a[1] + wall.b[1]) / 2 : g1.c;
+        wall.a = [snapMeter(Math.min(lo, hi)), snapMeter(at)];
+        wall.b = [snapMeter(Math.max(lo, hi)), snapMeter(at)];
+      } else {
+        continue;
+      }
+      forceOrthoWall(wall);
+    }
+
+    if (!cMoved) continue;
+    if (exterior) continue;
+
+    // 邻房旧时贴在本房对边上的边，跟着新中线
+    const opp =
+      edge === "west" ? "east" : edge === "east" ? "west" : edge === "north" ? "south" : "north";
+    for (const other of rooms) {
+      if (other.id === roomOrig.id) continue;
+      const og = roomEdgeGeom(other, opp);
+      if (Math.abs(og.c - g0.c) > 120) continue;
+      if (spanOverlap(og.lo, og.hi, g0.lo, g0.hi) < 200) continue;
+      if (opp === "east") {
+        other.w = snapMeter(Math.max(800, g1.c - other.x));
+      } else if (opp === "west") {
+        const x1 = other.x + other.w;
+        other.x = snapMeter(g1.c);
+        other.w = snapMeter(Math.max(800, x1 - g1.c));
+      } else if (opp === "south") {
+        other.d = snapMeter(Math.max(800, g1.c - other.z));
+      } else {
+        const z1 = other.z + other.d;
+        other.z = snapMeter(g1.c);
+        other.d = snapMeter(Math.max(800, z1 - g1.c));
+      }
+      other.label = [other.x + other.w / 2, other.z + other.d / 2];
+    }
   }
 }
 
@@ -691,12 +949,7 @@ export function isMainFrontFacade(a: Point, b: Point) {
   const midZ = (a[1] + b[1]) / 2;
   const frontZ = site.main.z;
   const alongX = Math.abs(b[0] - a[0]) > Math.abs(b[1] - a[1]);
-  return alongX && Math.abs(midZ - frontZ) < 0.35;
-}
-
-export function formatMeters(value: number) {
-  const n = Math.round(value * 100) / 100;
-  return (Object.is(n, -0) ? 0 : n).toFixed(2);
+  return alongX && Math.abs(midZ - frontZ) < 350;
 }
 
 /**
@@ -708,7 +961,7 @@ export function resizeRoomFromCorner(
   corner: string,
   worldX: number,
   worldZ: number,
-  minSize = 0.8,
+  minSize = 800,
 ): Pick<Room, "x" | "z" | "w" | "d"> {
   const east = orig.x + orig.w;
   const south = orig.z + orig.d;
@@ -746,7 +999,7 @@ export type WallAlignResult = {
 };
 
 /** 点是否落在线段投影附近（隔墙端对齐到正交墙时用）。 */
-function nearAlong(value: number, a0: number, a1: number, pad = 0.35) {
+function nearAlong(value: number, a0: number, a1: number, pad = 350) {
   const lo = Math.min(a0, a1);
   const hi = Math.max(a0, a1);
   return value >= lo - pad && value <= hi + pad;
@@ -761,7 +1014,7 @@ export function alignWallToNearestSide(
   wall: Wall,
   side: WallAlignSide,
   candidates: Pick<Wall, "a" | "b">[],
-  eps = 0.04,
+  eps = 40,
 ): WallAlignResult {
   forceOrthoWall(wall);
   const axis = wallAxis(wall);
@@ -819,10 +1072,72 @@ export function alignWallToNearestSide(
   return { ok: true, sideLabel: side === "up" ? "北" : "南", target: best };
 }
 
-/** 拖拽吸附默认阈值（米）：手抖对不齐时吸上，故意偏离时仍可躲开。 */
-export const MAGNET_SNAP_GAP = 0.12;
+/** 拖拽吸附默认阈值（mm）：手抖对不齐时吸上，故意偏离时仍可躲开。 */
+export const MAGNET_SNAP_GAP = 120;
 /** 靠墙家具沿墙居中：仅当已接近居中线时才吸（可故意偏一侧摆）。 */
-export const MAGNET_CENTER_GAP = 0.18;
+export const MAGNET_CENTER_GAP = 180;
+/** 接近锚线时先画引导线（可大于吸附阈值，便于找墙内皮／居中）。 */
+export const MAGNET_GUIDE_PREVIEW_GAP = 450;
+
+/**
+ * 房内家具吸附锚点：墙内皮（套内净空＋finish），不是墙中线／外轮廓。
+ * 另含净空中线、同房其它家具边／中线，供对齐与居中。
+ */
+export function collectFurnitureRoomAnchors(
+  room: Room,
+  floorIndex: number,
+  options?: {
+    partitions?: Wall[];
+    furniture?: Furniture[];
+    excludeFurnitureIndex?: number;
+    finish?: number;
+  },
+): {
+  edgeXs: number[];
+  edgeZs: number[];
+  centerXs: number[];
+  centerZs: number[];
+  corners: { x: number; z: number }[];
+  clear: { x0: number; z0: number; x1: number; z1: number };
+} {
+  const finish = options?.finish ?? FURNITURE_WALL_FINISH;
+  const clear = roomFurnitureClearRect(room, floorIndex, finish, options?.partitions);
+  const edgeXs = [clear.x0, clear.x1];
+  const edgeZs = [clear.z0, clear.z1];
+  const centerXs = [(clear.x0 + clear.x1) / 2];
+  const centerZs = [(clear.z0 + clear.z1) / 2];
+  const list = options?.furniture ?? [];
+  for (let i = 0; i < list.length; i++) {
+    if (i === options?.excludeFurnitureIndex) continue;
+    const item = list[i]!;
+    if (
+      item.x < room.x - 500 ||
+      item.x > room.x + room.w + 500 ||
+      item.z < room.z - 500 ||
+      item.z > room.z + room.d + 500
+    ) {
+      continue;
+    }
+    const box = furnitureWorldBounds(item);
+    edgeXs.push(box.x0, box.x1);
+    edgeZs.push(box.z0, box.z1);
+    centerXs.push((box.x0 + box.x1) / 2);
+    centerZs.push((box.z0 + box.z1) / 2);
+  }
+  return {
+    edgeXs: uniqueSorted(edgeXs, 30),
+    edgeZs: uniqueSorted(edgeZs, 30),
+    centerXs: uniqueSorted(centerXs, 30),
+    centerZs: uniqueSorted(centerZs, 30),
+    corners: [
+      { x: clear.x0, z: clear.z0 },
+      { x: clear.x1, z: clear.z0 },
+      { x: clear.x0, z: clear.z1 },
+      { x: clear.x1, z: clear.z1 },
+    ],
+    clear,
+  };
+}
 
 /** 在 maxGap 内找最近锚线；没有则 null。 */
 export function nearestAnchor(value: number, anchors: number[], maxGap: number): number | null {
@@ -861,17 +1176,17 @@ export function collectWallMagnetAnchors(
       if (ca === "h") zs.push((c.a[1] + c.b[1]) / 2);
     }
   }
-  return { xs: uniqueSorted(xs, 0.03), zs: uniqueSorted(zs, 0.03) };
+  return { xs: uniqueSorted(xs, 30), zs: uniqueSorted(zs, 30) };
 }
 
 /**
- * 拖隔墙过程中吸附：平移贴平行墙持平；拉端点贴正交墙／轴线。
+ * 拖隔墙过程中吸附：平移贴平行墙持平；拉端点优先贴正交墙对侧外皮／墙尖。
  * 就地改 wall，返回引导线。
  */
 export function snapWallDuringDrag(
   wall: Wall,
   mode: "move" | "a" | "b",
-  candidates: Pick<Wall, "a" | "b">[],
+  candidates: Pick<Wall, "a" | "b" | "role">[],
   axisAnchors: { xs: number[]; zs: number[] },
   maxGap = MAGNET_SNAP_GAP,
 ): { guideXs: number[]; guideZs: number[] } {
@@ -902,8 +1217,24 @@ export function snapWallDuringDrag(
       }
     }
   } else {
+    const edgeGap = Math.max(maxGap, WALL_EDGE_SNAP_GAP);
+    const segs: WallSnapSeg[] = collectWallSnapSegs(candidates);
+    const fixed = mode === "a" ? wall.b : wall.a;
     const moving = mode === "a" ? wall.a : wall.b;
-    if (axis === "h") {
+    const extended = extendOrthoEndToFarFace(
+      fixed[0],
+      fixed[1],
+      moving[0],
+      moving[1],
+      segs,
+      edgeGap,
+    );
+    if (extended.snapped) {
+      if (mode === "a") wall.a = [extended.x, extended.z];
+      else wall.b = [extended.x, extended.z];
+      guideXs.push(...extended.guideXs);
+      guideZs.push(...extended.guideZs);
+    } else if (axis === "h") {
       const target = nearestAnchor(moving[0], xs, maxGap);
       if (target != null) {
         if (mode === "a") wall.a = [snapMeter(target), snapMeter(wall.a[1])];
@@ -953,14 +1284,17 @@ export function collectCornerSnapPoints(options: {
   // 去重
   const out: { x: number; z: number }[] = [];
   for (const p of pts) {
-    if (out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 0.04)) continue;
+    if (out.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 40)) continue;
     out.push(p);
   }
   return out;
 }
 
 /**
- * 拖家具时吸附：外包边贴墙线、角贴墙尖／墙角；靠墙件接近居中线时再吸居中。
+ * 拖家具时吸附：
+ * - 有房间时贴墙内皮（套内净空＋finish），不贴墙中线／外轮廓；
+ * - 角贴净空角；接近中线时吸居中；靠墙件沿墙居中；
+ * - 接近锚线（previewGap）即画引导线，便于找齐与居中。
  * allowCenter=false 时只贴边／角，不居中。
  */
 export function snapFurnitureDuringDrag(
@@ -970,38 +1304,94 @@ export function snapFurnitureDuringDrag(
   options?: {
     maxGap?: number;
     centerGap?: number;
+    previewGap?: number;
     corners?: { x: number; z: number }[];
     room?: Room | null;
     floorIndex?: number;
+    partitions?: Wall[];
+    furniture?: Furniture[];
+    excludeFurnitureIndex?: number;
     allowCenter?: boolean;
   },
 ): { guideXs: number[]; guideZs: number[] } {
   const maxGap = options?.maxGap ?? MAGNET_SNAP_GAP;
   const centerGap = options?.centerGap ?? MAGNET_CENTER_GAP;
+  const previewGap = options?.previewGap ?? MAGNET_GUIDE_PREVIEW_GAP;
+  const floorIndex = options?.floorIndex ?? 0;
+  const partitions = options?.partitions;
+  const room = options?.room ?? null;
+  const allowCenter = options?.allowCenter !== false;
+
+  let edgeXs = xs;
+  let edgeZs = zs;
+  let centerXs: number[] = [];
+  let centerZs: number[] = [];
+  let corners = options?.corners ?? [];
+
+  if (room) {
+    const anchors = collectFurnitureRoomAnchors(room, floorIndex, {
+      partitions,
+      furniture: options?.furniture,
+      excludeFurnitureIndex: options?.excludeFurnitureIndex,
+    });
+    // 房内只用净空锚点，避免吸到墙中线把家具压进墙身。
+    edgeXs = anchors.edgeXs;
+    edgeZs = anchors.edgeZs;
+    centerXs = anchors.centerXs;
+    centerZs = anchors.centerZs;
+    corners = anchors.corners;
+  }
+
   const guideXs: number[] = [];
   const guideZs: number[] = [];
-  const box = furnitureWorldBounds(f);
-  const fw = box.x1 - box.x0;
-  const fd = box.z1 - box.z0;
+  const pushGuideX = (v: number) => {
+    if (!guideXs.some((g) => Math.abs(g - v) < 20)) guideXs.push(v);
+  };
+  const pushGuideZ = (v: number) => {
+    if (!guideZs.some((g) => Math.abs(g - v) < 20)) guideZs.push(v);
+  };
 
-  // 1) 外包四边贴最近竖／横轴线
+  const box0 = furnitureWorldBounds(f);
+  const midX0 = (box0.x0 + box0.x1) / 2;
+  const midZ0 = (box0.z0 + box0.z1) / 2;
+
+  // 接近即出引导线（未吸附也画）；房内始终标净空中线，方便找居中。
+  for (const a of edgeXs) {
+    if (Math.abs(box0.x0 - a) <= previewGap || Math.abs(box0.x1 - a) <= previewGap) pushGuideX(a);
+  }
+  for (const a of edgeZs) {
+    if (Math.abs(box0.z0 - a) <= previewGap || Math.abs(box0.z1 - a) <= previewGap) pushGuideZ(a);
+  }
+  if (room && centerXs.length && centerZs.length) {
+    pushGuideX(centerXs[0]!);
+    pushGuideZ(centerZs[0]!);
+  } else {
+    for (const a of centerXs) {
+      if (Math.abs(midX0 - a) <= previewGap) pushGuideX(a);
+    }
+    for (const a of centerZs) {
+      if (Math.abs(midZ0 - a) <= previewGap) pushGuideZ(a);
+    }
+  }
+
+  // 1) 外包四边贴最近竖／横锚线（房内＝墙内皮）
   let dx = 0;
   let dz = 0;
   let bestX: { d: number; delta: number; guide: number } | null = null;
   let bestZ: { d: number; delta: number; guide: number } | null = null;
-  for (const a of xs) {
+  for (const a of edgeXs) {
     for (const [edge, delta] of [
-      [box.x0, a - box.x0],
-      [box.x1, a - box.x1],
+      [box0.x0, a - box0.x0],
+      [box0.x1, a - box0.x1],
     ] as const) {
       const d = Math.abs(edge - a);
       if (d <= maxGap && (!bestX || d < bestX.d)) bestX = { d, delta, guide: a };
     }
   }
-  for (const a of zs) {
+  for (const a of edgeZs) {
     for (const [edge, delta] of [
-      [box.z0, a - box.z0],
-      [box.z1, a - box.z1],
+      [box0.z0, a - box0.z0],
+      [box0.z1, a - box0.z1],
     ] as const) {
       const d = Math.abs(edge - a);
       if (d <= maxGap && (!bestZ || d < bestZ.d)) bestZ = { d, delta, guide: a };
@@ -1009,21 +1399,20 @@ export function snapFurnitureDuringDrag(
   }
   if (bestX) {
     dx = bestX.delta;
-    guideXs.push(bestX.guide);
+    pushGuideX(bestX.guide);
   }
   if (bestZ) {
     dz = bestZ.delta;
-    guideZs.push(bestZ.guide);
+    pushGuideZ(bestZ.guide);
   }
 
-  // 2) 外包角吸到墙尖／房间角（比边吸更近时优先）
-  const corners = options?.corners ?? [];
+  // 2) 外包角吸到净空角／墙尖（比边吸更近时优先）
   if (corners.length) {
     const cornerLocal = [
-      { cx: box.x0, cz: box.z0 },
-      { cx: box.x1, cz: box.z0 },
-      { cx: box.x0, cz: box.z1 },
-      { cx: box.x1, cz: box.z1 },
+      { cx: box0.x0, cz: box0.z0 },
+      { cx: box0.x1, cz: box0.z0 },
+      { cx: box0.x0, cz: box0.z1 },
+      { cx: box0.x1, cz: box0.z1 },
     ];
     let bestCorner: { dist: number; dx: number; dz: number; x: number; z: number } | null = null;
     for (const c of corners) {
@@ -1040,19 +1429,21 @@ export function snapFurnitureDuringDrag(
         }
       }
     }
-    if (bestCorner && (!bestX || bestCorner.dist < bestX.d) && (!bestZ || bestCorner.dist < bestZ.d)) {
-      dx = bestCorner.dx;
-      dz = bestCorner.dz;
-      guideXs.length = 0;
-      guideZs.length = 0;
-      guideXs.push(bestCorner.x);
-      guideZs.push(bestCorner.z);
-    } else if (bestCorner && bestCorner.dist < maxGap * 0.85) {
-      // 边已吸上时，若角也很近则微调到墙尖
-      dx = bestCorner.dx;
-      dz = bestCorner.dz;
-      if (!guideXs.includes(bestCorner.x)) guideXs.push(bestCorner.x);
-      if (!guideZs.includes(bestCorner.z)) guideZs.push(bestCorner.z);
+    if (bestCorner) {
+      const preferCorner =
+        (!bestX || bestCorner.dist < bestX.d) && (!bestZ || bestCorner.dist < bestZ.d);
+      if (preferCorner || bestCorner.dist < maxGap * 0.85) {
+        dx = bestCorner.dx;
+        dz = bestCorner.dz;
+        guideXs.length = 0;
+        guideZs.length = 0;
+        pushGuideX(bestCorner.x);
+        pushGuideZ(bestCorner.z);
+        if (room && centerXs.length && centerZs.length) {
+          pushGuideX(centerXs[0]!);
+          pushGuideZ(centerZs[0]!);
+        }
+      }
     }
   }
 
@@ -1061,25 +1452,45 @@ export function snapFurnitureDuringDrag(
     f.z = snapMeter(f.z + dz);
   }
 
-  // 3) 靠墙件：已贴墙且接近居中线时吸居中（桌椅等自由件跳过）
-  const room = options?.room ?? null;
-  const floorIndex = options?.floorIndex ?? 0;
-  if (
-    options?.allowCenter !== false &&
-    room &&
-    furnitureUsesWallCenter(f.kind)
-  ) {
-    const wall = nearestRoomWall(f, room, floorIndex);
-    if (wall.gap <= maxGap + 0.04 && Math.abs(wall.alongDelta) <= centerGap) {
-      const before = { x: f.x, z: f.z };
-      centerFurnitureAgainstNearestWall(f, room, floorIndex);
-      if (Math.abs(f.x - before.x) > 1e-6 || Math.abs(f.z - before.z) > 1e-6) {
-        const clear = roomFurnitureClearRect(room, floorIndex);
-        if (wall.side === "west" || wall.side === "east") guideXs.push(wall.side === "west" ? clear.x0 : clear.x1);
-        else guideZs.push(wall.side === "north" ? clear.z0 : clear.z1);
+  // 3) 居中：自由件可吸净空中线；靠墙件贴墙后沿墙居中，避免被拉到房间正中离墙。
+  if (allowCenter) {
+    const nearWall =
+      room != null && nearestRoomWall(f, room, floorIndex, partitions).gap <= maxGap + 60;
+    if (room && furnitureUsesWallCenter(f.kind) && nearWall) {
+      const wall = nearestRoomWall(f, room, floorIndex, partitions);
+      if (Math.abs(wall.alongDelta) <= centerGap) {
+        const before = { x: f.x, z: f.z };
+        centerFurnitureAgainstNearestWall(f, room, floorIndex, FURNITURE_WALL_FINISH, partitions);
+        if (Math.abs(f.x - before.x) > 1e-6 || Math.abs(f.z - before.z) > 1e-6) {
+          const clear = roomFurnitureClearRect(room, floorIndex, FURNITURE_WALL_FINISH, partitions);
+          if (wall.side === "west" || wall.side === "east") {
+            pushGuideX(wall.side === "west" ? clear.x0 : clear.x1);
+            pushGuideZ((clear.z0 + clear.z1) / 2);
+          } else {
+            pushGuideZ(wall.side === "north" ? clear.z0 : clear.z1);
+            pushGuideX((clear.x0 + clear.x1) / 2);
+          }
+        }
+      }
+    } else if (centerXs.length || centerZs.length) {
+      const box = furnitureWorldBounds(f);
+      const mx = (box.x0 + box.x1) / 2;
+      const mz = (box.z0 + box.z1) / 2;
+      const cx = nearestAnchor(mx, centerXs, centerGap);
+      const cz = nearestAnchor(mz, centerZs, centerGap);
+      if (cx != null) {
+        f.x = snapMeter(f.x + (cx - mx));
+        pushGuideX(cx);
+      }
+      if (cz != null) {
+        f.z = snapMeter(f.z + (cz - mz));
+        pushGuideZ(cz);
       }
     }
   }
 
-  return { guideXs: uniqueSorted(guideXs, 0.02), guideZs: uniqueSorted(guideZs, 0.02) };
+  // 松手前再钳出墙厚，避免吸附抖动后仍压线。
+  if (room) pullFurnitureClearOfWalls(f, room, floorIndex, FURNITURE_WALL_FINISH, partitions);
+
+  return { guideXs: uniqueSorted(guideXs, 20), guideZs: uniqueSorted(guideZs, 20) };
 }

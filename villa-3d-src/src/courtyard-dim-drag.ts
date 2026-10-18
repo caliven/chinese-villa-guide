@@ -1,4 +1,4 @@
-/** 院坪尺寸线拖动：黄点固定；只改尺寸线位置与虚线长短，可翻到被量边另一侧。 */
+/** 院坪尺寸线拖动：黄点固定；只改尺寸线位置与虚线长短，可翻到被量边另一侧。SVG 用户单位＝mm，shift 亦为 mm。 */
 
 export type CourtyardDimLayout = Record<string, number>;
 
@@ -6,16 +6,16 @@ export type CourtyardDimLayout = Record<string, number>;
 export const courtyardDimLayoutKey = "anhua-villa-courtyard-dim-layout-v1";
 
 /** 字到尺寸线间距；plan 渲染与拖动刷新共用。 */
-export const yardDimLabelGap = 0.2;
+export const yardDimLabelGap = 200;
 /** 尺寸线贴边时不画虚线。 */
-export const yardDimDirectEps = 0.12;
-/** 箭头尖端横线半宽（米）。 */
-export const yardDimTick = 0.08;
+export const yardDimDirectEps = 120;
+/** 箭头尖端横线半宽（mm）。 */
+export const yardDimTick = 80;
 const labelGap = yardDimLabelGap;
 const directEps = yardDimDirectEps;
 const tick = yardDimTick;
-const ah = 0.13;
-const aw = 0.11;
+const ah = 130;
+const aw = 110;
 
 /** 内存布局；持久化由 scheme-store 写入文件。 */
 let memoryDimLayout: CourtyardDimLayout = {};
@@ -46,12 +46,12 @@ function clientToSvg(svg: SVGSVGElement, clientX: number, clientY: number) {
 }
 
 function n(v: number) {
-  return Math.round(v * 100) / 100;
+  return Math.round(v);
 }
 
 export function yardDimDir(edge: number, dim: number, fallback: 1 | -1): 1 | -1 {
   const d = dim - edge;
-  if (Math.abs(d) < 1e-6) return fallback;
+  if (Math.abs(d) < 1e-3) return fallback;
   return d > 0 ? 1 : -1;
 }
 
@@ -83,7 +83,7 @@ export function applyYardVDimShift(g: SVGElement, shift: number) {
   const dir = yardDimDir(edge, base + shift, fallback);
   const sep = Math.abs(base + shift - edge);
   const showExt = sep >= directEps;
-  const stop = n(edge + dir * Math.max(sep - 0.12, sep * 0.88));
+  const stop = n(edge + dir * Math.max(sep - 120, sep * 0.88));
   const lx = n(dx + dir * labelGap);
   const mid = n((z0 + z1) / 2);
   const rot = dir >= 0 ? 90 : -90;
@@ -135,7 +135,7 @@ export function applyYardHDimShift(g: SVGElement, shift: number) {
   const dir = yardDimDir(edge, base + shift, fallback);
   const sep = Math.abs(base + shift - edge);
   const showExt = sep >= directEps;
-  const stop = n(edge + dir * Math.max(sep - 0.12, sep * 0.88));
+  const stop = n(edge + dir * Math.max(sep - 120, sep * 0.88));
   const ly = n(dz + dir * labelGap);
   const mid = n((x0 + x1) / 2);
 
@@ -241,7 +241,7 @@ export function bindCourtyardDimDrag(
     }
     drag = null;
     const next = { ...getLayout(), [id]: shift };
-    if (Math.abs(shift) < 1e-6) delete next[id];
+    if (Math.abs(shift) < 1e-3) delete next[id];
     setLayout(next);
     saveCourtyardDimLayout(next);
     if (axis === "x") applyYardVDimShift(el, shift);

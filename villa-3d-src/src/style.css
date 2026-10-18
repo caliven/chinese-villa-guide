@@ -427,7 +427,7 @@ button svg {
   outline-offset: 2px;
 }
 .floor-svg .furniture-label {
-  font-size: 0.2px;
+  font-size: 200px;
   fill: #34463a;
   pointer-events: none;
 }
@@ -714,6 +714,33 @@ input[type="range"] {
   display: flex;
   flex-direction: column;
 }
+/* 户型版本切换：半透明遮罩，底下图仍可见 */
+.plan-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(238, 238, 230, 0.42);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+  color: #5a6b54;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  pointer-events: auto;
+}
+.plan-loading[hidden] {
+  display: none !important;
+}
+.plan-loading .spinner {
+  width: 26px;
+  height: 26px;
+  border-color: rgba(197, 209, 189, 0.7);
+  border-top-color: var(--green);
+}
 .plan-toolbar {
   display: flex;
   align-items: center;
@@ -982,20 +1009,20 @@ input[type="range"] {
 .floor-svg.editing .align-guide-bay {
   fill: none;
   stroke: #2f6fed;
-  stroke-width: 0.05;
+  stroke-width: 50;
   opacity: 0.85;
 }
 .floor-svg.editing .align-guide-bay-span {
   fill: none;
   stroke: #2f6fed;
-  stroke-width: 0.04;
-  stroke-dasharray: 0.14 0.1;
+  stroke-width: 40;
+  stroke-dasharray: 140 100;
   opacity: 0.55;
 }
 .floor-svg.editing .align-guide-room {
   stroke: #2f6fed;
-  stroke-width: 0.06;
-  stroke-dasharray: 0.16 0.1;
+  stroke-width: 60;
+  stroke-dasharray: 160 100;
   opacity: 0.55;
 }
 .layout-file-button {
@@ -1069,14 +1096,14 @@ input[type="range"] {
 }
 .floor-svg.editing .edit-selection {
   stroke: #c4782a;
-  stroke-width: 0.05;
-  stroke-dasharray: 0.1 0.07;
+  stroke-width: 50;
+  stroke-dasharray: 100 70;
   pointer-events: none;
 }
-/* 房间选中框：固定线宽；贴边绿墙在绘制时已抠掉，四边视觉粗细一致 */
+/* 房间选中框：贴套内角；绿墙不再抠边，框在墙内皮内侧以免盖住墙线 */
 .floor-svg.editing .edit-selection-room {
   stroke: #d4892e;
-  stroke-width: 0.045;
+  stroke-width: 40;
   stroke-dasharray: none;
   stroke-linejoin: miter;
 }
@@ -1086,7 +1113,7 @@ input[type="range"] {
 .floor-svg.editing .edit-handle {
   fill: #a5752b;
   stroke: #fffdf7;
-  stroke-width: 0.03;
+  stroke-width: 30;
   pointer-events: all;
   cursor: nwse-resize;
 }
@@ -1094,14 +1121,14 @@ input[type="range"] {
 .floor-svg.editing .edit-rotate-handle {
   fill: #2f6fed;
   stroke: #fffdf7;
-  stroke-width: 0.03;
+  stroke-width: 30;
   pointer-events: all;
   cursor: grab;
 }
 .floor-svg.editing .edit-rotate-stem {
   fill: none;
   stroke: #2f6fed;
-  stroke-width: 0.04;
+  stroke-width: 40;
   pointer-events: none;
 }
 .floor-svg.editing [data-edit="portico"] {
@@ -1110,36 +1137,36 @@ input[type="range"] {
 .floor-svg.editing .edit-guide-axis {
   fill: none;
   stroke: #8a9a7e;
-  stroke-width: 0.03;
-  stroke-dasharray: 0.18 0.12;
+  stroke-width: 30;
+  stroke-dasharray: 180 120;
   opacity: 0.55;
 }
 .floor-svg.editing .edit-guide-align {
   fill: none;
   stroke: #c48a2e;
-  stroke-width: 0.035;
-  stroke-dasharray: 0.12 0.1;
+  stroke-width: 35;
+  stroke-dasharray: 120 100;
   opacity: 0.85;
 }
 .floor-svg.editing .edit-guide-wall {
   fill: none;
   stroke: #a5752b;
-  stroke-width: 0.1;
+  stroke-width: 100;
   stroke-linecap: round;
 }
 .floor-svg.editing .edit-guide-point {
   fill: #a5752b;
   stroke: #fffdf7;
-  stroke-width: 0.03;
+  stroke-width: 30;
 }
 .floor-svg.editing .edit-guide-label {
   fill: #5c4a28;
-  font-size: 0.38px;
+  font-size: 380px;
   font-weight: 600;
 }
 .floor-svg.editing .edit-guide-hint {
   fill: #738068;
-  font-size: 0.28px;
+  font-size: 280px;
 }
 .floor-svg.editing.tool-wall,
 .floor-svg.editing.tool-room,
@@ -1193,6 +1220,103 @@ input[type="range"] {
 }
 .floor-svg.courtyard-site-svg {
   min-width: calc(860px * var(--plan-zoom, 1));
+}
+.plan-shared-dimensions {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid #d5dccf;
+  border-radius: 8px;
+  background: #f3f5ef;
+  color: #465540;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.plan-shared-dimensions summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.plan-shared-dimensions summary span {
+  margin-left: 12px;
+  font-weight: 400;
+}
+.plan-shared-body {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+.plan-shared-dimensions small {
+  color: #697064;
+}
+.plan-sheets {
+  width: calc(100% * var(--plan-zoom, 1));
+  min-width: calc(680px * var(--plan-zoom, 1));
+  display: grid;
+  gap: 20px;
+  align-items: start;
+}
+.plan-sheets-split {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  min-width: calc(1000px * var(--plan-zoom, 1));
+}
+.plan-sheet {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #d9ddcf;
+  border-radius: 8px;
+  background: #fbfaf6;
+}
+.plan-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 1px solid #e3e5db;
+  min-height: 44px;
+}
+.plan-sheet-head h3 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: #3f5039;
+  font-size: 15px;
+  font-weight: 600;
+}
+.plan-sheet-head .plan-auto-rooms {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  padding: 5px 10px;
+  min-height: 0;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.plan-sheet .floor-svg {
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .plan-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .plan-toolbar-actions {
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .plan-toolbar-actions > *,
+  .floor-pills button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .plan-sheets-split {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: calc(680px * var(--plan-zoom, 1));
+  }
 }
 .plan-zoom-controls {
   position: absolute;
@@ -1248,12 +1372,12 @@ input[type="range"] {
   color: #35513e;
 }
 .wall-thick-label {
-  font-size: 0.22px;
+  font-size: 220px;
   fill: #6a5a3a;
   font-weight: 600;
 }
 .wall-thick-legend {
-  font-size: 0.28px;
+  font-size: 280px;
   fill: #7a6a48;
 }
 /* 撑满编辑区：隐藏页眉、侧栏、页脚，只留户型图编辑区域占满窗口 */
@@ -1283,23 +1407,23 @@ body.plan-editor-focus .plan-toolbar {
 }
 /* 房间中心名／尺寸：全版本户型图统一字号（勿按单层或单版本改） */
 .room-name {
-  font-size: 0.2px;
+  font-size: 200px;
   font-weight: 500;
   fill: #35513e;
 }
 .room-size {
-  font-size: 0.16px;
+  font-size: 160px;
   font-weight: 650;
   fill: #1a4a34;
 }
 .dim-label {
-  font-size: 0.3px;
+  font-size: 300px;
   font-weight: 700;
   fill: #8a4b00;
-  letter-spacing: 0.01px;
+  letter-spacing: 10px;
 }
 .footnote {
-  font-size: 0.2px;
+  font-size: 200px;
   fill: #7d8578;
 }
 .room-fill {
@@ -1312,61 +1436,87 @@ body.plan-editor-focus .plan-toolbar {
 .selected .room-fill {
   filter: brightness(0.97);
   stroke: #c4782a;
-  stroke-width: 0.035;
+  stroke-width: 35;
 }
 /* 编辑态由 edit-selection 画框，避免与邻房色块／墙线叠出粗细不一 */
 .floor-svg.editing .selected .room-fill {
   stroke: none;
 }
-/* 外墙／内承重：恢复原绿系；仅室内非承重隔墙用灰色区分 */
+/* 外墙／内承重：恢复原绿系；仅室内非承重隔墙用灰色区分。
+ * 线宽只由 SVG 内联 stroke-width（construction 墙厚）决定，勿在此写死，
+ * 否则会盖掉属性值，直角接合伸出半厚时外角会多出一截。 */
 .outside-wall {
   stroke: #51614e;
-  stroke-width: 0.23;
   fill: none;
 }
 .bearing-wall {
   stroke: #51614e;
-  stroke-width: 0.22;
   fill: none;
 }
 .partition {
   stroke: #9a9a9a;
-  stroke-width: 0.12;
   fill: none;
+}
+.virtual-wall {
+  stroke: #8e8e8e;
+  stroke-width: 10;
+  stroke-dasharray: 45 35;
+  stroke-linecap: butt;
+  fill: none;
+  pointer-events: none;
+}
+/* 细虚线可视宽度不足时，用近透明描边保证点选／拖动 */
+.floor-svg.editing .edit-hit.virtual-wall-hit {
+  fill: none;
+  stroke: #365a48;
+  stroke-opacity: 0.001;
+  stroke-width: 280;
+  pointer-events: stroke;
+  cursor: move;
+}
+.virtual-region-size {
+  font-size: 180px;
+  fill: #6e6e6e;
+  stroke: #fbfaf6;
+  stroke-width: 40;
+  paint-order: stroke;
+  pointer-events: none;
 }
 .wall-role-legend,
 .wall-thick-legend {
-  font-size: 0.22px;
+  font-size: 220px;
   fill: #5a6558;
 }
 .door-gap {
   stroke: #fbfaf6;
-  stroke-width: 0.255;
+  /* 默认略宽于外墙 240；具体洞口由 SVG 内联 stroke-width 再加一点余量 */
+  stroke-width: 280;
   fill: none;
+  stroke-linecap: butt;
 }
 .door-swing {
   stroke: #7e8d77;
-  stroke-width: 0.035;
+  stroke-width: 35;
   fill: none;
 }
 .door-leaf {
   stroke: #5f6d58;
-  stroke-width: 0.045;
+  stroke-width: 45;
   fill: none;
 }
 .sliding-panel {
   fill: #e8e4d6;
   stroke: #8a8c7a;
-  stroke-width: 0.03;
+  stroke-width: 30;
 }
 .sliding-arrow {
   stroke: #6a7a62;
-  stroke-width: 0.04;
+  stroke-width: 40;
   fill: none;
 }
 .window {
   stroke: #769b9c;
-  stroke-width: 0.04;
+  stroke-width: 40;
   fill: none;
 }
 .entry-door {
@@ -1374,39 +1524,39 @@ body.plan-editor-focus .plan-toolbar {
 }
 .dim-line {
   stroke: #c47b12;
-  stroke-width: 0.03; /* 原 0.045，缩小约 1/3 */
+  stroke-width: 30; /* 原 45，缩小约 1/3 */
   fill: none;
 }
 /* 户型图链式墙距：引出线＋斜短划＋毫米数字（仿参考户型图标法） */
 .floor-svg:not(.courtyard-site-svg) .dim-ext {
   stroke: #c47b12;
-  stroke-width: 0.018;
+  stroke-width: 18;
   fill: none;
   opacity: 0.45;
 }
 .floor-svg:not(.courtyard-site-svg) .dim-tick-slash {
   stroke: #8a3d00;
-  stroke-width: 0.032;
+  stroke-width: 32;
   fill: none;
   stroke-linecap: round;
 }
 .dim-mm {
-  font-size: 0.24px;
+  font-size: 240px;
   font-weight: 700;
   fill: #8a4b00;
-  letter-spacing: 0.01px;
+  letter-spacing: 10px;
 }
 .dim-unit {
-  font-size: 0.2px;
+  font-size: 200px;
   font-weight: 600;
   fill: #9a6a30;
 }
 /* 院坪总图：虚线引出＋边上圆点指边；粗实线＋箭头＝尺寸本身（线宽均缩小约 1/3） */
 .courtyard-site-svg .dim-ext {
   stroke: #c46a08;
-  stroke-width: 0.027;
+  stroke-width: 27;
   fill: none;
-  stroke-dasharray: 0.12 0.07;
+  stroke-dasharray: 120 70;
   opacity: 0.95;
 }
 .courtyard-site-svg .dim-anchor {
@@ -1415,24 +1565,24 @@ body.plan-editor-focus .plan-toolbar {
 }
 .courtyard-site-svg .dim-span {
   stroke: #8a3d00;
-  stroke-width: 0.057;
+  stroke-width: 57;
   fill: none;
 }
 .courtyard-site-svg .dim-arrow,
 .courtyard-site-svg .dim-tick {
   stroke: #8a3d00;
-  stroke-width: 0.043;
+  stroke-width: 43;
   fill: none;
   stroke-linecap: round;
 }
 .courtyard-site-svg .dim-label {
-  font-size: 0.26px;
+  font-size: 260px;
   font-weight: 500;
   fill: #6b2e00;
   dominant-baseline: middle;
 }
 .courtyard-site-svg .dim-label-sm {
-  font-size: 0.22px;
+  font-size: 220px;
   font-weight: 500;
   fill: #7a3a00;
   dominant-baseline: middle;
@@ -1454,23 +1604,65 @@ body.plan-editor-focus .plan-toolbar {
 .courtyard-site-svg .yard-dim-hit {
   fill: none;
   stroke: transparent;
-  stroke-width: 0.7;
+  stroke-width: 700;
   pointer-events: stroke;
 }
 .step-line {
   stroke: #adb4a7;
-  stroke-width: 0.025;
+  stroke-width: 25;
   fill: none;
+}
+.stair-flight, .stair-platform {
+  fill: #e3e3dc;
+  stroke: #adb4a7;
+  stroke-width: 25;
+  pointer-events: none;
+}
+.stair-overhead {
+  fill: none;
+  stroke: #aab6b4;
+  stroke-width: 25;
+  stroke-dasharray: 120 100;
+  pointer-events: none;
+}
+.stair-arrow {
+  fill: none;
+  stroke: #536c5a;
+  stroke-width: 35;
+}
+.stair-note, .stair-size {
+  fill: #365c46;
+  font-size: 170px;
+  paint-order: stroke;
+  stroke: #fbfaf6;
+  stroke-width: 35;
+}
+.stair-size {
+  font-size: 150px;
+  paint-order: stroke;
+  stroke: #fbfaf6;
+  stroke-width: 45;
 }
 .balustrade {
   stroke: #7f8d79;
-  stroke-width: 0.07;
-  stroke-dasharray: 0.09 0.07;
+  stroke-width: 70;
+  stroke-dasharray: 90 70;
   fill: none;
+}
+.furniture.railing {
+  fill: #e8eee6;
+  stroke: #7f8d79;
+  stroke-width: 30;
+}
+.furniture.railing-line {
+  fill: none;
+  stroke: #7f8d79;
+  stroke-width: 55;
+  stroke-dasharray: 90 70;
 }
 .furniture {
   stroke: #adad99;
-  stroke-width: 0.025;
+  stroke-width: 25;
   fill: #ede9dc;
 }
 .furniture.bed {
@@ -1483,7 +1675,7 @@ body.plan-editor-focus .plan-toolbar {
 .pillow {
   fill: #fdfcf6;
   stroke: #c7c5b3;
-  stroke-width: 0.018;
+  stroke-width: 18;
 }
 .furniture.table,
 .furniture.coffeeTable,
@@ -1497,7 +1689,7 @@ body.plan-editor-focus .plan-toolbar {
 .furniture.shrine-shelf {
   fill: #cbb896;
   stroke: #a8885c;
-  stroke-width: 0.02;
+  stroke-width: 20;
 }
 .furniture.shrine-back {
   fill: #8b3a2f;
@@ -1536,12 +1728,12 @@ body.plan-editor-focus .plan-toolbar {
 .furniture.door-seam {
   fill: none;
   stroke: #8a7d6c;
-  stroke-width: 0.03;
+  stroke-width: 30;
 }
 .furniture.door-knob {
   fill: none;
   stroke: #8a7d6c;
-  stroke-width: 0.035;
+  stroke-width: 35;
 }
 .furniture.chair-back,
 .furniture.toilet-tank {
@@ -1560,13 +1752,13 @@ body.plan-editor-focus .plan-toolbar {
 .furniture.shower-drain {
   fill: #d5e0e0;
   stroke: #8a9898;
-  stroke-width: 0.02;
+  stroke-width: 20;
 }
 .furniture.shower-door {
   fill: none;
   stroke: #8a9898;
-  stroke-width: 0.035;
-  stroke-dasharray: 0.08 0.06;
+  stroke-width: 35;
+  stroke-dasharray: 80 60;
 }
 .furniture.mirror-base {
   fill: #c5d0d8;
@@ -1574,8 +1766,8 @@ body.plan-editor-focus .plan-toolbar {
 }
 .clearance {
   stroke: #b9843b;
-  stroke-width: 0.045;
-  stroke-dasharray: 0.12 0.09;
+  stroke-width: 45;
+  stroke-dasharray: 120 90;
   fill: #d4a25015;
 }
 /* 原 plan-caption 已去掉，避免占画布高度；说明见 #plan-orient-hint 的 title */
@@ -2789,7 +2981,9 @@ dialog .secondary-button {
 /* 设计沟通资料与当前模型共页，独立滚动，兼顾图纸横向阅读。 */
 .main-tabs { min-width: 0; overflow-x: auto; }
 .main-tabs button { flex-shrink: 0; white-space: nowrap; }
-.inside-label { font-size: .14px; fill: #697863; }
+.inside-label { font-size: 140px; fill: #697863; }
+/* 房间套内尺寸：灰色小号；屏幕上为名称→建筑开间→套内 */
+.room-area-net { font-size: 140px; fill: #697863; }
 .floor-svg > :not([data-room]) { pointer-events: none; }
 .floor-svg.editing > :not([data-room]) { pointer-events: none; }
 .floor-svg.editing [data-room],
@@ -2807,10 +3001,10 @@ dialog .secondary-button {
   pointer-events: all;
 }
 .floor-svg [data-room]:focus { outline: none; }
-.floor-svg [data-room]:focus-visible .room-fill { stroke: #c4782a; stroke-width: .04; }
+.floor-svg [data-room]:focus-visible .room-fill { stroke: #c4782a; stroke-width: 40; }
 .floor-choices small { white-space: normal; line-height: 1.5; }
 .floor-choices label>span { min-width: 0; }
-.use-zone { fill: #bb893b08; stroke: #b98946; stroke-width: .027; stroke-dasharray: .10 .08; }
+.use-zone { fill: #bb893b08; stroke: #b98946; stroke-width: 27; stroke-dasharray: 100 80; }
 .design-panel { grid-column: 1 / -1; min-width: 0; overflow-y: auto; background: #fbfaf6; padding: 28px 36px 46px; }
 .review-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; }
 .review-eyebrow { color: #89754c; font-size: 12px; letter-spacing: .5px; }

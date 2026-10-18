@@ -8,6 +8,8 @@ import {
   circulation,
   annexPartitions,
   annexFurniture,
+  wallRoleOf,
+  isPhysicalWall,
   type Floor,
   type Furniture,
   type Point,
@@ -15,6 +17,8 @@ import {
 } from "./data";
 import { ensureFurnitureWallClearance } from "./layout-align";
 import type { LayoutDraft, StairDraft, VoidDraft } from "./layout-draft";
+import { floorsHaveStair } from "./layout-draft";
+import { stairOpeningBounds, stairShape, fitStairToRoom } from "./stair-geometry";
 import { FRONT_OPENING } from "./openings";
 import {
   eastTransomBand,
@@ -80,7 +84,7 @@ function entranceApproach(parent: THREE.Object3D, mat: Mats) {
   for (const [x0, x1] of [[westOuter, westInner], [eastInner, eastOuter]] as [number, number][]) {
     box(
       cheeks, (x0 + x1) / 2, rise / 2, (stepFront + landingFront) / 2,
-      x1 - x0, rise, landingFront - stepFront + 0.01, stone,
+      x1 - x0, rise, landingFront - stepFront + 10, stone,
     );
   }
   const steps = new THREE.Group();
@@ -90,20 +94,20 @@ function entranceApproach(parent: THREE.Object3D, mat: Mats) {
     [rise / 3, stepFront],
     [(rise * 2) / 3, stepFront + tread],
   ] as [number, number][]) {
-    const z1 = z0 + tread + 0.01;
+    const z1 = z0 + tread + 10;
     box(steps, (westInner + eastInner) / 2, top / 2, (z0 + z1) / 2, eastInner - westInner, top, z1 - z0, stone);
     treadLines(steps, westInner, eastInner, top, z0, mat.darkStoneGroove);
   }
   treadLines(g, westInner, eastInner, rise, landingFront, mat.darkStoneGroove);
   // 原先拉到墙角柱，大约 3.7 米。改短到 2 米，坡大约 1:5，是缩短后的设计坡度。
   const rampRun = construction.entranceRampRun;
-  const south = doorZ + 0.02;
-  const eastRamp = wedgeAlongX(g, south, columnNorth, eastOuter - 0.02, eastOuter + rampRun, rise, 0.02, stone);
+  const south = doorZ + 20;
+  const eastRamp = wedgeAlongX(g, south, columnNorth, eastOuter - 20, eastOuter + rampRun, rise, 20, stone);
   eastRamp.name = "东侧坡道";
-  const westRamp = wedgeAlongX(g, south, columnNorth, westOuter + 0.02, westOuter - rampRun, rise, 0.02, stone);
+  const westRamp = wedgeAlongX(g, south, columnNorth, westOuter + 20, westOuter - rampRun, rise, 20, stone);
   westRamp.name = "西侧坡道";
-  rampGrooves(g, south, columnNorth, eastOuter, eastOuter + rampRun, rise, 0.02, mat.darkStoneRampMark);
-  rampGrooves(g, south, columnNorth, westOuter, westOuter - rampRun, rise, 0.02, mat.darkStoneRampMark);
+  rampGrooves(g, south, columnNorth, eastOuter, eastOuter + rampRun, rise, 20, mat.darkStoneRampMark);
+  rampGrooves(g, south, columnNorth, westOuter, westOuter - rampRun, rise, 20, mat.darkStoneRampMark);
 }
 
 // 踏步前沿两道防滑线，收细，颜色接近石面，避免白线打眼。
@@ -116,9 +120,9 @@ function treadLines(
   lines.name = "台阶防滑线";
   parent.add(lines);
   const cx = (x0 + x1) / 2;
-  const w = x1 - x0 - 0.06;
-  for (const back of [0.04, 0.07])
-    box(lines, cx, y + 0.003, zFront + back, w, 0.006, 0.008, material, false);
+  const w = x1 - x0 - 60;
+  for (const back of [40, 70])
+    box(lines, cx, y + 3, zFront + back, w, 6, 8, material, false);
 }
 
 // 防滑条横着拦住坡向，沿坡面略高出石面。
@@ -131,14 +135,14 @@ function rampGrooves(
   g.name = "坡道防滑条";
   parent.add(g);
   const run = xLow - xHigh;
-  const spacing = 0.3;
-  const bar = 0.02;
-  const lift = 0.005;
-  const zA = Math.min(z0, z1) + 0.08;
-  const zB = Math.max(z0, z1) - 0.08;
+  const spacing = 300;
+  const bar = 20;
+  const lift = 5;
+  const zA = Math.min(z0, z1) + 80;
+  const zB = Math.max(z0, z1) - 80;
   const yAt = (x: number) => yHigh + ((x - xHigh) / run) * (yLow - yHigh);
   const dir = Math.sign(run);
-  for (let traveled = 0.28; traveled < Math.abs(run) - 0.18; traveled += spacing) {
+  for (let traveled = 280; traveled < Math.abs(run) - 180; traveled += spacing) {
     const xA = xHigh + dir * traveled;
     const xB = xA + dir * bar;
     const topA = yAt(xA) + lift;
@@ -214,7 +218,7 @@ function wedgeAlongX(
 }
 
 // 水包砂横槽：上下每隔 0.45 米一道，颜色贴近白麻墙，只做出凹陷。窗门和角柱处断开。
-const groovePitch = 0.45;
+const groovePitch = 450;
 
 /** 角柱避让盒：随主楼外包络平移。三楼前角装饰柱已删，不再避让退台前角，横槽绕到直角。 */
 function columnKeepOutBoxes(): [number, number, number, number][] {
@@ -223,25 +227,25 @@ function columnKeepOutBoxes(): [number, number, number, number][] {
   const mw = site.main.w;
   const rear = mz + site.main.d;
   return [
-    [mx - 0.2, mx + 0.68, mz - 0.34, mz + 0.45],
-    [mx + mw - 0.44, mx + mw + 0.34, mz - 0.34, mz + 0.45],
-    [mx - 0.22, mx + 0.58, rear - 0.58, rear + 0.22],
-    [mx + mw - 0.58, mx + mw + 0.22, rear - 0.58, rear + 0.22],
+    [mx - 200, mx + 680, mz - 340, mz + 450],
+    [mx + mw - 440, mx + mw + 340, mz - 340, mz + 450],
+    [mx - 220, mx + 580, rear - 580, rear + 220],
+    [mx + mw - 580, mx + mw + 220, rear - 580, rear + 220],
   ];
 }
 
 /** 立面装饰相对默认前墙 Z=-1 的世界坐标：`site.main.z + (旧绝对值 + 1)`。 */
 function frontDecorZ(legacyZ: number) {
-  return site.main.z + (legacyZ + 1);
+  return site.main.z + (legacyZ + 1000);
 }
 
 function grooveYs(y0: number, y1: number, includeTop: boolean, hardMax = Infinity) {
   // hardMax：下沿线以上不再画水包砂横槽（檐下空档只留梁托，不要多一道线）。
-  const limit = Math.min(includeTop ? y1 + 0.001 : y1 - 0.12, hardMax);
+  const limit = Math.min(includeTop ? y1 + 1 : y1 - 120, hardMax);
   const ys: number[] = [];
   for (let i = 1; i < 48; i++) {
     const y = Math.round(i * groovePitch * 1000) / 1000;
-    if (y <= y0 + 0.06) continue;
+    if (y <= y0 + 60) continue;
     if (y > limit) break;
     ys.push(y);
   }
@@ -253,39 +257,39 @@ function subtractIntervals(span: [number, number], cuts: [number, number][]) {
   for (const [c0, c1] of cuts) {
     const next: [number, number][] = [];
     for (const [a0, a1] of parts) {
-      if (c1 <= a0 + 1e-4 || c0 >= a1 - 1e-4) {
+      if (c1 <= a0 + 0.1 || c0 >= a1 - 0.1) {
         next.push([a0, a1]);
         continue;
       }
-      if (c0 > a0 + 0.02) next.push([a0, Math.min(c0, a1)]);
-      if (c1 < a1 - 0.02) next.push([Math.max(c1, a0), a1]);
+      if (c0 > a0 + 20) next.push([a0, Math.min(c0, a1)]);
+      if (c1 < a1 - 20) next.push([Math.max(c1, a0), a1]);
     }
     parts = next;
   }
-  return parts.filter(([a, b]) => b - a >= 0.16);
+  return parts.filter(([a, b]) => b - a >= 160);
 }
 
 function keepOutOnWall(ax: number, az: number, bx: number, bz: number, box: [number, number, number, number]) {
   const [x0, x1, z0, z1] = box;
   const len = Math.hypot(bx - ax, bz - az);
-  if (Math.abs(bz - az) < 1e-4) {
+  if (Math.abs(bz - az) < 0.1) {
     const z = az;
     if (z < z0 || z > z1) return null;
     const forward = ax <= bx;
     const lo = Math.max(Math.min(ax, bx), x0);
     const hi = Math.min(Math.max(ax, bx), x1);
-    if (hi - lo < 0.02) return null;
+    if (hi - lo < 20) return null;
     const s0 = forward ? lo - ax : ax - hi;
     const s1 = forward ? hi - ax : ax - lo;
     return [Math.max(0, s0), Math.min(len, s1)] as [number, number];
   }
-  if (Math.abs(bx - ax) < 1e-4) {
+  if (Math.abs(bx - ax) < 0.1) {
     const x = ax;
     if (x < x0 || x > x1) return null;
     const forward = az <= bz;
     const lo = Math.max(Math.min(az, bz), z0);
     const hi = Math.min(Math.max(az, bz), z1);
-    if (hi - lo < 0.02) return null;
+    if (hi - lo < 20) return null;
     const s0 = forward ? lo - az : az - hi;
     const s1 = forward ? hi - az : az - lo;
     return [Math.max(0, s0), Math.min(len, s1)] as [number, number];
@@ -314,7 +318,7 @@ function sandGrooves(
     const dx = bx - ax;
     const dz = bz - az;
     const len = Math.hypot(dx, dz);
-    if (len < 0.3) continue;
+    if (len < 300) continue;
     const ux = dx / len;
     const uz = dz / len;
     let nx = -uz;
@@ -325,7 +329,7 @@ function sandGrooves(
       nx = -nx;
       nz = -nz;
     }
-    const face = 0.125;
+    const face = 125;
     const alongX = Math.abs(dx) >= Math.abs(dz);
     for (const y of grooveYs(wall.base, wall.base + wall.height, wall.includeTop, hardMaxY)) {
       const localY = y - wall.base;
@@ -333,31 +337,31 @@ function sandGrooves(
       for (const opening of wall.openings) {
         const y0 = opening.sill;
         const y1 = opening.span === "lower" ? wall.height : opening.sill + opening.h;
-        if (localY + 0.012 < y0 || localY - 0.012 > y1) continue;
-        cuts.push([opening.at - opening.w / 2 - 0.1, opening.at + opening.w / 2 + 0.1]);
+        if (localY + 12 < y0 || localY - 12 > y1) continue;
+        cuts.push([opening.at - opening.w / 2 - 100, opening.at + opening.w / 2 + 100]);
       }
       {
         const band = eastTransomBand();
-        if (az < site.main.z + 0.5 && bz < site.main.z + 0.5 && y > band.bottom && y < band.top)
+        if (az < site.main.z + 500 && bz < site.main.z + 500 && y > band.bottom && y < band.top)
           for (const opening of wall.openings)
             if (opening.pattern === "villa")
-              cuts.push([opening.at - band.width / 2 - 0.12, opening.at + band.width / 2 + 0.12]);
+              cuts.push([opening.at - band.width / 2 - 120, opening.at + band.width / 2 + 120]);
       }
       if (avoidColumns)
         for (const keep of columnKeepOutBoxes()) {
           const hit = keepOutOnWall(ax, az, bx, bz, keep);
           if (hit) cuts.push(hit);
         }
-      for (const [s0, s1] of subtractIntervals([0.05, len - 0.05], cuts)) {
+      for (const [s0, s1] of subtractIntervals([50, len - 50], cuts)) {
         const t = (s0 + s1) / 2;
         box(
           g,
           ax + ux * t + nx * face,
           y,
           az + uz * t + nz * face,
-          alongX ? s1 - s0 : 0.008,
-          0.013,
-          alongX ? 0.008 : s1 - s0,
+          alongX ? s1 - s0 : 8,
+          13,
+          alongX ? 8 : s1 - s0,
           groove,
           false,
         );
@@ -371,38 +375,38 @@ function entryScreen(parent: THREE.Object3D, mat: Mats) {
   const g = new THREE.Group();
   g.name = "门厅一二层通高门";
   parent.add(g);
-  const x = mainFrontOpeningX(6.9);
-  const scaleW = site.main.w / 13.5;
-  const w = 2.16 * scaleW;
+  const x = mainFrontOpeningX(6900);
+  const scaleW = site.main.w / 13500;
+  const w = 2160 * scaleW;
   const band = eastTransomBand();
   const band0 = band.bottom;
   const band1 = band.top;
   const doorH = band0 - site.entranceRise;
-  bronzeEntryDoor(g, x, site.entranceRise, frontDecorZ(-0.9), w, doorH, mat);
-  brownSlashPanel(g, x, (band0 + band1) / 2, frontDecorZ(-0.86), w, band1 - band0, mat);
+  bronzeEntryDoor(g, x, site.entranceRise, frontDecorZ(-900), w, doorH, mat);
+  brownSlashPanel(g, x, (band0 + band1) / 2, frontDecorZ(-860), w, band1 - band0, mat);
   // 门洞宽随面宽比例；门扇略窄，边条补到门洞边。
-  const openingHalf = 1.15 * scaleW;
+  const openingHalf = 1150 * scaleW;
   for (const sign of [-1, 1] as const) {
     const outer = sign * openingHalf;
-    const inner = sign * (w / 2 - 0.04);
+    const inner = sign * (w / 2 - 40);
     box(
       g,
       x + (outer + inner) / 2,
-      (site.entranceRise + band1) / 2 - 0.02,
-      frontDecorZ(-0.92),
+      (site.entranceRise + band1) / 2 - 20,
+      frontDecorZ(-920),
       Math.abs(outer - inner),
-      band1 - site.entranceRise + 0.06,
-      0.2,
+      band1 - site.entranceRise + 60,
+      200,
       mat.bronze,
       false,
     );
   }
   const glassH = secondFloorGlassHeadY() - band1;
-  box(g, x, band1 + glassH / 2, frontDecorZ(-0.86), 2.28 * scaleW, glassH, 0.018, mat.lowE, false);
-  for (const dx of [-0.5 * scaleW, 0.5 * scaleW])
-    box(g, x + dx, band1 + glassH / 2, frontDecorZ(-0.9), 0.032, glassH, 0.03, mat.dark, false);
-  box(g, x, band0, frontDecorZ(-0.96), 2.24 * scaleW, 0.04, 0.04, mat.bronze, false);
-  box(g, x, band1, frontDecorZ(-0.96), 2.24 * scaleW, 0.04, 0.04, mat.bronze, false);
+  box(g, x, band1 + glassH / 2, frontDecorZ(-860), 2280 * scaleW, glassH, 18, mat.lowE, false);
+  for (const dx of [-500 * scaleW, 500 * scaleW])
+    box(g, x + dx, band1 + glassH / 2, frontDecorZ(-900), 32, glassH, 30, mat.dark, false);
+  box(g, x, band0, frontDecorZ(-960), 2240 * scaleW, 40, 40, mat.bronze, false);
+  box(g, x, band1, frontDecorZ(-960), 2240 * scaleW, 40, 40, mat.bronze, false);
 }
 
 // 烤火房一二层之间：白底横披，中间一道回纹，上下各一条线脚。
@@ -410,28 +414,28 @@ function eastMeanderBand(parent: THREE.Object3D, mat: Mats) {
   const g = new THREE.Group();
   g.name = "烤火房回纹横披";
   parent.add(g);
-  const x = mainFrontOpeningX(11.15);
+  const x = mainFrontOpeningX(11150);
   const { bottom, top, width } = eastTransomBand();
   const y = (bottom + top) / 2;
   const h = top - bottom;
-  box(g, x, y, frontDecorZ(-1.03), width - 0.1, h, 0.07, mat.trim);
+  box(g, x, y, frontDecorZ(-1030), width - 100, h, 70, mat.trim);
   // 上下两条离开白板，用没有贴图的细线。贴着石材贴图时会发毛。
-  box(g, x, bottom + 0.05, frontDecorZ(-1.09), width - 0.16, 0.014, 0.014, mat.dark);
-  box(g, x, top - 0.05, frontDecorZ(-1.09), width - 0.16, 0.014, 0.014, mat.dark);
-  meander(g, x - (width - 0.4) / 2, y + 0.02, frontDecorZ(-1.067), width - 0.4, mat);
+  box(g, x, bottom + 50, frontDecorZ(-1090), width - 160, 14, 14, mat.dark);
+  box(g, x, top - 50, frontDecorZ(-1090), width - 160, 14, 14, mat.dark);
+  meander(g, x - (width - 400) / 2, y + 20, frontDecorZ(-1067), width - 400, mat);
   for (const sign of [-1, 1])
-    box(g, x + sign * (width / 2 + 0.035), y, frontDecorZ(-1.06), 0.07, h, 0.04, mat.trim);
+    box(g, x + sign * (width / 2 + 35), y, frontDecorZ(-1060), 70, h, 40, mat.trim);
 }
 
 function pavedTerrace(parent: THREE.Object3D, outline: Point[], y: number, thickness: number, mat: Mats) {
   const group = new THREE.Group();
   parent.add(group);
-  const finish = 0.018;
+  const finish = 18;
   slab(group, outline, y - finish, thickness - finish, mat.trim);
   const paving = slab(group, outline, y, finish, mat.terrace);
   const positions = paving.geometry.getAttribute("position"), normals = paving.geometry.getAttribute("normal");
   const uv = paving.geometry.getAttribute("uv");
-  const uvOriginX = site.main.x + site.main.w / 2 - 0.3;
+  const uvOriginX = site.main.x + site.main.w / 2 - 300;
   for (let i = 0; i < positions.count; i++) if (normals.getY(i) > 0.5)
     uv.setXY(i, positions.getX(i) - uvOriginX, positions.getZ(i) - frontElevation.terraceFront);
   uv.needsUpdate = true;
@@ -449,46 +453,18 @@ export type VillaLayoutLive = {
 };
 
 export function villaLayoutFromDraft(draft: LayoutDraft): VillaLayoutLive {
+  // 层高／三楼前缘以当前已应用的 floors 为准，防止旧草稿盖掉尺寸设置。
   return {
-    floors: draft.floors,
+    floors: draft.floors.map((floor, i) => {
+      const live = floors[i];
+      if (!live) return floor;
+      return { ...floor, y: live.y, height: live.height, front: live.front };
+    }),
     annexPartitions: draft.annexPartitions,
     annexFurniture: draft.annexFurniture,
     stairLayout: draft.stairLayout,
     livingVoid: draft.livingVoid,
   };
-}
-
-/** 隔墙是否盖住开口边（挑空栏杆处加了实体墙则不再画栏杆）。 */
-function partitionsCoverOpenEdge(
-  partitions: Wall[],
-  axis: "h" | "v",
-  c: number,
-  lo: number,
-  hi: number,
-  tol = 0.18,
-  minCover = 0.45,
-) {
-  const edgeLen = Math.abs(hi - lo);
-  if (edgeLen < 0.15) return false;
-  const a0 = Math.min(lo, hi);
-  const a1 = Math.max(lo, hi);
-  let covered = 0;
-  for (const w of partitions) {
-    const dx = Math.abs(w.b[0] - w.a[0]);
-    const dz = Math.abs(w.b[1] - w.a[1]);
-    if (axis === "h") {
-      if (dz > tol || Math.abs((w.a[1] + w.b[1]) / 2 - c) > tol) continue;
-      const w0 = Math.min(w.a[0], w.b[0]);
-      const w1 = Math.max(w.a[0], w.b[0]);
-      covered += Math.max(0, Math.min(w1, a1) - Math.max(w0, a0));
-    } else {
-      if (dx > tol || Math.abs((w.a[0] + w.b[0]) / 2 - c) > tol) continue;
-      const w0 = Math.min(w.a[1], w.b[1]);
-      const w1 = Math.max(w.a[1], w.b[1]);
-      covered += Math.max(0, Math.min(w1, a1) - Math.max(w0, a0));
-    }
-  }
-  return covered / edgeLen >= minCover;
 }
 
 export function buildVilla(
@@ -500,9 +476,10 @@ export function buildVilla(
 ) {
   ensureFurnitureWallClearance();
   const floorList = layout?.floors ?? floors;
-  const stairGeom = layout?.stairLayout ?? stairLayout;
+  const stairGeom = fitStairToRoom(layout?.stairLayout ?? stairLayout, floorList);
+  const stairPresent = floorsHaveStair(floorList);
   const livingVoid = layout?.livingVoid ?? circulation.livingVoid;
-  const annexParts = layout?.annexPartitions ?? annexPartitions;
+  const annexParts = (layout?.annexPartitions ?? annexPartitions).filter(isPhysicalWall);
   const annexFurn = layout?.annexFurniture ?? annexFurniture;
   const group = new THREE.Group(),
     roof = new THREE.Group(),
@@ -523,20 +500,21 @@ export function buildVilla(
       back = m.z + m.d,
       base = floor.y,
       h = floor.height;
-    const opening = stairGeom.hole;
-    const holes = index > 0 ? [rect(opening.x, opening.z, opening.w, opening.d)] : [];
+    const opening = stairOpeningBounds(stairGeom);
+    const holes =
+      stairPresent && index > 0 ? [rect(opening.x, opening.z, opening.w, opening.d)] : [];
     const voidEast = livingVoid.x + livingVoid.w;
     const voidSouth = livingVoid.z + livingVoid.d;
     // 楼板外缘收进墙身。三楼北缘若停在 Z=-1，会和二楼北墙外皮共面，缩放时闪成黄带。
-    const inset = 0.05;
+    const inset = 50;
     // 侧面再收一些，楼板边不要贴到角柱侧面。
-    const sideInset = 0.16;
+    const sideInset = 160;
     // 正中门洞里能看到二楼楼板北缘，正面是一条黄带。这里把楼板收到斜纹板后面。
-    const doorAt = 6.9 * (m.w / 13.5);
-    const doorW = 2.3 * (m.w / 13.5);
+    const doorAt = 6900 * (m.w / 13500);
+    const doorW = 2300 * (m.w / 13500);
     const doorNotchWest = m.x + doorAt - doorW / 2;
     const doorNotchEast = m.x + doorAt + doorW / 2;
-    const doorNotchZ = frontDecorZ(-0.72);
+    const doorNotchZ = frontDecorZ(-720);
     const outline =
       index === 1
         ? ([
@@ -552,7 +530,7 @@ export function buildVilla(
             [voidEast + inset, voidSouth + inset],
           ] as [number, number][])
         : index === 2
-          ? rect(m.x + sideInset, front + 0.06, m.w - 2 * sideInset, back - 0.05 - (front + 0.06))
+          ? rect(m.x + sideInset, front + 60, m.w - 2 * sideInset, back - 50 - (front + 60))
           : rect(
               m.x + sideInset,
               front + inset,
@@ -566,7 +544,7 @@ export function buildVilla(
       wallWithOpenings(g, facade.a, facade.b, base, h, facade.openings, mat, construction.outsideWall, false, mat.sand);
     // 三楼下沿线以上（梁托空档）不再画水包砂横槽，避免檐下多一道细线。
     const grooveCap = index === 2
-      ? fasciaBottomY(mainRoofFootprint().eave, 0) - 0.02
+      ? fasciaBottomY(mainRoofFootprint().eave, 0) - 20
       : Infinity;
     sandGrooves(
       g,
@@ -586,7 +564,7 @@ export function buildVilla(
     if (index === 2) {
       // 两侧楼板仍接到门厅楼板边，不往前加长。中间仍由墙隔开。
       elevation.sideTerraces.forEach((terrace, i) => {
-        pavedTerrace(g, rect(terrace.x, elevation.terraceFront, terrace.w, elevation.terraceBack - elevation.terraceFront), base, 0.18, mat)
+        pavedTerrace(g, rect(terrace.x, elevation.terraceFront, terrace.w, elevation.terraceBack - elevation.terraceFront), base, 180, mat)
           .name = i === 0 ? "三楼左侧露台" : "三楼右侧露台";
       });
       // 平台北缘让进檐口。南缘收到三楼前墙外，不并入两侧露台。
@@ -594,7 +572,7 @@ export function buildVilla(
         g,
         rect(site.portico.x, elevation.centerFront, site.portico.w, elevation.terraceBack - elevation.centerFront),
         base,
-        0.22,
+        220,
         mat,
       ).name = "外伸门厅三楼平台";
       const [westPost, middleWest, middleEast, eastPost] = elevation.balustradePosts;
@@ -607,7 +585,7 @@ export function buildVilla(
       for (const post of elevation.balustradePosts)
         balconyCornerPost(shortPosts, post.x, post.z, postBase, elevation.balustradePostHeight, post.w, mat);
       // 两侧前栏杆只外移到现有楼板外沿，约 0.18 米，楼板不加长。里端仍落在中间两根柱的左右向中线。
-      const frontWall = floor.front + 0.04;
+      const frontWall = floor.front + 40;
       const sideFront = elevation.terraceFront;
       glassBalustrade(g, [westPost.x, sideFront], [middleWest.x, sideFront], postBase, mat);
       glassBalustrade(g, [westPost.x, sideFront], [westPost.x, frontWall], postBase, mat, true);
@@ -633,7 +611,7 @@ export function buildVilla(
       const parapetWall = new THREE.Group();
       parapetWall.name = "三楼屋檐内50厘米挡墙";
       g.add(parapetWall);
-      const parapetThick = 0.28;
+      const parapetThick = 280;
       const parapetInside: Point[] = inner.map((p, i) => [
         p[0] - (outer[i][0] - p[0]) * parapetThick / eave,
         p[1] - (outer[i][1] - p[1]) * parapetThick / eave,
@@ -643,24 +621,24 @@ export function buildVilla(
       // 外沿平面位置不动。落差只用原来的檐坡，外沿跟着抬高，不再为了盖住挡墙把坡拉陡。
       tiledApron(g, inner, outer, base + parapet, elevation.tiledEaveDrop, mat,
         elevation.balustradePosts.map(post => {
-          const footWidth = post.w + 0.08;
+          const footWidth = post.w + 80;
           return rect(post.x - footWidth / 2, post.z - footWidth / 2, footWidth, footWidth);
         }));
       // 门边踢脚与墙相接，三块露台共用砖缝尺度和同一铺贴坐标。
-      const doorCuts: [number, number][] = floorWalls[0].openings.map(o => [m.x + o.at - o.w / 2 - 0.06, m.x + o.at + o.w / 2 + 0.06]);
+      const doorCuts: [number, number][] = floorWalls[0].openings.map(o => [m.x + o.at - o.w / 2 - 60, m.x + o.at + o.w / 2 + 60]);
       for (const terrace of [...elevation.sideTerraces, { x: site.portico.x, w: site.portico.w }])
         for (const [x0, x1] of subtractIntervals([terrace.x, terrace.x + terrace.w], doorCuts))
-          box(g, (x0 + x1) / 2, base + 0.055, floor.front + 0.003,
-            x1 - x0, 0.11, 0.018, mat.terraceEdge, false);
+          box(g, (x0 + x1) / 2, base + 55, floor.front + 3,
+            x1 - x0, 110, 18, mat.terraceEdge, false);
     }
     // 隔墙画到外皮时，端头和外围墙面共面，外面会看到一条白竖线。端头埋进墙身 2cm。
-    const embed = 0.22;
+    const embed = 220;
     const bury = (p: [number, number]): [number, number] => {
       let [x, z] = p;
-      if (Math.abs(x - m.x) <= 0.02) x = m.x + embed;
-      else if (Math.abs(x - (m.x + m.w)) <= 0.02) x = m.x + m.w - embed;
-      if (Math.abs(z - front) <= 0.02) z = front + embed;
-      else if (Math.abs(z - back) <= 0.02) z = back - embed;
+      if (Math.abs(x - m.x) <= 20) x = m.x + embed;
+      else if (Math.abs(x - (m.x + m.w)) <= 20) x = m.x + m.w - embed;
+      if (Math.abs(z - front) <= 20) z = front + embed;
+      else if (Math.abs(z - back) <= 20) z = back - embed;
       return [x, z];
     };
     const stairStoryH = h - (index === 0 ? site.entranceRise : 0);
@@ -673,15 +651,17 @@ export function buildVilla(
       risers: stairGeom.risers,
       landing: stairGeom.landing,
       axis: stairGeom.axis,
+      lowerSide: stairGeom.lowerSide,
       room: stairGeom.room,
     };
     for (const part of floor.partitions) {
+      if (!isPhysicalWall(part)) continue;
       const a = bury(part.a),
         b = bury(part.b),
         pulled = Math.hypot(a[0] - part.a[0], a[1] - part.a[1]);
       // 梯下隔墙顶到楼梯板底，避免穿出踏步／休息平台
-      let wallH = h - 0.15;
-      if (index < 2) {
+      let wallH = h - 150;
+      if (stairPresent && index < 2) {
         let minSoffit: number | null = null;
         let underHits = 0;
         for (let t = 0; t <= 8; t++) {
@@ -696,11 +676,11 @@ export function buildVilla(
         if (underHits >= 4 && minSoffit != null) {
           // soffit 相对楼梯底板；一层楼梯底在 entranceRise
           const soffitFromFloor =
-            (index === 0 ? site.entranceRise : 0) + minSoffit - 0.03 - base;
-          wallH = Math.min(wallH, Math.max(0.9, soffitFromFloor));
+            (index === 0 ? site.entranceRise : 0) + minSoffit - 30 - base;
+          wallH = Math.min(wallH, Math.max(900, soffitFromFloor));
         }
       }
-      const doorH = Math.min(2.2, Math.max(0.85, wallH - 0.08));
+      const doorH = Math.min(2200, Math.max(850, wallH - 80));
       const op: Opening[] = part.door
         ? [
             {
@@ -715,7 +695,9 @@ export function buildVilla(
             },
           ]
         : [];
-      wallWithOpenings(g, a, b, base, wallH, op, mat, construction.partition, true);
+      const wallThick =
+        wallRoleOf(part) === "bearing" ? construction.outsideWall : construction.partition;
+      wallWithOpenings(g, a, b, base, wallH, op, mat, wallThick, true);
     }
     for (const f of floor.furniture) furnish(g, f, base + (index === 0 ? site.entranceRise : 0), mat);
     const labelGroup = new THREE.Group();
@@ -728,60 +710,64 @@ export function buildVilla(
         labelGroup,
         room.name,
         x,
-        base + 0.7,
+        base + 700,
         z,
         "#284b3b",
         room.kind === "bath" ? 0.36 : 0.58,
       );
     }
-    if (index < 2)
+    if (stairPresent && index < 2)
       stairs(
         g, stairGeom.x, stairGeom.z,
         base + (index === 0 ? site.entranceRise : 0),
         h - (index === 0 ? site.entranceRise : 0),
         mat,
         stairGeom.axis,
+        stairGeom,
       );
-    if (index === 1) {
-      const edge = voidEast + 0.07;
-      const southEdge = voidSouth + 0.06;
-      // 平面加了贴挑空边的实体墙时，立体不再叠栏杆
-      if (!partitionsCoverOpenEdge(floor.partitions, "v", voidEast, front + 0.16, voidSouth)) {
-        railing(g, [edge, front + 0.16], [edge, southEdge], base, mat);
-      }
-      if (!partitionsCoverOpenEdge(floor.partitions, "h", voidSouth, m.x + 0.16, voidEast)) {
-        railing(g, [m.x + 0.16, southEdge], [edge, southEdge], base, mat);
-      }
+    if (stairPresent && index > 0) {
+      // 单层剖看仍显示下层通来的实体梯段；全楼与分离视图关闭，避免重叠。
+      const incoming = new THREE.Group();
+      incoming.userData.incomingStair = true;
+      incoming.visible = false;
+      const prev = floorList[index - 1];
+      const riseBase = index === 1 ? site.entranceRise : 0;
+      stairs(incoming, stairGeom.x, stairGeom.z, prev.y + riseBase,
+        prev.height - riseBase, mat, stairGeom.axis, stairGeom);
+      g.add(incoming);
     }
-    if (index > 0) {
+    // 挑空边栏杆不再写死：南缘默认墙体，东缘等用家具「栏杆」自画。
+    if (stairPresent && index > 0) {
       const { x: hx, z: hz, w: hw, d: hd } = opening;
+      const shape = stairShape(stairGeom);
       if (stairGeom.axis === "x") {
-        const entry = stairGeom.flight + stairGeom.gap + 0.06;
+        const entry = shape.upperAcross + stairGeom.flight;
         railing(g, [hx, hz], [hx + hw, hz], base, mat);
         railing(g, [hx + hw, hz], [hx + hw, hz + hd], base, mat);
         railing(g, [hx, hz + hd], [hx + hw, hz + hd], base, mat);
-        railing(g, [hx, hz + entry], [hx, hz + hd], base, mat);
+        if (shape.lowerSide === "min") railing(g, [hx, hz], [hx, Math.min(hz + hd, stairGeom.z + shape.upperAcross)], base, mat);
+        else railing(g, [hx, Math.min(hz + hd, stairGeom.z + entry)], [hx, hz + hd], base, mat);
       } else {
-        const northStop = hx + stairGeom.flight + 0.08;
         railing(g, [hx, hz], [hx, hz + hd], base, mat);
         railing(g, [hx + hw, hz], [hx + hw, hz + hd], base, mat);
         railing(g, [hx, hz + hd], [hx + hw, hz + hd], base, mat);
-        railing(g, [hx, hz], [northStop, hz], base, mat);
+        if (shape.lowerSide === "max") railing(g, [Math.min(hx + hw, stairGeom.x + shape.upperAcross + stairGeom.flight), hz], [hx + hw, hz], base, mat);
+        else railing(g, [hx, hz], [Math.min(hx + hw, stairGeom.x + shape.upperAcross), hz], base, mat);
       }
     }
     if (index === 0) {
-      const sw = site.main.w / 13.5;
+      const sw = site.main.w / 13500;
       const transom = eastTransomBand();
       for (const [at0, w0] of [
-        [FRONT_OPENING.livingVoid.at, 4.2],
-        [FRONT_OPENING.tea.at, 3.0],
+        [FRONT_OPENING.livingVoid.at, 4200],
+        [FRONT_OPENING.tea.at, 3000],
       ] as const)
-        box(g, mainFrontOpeningX(at0), 0.22, frontDecorZ(-1.08), w0 * sw, 0.44, 0.14, mat.stone);
+        box(g, mainFrontOpeningX(at0), 220, frontDecorZ(-1080), w0 * sw, 440, 140, mat.stone);
       openingFrame(
         g,
         mainFrontOpeningX(FRONT_OPENING.livingVoid.at),
         site.entranceRise,
-        frontDecorZ(-1.06),
+        frontDecorZ(-1060),
         FRONT_OPENING.livingVoid.w * sw,
         h - site.entranceRise,
         mat,
@@ -791,7 +777,7 @@ export function buildVilla(
         g,
         mainFrontOpeningX(FRONT_OPENING.tea.at),
         FRONT_OPENING.tea.sill,
-        frontDecorZ(-1.06),
+        frontDecorZ(-1060),
         transom.width,
         FRONT_OPENING.tea.h,
         mat,
@@ -802,7 +788,7 @@ export function buildVilla(
         g,
         mainFrontOpeningX(FRONT_OPENING.hall.at),
         site.entranceRise,
-        frontDecorZ(-1.06),
+        frontDecorZ(-1060),
         FRONT_OPENING.hall.w * sw,
         transom.bottom - site.entranceRise,
         mat,
@@ -810,7 +796,7 @@ export function buildVilla(
       );
     }
     if (index === 1) {
-      const sw = site.main.w / 13.5;
+      const sw = site.main.w / 13500;
       const transom = eastTransomBand();
       const sideHead = secondFloorSideGlassHeadY();
       const glassHead = secondFloorGlassHeadY();
@@ -818,7 +804,7 @@ export function buildVilla(
         g,
         mainFrontOpeningX(FRONT_OPENING.livingVoid.at),
         floors[0].height,
-        frontDecorZ(-1.06),
+        frontDecorZ(-1060),
         FRONT_OPENING.livingVoid.w * sw,
         sideHead - floors[0].height,
         mat,
@@ -828,9 +814,9 @@ export function buildVilla(
         g,
         mainFrontOpeningX(FRONT_OPENING.tea.at),
         transom.top,
-        frontDecorZ(-1.06),
+        frontDecorZ(-1060),
         transom.width,
-        sideHead - transom.top + 0.04,
+        sideHead - transom.top + 40,
         mat,
         { bottom: false },
       );
@@ -838,7 +824,7 @@ export function buildVilla(
         g,
         mainFrontOpeningX(FRONT_OPENING.hall.at),
         transom.top,
-        frontDecorZ(-1.06),
+        frontDecorZ(-1060),
         FRONT_OPENING.hall.w * sw,
         glassHead - transom.top,
         mat,
@@ -853,7 +839,7 @@ export function buildVilla(
       const hatEaveY = hatLayout?.eave ?? eaveY;
       const fasciaBot = fasciaBottomY(hatEaveY, 0);
       // 原有官帽柱顶贴正屋檐口；悬浮柱顶贴本帽檐口，因而整体更高。
-      const pierTop = hatEaveY - 0.13;
+      const pierTop = hatEaveY - 130;
       const hatPosts = new THREE.Group();
       hatPosts.name = "三楼官帽柱";
       g.add(hatPosts);
@@ -868,21 +854,21 @@ export function buildVilla(
           pierTop - base,
           elevation.dividerWidth,
           mat,
-          { decorTopY: fasciaBot - 0.1, decorHeight: 1 },
+          { decorTopY: fasciaBot - 100, decorHeight: 1000 },
         );
       // 装饰框与洞口同高：玻璃上沿压在下沿线以下，不穿进梁托区。
       const thirdHead = thirdFloorMaxOpeningHead(eaveY);
-      const sw = site.main.w / 13.5;
-      openingFrame(g, mainFrontOpeningX(2.35), base, front - 0.07, 3.2 * sw, thirdHead, mat, { bottom: false });
-      openingFrame(g, mainFrontOpeningX(11.15), base, front - 0.07, 2.75 * sw, thirdHead, mat, { bottom: false });
-      openingFrame(g, mainFrontOpeningX(6.9), base, front - 0.07, 3.1 * sw, Math.min(2.55, thirdHead), mat, { bottom: false });
+      const sw = site.main.w / 13500;
+      openingFrame(g, mainFrontOpeningX(2350), base, front - 70, 3200 * sw, thirdHead, mat, { bottom: false });
+      openingFrame(g, mainFrontOpeningX(11150), base, front - 70, 2750 * sw, thirdHead, mat, { bottom: false });
+      openingFrame(g, mainFrontOpeningX(6900), base, front - 70, 3100 * sw, Math.min(2550, thirdHead), mat, { bottom: false });
       // 两柱之间下沿线正面加回纹（与下沿线同高，不挡玻璃）。
       const fasciaMid = fasciaBot + eyelidFixed.fasciaHeight / 2;
-      meander(g, elevation.postXs[0] + 0.2, fasciaMid, front - 0.12, elevation.postXs[1] - elevation.postXs[0] - 0.4, mat);
+      meander(g, elevation.postXs[0] + 200, fasciaMid, front - 120, elevation.postXs[1] - elevation.postXs[0] - 400, mat);
     }
     // 屋后一二层、二三层交界的白条已去掉。三楼檐口下这一道留在瓦下。
     if (index === 2)
-      box(g, m.x + m.w / 2, base + h - 0.16, back + 0.02, m.w + 0.06, 0.17, 0.16, mat.trim);
+      box(g, m.x + m.w / 2, base + h - 160, back + 20, m.w + 60, 170, 160, mat.trim);
   });
   const portico = new THREE.Group();
   portico.name = "外伸2米的通高门厅";
@@ -890,48 +876,48 @@ export function buildVilla(
   const porchFront = m.z - site.portico.projection;
   const columnZ = elevation.porticoColumnZ;
   const columnNorth = columnZ - elevation.porticoColumnDepth / 2;
-  const porticoColTop = floorList[2]!.y - 0.14;
+  const porticoColTop = floorList[2]!.y - 140;
   for (const post of elevation.balustradePosts.slice(1, 3)) {
     const x = post.x;
-    referencePorticoColumn(portico, x, columnZ, site.entranceRise - 0.02, porticoColTop - site.entranceRise, post.w, elevation.porticoColumnDepth, mat);
-    box(portico, x, 2.85, columnNorth - 0.05, 0.22, 0.9, 0.17, mat.dark);
-    box(portico, x, 2.85, columnNorth - 0.145, 0.15, 0.73, 0.025, mat.gold);
-    for (const dx of [-0.05, 0.05])
-      box(portico, x + dx, 2.85, columnNorth - 0.166, 0.012, 0.72, 0.016, mat.dark);
+    referencePorticoColumn(portico, x, columnZ, site.entranceRise - 20, porticoColTop - site.entranceRise, post.w, elevation.porticoColumnDepth, mat);
+    box(portico, x, 2850, columnNorth - 50, 220, 900, 170, mat.dark);
+    box(portico, x, 2850, columnNorth - 145, 150, 730, 25, mat.gold);
+    for (const dx of [-50, 50])
+      box(portico, x + dx, 2850, columnNorth - 166, 12, 720, 16, mat.dark);
   }
   // 左右包角柱包住正面与侧面的直角；外凸量＝方案尺寸「包角柱突出墙面」。
   // 一二层正面柱顶对二楼前檐：下沿线底以下约10厘米，不通到三眼皮／天沟。
   const frontApronBase = frontApronEaveBase(floorList[2]!.y + elevation.eaveParapet, elevation.tiledEaveDrop);
   const frontCornerTop = cornerPilasterTopY(frontApronBase);
-  referenceCornerPilaster(portico, elevation.cornerWestX, m.z - 0.12, 0, frontCornerTop, -1, mat);
-  referenceCornerPilaster(portico, elevation.cornerEastX, m.z - 0.12, 0, frontCornerTop, 1, mat);
+  referenceCornerPilaster(portico, elevation.cornerWestX, m.z - 120, 0, frontCornerTop, -1, mat);
+  referenceCornerPilaster(portico, elevation.cornerEastX, m.z - 120, 0, frontCornerTop, 1, mat);
   // 屋后两根贴墙外角；柱顶对正屋环形天沟下沿线，同样留约10厘米。
   const rearZ = m.z + m.d;
   const rearCornerTop = cornerPilasterTopY(mainRoofFootprint().eave);
   cornerPilaster(portico, m.x, rearZ, 0, rearCornerTop, mat, -1, 1);
   cornerPilaster(portico, m.x + m.w, rearZ, 0, rearCornerTop, mat, 1, 1);
   referencePorticoBeam(portico, site.portico.x + site.portico.w / 2,
-    columnNorth + 0.065, frontCornerTop - 0.05,
+    columnNorth + 65, frontCornerTop - 50,
     elevation.postXs[1] - elevation.postXs[0], elevation.balustradePosts[1].w, mat);
-  slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 0.015, 0.18, mat.paving).name = "门厅地坪投影另计";
+  slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 15, 180, mat.paving).name = "门厅地坪投影另计";
   entranceApproach(portico, mat);
   slab(levels[0], rect(site.annex.x + site.annex.w, circulation.sideDoorZ - circulation.sideDoorWidth / 2,
-    m.x - (site.annex.x + site.annex.w), circulation.sideDoorWidth), construction.connectionY, 0.08, mat.paving)
+    m.x - (site.annex.x + site.annex.w), circulation.sideDoorWidth), construction.connectionY, 80, mat.paving)
     .name = "横向过道至辅楼的地面连接";
   // 浅阳台位于三层公共过厅外，避免直接放在老人房上方。
   const rearBalconyZ = m.z + m.d;
   const rearBalconyY = floorList[2]!.y;
-  const rearBalconyX = m.x + m.w * (12.65 - 6.8) / 13.5;
-  const rearBalconyW = 2.5 * (m.w / 13.5);
-  pavedTerrace(balcony, rect(rearBalconyX, rearBalconyZ, rearBalconyW, 1.2), rearBalconyY, 0.18, mat);
-  railing(balcony, [rearBalconyX + 0.05, rearBalconyZ + 1.15], [rearBalconyX + rearBalconyW - 0.05, rearBalconyZ + 1.15], rearBalconyY, mat);
-  railing(balcony, [rearBalconyX + 0.05, rearBalconyZ], [rearBalconyX + 0.05, rearBalconyZ + 1.15], rearBalconyY, mat);
-  railing(balcony, [rearBalconyX + rearBalconyW - 0.05, rearBalconyZ], [rearBalconyX + rearBalconyW - 0.05, rearBalconyZ + 1.15], rearBalconyY, mat);
+  const rearBalconyX = m.x + m.w * (12650 - 6800) / 13500;
+  const rearBalconyW = 2500 * (m.w / 13500);
+  pavedTerrace(balcony, rect(rearBalconyX, rearBalconyZ, rearBalconyW, 1200), rearBalconyY, 180, mat);
+  railing(balcony, [rearBalconyX + 50, rearBalconyZ + 1150], [rearBalconyX + rearBalconyW - 50, rearBalconyZ + 1150], rearBalconyY, mat);
+  railing(balcony, [rearBalconyX + 50, rearBalconyZ], [rearBalconyX + 50, rearBalconyZ + 1150], rearBalconyY, mat);
+  railing(balcony, [rearBalconyX + rearBalconyW - 50, rearBalconyZ], [rearBalconyX + rearBalconyW - 50, rearBalconyZ + 1150], rearBalconyY, mat);
   balcony.visible = false;
 
   const a = site.annex;
   const annexH = a.height;
-  slab(annex, rect(a.x, a.z, a.w, a.d), site.entranceRise, 0.18, mat.floor);
+  slab(annex, rect(a.x, a.z, a.w, a.d), site.entranceRise, 180, mat.floor);
   const annexWalls = facades(3);
   for (const facade of annexWalls)
     wallWithOpenings(annex, facade.a, facade.b, 0, annexH, facade.openings, mat, construction.outsideWall, false, mat.sand);
@@ -948,17 +934,17 @@ export function buildVilla(
     [a.x + a.w / 2, a.z + a.d / 2],
     mat,
     false,
-    fasciaBottomY(annexRoofFootprint().eave, 0) - 0.02,
+    fasciaBottomY(annexRoofFootprint().eave, 0) - 20,
   );
   // 隔墙画到外皮时，端头和外围墙面共面，外面会看到一条白竖线（易被当成落水管）。
   // 端头埋进墙身，与主楼隔墙同一处理。
-  const annexEmbed = 0.22;
+  const annexEmbed = 220;
   const buryAnnex = (p: Point): Point => {
     let [x, z] = p;
-    if (Math.abs(x - a.x) <= 0.02) x = a.x + annexEmbed;
-    else if (Math.abs(x - (a.x + a.w)) <= 0.02) x = a.x + a.w - annexEmbed;
-    if (Math.abs(z - a.z) <= 0.02) z = a.z + annexEmbed;
-    else if (Math.abs(z - (a.z + a.d)) <= 0.02) z = a.z + a.d - annexEmbed;
+    if (Math.abs(x - a.x) <= 20) x = a.x + annexEmbed;
+    else if (Math.abs(x - (a.x + a.w)) <= 20) x = a.x + a.w - annexEmbed;
+    if (Math.abs(z - a.z) <= 20) z = a.z + annexEmbed;
+    else if (Math.abs(z - (a.z + a.d)) <= 20) z = a.z + a.d - annexEmbed;
     return [x, z];
   };
   for (const p of annexParts) {
@@ -970,14 +956,14 @@ export function buildVilla(
       aa,
       bb,
       0,
-      Math.max(2.4, annexH - 0.2),
+      Math.max(2400, annexH - 200),
       p.door
         ? [
             {
               at: p.door.offset - pulled + p.door.width / 2,
               w: p.door.width,
               sill: 0,
-              h: 2.2,
+              h: 2200,
               door: true,
               hinge: p.door.hinge === "end" ? "end" : "start",
               side: p.door.side === "in" ? "in" : "out",
@@ -986,7 +972,7 @@ export function buildVilla(
           ]
         : [],
       mat,
-      0.12,
+      construction.partition,
       true,
     );
   }
@@ -996,21 +982,21 @@ export function buildVilla(
   const curtain = new THREE.Group();
   curtain.name = "挑空客厅一二层通高玻璃";
   group.add(curtain);
-  const glassScale = site.main.w / 13.5;
-  const glassCx = mainFrontOpeningX(2.35);
-  const glassW = 3.11 * glassScale;
-  const glassBottom = 0.42;
+  const glassScale = site.main.w / 13500;
+  const glassCx = mainFrontOpeningX(2350);
+  const glassW = 3110 * glassScale;
+  const glassBottom = 420;
   const glassTop = secondFloorSideGlassHeadY();
   const glassH = glassTop - glassBottom;
   const glassMid = (glassBottom + glassTop) / 2;
   const f1Top = floorList[0]!.height;
-  box(curtain, glassCx, glassMid, frontDecorZ(-0.835), glassW, glassH, 0.02, mat.glass, false);
-  const bar = 0.05;
+  box(curtain, glassCx, glassMid, frontDecorZ(-835), glassW, glassH, 20, mat.glass, false);
+  const bar = 50;
   const glassLeft = glassCx - glassW / 2;
   for (const t of [1 / 3, 2 / 3])
-    box(curtain, glassLeft + glassW * t, glassMid, frontDecorZ(-0.88), bar, glassH, 0.08, mat.dark, false);
+    box(curtain, glassLeft + glassW * t, glassMid, frontDecorZ(-880), bar, glassH, 80, mat.dark, false);
   for (const y of [glassBottom + (f1Top - glassBottom) / 2, f1Top, f1Top + (glassTop - f1Top) / 2])
-    box(curtain, glassCx, y, frontDecorZ(-0.88), glassW, bar, 0.08, mat.dark, false);
+    box(curtain, glassCx, y, frontDecorZ(-880), glassW, bar, 80, mat.dark, false);
   entryScreen(group, mat);
   eastMeanderBand(group, mat);
   return { group, levels, roof, balcony, annex, annexRoof, portico, labels };
@@ -1068,7 +1054,7 @@ export function floatingHatLayout(fenShui = site.roofFenShui) {
   const tileLift = roofTileEaveLift();
   const mainPeak = main.eave + tileLift + pitch.mainRise;
   const minPeak = main.eave + floatingHatDesign.minEaveLift + tileLift + floatingHatDesign.minRise;
-  const peak = Math.max(mainPeak - floatingHatDesign.ridgeDrop, Math.min(minPeak, mainPeak - 0.05));
+  const peak = Math.max(mainPeak - floatingHatDesign.ridgeDrop, Math.min(minPeak, mainPeak - 50));
   const eave = Math.max(main.eave + floatingHatDesign.minEaveLift, peak - tileLift - run * slope);
   const joinZ = main.z + roofTileInset + (peak - main.eave - tileLift) / slope;
   return {
@@ -1135,10 +1121,22 @@ export function attachRoofs(
   const annex = annexRoofFootprint();
   const annexWall = { x: site.annex.x, z: site.annex.z, w: site.annex.w, d: site.annex.d };
   gutteredRoof(annexRoof, annex.x, annex.z, annex.w, annex.d, annex.eave, pitch.annexRise, mat, undefined, annexWall);
-  const chimneyX = site.annex.x + 0.85;
-  const chimneyZ = site.annex.z + site.annex.d - 1.05;
-  box(annexRoof, chimneyX, 4.95, chimneyZ, 0.46, 3.1, 0.46, mat.stone);
-  box(annexRoof, chimneyX, 6.57, chimneyZ, 0.72, 0.12, 0.72, mat.dark);
-  for (const x of [site.annex.x + 0.65, site.annex.x + 1.05])
-    box(annexRoof, x, 6.37, chimneyZ, 0.045, 0.32, 0.045, mat.metal);
+  // 烟囱相对辅楼檐口＋坡起定位，避免墙高变化后出口低于瓦面。
+  const chimneyX = site.annex.x + 850;
+  const chimneyZ = site.annex.z + site.annex.d - 1050;
+  const localX = chimneyX - (annex.x + roofTileInset);
+  const localZ = chimneyZ - (annex.z + roofTileInset);
+  const tileW = annex.w - 2 * roofTileInset;
+  const tileD = annex.d - 2 * roofTileInset;
+  const run = Math.min(tileW, tileD) / 2;
+  const dx = Math.min(localX, tileW - localX);
+  const dz = Math.min(localZ, tileD - localZ);
+  const roofYAtChimney = annex.eave + pitch.annexRise * Math.min(1, Math.min(dx, dz) / Math.max(50, run));
+  const stackH = 1600;
+  const capY = roofYAtChimney + stackH;
+  const stackMid = roofYAtChimney + stackH / 2 - 200;
+  box(annexRoof, chimneyX, stackMid, chimneyZ, 460, stackH + 400, 460, mat.stone);
+  box(annexRoof, chimneyX, capY + 60, chimneyZ, 720, 120, 720, mat.dark);
+  for (const x of [site.annex.x + 650, site.annex.x + 1050])
+    box(annexRoof, x, capY - 140, chimneyZ, 45, 320, 45, mat.metal);
 }

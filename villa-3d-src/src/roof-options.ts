@@ -6,11 +6,11 @@ export const roofStyleLabels = {
 export type RoofStyle = keyof typeof roofStyleLabels;
 export const roofStylePreferenceKey = "anhua-villa-roof-style-v1";
 
-/** 槽底相对屋面基准的抬高（米）；找坡以此为最低排水口标高。 */
-export const gutterBedTop = 0.03;
+/** 槽底相对屋面基准的抬高（毫米）；找坡以此为最低排水口标高。 */
+export const gutterBedTop = 30;
 
 /**
- * 天沟设计参数（米、度）。可由方案尺寸「屋面」改写。
+ * 天沟设计参数（毫米、度）。可由方案尺寸「屋面」改写。
  * - clearDepth：外边反坎高度（槽底以上）
  * - innerDepth：内侧反坎高度，默认高于外侧，满水时外溢
  * - outerTopWidth：外边反坎顶部宽度（不含压顶外飘）
@@ -21,38 +21,38 @@ export const gutterBedTop = 0.03;
  * - copingSlopeDegrees：外挡压顶顶面内倾（石材压顶）
  */
 export const roofGutterDesign = {
-  clearWidth: 0.6,
-  clearDepth: 0.2,
-  innerDepth: 0.25,
-  outerTopWidth: 0.3,
+  clearWidth: 600,
+  clearDepth: 200,
+  innerDepth: 250,
+  outerTopWidth: 300,
   /** 内侧反坎厚度：用户未口述，沿用原挡墙模型厚。 */
-  innerWallThickness: 0.055,
-  tileGap: 0.05,
-  tileOverhang: 0.08,
+  innerWallThickness: 55,
+  tileGap: 50,
+  tileOverhang: 80,
   /** 默认 1° → tan(1°) */
   bedSlope: Math.tan((1 * Math.PI) / 180),
   copingSlopeDegrees: 4,
 };
 
 /**
- * 三眼皮固定造型（米）。出檐台阶与级高差不进参数面板。
- * 最上层外沿与屋面外轮廓齐平；默认 thirdEave=0.8 时下层出檐 0.6。
+ * 三眼皮固定造型（毫米）。出檐台阶与级高差不进参数面板。
+ * 最上层外沿与屋面外轮廓齐平；默认 thirdEave=800 时下层出檐 600。
  */
 export const eyelidFixed = {
   /** 每一级比下一级多探出 */
-  stepExtra: 0.1,
+  stepExtra: 100,
   /** 级间高度差：自下而上（底层板厚含缝、中层、上层至槽底） */
-  rises: [0.1, 0.1, 0.15] as const,
+  rises: [100, 100, 150] as const,
   /** 石材压顶相对三眼皮外沿再飘出 */
-  copingOverhang: 0.02,
+  copingOverhang: 20,
   /** 下沿线突出墙体 */
-  fasciaProtrusion: 0.1,
+  fasciaProtrusion: 100,
   /** 下沿线高度 */
-  fasciaHeight: 0.1,
+  fasciaHeight: 100,
 };
 
 /**
- * 檐下梁托／下沿线间距等动态参数（米）。可由「屋面」改写。
+ * 檐下梁托／下沿线间距等动态参数（毫米）。可由「屋面」改写。
  * - eyelidToFascia：三眼皮最底层底面到下沿线上沿
  *
  * 出挑关系（相对该墙面屋面外皮出挑 O）：
@@ -61,14 +61,14 @@ export const eyelidFixed = {
  */
 export const eaveTrimDesign = {
   /** 梁托出挑，用户指定 500mm；各墙面共用，仅由「梁托长度」主动改写 */
-  corbelLength: 0.5,
-  corbelSpacing: 0.7,
-  corbelCornerSpacing: 0.6,
-  eyelidToFascia: 0.3,
+  corbelLength: 500,
+  corbelSpacing: 700,
+  corbelCornerSpacing: 600,
+  eyelidToFascia: 300,
   /** 梁托沿墙厚度，款式07落款：160 */
-  corbelWidth: 0.16,
+  corbelWidth: 160,
   /** 梁托贴墙高度，款式07落款：200 */
-  corbelHeight: 0.2,
+  corbelHeight: 200,
 };
 
 /** @deprecated 兼容旧名：外挡厚度现为 outerTopWidth */
@@ -92,8 +92,8 @@ export function gutterInnerLipInset() {
   );
 }
 
-/** 封闭瓦面挤出厚度（米）；略薄于旧值，减轻瓦底与天沟构件共面闪线。 */
-export const roofTileThickness = 0.05;
+/** 封闭瓦面挤出厚度（毫米）；略薄于旧值，减轻瓦底与天沟构件共面闪线。 */
+export const roofTileThickness = 50;
 
 /** 自屋面外轮廓到瓦边：内挡沟侧再减去探出量，瓦边伸进沟内。 */
 export let roofTileInset = gutterInnerLipInset() - roofGutterDesign.tileOverhang;
@@ -151,17 +151,17 @@ export function fasciaBottomY(tileTop: number, drop: number) {
 }
 
 /**
- * 包角柱顶标高：下沿线板底再往下 gap（默认 0.1 m）。
+ * 包角柱顶标高：下沿线板底再往下 gap（默认 100 mm）。
  * 柱顶不通到屋顶／三眼皮下沿，与梁托下的下沿线留空。
  */
-export const cornerPilasterBelowFascia = 0.1;
+export const cornerPilasterBelowFascia = 100;
 
 export function cornerPilasterTopY(tileTop: number, drop = 0, gap = cornerPilasterBelowFascia) {
   return fasciaBottomY(tileTop, drop) - gap;
 }
 
-/** 洞口上沿须低于下沿线板底的净距（米）。 */
-export const openingBelowFasciaClearance = 0.05;
+/** 洞口上沿须低于下沿线板底的净距（毫米）。 */
+export const openingBelowFasciaClearance = 50;
 
 /** 洞口最高绝对 Y：下沿线板底再往下 clearance。 */
 export function maxOpeningTopY(eaveY: number, drop = 0) {
@@ -170,7 +170,7 @@ export function maxOpeningTopY(eaveY: number, drop = 0) {
 
 // 按最新参考：帽脊低于主脊约 50cm，纵脊直接接入正屋前坡。
 // 极缓坡保留柱头净空及最小起坡；这些是造型建议，非实测或结构尺寸。
-export const floatingHatDesign = { ridgeDrop: 0.5, minEaveLift: 0.27, minRise: 0.05 };
+export const floatingHatDesign = { ridgeDrop: 500, minEaveLift: 270, minRise: 50 };
 
 export function parseRoofStyle(value: unknown): RoofStyle {
   if (value === undefined || value === "joined") return "joined";

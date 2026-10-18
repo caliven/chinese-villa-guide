@@ -10,9 +10,11 @@ export interface RoofFace {
   owner: number;
 }
 export interface RoofRidge { a: THREE.Vector3; b: THREE.Vector3; owner: number }
-const epsilon = 1e-8;
+const epsilon = 1e-5;
+/** 面积类容差（mm²）：原米制 1e-8 m²。 */
+const areaEpsilon = 1e-2;
 // 裁切产生的微小正负误差统一量化，避免把同一坡面的 0 与 -0 分成两组。
-const geometryKey = (values: number[]) => values.map(n => Math.round(n * 1e6)).join(":");
+const geometryKey = (values: number[]) => values.map(n => Math.round(n * 1e3)).join(":");
 
 function area(polygon: Point[]) {
   return polygon.reduce((sum, p, i) => {
@@ -51,7 +53,7 @@ export function subtractRoofPolygon(subject: Point[], cover: Point[]): Point[][]
   for (let i = 0; i < cover.length && remainder.length >= 3; i++) {
     const [a, b, c] = edgePlane(cover[i], cover[(i + 1) % cover.length], sign);
     const outside = clip(remainder, -a, -b, -c);
-    if (outside.length >= 3 && Math.abs(area(outside)) > epsilon) pieces.push(outside);
+    if (outside.length >= 3 && Math.abs(area(outside)) > areaEpsilon) pieces.push(outside);
     remainder = clip(remainder, a, b, c);
   }
   return pieces;
@@ -62,7 +64,7 @@ function plane(face: RoofFace) {
   let n = new THREE.Vector3();
   for (let i = 1; i < face.points.length - 1; i++) {
     n = face.points[i].clone().sub(a).cross(face.points[i + 1].clone().sub(a));
-    if (Math.abs(n.y) > epsilon) break;
+    if (Math.abs(n.y) > areaEpsilon) break;
   }
   const x = -n.x / n.y, z = -n.z / n.y;
   return { x, z, c: a.y - x * a.x - z * a.z };
@@ -95,7 +97,7 @@ export function joinRoofFaces(faces: RoofFace[]) {
       if (face.owner === other.owner) continue;
       const q = plane(other);
       const cover = clip(footprint(other), q.x - p.x, q.z - p.z, q.c - p.c);
-      if (cover.length >= 3 && Math.abs(area(cover)) > epsilon)
+      if (cover.length >= 3 && Math.abs(area(cover)) > areaEpsilon)
         parts = parts.flatMap(part => subtractRoofPolygon(part, cover));
     }
     return parts.map(part => atHeight(face, part));
@@ -182,7 +184,7 @@ function mergeIntervals(intervals: [number, number][]) {
   const result: [number, number][] = [];
   for (const span of intervals.sort((a, b) => a[0] - b[0])) {
     const last = result[result.length - 1];
-    if (last && span[0] <= last[1] + 1e-6) last[1] = Math.max(last[1], span[1]);
+    if (last && span[0] <= last[1] + 1e-3) last[1] = Math.max(last[1], span[1]);
     else result.push([...span]);
   }
   return result;
@@ -227,8 +229,8 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
     const across = face.across, down: Point = [-across[1], across[0]];
     const projection = (q: Point, dir: Point) => q[0] * dir[0] + q[1] * dir[1];
     const originU = projection(face.origin, across), us = polygon.map(q => projection(q, across));
-    for (let k = Math.ceil((Math.min(...us) - originU) / 0.18); k <= Math.floor((Math.max(...us) - originU) / 0.18); k++) {
-      const u = originU + k * 0.18, points: Point[] = [];
+    for (let k = Math.ceil((Math.min(...us) - originU) / 180); k <= Math.floor((Math.max(...us) - originU) / 180); k++) {
+      const u = originU + k * 180, points: Point[] = [];
       for (let i = 0; i < polygon.length; i++) {
         const a = polygon[i], b = polygon[(i + 1) % polygon.length];
         const ua = projection(a, across) - u, ub = projection(b, across) - u;
@@ -246,10 +248,10 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
       ribRuns.get(key)!.intervals.push([projection(points[0], down), projection(points[points.length - 1], down)]);
     }
     const originV = projection(face.origin, down), vs = polygon.map(q => projection(q, down));
-    for (let k = Math.ceil((Math.min(...vs) - originV) / 0.26); k <= Math.floor((Math.max(...vs) - originV) / 0.26); k++) {
-      const strip = band(polygon, down, originV + k * 0.26, 0.003);
-      if (strip.length >= 3 && Math.abs(area(strip)) > epsilon)
-        seams.push(roofGeometry(atHeight(face, strip), 0, 0.004));
+    for (let k = Math.ceil((Math.min(...vs) - originV) / 260); k <= Math.floor((Math.max(...vs) - originV) / 260); k++) {
+      const strip = band(polygon, down, originV + k * 260, 3);
+      if (strip.length >= 3 && Math.abs(area(strip)) > areaEpsilon)
+        seams.push(roofGeometry(atHeight(face, strip), 0, 4));
     }
   }
   for (const run of ribRuns.values()) {
@@ -261,8 +263,8 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
     // 而非固定截短轴线；陡坡及小夹角下仍不会伸进相邻瓦面。
     for (let i = 0; i < 24 && safe.length; i++) {
       const angle = i * Math.PI / 12;
-      const offset = normal.clone().multiplyScalar(0.022 + 0.036 * Math.cos(angle))
-        .addScaledVector(lateral, 0.036 * Math.sin(angle));
+      const offset = normal.clone().multiplyScalar(22 + 36 * Math.cos(angle))
+        .addScaledVector(lateral, 36 * Math.sin(angle));
       const du = offset.x * run.face.across[0] + offset.z * run.face.across[1];
       const dv = offset.x * run.down[0] + offset.z * run.down[1];
       const allowed = lineIntervals(coplanar.get(run.planeKey)!, run.u + du, run.face.across, run.down)
@@ -271,18 +273,18 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
         .filter(([c,d]) => d - c > epsilon));
     }
     for (const [start, end] of safe) {
-      const lo = start + 0.003, hi = end - 0.003;
-      if (hi - lo < 0.04) continue;
+      const lo = start + 3, hi = end - 3;
+      if (hi - lo < 40) continue;
       const cuts = [lo];
-      for (let k = Math.ceil((lo - run.originV) / 0.26); run.originV + k * 0.26 < hi; k++)
-        if (run.originV + k * 0.26 > lo + epsilon) cuts.push(run.originV + k * 0.26);
+      for (let k = Math.ceil((lo - run.originV) / 260); run.originV + k * 260 < hi; k++)
+        if (run.originV + k * 260 > lo + epsilon) cuts.push(run.originV + k * 260);
       cuts.push(hi);
       for (let i = 0; i < cuts.length - 1; i++) {
-        if (cuts[i + 1] - cuts[i] < 0.025) continue;
-        const ends = [cuts[i] + 0.0015, cuts[i + 1] - 0.0015].map(v => {
+        if (cuts[i + 1] - cuts[i] < 25) continue;
+        const ends = [cuts[i] + 1.5, cuts[i + 1] - 1.5].map(v => {
           const x = run.face.across[0] * run.u + run.down[0] * v;
           const z = run.face.across[1] * run.u + run.down[1] * v;
-          return new THREE.Vector3(x, roofHeight(run.face, x, z), z).addScaledVector(normal, 0.022);
+          return new THREE.Vector3(x, roofHeight(run.face, x, z), z).addScaledVector(normal, 22);
         });
         if (ends[0].y > ends[1].y) ends.reverse();
         ribs.push(ends as [THREE.Vector3, THREE.Vector3]);
@@ -304,7 +306,7 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
     mesh.receiveShadow = true;
     group.add(mesh);
   };
-  cylinders(ribs, 0.032, 12, "分片筒瓦");
+  cylinders(ribs, 32, 12, "分片筒瓦");
   for (const geometry of seams) {
     const mesh = new THREE.Mesh(geometry, joint);
     mesh.name = "瓦片搭接缝";
@@ -333,9 +335,9 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
       if (ts[i + 1] - ts[i] < epsilon) continue;
       const mid = ridge.a.clone().lerp(ridge.b, (ts[i] + ts[i + 1]) / 2);
       if (competing.some(face => contains(face, mid) && roofHeight(face, mid.x, mid.z) > mid.y + epsilon)) continue;
-      visibleRidges.push([ts[i], ts[i + 1]].map(t => ridge.a.clone().lerp(ridge.b, t).add(new THREE.Vector3(0, 0.055, 0))) as [THREE.Vector3, THREE.Vector3]);
+      visibleRidges.push([ts[i], ts[i + 1]].map(t => ridge.a.clone().lerp(ridge.b, t).add(new THREE.Vector3(0, 55, 0))) as [THREE.Vector3, THREE.Vector3]);
     }
   }
-  cylinders(visibleRidges, 0.075, 16, "相接直脊瓦");
+  cylinders(visibleRidges, 75, 16, "相接直脊瓦");
   return group;
 }

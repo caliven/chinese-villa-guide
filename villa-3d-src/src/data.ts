@@ -1,6 +1,7 @@
 import { smoothContour } from "./contours";
 import { placeRoadsideVilla } from "./roadside-villa-layout";
 import { roofGutterDesign, roofTileInset } from "./roof-options";
+import { areaM2 } from "./units";
 import {
   DOOR_OPENING,
   doorOffsetAgainstHinge,
@@ -11,7 +12,7 @@ import {
 export type { WallOpening, OpeningKind, DoorHinge, DoorSide } from "./openings";
 export { DOOR_HINGE_CORNER_GAP, DOOR_OPENING } from "./openings";
 
-// 坐标：X 向东、Y 向上、Z 向南；旧房前坪外缘 Z=0，单位均为米。
+// 坐标：X 向东、Y 向上、Z 向南；旧房前坪外缘 Z=0，单位均为毫米（mm）。
 export type Point = [number, number];
 export type Evidence = "用户提供" | "照片估算" | "设计建议" | "待测";
 export interface Fact {
@@ -41,22 +42,25 @@ export interface Room {
   label?: Point;
   purposeStatus?: "pending";
 }
-/** 内墙方案角色：承重／隔墙。外墙另绘，一律按承重示意。非结构施工认定。 */
-export type WallRole = "bearing" | "partition";
+/** virtual 仅为开放区域分界，无实体、无墙厚。 */
+export type WallRole = "bearing" | "partition" | "virtual";
 export interface Wall {
   a: Point;
   b: Point;
   /** 隔墙上的门／窗洞口（可含开向与类型） */
   door?: WallOpening;
   /**
-   * 平面示意：承重或轻隔墙。缺省按隔墙。
+   * 平面示意：承重、轻隔墙或虚拟分界。缺省按隔墙。
    * 按砖混开间／楼梯／横墙轴线标注，可被户型功能墙带偏处已降为隔墙；须结构核定。
    */
   role?: WallRole;
 }
 /** 平面／编辑用：未标注则按隔墙。 */
 export function wallRoleOf(w: Wall): WallRole {
-  return w.role === "bearing" ? "bearing" : "partition";
+  return w.role === "virtual" ? "virtual" : w.role === "bearing" ? "bearing" : "partition";
+}
+export function isPhysicalWall(w: Wall): boolean {
+  return wallRoleOf(w) !== "virtual";
 }
 export interface Furniture {
   kind:
@@ -79,7 +83,8 @@ export interface Furniture {
     | "hob"
     | "sink"
     | "altar"
-    | "shrine";
+    | "shrine"
+    | "railing";
   x: number;
   z: number;
   w: number;
@@ -102,14 +107,29 @@ export interface Floor {
 // 三点过圆，外沿向外鼓。辅楼前墙已内退至 Z=0，西端前墙外尚有约0.2米。
 /** 院坪外沿三点锚点；可由方案参数重写后调用 rebuildCourtyardGeometry。 */
 export const courtyardArcAnchors: [Point, Point, Point] = [
-  [0, -0.2],
-  [10, -5],
-  [21, -8.6],
+  [0, -200],
+  [10000, -5000],
+  [21000, -8600],
 ];
-function circleThrough(anchors: [Point, Point, Point]) {
+/** 三点近似共线时退化为极大半径圆弧，避免 det≈0 产生 NaN 污染地库外墙。 */
+export function circleThrough(anchors: [Point, Point, Point]) {
   const [a, b, c] = anchors;
   const [x1, z1] = a, [x2, z2] = b, [x3, z3] = c;
   const det = 2 * (x1 * (z2 - z3) + x2 * (z3 - z1) + x3 * (z1 - z2));
+  if (!Number.isFinite(det) || Math.abs(det) < 1) {
+    // 用弦中点下方远处假圆心，使采样近似落在弦上（直线院坪外沿）。
+    const mx = (x1 + x3) / 2;
+    const mz = (z1 + z3) / 2;
+    const chord = Math.hypot(x3 - x1, z3 - z1) || 1;
+    const nx = -(z3 - z1) / chord;
+    const nz = (x3 - x1) / chord;
+    const radius = 1e9;
+    const h = mx - nx * radius;
+    const k = mz - nz * radius;
+    const midOnChordZ = z1 + ((z3 - z1) * (x2 - x1)) / (x3 - x1 || 1);
+    const sign = z2 >= midOnChordZ ? 1 : -1;
+    return { h, k, radius, sign };
+  }
   const h =
     ((x1 * x1 + z1 * z1) * (z2 - z3) +
       (x2 * x2 + z2 * z2) * (z3 - z1) +
@@ -123,16 +143,16 @@ function circleThrough(anchors: [Point, Point, Point]) {
   return { h, k, radius: Math.hypot(x1 - h, z1 - k), sign: z2 >= k ? 1 : -1 };
 }
 export let courtyardCircle = circleThrough(courtyardArcAnchors);
-function courtyardArc(step = 2.4): Point[] {
+function courtyardArc(step = 2400): Point[] {
   const { h, k, radius, sign } = courtyardCircle;
   const [x1] = courtyardArcAnchors[0];
   const [x3, z3] = courtyardArcAnchors[2];
   const points: Point[] = [];
-  for (let x = x1; x < x3 - 1e-6; x += step) {
+  for (let x = x1; x < x3 - 1e-3; x += step) {
     const rise = Math.sqrt(Math.max(0, radius * radius - (x - h) ** 2));
     points.push([
-      Math.round(x * 1000) / 1000,
-      Math.round((k + sign * rise) * 1000) / 1000,
+      Math.round(x),
+      Math.round(k + sign * rise),
     ]);
   }
   points.push([x3, z3]);
@@ -140,13 +160,13 @@ function courtyardArc(step = 2.4): Point[] {
   return points;
 }
 export const courtyardFrontControls: Point[] = courtyardArc();
-export const courtyardFront: Point[] = smoothContour(courtyardFrontControls, 0.3);
+export const courtyardFront: Point[] = smoothContour(courtyardFrontControls, 300);
 
 /** 按当前 courtyardArcAnchors 重算院坪外沿、site.field／boundary／cut。 */
 export function rebuildCourtyardGeometry() {
   courtyardCircle = circleThrough(courtyardArcAnchors);
   const controls = courtyardArc();
-  const front = smoothContour(controls, 0.3);
+  const front = smoothContour(controls, 300);
   courtyardFrontControls.length = 0;
   courtyardFrontControls.push(...controls);
   courtyardFront.length = 0;
@@ -157,155 +177,157 @@ export function rebuildCourtyardGeometry() {
     [site.width, site.oldDepth],
     ...courtyardFront.slice().reverse(),
   ];
-  const eastFront = courtyardFront[courtyardFront.length - 1]?.[1] ?? -8.6;
-  site.cut = { x: site.width, z: eastFront, w: 5, d: 2.5 };
+  const eastFront = courtyardFront[courtyardFront.length - 1]?.[1] ?? -8600;
+  site.cut = { x: site.width, z: eastFront, w: 5000, d: 2500 };
   // 邻院北缘取自家东界外沿最宽处，向东拉平，不再比自家多伸出。
   neighborCourtyardPlan.yardBeyondCement = neighborCourtyardPlan.cementFront - eastFront;
 }
 
 export const site = {
-  width: 21,
-  oldDepth: 10.8,
-  // 屋后至梯田边预留默认 1.2 m（2026-10-16 用户改）；前墙 Z＝oldDepth−rearGap−mainDepth＝−0.4。
-  rearGap: 1.2,
-  sideGap: 0.7,
-  lane: 1.5,
-  main: { x: 6.7, z: -0.4, w: 13.5, d: 10 },
-  // 相对主楼前墙内退2米：前墙 Z=1.6、进深8，后墙仍与主楼齐平 Z=9.6。4.5×8＝36㎡。
-  annex: { x: 0.7, z: 1.6, w: 4.5, d: 8, height: 3.6 },
-  setback: 1.2,
-  // 页面可改。4.5 是当前默认，不是测绘。
+  width: 21000,
+  oldDepth: 10800,
+  // 屋后至梯田边预留默认 1200 mm（2026-10-16 用户改）；前墙 Z＝oldDepth−rearGap−mainDepth＝−400。
+  rearGap: 1200,
+  sideGap: 800,
+  lane: 1800,
+  // 东墙锚定：21000−800−13600＝6600；西侧800＋辅楼4000＋子孙道1800＝6600。
+  main: { x: 6600, z: -400, w: 13600, d: 10000 },
+  // 相对主楼前墙内退2000：前墙 Z=1600、进深8000，后墙仍与主楼齐平 Z=9600。4000×8000＝32㎡。
+  annex: { x: 800, z: 1600, w: 4000, d: 8000, height: 3600 },
+  setback: 1200,
+  // 页面可改。4.5 是当前默认，不是测绘。（分水比例，非长度，不换算毫米）
   roofFenShui: 4.5,
-  // 主楼四坡默认起高：天沟外轮廓进深随 thirdEave（前退台＋后檐各 0.8 → 进深 9.8）。
-  // site.eave 仅表示辅楼四面挑出（默认与主楼同为 0.8），勿再当作主楼后檐。
-  roofRise: 0.45 * (9.8 - 2 * roofTileInset) / 2,
-  eave: 0.8,
-  secondFrontEave: 0.8,
-  thirdEave: 0.8,
-  // 门厅在主楼面宽居中：x = main.x + (main.w − w) / 2（主楼起点 6.7 → 11.05）
-  portico: { x: 11.05, w: 4.8, projection: 2 },
+  // 主楼四坡默认起高：天沟外轮廓进深随 thirdEave（前退台＋后檐各 800 → 进深 9800）。
+  // site.eave 仅表示辅楼四面挑出（默认与主楼同为 800），勿再当作主楼后檐。
+  roofRise: 0.45 * (9800 - 2 * roofTileInset) / 2,
+  eave: 800,
+  secondFrontEave: 800,
+  thirdEave: 800,
+  // 门厅在主楼面宽居中：柱心距 4600 → x = 6600 + (13600−4600)/2 = 11100；左右各 4500。
+  portico: { x: 11100, w: 4600, projection: 2000 },
   // 设计建议：室内一楼比院坪高三步。每步 150mm，不是测绘。面对房子时左侧为东。
-  entranceRise: 0.45,
-  rearField: 2.5,
-  originalField: -2,
+  entranceRise: 450,
+  rearField: 2500,
+  originalField: -2000,
   // 旁田未挖；暂沿用原田面示意标高，但作为独立参数，不跟随地库完成面。
-  adjacentUnexcavatedLevel: -2,
-  // 最新现场关系：地库外第一田再低2米，前方砖房台地再低1.5米。
-  frontFieldDrop: 2,
-  frontHouseDrop: 1.5,
-  garageClear: 2.5,
-  // 0.45 是示意结构占用，不是设计梁高。地库绝对标高尚待联测。
-  deckStructure: 0.45,
-  garageFloor: -2.95,
+  adjacentUnexcavatedLevel: -2000,
+  // 最新现场关系：地库外第一田再低2000，前方砖房台地再低1500。
+  frontFieldDrop: 2000,
+  frontHouseDrop: 1500,
+  garageClear: 2500,
+  // 450 是示意结构占用，不是设计梁高。地库绝对标高尚待联测。
+  deckStructure: 450,
+  garageFloor: -2950,
   latitude: 28.153355,
   longitude: 111.156546,
   // 西端不收尖。东端与旁边木屋前的接通院坪取同一外沿。
   field: [
     [0, 0],
-    [21, 0],
+    [21000, 0],
     ...courtyardFront.slice().reverse(),
   ] as Point[],
   boundary: [
-    [0, 10.8],
-    [21, 10.8],
+    [0, 10800],
+    [21000, 10800],
     ...courtyardFront.slice().reverse(),
   ] as Point[],
-  cut: { x: 21, z: -8.6, w: 5, d: 2.5 },
+  cut: { x: 21000, z: -8600, w: 5000, d: 2500 },
   vehicle: {
-    length: 5.218,
-    width: 1.998,
-    height: 1.8,
-    wheelbase: 3.105,
-    frontOverhang: 0.965,
-    rearOverhang: 1.148,
-    groundClearance: 0.172,
+    length: 5218,
+    width: 1998,
+    height: 1800,
+    wheelbase: 3105,
+    frontOverhang: 965,
+    rearOverhang: 1148,
+    groundClearance: 172,
   },
 };
 
 export const buildingAreas = {
   get main() {
-    return site.main.w * site.main.d;
+    return areaM2(site.main.w, site.main.d);
   },
   get annex() {
-    return site.annex.w * site.annex.d;
+    return areaM2(site.annex.w, site.annex.d);
   },
   // 几何投影，用户确认门厅另计；不冒充当地报建建筑面积口径。
   get portico() {
-    return site.portico.w * site.portico.projection;
+    return areaM2(site.portico.w, site.portico.projection);
   },
 };
 
 /**
  * 户型「院坪」总图用的邻居木房占位。
- * 面宽13米、水泥2＋木房8.8＝10.8：用户2026-10-16口述。
+ * 面宽13000、水泥2000＋木房8800＝10800：用户2026-10-16口述。
  * 水泥外院坪北缘与自家东界外沿最宽处齐平（不再北伸）；yardBeyondCement 由 rebuildCourtyardGeometry 写入。
  * 3D 左侧邻居木房随 neighborWood* 同步；前后邻房仅随东缘微调。不是测绘。
- * 平面北上东右：与自家东界（X=21）相接后往东排。
+ * 平面北上东右：与自家东界（X=21000）相接后往东排。
  */
 export const neighborCourtyardPlan = {
   x: site.width,
-  w: 13,
+  w: 13000,
   cementFront: 0,
-  cementDepth: 2,
-  woodDepth: 8.8,
-  /** 水泥边→邻院北缘；与自家东界外沿齐平，默认 0−(−8.6)=8.6 */
-  yardBeyondCement: 8.6,
+  cementDepth: 2000,
+  woodDepth: 8800,
+  /** 水泥边→邻院北缘；与自家东界外沿齐平，默认 0−(−8600)=8600 */
+  yardBeyondCement: 8600,
 };
 
 // 主马路蓝顶邻房：首层与前方砖房首层同高，地下室按用户要求不建。
+// roadside-villa-layout 以毫米计（与 data 同单位）。
 export const roadsideVilla = placeRoadsideVilla(
   site.annex.x,
   site.garageFloor - site.frontFieldDrop - site.frontHouseDrop,
 );
 
-// 立面以新中式效果图1为准：70cm瓦檐、1.2m短柱来自用户，其余细部为造型参数。
+// 立面以新中式效果图1为准：700瓦檐、1200短柱来自用户，其余细部为造型参数。
 // 官帽高柱向后退，前排只立短柱；中央露台开敞，两侧通道由后方柱墙隔开。
 export const frontElevation = {
   // 露台北缘随后由 syncFrontElevation 按柱位重算；此处与默认柱位一致。
-  terraceFront: site.main.z - 0.12 - 0.075 - 0.3,
-  terraceBack: site.main.z + site.setback + 0.04,
+  terraceFront: site.main.z - 120 - 75 - 300,
+  terraceBack: site.main.z + site.setback + 40,
   // 中间露台北缘＝门厅柱北皮（柱心在外伸北沿角上）。
-  centerFront: site.main.z - site.portico.projection - 0.4,
+  centerFront: site.main.z - site.portico.projection - 400,
   sideTerraces: [
-    { x: site.main.x + 0.18, w: site.portico.x - (site.main.x + 0.18) },
+    { x: site.main.x + 180, w: site.portico.x - (site.main.x + 180) },
     {
       x: site.portico.x + site.portico.w,
-      w: site.main.x + site.main.w - 0.18 - (site.portico.x + site.portico.w),
+      w: site.main.x + site.main.w - 180 - (site.portico.x + site.portico.w),
     },
   ],
   // 门厅柱心＝外伸北沿左右两角；改参见 syncFrontElevation。
   postXs: [site.portico.x, site.portico.x + site.portico.w],
-  // 与一层前墙外皮同面（柱身进深 0.5 m 时中心在外皮南 0.25 m）；改参见 syncFrontElevation。
-  postZ: site.main.z + 0.25,
-  dividerWidth: 0.64,
-  wallCornerXs: [site.main.x + 0.27, site.main.x + site.main.w - 0.27],
-  // 包角柱外皮比墙面外凸；默认 0.15 m＝15 cm，由方案尺寸 cornerProject 改写。
-  // 直角原点取前墙外皮与侧墙外皮交点内侧 0.12 m（与 syncFrontElevation 一致，勿写死旧 13.5 坐标）。
-  cornerProject: 0.15,
-  cornerLeg: 0.5,
-  cornerWestX: site.main.x + 0.12,
-  cornerEastX: site.main.x + site.main.w - 0.12,
-  // 短柱立在屋檐内挡墙上，不是直接立在露台地面。柱身 0.8 米，加 0.5 米墙约 1.3 米。
-  balustradePostHeight: 0.8,
-  eaveParapet: 0.5,
-  // 两侧露台短柱柱身（中间两根与门厅柱同截面，见 balustradePosts）。盖板另在柱身外每边加 10 厘米。
-  shortPostWidth: 0.6,
-  // 柱心在北沿角上：内侧到前墙＝外伸−半柱（默认 2−0.4＝1.6）。三楼短柱与门厅柱同轴。
-  porticoColumnWallGap: 1.6,
-  porticoColumnDepth: 0.8,
+  // 与一层前墙外皮同面（柱身进深 500 mm 时中心在外皮南 250 mm）；改参见 syncFrontElevation。
+  postZ: site.main.z + 250,
+  dividerWidth: 640,
+  wallCornerXs: [site.main.x + 270, site.main.x + site.main.w - 270],
+  // 包角柱外皮比墙面外凸；默认 150 mm＝15 cm，由方案尺寸 cornerProject 改写。
+  // 直角原点取前墙外皮与侧墙外皮交点内侧 120 mm（与 syncFrontElevation 一致，勿写死旧 13500 坐标）。
+  cornerProject: 150,
+  cornerLeg: 500,
+  cornerWestX: site.main.x + 120,
+  cornerEastX: site.main.x + site.main.w - 120,
+  // 短柱立在屋檐内挡墙上，不是直接立在露台地面。柱身 800，加 500 墙约 1300。
+  balustradePostHeight: 800,
+  eaveParapet: 500,
+  // 两侧露台短柱柱身（中间两根与门厅柱同截面，见 balustradePosts）。盖板另在柱身外每边加 100。
+  shortPostWidth: 600,
+  // 柱心在北沿角上：内侧到前墙＝外伸−半柱（默认 2000−400＝1600）。三楼短柱与门厅柱同轴。
+  porticoColumnWallGap: 1600,
+  porticoColumnDepth: 800,
   porticoColumnZ: site.main.z - site.portico.projection,
   // 初始占位；加载／改参后由 villa-params.syncFrontElevation 写成与下层柱同轴。
   balustradePosts: [
-    { x: 7.095, z: site.main.z - 0.12 - 0.075, w: 0.6 },
-    { x: site.portico.x, z: site.main.z - site.portico.projection, w: 0.8 },
-    { x: site.portico.x + site.portico.w, z: site.main.z - site.portico.projection, w: 0.8 },
-    { x: 20.105, z: site.main.z - 0.12 - 0.075, w: 0.6 },
+    { x: 7095, z: site.main.z - 120 - 75, w: 600 },
+    { x: site.portico.x, z: site.main.z - site.portico.projection, w: 800 },
+    { x: site.portico.x + site.portico.w, z: site.main.z - site.portico.projection, w: 800 },
+    { x: 20105, z: site.main.z - 120 - 75, w: 600 },
   ],
-  // 三楼瓦檐从挡墙顶落到外沿的高差，水平出檐是 secondFrontEave。0.38 米是造型。
-  tiledEaveDrop: 0.38,
-  hatEave: 10.65,
-  hatFront: site.main.z - 0.98,
-  hatWidth: site.portico.w + 1.04,
+  // 三楼瓦檐从挡墙顶落到外沿的高差，水平出檐是 secondFrontEave。380 是造型。
+  tiledEaveDrop: 380,
+  hatEave: 10650,
+  hatFront: site.main.z - 980,
+  hatWidth: site.portico.w + 1040,
 };
 export const frontFieldLevel = site.garageFloor - site.frontFieldDrop;
 
@@ -313,7 +335,7 @@ const wall = (
   a: Point,
   b: Point,
   offset?: number,
-  width = 0.9,
+  width = 900,
   doorExtra?: Pick<WallOpening, "hinge" | "side" | "kind">,
 ): Wall => ({
   a,
@@ -335,12 +357,12 @@ const doorWall = (
   return wall(a, b, doorOffsetAgainstHinge(len, width, hinge), width, { hinge, side });
 };
 /** 床宽为占地外轮廓（含两侧床头柜），与平面／墙同比例。 */
-const bed = (x: number, z: number, w = 2.7): Furniture => ({
+const bed = (x: number, z: number, w = 2700): Furniture => ({
   kind: "bed",
   x,
   z,
   w,
-  d: 2.1,
+  d: 2100,
 });
 const fixture = (
   kind: Furniture["kind"],
@@ -354,33 +376,34 @@ const fixture = (
 // 默认-版本1 以用户保存稿 户型-20261017-144026 为标准，尺寸已取整对齐。
 export const stairLayout = {
   // 宽 3.6：西缘相对茶室西墙内收约 0.9 m，东缘与主楼东外墙齐平（书写系 6.8＋13.5＝20.3）
-  room: { x: 16.7, z: 2.2, w: 3.6, d: 2.6 },
-  x: 17.05,
-  z: 2.46,
-  flight: 1.0,
-  gap: 0.18,
+  room: { x: 16700, z: 2200, w: 3600, d: 2600 },
+  x: 17050,
+  z: 2460,
+  flight: 1000,
+  gap: 180,
   risers: 20,
-  tread: 0.25,
-  landing: 0.8,
-  axis: "x" as const,
-  hole: { x: 16.9, z: 2.34, w: 2.95, d: 2.3 },
+  tread: 250,
+  landing: 800,
+  /** x＝两跑沿东西（左右折返）；z＝两跑沿南北（竖向折返）。布局编辑可选。 */
+  axis: "x" as "x" | "z",
+  hole: { x: 16900, z: 2340, w: 2950, d: 2300 },
 };
 // 与当前几何共用的示意尺寸；不是经结构或通行设计确认的数值。
 export const construction = {
-  outsideWall: 0.24,
-  partition: 0.12,
-  floorSlab: 0.18,
-  connectionY: 0.015,
-  entranceTread: 0.3,
-  entranceLandingOffset: 0.15,
-  entranceRampRun: 2,
+  outsideWall: 240,
+  partition: 120,
+  floorSlab: 180,
+  connectionY: 15,
+  entranceTread: 300,
+  entranceLandingOffset: 150,
+  entranceRampRun: 2000,
 };
 export const circulation = {
   // 通辅楼门：落在客厅后过道中线；门洞 0.9 m（小于过道 1.2 m，两侧留边）。
   sideDoorWidth: DOOR_OPENING.room as number,
-  sideDoorZ: 4.8,
+  sideDoorZ: 4800,
   // 挑空在面对房子时的右侧（西），对应参考图左侧客厅对调后的位置。
-  livingVoid: { x: 6.8, z: -1, w: 4.5, d: 5.2 },
+  livingVoid: { x: 6800, z: -1000, w: 4500, d: 5200 },
 };
 
 /** 通辅楼门中心 Z：始终对齐一层「客厅后过道」中线；宽度保持房门洞口，不超过过道进深。 */
@@ -388,294 +411,336 @@ export function syncSideDoorToLivingBridge() {
   const bridge = floors[0]?.rooms.find((r) => r.id === "bridge0");
   if (!bridge) return;
   circulation.sideDoorZ = bridge.z + bridge.d / 2;
-  circulation.sideDoorWidth = Math.min(DOOR_OPENING.room, bridge.d - 0.1);
+  circulation.sideDoorWidth = Math.min(DOOR_OPENING.room, bridge.d - 100);
 }
 const stairRoom: Room = {
   id: "stair", name: "楼梯", ...stairLayout.room, kind: "stair",
   // 标签偏西，避开东侧公卫与梯下工位文字
-  label: [17.4, 3.35],
+  label: [17400, 3350],
   note: "进深2.6米；东侧梯下公卫；西侧梯下可放工位；两跑沿东西向。梯段尺寸是方案，不是结构图。",
 };
 
 export const floors: Floor[] = [
   {
-    name: "一层", y: 0, height: 3.6, front: -1,
+    name: "一层", y: 0, height: 3600, front: -1000,
     rooms: [
-      { id: "living", name: "右侧挑空客厅", ...circulation.livingVoid, kind: "living", label: [9.05, 1.6],
+      { id: "living", name: "右侧挑空客厅", ...circulation.livingVoid, kind: "living", label: [9050, 1600],
         note: "面对房子时在右侧，与堂屋打通；南墙为电视墙。北长沙发＋左右短沙发＋中茶几。二楼此处无楼板。" },
-      { id: "hall", name: "堂屋", x: 11.3, z: -1, w: 4.5, d: 5.2, kind: "hall", label: [13.55, 1.6],
+      { id: "hall", name: "堂屋", x: 11300, z: -1000, w: 4500, d: 5200, kind: "hall", label: [13550, 1600],
         note: "进深与客厅持平（5.2米）。南侧神龛墙右侧（东）预留1米开敞；东侧与茶室／楼梯开敞。" },
-      { id: "bridge0", name: "客厅后过道", x: 6.8, z: 4.2, w: 4.5, d: 1.2, kind: "hall", label: [9.05, 4.8],
+      { id: "bridge0", name: "客厅后过道", x: 6800, z: 4200, w: 4500, d: 1200, kind: "hall", label: [9050, 4800],
         note: "挑空客厅南侧联系带；西墙正中通辅楼门（扇叶开向主楼过道内侧）；南接南侧房。" },
-      { id: "tea", name: "茶室", x: 15.8, z: -1, w: 4.5, d: 3.2, kind: "living", label: [18.05, 0.5],
+      { id: "tea", name: "茶室", x: 15800, z: -1000, w: 4500, d: 3200, kind: "living", label: [18050, 500],
         note: "进深3.2米（楼梯进深收至2.6后吃进0.2米）。与堂屋、楼梯开敞。中间长桌竖放，两侧各三凳。" },
-      { id: "spare", name: "南侧房 · 待定", x: 6.8, z: 5.4, w: 4.5, d: 3.6, kind: "bed", purposeStatus: "pending", label: [9.05, 7.2],
+      { id: "spare", name: "南侧房 · 待定", x: 6800, z: 5400, w: 4500, d: 3600, kind: "bed", purposeStatus: "pending", label: [9050, 7200],
         note: "床头西贴墙；衣柜贴东墙。东门贴北墙，站在临时餐厅面对门往里推、门扇往右（北）。用途待定。" },
-      { id: "corridor0", name: "临时餐厅", x: 11.3, z: 5.4, w: 4.5, d: 3.6, kind: "dining", label: [13.55, 7.2],
+      { id: "corridor0", name: "临时餐厅", x: 11300, z: 5400, w: 4500, d: 3600, kind: "dining", label: [13550, 7200],
         note: "南墙内开门通屋后（铰链靠西／左），窗居中。" },
       { ...stairRoom, id: "stair0" },
-      { id: "stairBath0", name: "梯下公卫", x: 18.8, z: 2.2, w: 1.5, d: 2.6, kind: "bath", label: [19.55, 3.5],
+      { id: "stairBath0", name: "梯下公卫", x: 18800, z: 2200, w: 1500, d: 2600, kind: "bath", label: [19550, 3500],
         note: "楼梯间东侧南北满进深、东缘贴主楼东外墙；西墙内门入（铰链靠南／右）；马桶靠北、洗漱靠南。" },
-      { id: "elder", name: "尊亲房", x: 15.8, z: 4.8, w: 4.5, d: 4.2, kind: "bed", label: [18.05, 6.9],
+      { id: "elder", name: "尊亲房", x: 15800, z: 4800, w: 4500, d: 4200, kind: "bed", label: [18050, 6900],
         note: "北端内卫东3米。床头东贴墙；衣柜贴西墙。西门内开（铰链靠北／左）。" },
-      { id: "ensuite", name: "尊亲房内卫", x: 17.3, z: 4.8, w: 3, d: 1.5, kind: "bath", label: [18.8, 5.55],
+      { id: "ensuite", name: "尊亲房内卫", x: 17300, z: 4800, w: 3000, d: 1500, kind: "bath", label: [18800, 5550],
         note: "靠东3×1.5米；西墙门入卧室区（铰链贴墙角）。东淋浴、中马桶、西洗漱。" },
     ],
     // 承重示意：外墙另绘；内墙仅标开间轴 X≈11.3／15.8、横墙 Z≈4.2、楼梯南 Z≈4.8 及楼梯北残段。卫／套间墙为隔墙。
     partitions: [
-      bearing(wall([6.8, 4.2], [11.3, 4.2])),
-      bearing(wall([11.3, 4.2], [14.8, 4.2])),
-      wall([6.8, 5.4], [11.3, 5.4]),
+      bearing(wall([6800, 4200], [11300, 4200])),
+      bearing(wall([11300, 4200], [14800, 4200])),
+      wall([6800, 5400], [11300, 5400]),
       // 竖墙 a→b 向南：side in＝扇叶向东，out＝向西（与 openings SVG 一致）
       // 南侧房门：贴北墙；站在临时餐厅面对门往里推，门扇往右（北）＝hinge start + side out
-      bearing(doorWall([11.3, 5.4], [11.3, 9], DOOR_OPENING.room, "start", "out")),
-      bearing(wall([15.8, 4.8], [20.3, 4.8])),
+      bearing(doorWall([11300, 5400], [11300, 9000], DOOR_OPENING.room, "start", "out")),
+      bearing(wall([15800, 4800], [20300, 4800])),
       // 尊亲房：内开入房（东），走廊看铰链在左＝北＝start
-      bearing(doorWall([15.8, 4.8], [15.8, 9], DOOR_OPENING.room, "start", "in")),
+      bearing(doorWall([15800, 4800], [15800, 9000], DOOR_OPENING.room, "start", "in")),
       // 内卫：内开入卫（东），铰链贴南角；卫门洞口小于房门
-      doorWall([17.3, 4.8], [17.3, 6.3], DOOR_OPENING.bath, "end", "in"),
-      wall([17.3, 6.3], [20.3, 6.3]),
+      doorWall([17300, 4800], [17300, 6300], DOOR_OPENING.bath, "end", "in"),
+      wall([17300, 6300], [20300, 6300]),
       // 梯下公卫：内开入卫（东），楼梯看铰链在右＝南＝end
-      doorWall([18.8, 2.2], [18.8, 4.8], DOOR_OPENING.bath, "end", "in"),
-      bearing(wall([18.8, 2.2], [20.3, 2.2])),
+      doorWall([18800, 2200], [18800, 4800], DOOR_OPENING.bath, "end", "in"),
+      bearing(wall([18800, 2200], [20300, 2200])),
     ],
     furniture: [
-      { ...fixture("sofa", 9.05, -0.3, 2.6, 0.9), rotation: Math.PI },
-      { ...fixture("sofa", 7.5, 1.75, 1.65, 0.85), rotation: -Math.PI / 2 },
-      { ...fixture("sofa", 10.8, 1.75, 1.65, 0.85), rotation: Math.PI / 2 },
-      fixture("coffeeTable", 9.05, 1.7, 1.15, 0.7),
-      { ...fixture("tv", 9.05, 3.95, 1.5, 0.35), label: "电视" },
-      { ...fixture("shrine", 13.55, 3.95, 1.8, 0.42), label: "神龛" },
-      { ...fixture("table", 18.05, 0.55, 0.75, 2.4), label: "茶桌" },
-      { ...fixture("chair", 17.35, -0.3, 0.38, 0.4), rotation: -Math.PI / 2 },
-      { ...fixture("chair", 17.35, 0.55, 0.38, 0.4), rotation: -Math.PI / 2 },
-      { ...fixture("chair", 17.35, 1.4, 0.38, 0.4), rotation: -Math.PI / 2 },
-      { ...fixture("chair", 18.75, -0.3, 0.43, 0.45), rotation: Math.PI / 2 },
-      { ...fixture("chair", 18.75, 0.55, 0.43, 0.45), rotation: Math.PI / 2 },
-      { ...fixture("chair", 18.75, 1.4, 0.43, 0.45), rotation: Math.PI / 2 },
-      { ...fixture("toilet", 19.5, 2.75, 0.48, 0.7), rotation: Math.PI, label: "公卫马桶" },
-      { ...fixture("basin", 19.5, 4.25, 0.55, 0.4), rotation: Math.PI, label: "公卫洗漱" },
-      { ...fixture("table", 17.3, 4.5, 1.0, 0.55), rotation: Math.PI, label: "工位" },
-      { ...bed(8.1, 7.05, 2.2), rotation: -Math.PI / 2 },
-      { ...fixture("wardrobe", 10.95, 7.9, 1.6, 0.5), rotation: -Math.PI / 2 },
-      { ...bed(19.0, 7.65, 2.2), rotation: Math.PI / 2 },
-      { ...fixture("wardrobe", 16.15, 7.9, 1.6, 0.5), rotation: Math.PI / 2 },
-      { ...fixture("shower", 19.7, 5.4, 0.7, 1.0) },
-      fixture("toilet", 18.9, 5.35, 0.48, 0.7),
-      fixture("basin", 18.15, 5.2, 0.7, 0.45),
+      { ...fixture("sofa", 9050, -300, 2600, 900), rotation: Math.PI },
+      { ...fixture("sofa", 7500, 1750, 1650, 850), rotation: -Math.PI / 2 },
+      { ...fixture("sofa", 10800, 1750, 1650, 850), rotation: Math.PI / 2 },
+      fixture("coffeeTable", 9050, 1700, 1150, 700),
+      { ...fixture("tv", 9050, 3950, 1500, 350), label: "电视" },
+      { ...fixture("shrine", 13550, 3950, 1800, 420), label: "神龛" },
+      { ...fixture("table", 18050, 550, 750, 2400), label: "茶桌" },
+      { ...fixture("chair", 17350, -300, 380, 400), rotation: -Math.PI / 2 },
+      { ...fixture("chair", 17350, 550, 380, 400), rotation: -Math.PI / 2 },
+      { ...fixture("chair", 17350, 1400, 380, 400), rotation: -Math.PI / 2 },
+      { ...fixture("chair", 18750, -300, 430, 450), rotation: Math.PI / 2 },
+      { ...fixture("chair", 18750, 550, 430, 450), rotation: Math.PI / 2 },
+      { ...fixture("chair", 18750, 1400, 430, 450), rotation: Math.PI / 2 },
+      { ...fixture("toilet", 19500, 2750, 480, 700), rotation: Math.PI, label: "公卫马桶" },
+      { ...fixture("basin", 19500, 4250, 550, 400), rotation: Math.PI, label: "公卫洗漱" },
+      { ...fixture("table", 17300, 4500, 1000, 550), rotation: Math.PI, label: "工位" },
+      { ...bed(8100, 7050, 2200), rotation: -Math.PI / 2 },
+      { ...fixture("wardrobe", 10950, 7900, 1600, 500), rotation: -Math.PI / 2 },
+      { ...bed(19000, 7650, 2200), rotation: Math.PI / 2 },
+      { ...fixture("wardrobe", 16150, 7900, 1600, 500), rotation: Math.PI / 2 },
+      { ...fixture("shower", 19700, 5400, 700, 1000) },
+      fixture("toilet", 18900, 5350, 480, 700),
+      fixture("basin", 18150, 5200, 700, 450),
     ],
   },
   {
-    name: "二层", y: 3.6, height: 3.6, front: -1,
+    name: "二层", y: 3600, height: 3600, front: -1000,
     rooms: [
-      { id: "void", name: "右侧客厅上空", ...circulation.livingVoid, kind: "void", label: [9.05, 1.5],
-        note: "挑空无二层楼板；东缘栏杆俯视，与起居室相望。西外墙不开窗。" },
-      { id: "family1", name: "起居室", x: 11.3, z: -1, w: 4.5, d: 6.4, kind: "living", label: [13.55, 2.0],
-        note: "堂屋上方。西侧栏杆俯视挑空；沙发背靠东墙面向挑空。南墙西进主卧衣帽间、东进短过道（通公卫／东南卧）。" },
+      { id: "void", name: "右侧客厅上空", ...circulation.livingVoid, kind: "void", label: [9050, 1500],
+        note: "挑空无二层楼板；南缘实体墙隔主卧内卫；东缘栏杆请用「栏杆」模型自画。西外墙不开窗。" },
+      { id: "family1", name: "起居室", x: 11300, z: -1000, w: 4500, d: 6400, kind: "living", label: [13550, 2000],
+        note: "堂屋上方。西侧临挑空，栏杆请自画；沙发背靠东墙面向挑空。南墙西进主卧衣帽间、东进短过道（通公卫／东南卧）。" },
       // 原挑空边过道加深为内卫；门靠东，西淋浴／中马桶／东洗漱沿北墙。
-      { id: "masterBath2", name: "主卧内卫", x: 6.8, z: 4.2, w: 4.5, d: 1.8, kind: "bath", label: [9.05, 5.1],
-        note: "南门靠东入（贴衣帽间一侧），避免挡床。西外墙不开窗。" },
-      { id: "masterBed2", name: "主卧室", x: 6.8, z: 6.0, w: 4.5, d: 3.0, kind: "bed", label: [9.05, 7.5],
+      { id: "masterBath2", name: "主卧内卫", x: 6800, z: 4200, w: 4500, d: 1800, kind: "bath", label: [9050, 5100],
+        note: "北墙贴挑空南缘（实体墙，非栏杆）。南门靠东入（贴衣帽间一侧），避免挡床。西外墙不开窗。" },
+      { id: "masterBed2", name: "主卧室", x: 6800, z: 6000, w: 4500, d: 3000, kind: "bed", label: [9050, 7500],
         note: "西房：床头贴西墙（无窗，不朝南窗）；东侧走道通衣帽间与内卫。经衣帽间进出。" },
       // 后过道西半＝衣帽间（套间门厅）；东半北＝短过道、南＝公卫（避免穿卫入东南卧）
-      { id: "closet2", name: "主卧衣帽间", x: 11.3, z: 5.4, w: 2.25, d: 3.6, kind: "store", label: [12.4, 7.0],
+      { id: "closet2", name: "主卧衣帽间", x: 11300, z: 5400, w: 2250, d: 3600, kind: "store", label: [12400, 7000],
         note: "北门起居进；西门靠南入主卧；衣柜贴东墙，西侧留走道。" },
-      { id: "hall2", name: "东侧短过道", x: 13.55, z: 5.4, w: 2.25, d: 1.2, kind: "hall", label: [14.65, 6.0],
+      { id: "hall2", name: "东侧短过道", x: 13550, z: 5400, w: 2250, d: 1200, kind: "hall", label: [14650, 6000],
         note: "后过道东半北段；北接起居，东门进东南卧，南门进公卫。" },
-      { id: "bath1", name: "公卫", x: 13.55, z: 6.6, w: 2.25, d: 3.0, kind: "bath", label: [14.65, 8.1],
+      { id: "bath1", name: "公卫", x: 13550, z: 6600, w: 2250, d: 3000, kind: "bath", label: [14650, 8100],
         note: "北门自短过道进。洗漱靠北、马桶靠南；不与卧室共用门。" },
-      { id: "front2", name: "东前卧室", x: 15.8, z: -1, w: 4.5, d: 3.2, kind: "bed", label: [18.05, 0.6],
+      { id: "front2", name: "东前卧室", x: 15800, z: -1000, w: 4500, d: 3200, kind: "bed", label: [18050, 600],
         note: "东房：床头贴东墙（无窗）；衣柜贴南墙。西门贴楼梯南端，门口留空。" },
-      { id: "bedEast2", name: "东南卧室", x: 15.8, z: 4.8, w: 4.5, d: 4.2, kind: "bed", label: [18.05, 7.2],
+      { id: "bedEast2", name: "东南卧室", x: 15800, z: 4800, w: 4500, d: 4200, kind: "bed", label: [18050, 7200],
         note: "东房：床头贴东墙（无窗）；衣柜贴西墙南段，不挡北侧门。" },
       { ...stairRoom, id: "stair1" },
     ],
     // 承重示意：X≈11.3／15.8 开间轴、楼梯南北墙；衣帽／公卫中缝 X≈13.55 与套间小墙为隔墙（不落承重轴）。
     partitions: [
+      // 挑空南缘／内卫北墙：实体墙（非栏杆）
+      bearing(wall([6800, 4200], [11300, 4200])),
       // 内卫东墙（对起居／衣帽间北段，无门）
-      bearing(wall([11.3, 4.2], [11.3, 5.4])),
-      bearing(wall([11.3, 5.4], [11.3, 6.0])),
+      bearing(wall([11300, 4200], [11300, 5400])),
+      bearing(wall([11300, 5400], [11300, 6000])),
       // 内卫南墙：门靠东（贴衣帽间）；内开入卫（北）＝side out（a→b 向东时 out＝北）
-      doorWall([6.8, 6.0], [11.3, 6.0], DOOR_OPENING.bath, "end", "out"),
+      doorWall([6800, 6000], [11300, 6000], DOOR_OPENING.bath, "end", "out"),
       // 衣帽间 → 主卧：门靠南；内开入卧（西）＝side out（a→b 向南时 out＝西）
-      bearing(doorWall([11.3, 6.0], [11.3, 9.0], DOOR_OPENING.room, "end", "out")),
+      bearing(doorWall([11300, 6000], [11300, 9000], DOOR_OPENING.room, "end", "out")),
       // 衣帽间／东侧短过道＋公卫 分户墙
-      wall([13.55, 5.4], [13.55, 9.0]),
+      wall([13550, 5400], [13550, 9000]),
       // 起居 → 衣帽间
-      doorWall([11.3, 5.4], [13.55, 5.4], DOOR_OPENING.room, "start", "in"),
+      doorWall([11300, 5400], [13550, 5400], DOOR_OPENING.room, "start", "in"),
       // 起居 → 东侧短过道
-      doorWall([13.55, 5.4], [15.8, 5.4], DOOR_OPENING.room, "start", "in"),
+      doorWall([13550, 5400], [15800, 5400], DOOR_OPENING.room, "start", "in"),
       // 短过道 → 公卫（南墙）
-      doorWall([13.55, 6.6], [15.8, 6.6], DOOR_OPENING.bath, "start", "in"),
+      doorWall([13550, 6600], [15800, 6600], DOOR_OPENING.bath, "start", "in"),
       // 东前卧：门靠楼梯（南端）
-      bearing(doorWall([15.8, -1], [15.8, 2.2], DOOR_OPENING.room, "end", "in")),
-      bearing(wall([16.7, 2.2], [20.3, 2.2])),
-      bearing(wall([15.8, 4.8], [20.3, 4.8])),
+      bearing(doorWall([15800, -1000], [15800, 2200], DOOR_OPENING.room, "end", "in")),
+      bearing(wall([16700, 2200], [20300, 2200])),
+      bearing(wall([15800, 4800], [20300, 4800])),
       // 东南卧西墙：短过道段开门（z=5.4–6.6）；以南实墙隔公卫
-      bearing(doorWall([15.8, 5.4], [15.8, 6.6], DOOR_OPENING.room, "start", "in")),
-      bearing(wall([15.8, 6.6], [15.8, 9.0])),
+      bearing(doorWall([15800, 5400], [15800, 6600], DOOR_OPENING.room, "start", "in")),
+      bearing(wall([15800, 6600], [15800, 9000])),
     ],
     furniture: [
       // 起居：长沙发背靠东墙面向挑空，茶几居中偏西；南侧留门
-      { ...fixture("sofa", 15.15, 1.8, 2.4, 0.9), rotation: Math.PI / 2 },
-      { ...fixture("sofa", 13.0, 0.35, 1.5, 0.85), rotation: Math.PI },
-      fixture("coffeeTable", 13.7, 1.85, 1.1, 0.7),
+      { ...fixture("sofa", 15150, 1800, 2400, 900), rotation: Math.PI / 2 },
+      { ...fixture("sofa", 13000, 350, 1500, 850), rotation: Math.PI },
+      fixture("coffeeTable", 13700, 1850, 1100, 700),
       // 主卧（西房）：床头贴西墙（−90°，同一层南侧房）；不朝南窗；东侧走道
-      { ...bed(7.95, 7.55, 2.2), rotation: -Math.PI / 2 },
+      { ...bed(7950, 7550, 2200), rotation: -Math.PI / 2 },
       // 衣帽间：衣柜贴东墙（−90°），西侧走道
-      { ...fixture("wardrobe", 13.25, 6.55, 1.6, 0.5), rotation: -Math.PI / 2, label: "衣柜" },
-      { ...fixture("wardrobe", 13.25, 8.25, 1.6, 0.5), rotation: -Math.PI / 2, label: "衣柜" },
+      { ...fixture("wardrobe", 13250, 6550, 1600, 500), rotation: -Math.PI / 2, label: "衣柜" },
+      { ...fixture("wardrobe", 13250, 8250, 1600, 500), rotation: -Math.PI / 2, label: "衣柜" },
       // 主卧内卫：淋浴／马桶／洗漱贴北墙
-      { ...fixture("shower", 7.5, 4.5, 0.9, 0.7) },
-      fixture("toilet", 9.2, 4.55, 0.48, 0.7),
-      fixture("basin", 10.6, 4.5, 0.7, 0.45),
+      { ...fixture("shower", 7500, 4500, 900, 700) },
+      fixture("toilet", 9200, 4550, 480, 700),
+      fixture("basin", 10600, 4500, 700, 450),
       // 公卫：洗漱贴北墙、马桶贴南墙
-      { ...fixture("basin", 14.65, 6.85, 0.55, 0.4), rotation: Math.PI, label: "公卫洗漱" },
-      fixture("toilet", 14.65, 9.15, 0.48, 0.7),
+      { ...fixture("basin", 14650, 6850, 550, 400), rotation: Math.PI, label: "公卫洗漱" },
+      fixture("toilet", 14650, 9150, 480, 700),
       // 东前卧（东房）：床头贴东墙（+90°）；衣柜贴南墙（不朝北玻）
-      { ...bed(18.95, 0.55, 2.2), rotation: Math.PI / 2 },
-      { ...fixture("wardrobe", 17.1, 1.9, 1.6, 0.5), rotation: 0 },
+      { ...bed(18950, 550, 2200), rotation: Math.PI / 2 },
+      { ...fixture("wardrobe", 17100, 1900, 1600, 500), rotation: 0 },
       // 东南卧（东房）：床头贴东墙；衣柜贴西墙（同一层尊亲房）
-      { ...bed(19.0, 7.7, 2.2), rotation: Math.PI / 2 },
-      { ...fixture("wardrobe", 16.15, 8.3, 1.6, 0.5), rotation: Math.PI / 2 },
+      { ...bed(19000, 7700, 2200), rotation: Math.PI / 2 },
+      { ...fixture("wardrobe", 16150, 8300, 1600, 500), rotation: Math.PI / 2 },
     ],
   },
   {
-    name: "三层", y: 7.2, height: 3.3, front: 0.8,
+    name: "三层", y: 7200, height: 3300, front: 800,
     rooms: [
-      { id: "family2", name: "家庭多功能厅", x: 11.3, z: 0.8, w: 4.5, d: 4.6, kind: "living", label: [13.55, 2.7],
+      { id: "family2", name: "家庭多功能厅", x: 11300, z: 800, w: 4500, d: 4600, kind: "living", label: [13550, 2700],
         note: "按参考图放在中间，北侧接通中央露台。" },
-      { id: "master5", name: "主卧室", x: 6.8, z: 0.8, w: 4.5, d: 3.6, kind: "bed", label: [9.05, 2.3],
+      { id: "master5", name: "主卧室", x: 6800, z: 800, w: 4500, d: 3600, kind: "bed", label: [9050, 2300],
         note: "参考图右侧前部的主卧，北侧接通西侧露台，自带衣帽间和内卫。" },
-      { id: "ensuite5", name: "主卧内卫", x: 6.8, z: 4.4, w: 2.2, d: 1.8, kind: "bath", label: [7.85, 5.3] },
-      { id: "closet5", name: "主卧衣帽间", x: 9, z: 4.4, w: 2.3, d: 1.8, kind: "store", label: [10.15, 5.3] },
-      { id: "media", name: "影音室", x: 6.8, z: 6.2, w: 4.5, d: 2.8, kind: "living", label: [9.05, 7.55],
+      { id: "ensuite5", name: "主卧内卫", x: 6800, z: 4400, w: 2200, d: 1800, kind: "bath", label: [7850, 5300] },
+      { id: "closet5", name: "主卧衣帽间", x: 9000, z: 4400, w: 2300, d: 1800, kind: "store", label: [10150, 5300] },
+      { id: "media", name: "影音室", x: 6800, z: 6200, w: 4500, d: 2800, kind: "living", label: [9050, 7550],
         note: "按参考图放在主卧后部，从后过道进入。" },
-      { id: "lobby3", name: "东侧过厅", x: 15.8, z: 0.8, w: 4.5, d: 1.2, kind: "hall", label: [18.05, 1.35],
+      { id: "lobby3", name: "东侧过厅", x: 15800, z: 800, w: 4500, d: 1200, kind: "hall", label: [18050, 1350],
         note: "茶室上方、楼梯以北。三楼默认北退 1.2 米之后，这里只剩约 1.2 米进深，作为东侧露台进来的过厅，西侧通家庭厅。" },
-      { id: "bed6", name: "卧室", x: 15.8, z: 4.8, w: 4.5, d: 4.2, kind: "bed", label: [17.15, 7.55],
+      { id: "bed6", name: "卧室", x: 15800, z: 4800, w: 4500, d: 4200, kind: "bed", label: [17150, 7550],
         note: "在楼梯南侧，与一楼尊亲房对齐。北侧是内卫，南侧放床。从后过道进入。" },
-      { id: "bath6", name: "卧室内卫", x: 18.3, z: 4.8, w: 2, d: 2.2, kind: "bath", label: [19.3, 5.85] },
-      { id: "corridor2", name: "后过道", x: 11.3, z: 5.4, w: 4.5, d: 3.6, kind: "hall", label: [13.4, 7.3] },
+      { id: "bath6", name: "卧室内卫", x: 18300, z: 4800, w: 2000, d: 2200, kind: "bath", label: [19300, 5850] },
+      { id: "corridor2", name: "后过道", x: 11300, z: 5400, w: 4500, d: 3600, kind: "hall", label: [13400, 7300] },
       { ...stairRoom, id: "stair2" },
     ],
     // 承重示意：开间轴、楼梯围合、中横墙；主卧套间／影音小墙为隔墙。
     partitions: [
-      bearing(wall([11.3, 0.8], [11.3, 4.4], 1.15, DOOR_OPENING.room)),
-      bearing(wall([11.3, 4.4], [11.3, 6.2])),
-      bearing(wall([11.3, 6.2], [11.3, 9], 0.4, DOOR_OPENING.room)),
-      wall([6.8, 4.4], [9, 4.4], 0.5, DOOR_OPENING.bath),
-      bearing(wall([9, 4.4], [11.3, 4.4], 0.6, DOOR_OPENING.room)),
-      wall([9, 4.4], [9, 6.2]),
-      wall([6.8, 6.2], [11.3, 6.2]),
-      bearing(wall([11.3, 5.4], [15.8, 5.4], 2.4, DOOR_OPENING.room)),
-      bearing(wall([15.8, 0.8], [15.8, 2.2], 0.28, DOOR_OPENING.room)),
-      bearing(wall([16.7, 2.2], [20.3, 2.2])),
-      bearing(wall([15.8, 4.8], [20.3, 4.8])),
-      bearing(wall([15.8, 4.8], [15.8, 9], 0.9, DOOR_OPENING.room)),
-      wall([18.3, 4.8], [18.3, 7], 0.55, DOOR_OPENING.bath),
-      wall([18.3, 7], [20.3, 7]),
+      bearing(wall([11300, 800], [11300, 4400], 1150, DOOR_OPENING.room)),
+      bearing(wall([11300, 4400], [11300, 6200])),
+      bearing(wall([11300, 6200], [11300, 9000], 400, DOOR_OPENING.room)),
+      wall([6800, 4400], [9000, 4400], 500, DOOR_OPENING.bath),
+      bearing(wall([9000, 4400], [11300, 4400], 600, DOOR_OPENING.room)),
+      wall([9000, 4400], [9000, 6200]),
+      wall([6800, 6200], [11300, 6200]),
+      bearing(wall([11300, 5400], [15800, 5400], 2400, DOOR_OPENING.room)),
+      bearing(wall([15800, 800], [15800, 2200], 280, DOOR_OPENING.room)),
+      bearing(wall([16700, 2200], [20300, 2200])),
+      bearing(wall([15800, 4800], [20300, 4800])),
+      bearing(wall([15800, 4800], [15800, 9000], 900, DOOR_OPENING.room)),
+      wall([18300, 4800], [18300, 7000], 550, DOOR_OPENING.bath),
+      wall([18300, 7000], [20300, 7000]),
     ],
     furniture: [
-      bed(9.05, 2.15, 2.7),
-      fixture("wardrobe", 7.25, 3.3, 0.45, 1.2),
-      bed(17.15, 7.7),
-      fixture("wardrobe", 16.25, 8.4, 0.45, 1.0),
-      fixture("sofa", 8.2, 7.15, 0.9, 2.1),
-      fixture("table", 13.55, 2.4, 1.4, 0.75),
-      fixture("sofa", 12.35, 3.55, 0.85, 1.6),
-      fixture("toilet", 7.35, 5.55, 0.48, 0.7),
-      fixture("basin", 8.35, 4.85, 0.55, 0.4),
-      fixture("toilet", 19.7, 5.55, 0.48, 0.7),
-      fixture("basin", 18.85, 6.45, 0.55, 0.4),
+      bed(9050, 2150, 2700),
+      fixture("wardrobe", 7250, 3300, 450, 1200),
+      bed(17150, 7700),
+      fixture("wardrobe", 16250, 8400, 450, 1000),
+      fixture("sofa", 8200, 7150, 900, 2100),
+      fixture("table", 13550, 2400, 1400, 750),
+      fixture("sofa", 12350, 3550, 850, 1600),
+      fixture("toilet", 7350, 5550, 480, 700),
+      fixture("basin", 8350, 4850, 550, 400),
+      fixture("toilet", 19700, 5550, 480, 700),
+      fixture("basin", 18850, 6450, 550, 400),
     ],
   },
 ];
 
 export const annexRooms: Room[] = [
-  { id: "dining", name: "餐厅", x: 0.8, z: 0, w: 4.5, d: 4.8, kind: "dining", label: [3.05, 2.4],
+  { id: "dining", name: "餐厅", x: 800, z: 0, w: 4500, d: 4800, kind: "dining", label: [3050, 2400],
     note: "圆桌居中六座。东侧通楼门：站在子孙道面对门往里推，门扇往右（北）；南与厨房隔墙正中推拉门。" },
-  { id: "cook", name: "整体厨房", x: 0.8, z: 4.8, w: 4.5, d: 3.2, kind: "kitchen", label: [3.05, 6.4],
+  { id: "cook", name: "整体厨房", x: 800, z: 4800, w: 4500, d: 3200, kind: "kitchen", label: [3050, 6400],
     note: "北隔墙正中推拉门通餐厅；东墙无门无窗。日常灶靠北墙西端、柴火灶靠西墙距南1米左右摆放，成L型；储柴在柴火灶南、南窗旁贴西墙。" },
 ];
 // 餐厅／厨房隔墙：正中推拉门
 export const annexPartitions = [
   wall(
-    [0.8, 4.8],
-    [5.3, 4.8],
-    (4.5 - DOOR_OPENING.sliding) / 2,
+    [800, 4800],
+    [5300, 4800],
+    (4500 - DOOR_OPENING.sliding) / 2,
     DOOR_OPENING.sliding,
     { kind: "slidingDoor" },
   ),
 ];
 /** 辅楼家具：圆桌在餐厅居中；厨房 L 型灶具＋储柴。 */
 export const annexFurniture: Furniture[] = [
-  fixture("roundTable", 3.05, 2.4, 1.6, 1.6),
+  fixture("roundTable", 3050, 2400, 1600, 1600),
   ...Array.from({ length: 6 }, (_, i): Furniture => {
     const a = (i * Math.PI) / 3;
     return {
       kind: "chair",
-      x: 3.05 + Math.cos(a) * 1.05,
-      z: 2.4 + Math.sin(a) * 1.05,
-      w: 0.43,
-      d: 0.45,
+      x: 3050 + Math.cos(a) * 1050,
+      z: 2400 + Math.sin(a) * 1050,
+      w: 430,
+      d: 450,
       rotation: -a + Math.PI / 2,
     };
   }),
-  { ...fixture("hob", 1.55, 5.2, 0.75, 0.6), rotation: Math.PI, label: "日常灶" },
-  { ...fixture("stove", 1.7, 6.65, 0.7, 1.5), rotation: Math.PI / 2, label: "柴火灶" },
-  { ...fixture("wardrobe", 1.2, 7.55, 0.7, 0.55), rotation: Math.PI / 2, label: "储柴" },
+  { ...fixture("hob", 1550, 5200, 750, 600), rotation: Math.PI, label: "日常灶" },
+  { ...fixture("stove", 1700, 6650, 700, 1500), rotation: Math.PI / 2, label: "柴火灶" },
+  { ...fixture("wardrobe", 1200, 7550, 700, 550), rotation: Math.PI / 2, label: "储柴" },
 ];
 
 /**
- * 主楼／辅楼室内坐标仍按旧默认（主楼前墙 Z=-1、X=6.8；辅楼前墙 Z=0、X=0.8）书写。
- * 外包络默认变更后，加载时整体平移对齐，避免漏改某一条墙／家具。
+ * 主楼／辅楼室内坐标按书写系（主楼前墙 Z=-1000、X=6800、面宽13500；辅楼前墙 Z=0、X=800、面宽4500）书写。
+ * 外包络变更后，加载时以东南角为不动点缩放并平移到当前 site，避免漏改墙／家具。
  */
 (function alignPlanToEnvelope(
-  authoredMainFront = -1,
-  authoredMainX = 6.8,
-  authoredAnnexFront = 0,
-  authoredAnnexX = 0.8,
+  authoredMain = { x: 6800, z: -1000, w: 13500, d: 10000 },
+  authoredAnnex = { x: 800, z: 0, w: 4500, d: 8000 },
 ) {
-  const mainDz = site.main.z - authoredMainFront;
-  const mainDx = site.main.x - authoredMainX;
-  const annexDz = site.annex.z - authoredAnnexFront;
-  const annexDx = site.annex.x - authoredAnnexX;
-  const shiftPoint = (p: Point, dx: number, dz: number): Point => [p[0] + dx, p[1] + dz];
-  const shiftRoom = (r: Room, dx: number, dz: number) => {
-    r.x += dx;
-    r.z += dz;
-    if (r.label) r.label = shiftPoint(r.label, dx, dz);
+  const sx = site.main.w / authoredMain.w;
+  const sz = site.main.d / authoredMain.d;
+  const asx = site.annex.w / authoredAnnex.w;
+  const asz = site.annex.d / authoredAnnex.d;
+  const oE = authoredMain.x + authoredMain.w;
+  const oS = authoredMain.z + authoredMain.d;
+  const nE = site.main.x + site.main.w;
+  const nS = site.main.z + site.main.d;
+  const aoE = authoredAnnex.x + authoredAnnex.w;
+  const aoS = authoredAnnex.z + authoredAnnex.d;
+  const anE = site.annex.x + site.annex.w;
+  const anS = site.annex.z + site.annex.d;
+  const fixedFurniture = new Set<Furniture["kind"]>([
+    "bed", "toilet", "squatToilet", "shower", "roundTable", "basin", "chair", "hob", "sink", "stove",
+  ]);
+  const mapPoint = (p: Point, east0: number, south0: number, east1: number, south1: number, kx: number, kz: number): Point => [
+    east1 - (east0 - p[0]) * kx,
+    south1 - (south0 - p[1]) * kz,
+  ];
+  const mapRoom = (r: Room, east0: number, south0: number, east1: number, south1: number, kx: number, kz: number) => {
+    r.x = east1 - (east0 - r.x) * kx;
+    r.z = south1 - (south0 - r.z) * kz;
+    r.w *= kx;
+    r.d *= kz;
+    if (r.label) r.label = mapPoint(r.label, east0, south0, east1, south1, kx, kz);
   };
-  const shiftFurniture = (f: Furniture, dx: number, dz: number) => {
-    f.x += dx;
-    f.z += dz;
-  };
-  const shiftWall = (w: Wall, dx: number, dz: number) => {
-    w.a = shiftPoint(w.a, dx, dz);
-    w.b = shiftPoint(w.b, dx, dz);
-  };
-  if (Math.abs(mainDx) > 1e-9 || Math.abs(mainDz) > 1e-9) {
-    for (const floor of floors) {
-      floor.front += mainDz;
-      floor.rooms.forEach((r) => shiftRoom(r, mainDx, mainDz));
-      floor.partitions.forEach((w) => shiftWall(w, mainDx, mainDz));
-      floor.furniture.forEach((f) => shiftFurniture(f, mainDx, mainDz));
+  const mapFurniture = (f: Furniture, east0: number, south0: number, east1: number, south1: number, kx: number, kz: number) => {
+    f.x = east1 - (east0 - f.x) * kx;
+    f.z = south1 - (south0 - f.z) * kz;
+    if (!fixedFurniture.has(f.kind)) {
+      f.w *= kx;
+      f.d *= kz;
     }
-    stairLayout.room.x += mainDx;
-    stairLayout.room.z += mainDz;
-    stairLayout.x += mainDx;
-    stairLayout.z += mainDz;
-    stairLayout.hole.x += mainDx;
-    stairLayout.hole.z += mainDz;
-    circulation.sideDoorZ += mainDz;
-    circulation.livingVoid.x += mainDx;
-    circulation.livingVoid.z += mainDz;
+  };
+  const mapWall = (w: Wall, east0: number, south0: number, east1: number, south1: number, kx: number, kz: number) => {
+    const oldLen = Math.hypot(w.a[0] - w.b[0], w.a[1] - w.b[1]);
+    const door = w.door;
+    const marginT =
+      door && oldLen > door.width + 1e-6
+        ? door.offset / (oldLen - door.width)
+        : 0;
+    w.a = mapPoint(w.a, east0, south0, east1, south1, kx, kz);
+    w.b = mapPoint(w.b, east0, south0, east1, south1, kx, kz);
+    if (door) {
+      // 洞口宽度保持市面标准档；offset 按「在可滑动余量上的相对位置」重算，避免默认面宽≠书写系时把 900 放大成 ~907。
+      const len = Math.hypot(w.a[0] - w.b[0], w.a[1] - w.b[1]);
+      const width = door.width;
+      const offset = Math.min(Math.max(0, marginT * Math.max(0, len - width)), Math.max(0, len - width));
+      w.door = { ...door, offset, width };
+    }
+  };
+  const mainChanged =
+    Math.abs(sx - 1) > 1e-9 || Math.abs(sz - 1) > 1e-9 ||
+    Math.abs(site.main.x - authoredMain.x) > 1e-6 || Math.abs(site.main.z - authoredMain.z) > 1e-6;
+  const annexChanged =
+    Math.abs(asx - 1) > 1e-9 || Math.abs(asz - 1) > 1e-9 ||
+    Math.abs(site.annex.x - authoredAnnex.x) > 1e-6 || Math.abs(site.annex.z - authoredAnnex.z) > 1e-6;
+  if (mainChanged) {
+    for (const floor of floors) {
+      floor.front = nS - (oS - floor.front) * sz;
+      floor.rooms.forEach((r) => mapRoom(r, oE, oS, nE, nS, sx, sz));
+      floor.partitions.forEach((w) => mapWall(w, oE, oS, nE, nS, sx, sz));
+      floor.furniture.forEach((f) => mapFurniture(f, oE, oS, nE, nS, sx, sz));
+    }
+    const mapBox = (b: { x: number; z: number; w?: number; d?: number }) => {
+      b.x = nE - (oE - b.x) * sx;
+      b.z = nS - (oS - b.z) * sz;
+      if (typeof b.w === "number") b.w *= sx;
+      if (typeof b.d === "number") b.d *= sz;
+    };
+    mapBox(stairLayout.room);
+    stairLayout.x = nE - (oE - stairLayout.x) * sx;
+    stairLayout.z = nS - (oS - stairLayout.z) * sz;
+    mapBox(stairLayout.hole);
+    circulation.sideDoorZ = nS - (oS - circulation.sideDoorZ) * sz;
+    mapBox(circulation.livingVoid);
   }
-  if (Math.abs(annexDx) > 1e-9 || Math.abs(annexDz) > 1e-9) {
-    annexRooms.forEach((r) => shiftRoom(r, annexDx, annexDz));
-    annexPartitions.forEach((w) => shiftWall(w, annexDx, annexDz));
-    annexFurniture.forEach((f) => shiftFurniture(f, annexDx, annexDz));
+  if (annexChanged) {
+    annexRooms.forEach((r) => mapRoom(r, aoE, aoS, anE, anS, asx, asz));
+    annexPartitions.forEach((w) => mapWall(w, aoE, aoS, anE, anS, asx, asz));
+    annexFurniture.forEach((f) => mapFurniture(f, aoE, aoS, anE, anS, asx, asz));
   }
   syncSideDoorToLivingBridge();
 })();
@@ -689,7 +754,7 @@ export const facts: Fact[] = [
   },
   {
     label: "蓝顶邻房与辅楼延长线",
-    value: `约 ${roadsideVilla.extensionGap} m`,
+    value: `约 ${roadsideVilla.extensionGap} mm`,
     source: "用户提供",
     note: "站在北侧面对自家，辅楼最右侧是西墙 X=0.8。沿这面墙向房前延长，仍不碰到蓝顶邻房。约5米按延长线到邻房整栋最东侧外墙的横向空隙表达，包含左侧柴火房，不是屋檐或用地界址的实测间距。",
   },
@@ -697,7 +762,7 @@ export const facts: Fact[] = [
     label: "蓝顶邻房朝向与外形",
     value: `北偏西约 ${roadsideVilla.angle}° · 照片估算`,
     source: "照片估算",
-    note: `依据 DJI 132622 的俯拍屋面、IMG_5123 的屋脊和前坪，以及 IMG_5128、IMG_5135、IMG_5120 的立面交叉判断。沿用场景北向，暂转向西北约${roadsideVilla.angle}°；主楼暂${roadsideVilla.w}×${roadsideVilla.d}米，三层层高暂${roadsideVilla.floorHeights.join("/")}米，柴火房暂${roadsideVilla.wing.w}×${roadsideVilla.wing.d}米。蓝瓦、粉白柱栏、各层中央阳台、侧面三楼开敞廊按照片近似；照片中的菱格前坪改按“邻居院坪”铺装选项显示，默认普通水泥地。官帽为接入正屋的前伸屋面，前端带三角山墙。所有外观尺寸及纵向位置均待核对，不能作为测绘。`,
+    note: `依据 DJI 132622 的俯拍屋面、IMG_5123 的屋脊和前坪，以及 IMG_5128、IMG_5135、IMG_5120 的立面交叉判断。沿用场景北向，暂转向西北约${roadsideVilla.angle}°；主楼暂${roadsideVilla.w}×${roadsideVilla.d}毫米，三层层高暂${roadsideVilla.floorHeights.join("/")}毫米，柴火房暂${roadsideVilla.wing.w}×${roadsideVilla.wing.d}毫米。蓝瓦、粉白柱栏、各层中央阳台、侧面三楼开敞廊按照片近似；照片中的菱格前坪改按“邻居院坪”铺装选项显示，默认普通水泥地。官帽为接入正屋的前伸屋面，前端带三角山墙。所有外观尺寸及纵向位置均待核对，不能作为测绘。`,
   },
   {
     label: "主楼三层户型",
@@ -707,25 +772,25 @@ export const facts: Fact[] = [
   },
   {
     label: "东西总面宽",
-    value: "21 m",
+    value: "21000 mm",
     source: "用户提供",
-    note: "总宽含西侧0.7米、东侧0.8米及中间1.5米子孙道：0.7＋4.5＋1.5＋13.5＋0.8＝21米。均为当前方案口径，界址与墙至界距离须现场复核，不再另加侧道。",
+    note: "总宽含西侧0.8米、东侧0.8米及中间1.8米子孙道：0.8＋4.0＋1.8＋13.6＋0.8＝21米。均为当前方案口径，界址与墙至界距离须现场复核，不再另加侧道。",
   },
   {
     label: "邻居木房院坪占位",
-    value: "面宽13 m · 进深10.8 m · 水泥外与东界外沿齐平",
+    value: "面宽13000 mm · 进深10800 mm · 水泥外与东界外沿齐平",
     source: "用户提供",
     note: "从自家东界往东13米为邻居面宽；水泥边到屋后最里10.8米＝木房8.8＋房前水泥2。水泥外院坪北缘与自家东界外沿最宽处齐平向东拉，不再北伸（约8.6米，随院坪东端变化）。3D邻房仍可能约12米旧估算，以口述与现场为准。",
   },
   {
     label: "旧台地进深",
-    value: "10.8 m",
+    value: "10800 mm",
     source: "用户提供",
     note: "包含房前、房后水泥空地，不含前方旱地。",
   },
   {
     label: "院坪南北总进深",
-    value: "东19.4 / 中约15.8 / 西11 m",
+    value: "东19400 / 中约15800 / 西11000 mm",
     source: "用户提供",
     note: "2026-10-16：屋后梯田边到老水泥地边10.8米；水泥边再往前到外沿为东界8.6、自东界往西约11米处5、西端0.2。合计东19.4、中15.8、西11。模型用(0,−0.2)(10,−5)(21,−8.6)三点过圆；辅楼前墙内退后西端前墙外约0.2米。不是测绘。",
   },
@@ -737,63 +802,63 @@ export const facts: Fact[] = [
   },
   {
     label: "屋后高田",
-    value: "+2.5 m",
+    value: "+2500 mm",
     source: "用户提供",
     note: "相对原房前坪；新院坪暂取同标高，需联测。原旱地相对前坪低约2米单独用于现状。",
   },
   {
     label: "地库前方两级梯田",
-    value: "地库下2m，再下1.5m",
+    value: "地库下2000，再下1500 mm",
     source: "用户提供",
-    note: `按新说明：第一田比地库低约2米，前方砖房台地再低约1.5米。随地库示意标高表达为${frontFieldLevel.toFixed(2)}米和${(frontFieldLevel - site.frontHouseDrop).toFixed(2)}米，绝对标高待测。`,
+    note: `按新说明：第一田比地库低约2米，前方砖房台地再低约1.5米。随地库示意标高表达为${Math.round(frontFieldLevel)}毫米和${Math.round(frontFieldLevel - site.frontHouseDrop)}毫米，绝对标高待测。`,
   },
   {
     label: "主楼 / 辅楼",
-    value: "135 / 36 ㎡",
+    value: "136 / 32 ㎡",
     source: "设计建议",
-    note: "主楼仍13.5×10米；辅楼默认4.5×8米（前墙相对主楼内退2米，后墙齐平），主体合计171㎡。外伸门厅另计，不是报建面积结论。",
+    note: "主楼默认13.6×10米；辅楼默认4.0×8米（前墙相对主楼内退2米，后墙齐平），主体合计168㎡。外伸门厅另计，不是报建面积结论。",
   },
   {
     label: "外伸通高门厅",
-    value: "外伸2m / 另计9.6㎡",
+    value: "外伸2000 mm / 另计9.2㎡",
     source: "用户提供",
-    note: "本版门厅4.8×2米，柱间二楼无平台，三楼为露台；主体与门厅几何投影合计189.6㎡。门厅宽度为设计参数。",
+    note: "本版门厅柱心距4.6米、外伸2米，柱间二楼无平台，三楼为露台；主体168㎡，门厅投影9.2㎡另计（合计几何投影约177.2㎡，非报建认定）。平面门头侧（画面下方）标左右余量4500＋柱心距4600。",
   },
   {
     label: "飘檐 / 官帽 / 天沟",
-    value: "二楼前0.8m / 三楼四面0.8m",
+    value: "二楼前800 mm / 三楼四面800 mm",
     source: "用户提供",
     note: "主楼三楼、辅楼四面与二楼前栏杆下飘檐均出 0.8m，天沟／三眼皮／梁托（500×200×160）／下沿线同一造型与参数；主楼东檐约超地块东界 0.1m，辅楼前檐可略超院坪西端外沿，邻居／院坪间距仍需现场复核。",
   },
   {
     label: "院坪与人行通道",
-    value: "前约2m / 侧过道0.8m",
+    value: "前约2000 mm / 侧过道800 mm",
     source: "用户提供",
     note: "院坪中间地库楼梯及护栏已取消；辅楼前绕右侧过道通往后段同高梯田。侧过道0.8米为墙至界，栏杆占用后略窄。前方电杆及架空线按拆除计划移除。",
   },
   {
     label: "两侧 / 子孙道",
-    value: "西0.8／东0.7／1.5 m",
+    value: "西800／东800／1800 mm",
     source: "设计建议",
-    note: "墙面间距，需另扣栏杆；总宽21米后东侧为0.7米。主楼三楼檐口四面统一 0.8m，东檐因此约探出地块东界 0.1m，不是收回墙至界。主楼和辅楼外的落水管已按用户要求删除。邻居屋檐间距仍需现场复核。",
+    note: "墙面间距，需另扣栏杆；总宽21米＝西侧0.8＋辅楼4.0＋子孙道1.8＋主楼13.6＋东侧0.8。主楼三楼檐口四面统一 0.8m，东檐因此约探出地块东界 0.1m，不是收回墙至界。主楼和辅楼外的落水管已按用户要求删除。邻居屋檐间距仍需现场复核。",
   },
   {
     label: "后退 / 前伸",
-    value: "1.8 / 1.0 m",
+    value: "1200 / 约400 mm",
     source: "设计建议",
-    note: "10米进深加1.8米后退，超过旧10.8米台地1米。",
+    note: "屋后至梯田边预留默认1.2米；主楼进深10米时前墙约在Z=−0.4（相对旧水泥边），前伸量随预留与进深变化，不是固定1米。",
   },
   {
     label: "层高",
-    value: "3.6 / 3.6 / 3.3 m",
+    value: "3600 / 3600 / 3300 mm",
     source: "用户提供",
     note: "墙身和檐口仍按楼面0、3.6、7.2米、檐口10.5米。室内一楼完成面比院坪高0.45米，这是三步×150毫米的设计高度，不是测绘。门厅台阶、门前垫高和左右坡道用深褐近黑的抛光石，带浅麻点，对照用户照片，不是石材色卡。踏步前沿防滑线收细，颜色只比石面略浅。石面反光压低，正面看也是深色，不是只在俯瞰时才显出颜色。两根门厅柱前面是整块垫高，三步只嵌在柱与柱中间。门厅柱心落在外伸投影北沿左右两角的直角处；柱内侧到前墙＝外伸−半柱（默认 1.6 米）。面对房子时左右各有一条约2米的侧坡道·坡度待核，外侧边贴着柱子北缘，分别向东、向西降，按0.45米高差/2米投影约22.5%，仅是现有几何示意，适老和无障碍使用条件待设计核定。坡道防滑条改细，颜色只比石面略浅。屋顶没有跟着抬。",
   },
   {
     label: "三楼北退",
-    value: "1.8 m",
+    value: "1200 mm",
     source: "设计建议",
-    note: "仅北侧退台，三楼主体外轮廓13.5×8.2米。",
+    note: "仅北侧退台，三楼主体外轮廓约13.6×8.8米（主楼进深10−北退1.2）。",
   },
   {
     label: "梁板与屋脊",
@@ -809,7 +874,7 @@ export const facts: Fact[] = [
   },
   {
     label: "地库净高 / 入口",
-    value: "2.5 / 2.5 m",
+    value: "2500 / 2500 mm",
     source: "用户提供",
     note: "地库最低净高为目标。柱只排两列：外沿内收0.55米一排，自家房前墙下和邻居木屋前墙下一排，中间不立柱，柱距4.2米。东端净跨大约8到10米，0.45米只是结构占用预留，梁高、跨度、承载与净高须由结构师结合勘察计算，现无承载结论。邻居木屋前的地下室按用户说明归自家，外侧用同一道约1米矮墙，上面敞开；邻居自己房子下面的地下室外侧不另加遮挡。",
   },
@@ -859,7 +924,7 @@ export const facts: Fact[] = [
     label: "旁田与地库开挖高差",
     value: "待测 · 分开表达",
     source: "待测",
-    note: `未挖旁田暂取${site.adjacentUnexcavatedLevel.toFixed(2)}米、地库完成面${site.garageFloor.toFixed(2)}米，两者差${(site.adjacentUnexcavatedLevel - site.garageFloor).toFixed(2)}米仅为示意。旁田参数独立，不能据此确定开挖深度。`,
+    note: `未挖旁田暂取${Math.round(site.adjacentUnexcavatedLevel)}毫米、地库完成面${Math.round(site.garageFloor)}毫米，两者差${Math.round(site.adjacentUnexcavatedLevel - site.garageFloor)}毫米仅为示意。旁田参数独立，不能据此确定开挖深度。`,
   },
   {
     label: "周边高度与轮廓",
@@ -920,7 +985,7 @@ export function contains(point: Point, polygon: Point[]) {
     // 地界本身也属于轮廓；容差只处理Float32网格坐标误差（0.01毫米）。
     const dx = u - x, dz = v - z, length2 = dx * dx + dz * dz;
     const t = length2 ? Math.max(0, Math.min(1, ((point[0] - x) * dx + (point[1] - z) * dz) / length2)) : 0;
-    if (Math.hypot(point[0] - x - t * dx, point[1] - z - t * dz) < 1e-5) return true;
+    if (Math.hypot(point[0] - x - t * dx, point[1] - z - t * dz) < 0.01) return true;
     if (
       z > point[1] !== v > point[1] &&
       point[0] < ((u - x) * (point[1] - z)) / (v - z) + x

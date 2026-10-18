@@ -16,6 +16,14 @@ import type { CourtyardDimLayout } from "./courtyard-dim-drag";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
 import { parseRoofStyle, type RoofStyle } from "./roof-options";
 import { formatSavedAt, makeVersionId } from "./scheme-store";
+import {
+  LENGTH_UNITS,
+  isMeterLayoutDraft,
+  isMeterLengthPayload,
+  migrateCourtyardDimLayoutToMm,
+  migrateLayoutLengthsToMm,
+  migrateVillaParamsToMm,
+} from "./units";
 
 export const dataVersionsSchema = "anhua-villa-data-versions-v1" as const;
 export const sizeDocSchema = "anhua-villa-尺寸-v1" as const;
@@ -39,6 +47,8 @@ export type DataVersionsIndex = {
 /** 尺寸版本：方案参数及相关外观／院坪选择（不含户型草稿）。 */
 export type SizeVersionDocument = {
   schema: typeof sizeDocSchema;
+  /** 长度单位；缺省或 "m" 视为旧米制稿，读入时迁成毫米。 */
+  units: typeof LENGTH_UNITS;
   id: string;
   title: string;
   savedAt: string;
@@ -52,6 +62,8 @@ export type SizeVersionDocument = {
 /** 户型版本：一二三楼一体（LayoutDraft.floors 必为 3 层）。 */
 export type LayoutVersionDocument = {
   schema: typeof layoutDocSchema;
+  /** 长度单位；缺省或 "m" 视为旧米制稿，读入时迁成毫米。 */
+  units: typeof LENGTH_UNITS;
   id: string;
   title: string;
   savedAt: string;
@@ -107,6 +119,7 @@ export function buildSizeVersionDocument(input?: {
   const title = input?.title ?? makeDataVersionTitle("尺寸", now);
   return {
     schema: sizeDocSchema,
+    units: LENGTH_UNITS,
     id: input?.id ?? title,
     title,
     savedAt: formatSavedAt(now),
@@ -129,6 +142,7 @@ export function buildLayoutVersionDocument(
   const title = input?.title ?? makeDataVersionTitle("户型", now);
   return {
     schema: layoutDocSchema,
+    units: LENGTH_UNITS,
     id: input?.id ?? title,
     title,
     savedAt: formatSavedAt(now),
@@ -136,9 +150,27 @@ export function buildLayoutVersionDocument(
   };
 }
 
-export function parseSizeVersionDocument(raw: unknown): SizeVersionDocument {
-  if (!isRecord(raw)) throw new Error("尺寸文件不是对象");
-  if (raw.schema !== sizeDocSchema) throw new Error(`尺寸版本应为 ${sizeDocSchema}`);
+export function parseSizeVersionDocument(input: unknown): SizeVersionDocument {
+  if (!isRecord(input)) throw new Error("尺寸文件不是对象");
+  if (input.schema !== sizeDocSchema) throw new Error(`尺寸版本应为 ${sizeDocSchema}`);
+  const rawParams = isRecord(input.villaParams) ? input.villaParams : {};
+  const meter =
+    input.units === "mm"
+      ? false
+      : input.units === "m" ||
+        isMeterLengthPayload(input, {
+          mainWidth: typeof rawParams.mainWidth === "number" ? rawParams.mainWidth : undefined,
+        });
+  const raw: Record<string, unknown> = meter
+    ? {
+        ...input,
+        units: LENGTH_UNITS,
+        villaParams: migrateVillaParamsToMm(rawParams),
+        courtyardDimLayout: isRecord(input.courtyardDimLayout)
+          ? migrateCourtyardDimLayoutToMm(input.courtyardDimLayout as Record<string, number>)
+          : input.courtyardDimLayout,
+      }
+    : input;
   const villaParams = {
     ...DEFAULT_VILLA_PARAMS,
     ...(isRecord(raw.villaParams) ? raw.villaParams : {}),
@@ -148,6 +180,7 @@ export function parseSizeVersionDocument(raw: unknown): SizeVersionDocument {
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
   return {
     schema: sizeDocSchema,
+    units: LENGTH_UNITS,
     id: typeof raw.id === "string" && raw.id ? raw.id : "尺寸",
     title: typeof raw.title === "string" && raw.title ? raw.title : "尺寸",
     savedAt: typeof raw.savedAt === "string" ? raw.savedAt : formatSavedAt(),
@@ -163,10 +196,14 @@ export function parseLayoutVersionDocument(raw: unknown): LayoutVersionDocument 
   if (!isRecord(raw)) throw new Error("户型文件不是对象");
   if (raw.schema !== layoutDocSchema) throw new Error(`户型版本应为 ${layoutDocSchema}`);
   if (raw.layoutDraft == null) throw new Error("户型版本缺少 layoutDraft");
-  const layoutDraft = parseLayoutDraftManaged(JSON.stringify(raw.layoutDraft));
+  const meter =
+    raw.units === "mm" ? false : raw.units === "m" || isMeterLayoutDraft(raw.layoutDraft);
+  const draftRaw = meter ? migrateLayoutLengthsToMm(raw.layoutDraft) : raw.layoutDraft;
+  const layoutDraft = parseLayoutDraftManaged(JSON.stringify(draftRaw));
   if (layoutDraft.floors.length !== 3) throw new Error("户型版本必须包含一二三楼共三层");
   return {
     schema: layoutDocSchema,
+    units: LENGTH_UNITS,
     id: typeof raw.id === "string" && raw.id ? raw.id : "户型",
     title: typeof raw.title === "string" && raw.title ? raw.title : "户型",
     savedAt: typeof raw.savedAt === "string" ? raw.savedAt : formatSavedAt(),

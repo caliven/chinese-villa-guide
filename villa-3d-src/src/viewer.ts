@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { getPosition } from "suncalc";
 import { floors, site } from "./data";
+import { MM_PER_M, toM } from "./units";
 import { materials, line, tag, setCourtyardFinishes } from "./primitives";
 import { courtyardFinishLabels, type CourtyardFinish } from "./courtyard-finishes";
 import { roofStyleLabels, type RoofStyle } from "./roof-options";
@@ -147,10 +148,15 @@ export class VillaViewer {
   ambient = new THREE.HemisphereLight(0xe3edf2, 0x898578, 2.1);
   state: ViewState = { ...defaultView };
   activeCamera: CameraName = "aerial";
+  /**
+   * 毫米数据根：方案、场地、路线几何都以 mm 建模，整体缩 0.001 后在世界里仍是米。
+   * 相机、控制器、太阳、阴影视锥与射线都留在世界米，不要放进 mmRoot。
+   */
+  mmRoot = new THREE.Group();
   movingCar = buildL9(this.mat);
   routeGroup = new THREE.Group();
   ramp: THREE.Group;
-  rampLength = 5;
+  rampLength = 5000;
   roadY = surroundings.road.entryY;
   route = vehicleRoute;
   routeAssessment!: RouteAssessment;
@@ -248,7 +254,10 @@ export class VillaViewer {
         this.land.roadsideNeighbor,
       ]),
     );
-    this.scene.add(
+    this.mmRoot.name = "mmRoot";
+    this.mmRoot.scale.setScalar(1 / MM_PER_M);
+    this.scene.add(this.mmRoot);
+    this.mmRoot.add(
       this.land.context,
       this.land.fixed,
       this.land.existing,
@@ -346,16 +355,18 @@ export class VillaViewer {
   setCamera(name: CameraName) {
     this.activeCamera = name;
     const roadside = surroundings.roadsideVilla;
-    const roadsideEye = roadsideToWorld(roadside, -15, -23);
-    const roadsideTarget = roadsideToWorld(roadside, 1.1, -1.2);
+    // 数据为毫米，相机在世界米。
+    const roadsideEye = roadsideToWorld(roadside, -15000, -23000).map(toM);
+    const roadsideTarget = roadsideToWorld(roadside, 1100, -1200).map(toM);
+    const roadsideY = toM(roadside.y);
     const views: Record<CameraName, [number[], number[]]> = {
       roadside: [
-        [roadsideEye[0], roadside.y + 18, roadsideEye[1]],
-        [roadsideTarget[0], roadside.y + 4.8, roadsideTarget[1]],
+        [roadsideEye[0], roadsideY + 18, roadsideEye[1]],
+        [roadsideTarget[0], roadsideY + 4.8, roadsideTarget[1]],
       ],
-      // 鸟瞰／俯视与平面图同向：南↑西→（相对旧机位绕竖直轴转 180°）；北／南立面仍按地理朝向。
+      // 鸟瞰：站在院坪／南侧斜上方看整栋与场地正面，不是屋后背面。
       aerial: [
-        [-10, 36, 55],
+        [42, 36, -49],
         [16, 2.5, 3],
       ],
       north: [
@@ -375,18 +386,18 @@ export class VillaViewer {
         [48, 30, -43],
         [26.5, -1.4, -9.5],
       ],
-      // 镜头略偏北，俯视时南在画面上方、西在右，对齐平面「南↑西→」
+      // 略偏南俯视，画面上方偏北（屋后），与鸟瞰同侧习惯、不是背面机位。
       top: [
-        [10.5, 42, 3.99],
+        [10.5, 42, 4.01],
         [10.5, 0, 4],
       ],
     };
     let [p, t] = views[name];
     if (this.state.floor !== null && name === "top") {
       const floor = floors[this.state.floor];
-      const y = floor?.y ?? this.state.floor * 3.6;
-      const x = this.state.floor === 0 ? site.width / 2 : site.main.x + site.main.w / 2;
-      p = [x, y + (this.state.floor === 0 ? 37 : 29), 3.99];
+      const y = toM(floor?.y ?? this.state.floor * 3600);
+      const x = toM(this.state.floor === 0 ? site.width / 2 : site.main.x + site.main.w / 2);
+      p = [x, y + (this.state.floor === 0 ? 37 : 29), 4.01];
       t = [x, y, 4];
     }
     const target = new THREE.Vector3(...t);
@@ -474,9 +485,12 @@ export class VillaViewer {
     this.villa.levels.forEach((g, i) => {
       g.visible = s.mainBuilding && (s.floor === null || s.exploded || i === s.floor);
       g.position.y = s.exploded ? floors[i].y * explodeGap : 0;
+      g.children.forEach(child => {
+        if (child.userData.incomingStair) child.visible = s.floor === i && !s.exploded;
+      });
     });
     const eaveY = floors[0].height + floors[1].height + floors[2].height;
-    this.villa.roof.position.y = s.exploded ? (eaveY / 10.5) * 13.5 : 0;
+    this.villa.roof.position.y = s.exploded ? (eaveY / 10500) * 13500 : 0;
     this.villa.balcony.position.y = s.exploded ? floors[2].y * explodeGap : 0;
     if (s.exploded) {
       const pos = new THREE.Vector3(37, 29, -34);
@@ -545,7 +559,7 @@ export class VillaViewer {
     if (layout !== undefined) this.layoutLive = layout;
     const keep = new Set<THREE.Material>(Object.values(this.mat));
     for (const root of [this.villa.group, this.land.context, this.land.fixed, this.land.existing, this.land.proposed, this.land.dimensions]) {
-      this.scene.remove(root);
+      this.mmRoot.remove(root);
       disposeReplaced(root, this.scene, keep);
     }
     this.routeGroup.clear();
@@ -590,7 +604,7 @@ export class VillaViewer {
         this.land.roadsideNeighbor,
       ]),
     );
-    this.scene.add(
+    this.mmRoot.add(
       this.land.context,
       this.land.fixed,
       this.land.existing,
@@ -626,7 +640,7 @@ export class VillaViewer {
     this.needsRender = true;
     return result;
   }
-  routeHeight(x: number, z = -7.35) {
+  routeHeight(x: number, z = -7350) {
     return routeHeight(x, z, this.roadY, this.rampLength);
   }
   updateRamp(roadY: number, length: number) {
@@ -647,6 +661,7 @@ export class VillaViewer {
     this.needsRender = true;
   }
   private drawRoute() {
+    this.route = vehicleRoute;
     const car = this.movingCar;
     for (const child of [...this.routeGroup.children]) {
       if (child === car) continue;
@@ -669,10 +684,10 @@ export class VillaViewer {
     this.routeGroup.add(this.routeVisual.group);
     this.setRouteLayers(this.routeLayers);
     const points = this.route.getPoints(90).map(
-      (p) => new THREE.Vector3(p.x, this.routeHeight(p.x, p.z) + 0.08, p.z),
+      (p) => new THREE.Vector3(p.x, this.routeHeight(p.x, p.z) + 80, p.z),
     );
-    this.routeGroup.add(routeRibbon(points, 1.45));
-    const arrows = new THREE.ConeGeometry(0.42, 1.05, 4);
+    this.routeGroup.add(routeRibbon(points, 1450));
+    const arrows = new THREE.ConeGeometry(420, 1050, 4);
     arrows.rotateX(Math.PI / 2);
     const arrowMat = new THREE.MeshBasicMaterial({
       color: 0xfff6df,
@@ -682,12 +697,12 @@ export class VillaViewer {
     let travelled = 0;
     for (let i = 1; i < points.length; i++) {
       travelled += points[i].distanceTo(points[i - 1]);
-      if (travelled < 5.5) continue;
+      if (travelled < 5500) continue;
       travelled = 0;
       const dir = points[i].clone().sub(points[i - 1]).normalize();
       const arrow = new THREE.Mesh(arrows.clone(), arrowMat);
       arrow.position.copy(points[i]);
-      arrow.position.y += 0.06;
+      arrow.position.y += 60;
       arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
       arrow.renderOrder = 6;
       this.routeGroup.add(arrow);
@@ -697,7 +712,7 @@ export class VillaViewer {
     const at = (t: number) => this.route.getPointAt(t);
     const label = (t: number, text: string) => {
       const p = at(t);
-      tag(this.routeGroup, text, p.x, this.routeHeight(p.x, p.z) + 1.15, p.z, "#7a4e12", 0.78);
+      tag(this.routeGroup, text, p.x, this.routeHeight(p.x, p.z) + 1150, p.z, "#7a4e12", 0.78);
     };
     label(0.08, "左侧上坡路");
     label(0.48, "转入地库");
@@ -718,7 +733,7 @@ export class VillaViewer {
     this.movingCar.position.set(pose.x, pose.y, pose.z);
     this.movingCar.rotation.y = pose.yaw;
     const current = this.routeVisual.current;
-    current.position.set(pose.x, pose.y + site.vehicle.height / 2 + 0.03, pose.z);
+    current.position.set(pose.x, pose.y + site.vehicle.height / 2 + 30, pose.z);
     current.rotation.y = pose.yaw;
     current.material.color.set(result.outside || result.obstacles.length
       ? routeColors.conflict : result.underDeck ? routeColors.pending : routeColors.sweep);
@@ -778,7 +793,7 @@ export class VillaViewer {
         if (sun.altitude > 0 && sun.vector.z > 0)
           for (const dy of [-probe.sampleOffset, 0, probe.sampleOffset]) {
             ray.set(
-              new THREE.Vector3(probe.x, probe.y + dy, probe.z),
+              new THREE.Vector3(toM(probe.x), toM(probe.y + dy), toM(probe.z)),
               sun.vector,
             );
             const clear = ray.intersectObjects(meshes, false).length === 0;

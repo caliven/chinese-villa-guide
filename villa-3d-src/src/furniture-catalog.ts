@@ -38,6 +38,7 @@ export const FURNITURE_KINDS = [
   "sink",
   "altar",
   "shrine",
+  "railing",
 ] as const satisfies readonly Furniture["kind"][];
 
 export type FurnitureKind = (typeof FURNITURE_KINDS)[number];
@@ -63,6 +64,7 @@ export const furnitureLabels: Record<FurnitureKind, string> = {
   sink: "水槽",
   altar: "神案",
   shrine: "神龛（湖南堂屋）",
+  railing: "栏杆",
 };
 
 /** 各件在局部坐标下的方位说明（编辑器与协作口述用）。 */
@@ -87,6 +89,7 @@ export const furnitureOrientationHints: Record<FurnitureKind, string> = {
   sink: "后方＝贴墙；前方＝洗碗站人",
   altar: "后方＝贴墙；前方＝供奉朝向",
   shrine: "后方＝贴墙柜背；前方＝龛台／供人面朝",
+  railing: "宽＝栏杆长度；深＝栏杆厚度；后方＝楼板／安全侧，前方＝临空侧",
 };
 
 export function furnitureOrientationHint(kind: Furniture["kind"]): string {
@@ -120,9 +123,10 @@ export const furniturePickerOrder: FurnitureKind[] = [
   "sink",
   "altar",
   "shrine",
+  "railing",
 ];
 
-export const bedNightstand = { w: 0.45, d: 0.4, gap: 0.02 };
+export const bedNightstand = { w: 450, d: 400, gap: 20 };
 
 /**
  * 床的占地拆分：参数宽／深是房间内 1:1 外轮廓（与墙、房间同比例），
@@ -130,7 +134,7 @@ export const bedNightstand = { w: 0.45, d: 0.4, gap: 0.02 };
  */
 export function bedLayout(f: Pick<Furniture, "w" | "d">) {
   const ns = bedNightstand;
-  const minMattress = 0.9;
+  const minMattress = 900;
   let nsW = ns.w;
   let gap = ns.gap;
   let mattressW = f.w - 2 * (nsW + gap);
@@ -140,7 +144,7 @@ export function bedLayout(f: Pick<Furniture, "w" | "d">) {
     gap = Math.min(ns.gap, Math.max(0, avail - nsW));
     mattressW = f.w - 2 * (nsW + gap);
   }
-  if (mattressW < 0.6 || nsW < 0.12) {
+  if (mattressW < 600 || nsW < 120) {
     return {
       mattressW: f.w,
       nsW: 0,
@@ -161,48 +165,51 @@ export function bedLayout(f: Pick<Furniture, "w" | "d">) {
 export function defaultFurnitureSize(kind: FurnitureKind): { w: number; d: number } {
   switch (kind) {
     case "bed":
-      // 外轮廓约 2.7×2.1：含两侧床头柜后仍对应常见 1.8 米床垫观感。
-      return { w: 2.7, d: 2.1 };
+      // 外轮廓 2960×2220（含两侧床头柜），新拖入默认；已放床不改。
+      return { w: 2960, d: 2220 };
     case "tv":
-      return { w: 1.2, d: 0.35 };
+      return { w: 1200, d: 350 };
     case "sofa":
-      return { w: 2.2, d: 0.9 };
+      return { w: 2200, d: 900 };
     case "coffeeTable":
-      return { w: 1.1, d: 0.6 };
+      return { w: 1100, d: 600 };
     case "table":
-      return { w: 1.6, d: 0.8 };
+      return { w: 1600, d: 800 };
     case "roundTable":
-      return { w: 1.2, d: 1.2 };
+      return { w: 1200, d: 1200 };
     case "chair":
-      return { w: 0.5, d: 0.55 };
+      return { w: 500, d: 550 };
     case "dressingTable":
-      return { w: 1.0, d: 0.45 };
+      return { w: 1000, d: 450 };
     case "cabinet":
-      return { w: 1.0, d: 0.45 };
+      return { w: 1000, d: 550 };
     case "wardrobe":
-      return { w: 1.6, d: 0.55 };
+      return { w: 1600, d: 550 };
     case "basin":
-      return { w: 0.8, d: 0.45 };
+      return { w: 800, d: 450 };
     case "toilet":
-      return { w: 0.4, d: 0.7 };
+      return { w: 400, d: 700 };
     case "squatToilet":
-      return { w: 0.45, d: 0.65 };
+      return { w: 450, d: 650 };
     case "shower":
-      // 常见整体淋浴房／淋浴区占地约 0.9×0.9；可拉角改成矩形。
-      return { w: 0.9, d: 0.9 };
+      // 常见整体淋浴房／淋浴区占地约 900×900；可拉角改成矩形。
+      return { w: 900, d: 900 };
     case "counter":
-      return { w: 1.5, d: 0.6 };
+      return { w: 1500, d: 600 };
     case "stove":
-      return { w: 0.9, d: 0.7 };
+      return { w: 900, d: 700 };
     case "hob":
-      return { w: 0.75, d: 0.6 };
+      return { w: 750, d: 600 };
     case "sink":
-      return { w: 0.8, d: 0.55 };
+      return { w: 800, d: 550 };
     case "altar":
-      return { w: 1.2, d: 0.5 };
+      return { w: 1200, d: 500 };
     case "shrine":
       // 湖南农村堂屋靠后墙神龛：面宽约一开间中段，进深浅，贴墙。
-      return { w: 1.5, d: 0.45 };
+      return { w: 1500, d: 450 };
+    case "railing":
+      // 默认一段约 3.6 m；拉角改长度，厚度保持窄条。
+      return { w: 3600, d: 100 };
   }
 }
 
@@ -219,7 +226,7 @@ export function createFurniture(kind: FurnitureKind, x: number, z: number): Furn
 }
 
 /**
- * 家具局部包围：宽／深即平面占地（米），与房间、墙同一比例，不再外扩。
+ * 家具局部包围：宽／深即平面占地（毫米），与房间、墙同一比例，不再外扩。
  * 床的床头柜含在宽以内；圆桌按直径 w。
  */
 export function furnitureLocalBounds(f: Furniture): { x0: number; z0: number; x1: number; z1: number } {
@@ -271,7 +278,7 @@ export function resizeFurnitureFromCorner(
   corner: string,
   worldX: number,
   worldZ: number,
-  minSize = 0.3,
+  minSize = 300,
   grabOffset?: { dlx: number; dlz: number },
 ): Pick<Furniture, "x" | "z" | "w" | "d"> {
   const b = furnitureLocalBounds(orig);
@@ -288,8 +295,8 @@ export function resizeFurnitureFromCorner(
     d = size;
   }
   // 只吸附宽深；位置由固定角反算，不再对 x／z 二次吸附以免对角漂移。
-  w = Math.round(w * 100) / 100;
-  d = Math.round(d * 100) / 100;
+  w = Math.round(w);
+  d = Math.round(d);
   const sx = corner.includes("e") ? 1 : -1;
   const sz = corner.includes("s") ? 1 : -1;
   const center = furnitureLocalToWorld(fixedLx + sx * (w / 2), fixedLz + sz * (d / 2), orig);

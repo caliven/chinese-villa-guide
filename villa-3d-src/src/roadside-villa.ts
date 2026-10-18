@@ -1,11 +1,12 @@
 import * as THREE from "three";
+import { MM_PER_M } from "./units";
 import { roadsideVilla as h, type Point } from "./data";
 import { box, cylinder, rect, slab, wallWithOpenings, type Mats } from "./primitives";
 
 const balusterGeometry = new THREE.LatheGeometry([
-  [0.06, 0], [0.06, 0.06], [0.034, 0.13], [0.044, 0.21],
-  [0.075, 0.35], [0.048, 0.5], [0.032, 0.62], [0.048, 0.73],
-  [0.06, 0.79], [0.06, 0.83],
+  [60, 0], [60, 60], [34, 130], [44, 210],
+  [75, 350], [48, 500], [32, 620], [48, 730],
+  [60, 790], [60, 830],
 ].map(([r, y]) => new THREE.Vector2(r, y)), 10);
 
 function tileMaterial(kind: "roof" | "yard") {
@@ -48,10 +49,12 @@ function tileMaterial(kind: "roof" | "yard") {
   map.colorSpace = THREE.SRGBColorSpace;
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.anisotropy = 4;
+  // 世界 UV 为毫米：每米一个贴图周期＝重复数 1/1000。
+  if (kind === "roof") map.repeat.set(1 / MM_PER_M, 1 / MM_PER_M);
   if (kind === "yard") {
     map.center.set(0.5, 0.5);
     map.rotation = Math.PI / 4;
-    map.repeat.set(0.55, 0.55);
+    map.repeat.set(0.55 / MM_PER_M, 0.55 / MM_PER_M);
   }
   return new THREE.MeshStandardMaterial({ map, roughness: kind === "roof" ? 0.57 : 0.87 });
 }
@@ -63,18 +66,18 @@ function stoneRail(parent: THREE.Object3D, a: Point, b: Point, y: number, mat: M
   g.position.set(a[0], y, a[1]);
   g.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
   parent.add(g);
-  box(g, length / 2, 0.075, 0, length, 0.15, 0.19, mat.trim);
-  box(g, length / 2, 1.01, 0, length + 0.03, 0.15, 0.22, mat.trim);
-  const count = Math.ceil(length / 0.24);
+  box(g, length / 2, 75, 0, length, 150, 190, mat.trim);
+  box(g, length / 2, 1010, 0, length + 30, 150, 220, mat.trim);
+  const count = Math.ceil(length / 240);
   for (let i = 1; i < count; i++) {
     const baluster = new THREE.Mesh(balusterGeometry, mat.inside);
-    baluster.position.set(i * length / count, 0.14, 0);
+    baluster.position.set(i * length / count, 140, 0);
     baluster.castShadow = baluster.receiveShadow = true;
     g.add(baluster);
   }
   for (const x of [0, length]) {
-    box(g, x, 0.56, 0, 0.22, 1.12, 0.22, mat.trim);
-    box(g, x, 1.16, 0, 0.28, 0.1, 0.28, mat.inside);
+    box(g, x, 560, 0, 220, 1120, 220, mat.trim);
+    box(g, x, 1160, 0, 280, 100, 280, mat.inside);
   }
   return g;
 }
@@ -84,22 +87,22 @@ function romanColumn(parent: THREE.Object3D, x: number, z: number, y: number, he
   g.name = "罗马柱门厅";
   g.position.set(x, y, z);
   parent.add(g);
-  box(g, 0, 0.14, 0, 0.58, 0.28, 0.58, mat.trim);
-  box(g, 0, 0.32, 0, 0.44, 0.09, 0.44, mat.inside);
-  const shaftHeight = height - 0.65;
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.2, shaftHeight, 16), mat.trim);
-  shaft.position.y = 0.37 + shaftHeight / 2;
+  box(g, 0, 140, 0, 580, 280, 580, mat.trim);
+  box(g, 0, 320, 0, 440, 90, 440, mat.inside);
+  const shaftHeight = height - 650;
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(175, 200, shaftHeight, 16), mat.trim);
+  shaft.position.y = 370 + shaftHeight / 2;
   shaft.castShadow = shaft.receiveShadow = true;
   g.add(shaft);
   for (let i = 0; i < 12; i++) {
     const angle = i * Math.PI / 6;
     cylinder(g,
-      new THREE.Vector3(Math.cos(angle) * 0.18, 0.48, Math.sin(angle) * 0.18),
-      new THREE.Vector3(Math.cos(angle) * 0.16, height - 0.42, Math.sin(angle) * 0.16),
-      0.016, mat.inside, 5);
+      new THREE.Vector3(Math.cos(angle) * 180, 480, Math.sin(angle) * 180),
+      new THREE.Vector3(Math.cos(angle) * 160, height - 420, Math.sin(angle) * 160),
+      16, mat.inside, 5);
   }
-  box(g, 0, height - 0.2, 0, 0.44, 0.13, 0.44, mat.inside);
-  box(g, 0, height - 0.075, 0, 0.57, 0.12, 0.57, mat.trim);
+  box(g, 0, height - 200, 0, 440, 130, 440, mat.inside);
+  box(g, 0, height - 75, 0, 570, 120, 570, mat.trim);
 }
 
 function blueRoof(parent: THREE.Object3D, mat: Mats, eaveY: number) {
@@ -108,7 +111,7 @@ function blueRoof(parent: THREE.Object3D, mat: Mats, eaveY: number) {
   parent.add(g);
   const X = h.w / 2 + h.eave, Z = h.d / 2 + h.eave;
   const ridgeHalf = X - Z;
-  const hatHalf = h.portico.w / 2 + 0.35;
+  const hatHalf = h.portico.w / 2 + 350;
   const hatFront = -h.d / 2 - h.portico.d - h.eave;
   const peak = eaveY + h.roofRise;
   const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -153,34 +156,34 @@ function blueRoof(parent: THREE.Object3D, mat: Mats, eaveY: number) {
     [-X, -Z], [-hatHalf, -Z], [-hatHalf, hatFront], [hatHalf, hatFront],
     [hatHalf, -Z], [X, -Z], [X, Z], [-X, Z],
   ];
-  slab(g, outline, eaveY - 0.035, 0.16, mat.trim);
+  slab(g, outline, eaveY - 35, 160, mat.trim);
   const ridgeMat = new THREE.MeshStandardMaterial({ color: 0x345485, roughness: 0.62 });
   for (const [p, q] of [[a, leftRidge], [b, rightRidge], [c, rightRidge], [d, leftRidge], [leftRidge, rightRidge], [hatRidge, join]])
-    cylinder(g, p.clone().add(v(0, 0.055, 0)), q.clone().add(v(0, 0.055, 0)), 0.075, ridgeMat, 10);
+    cylinder(g, p.clone().add(v(0, 55, 0)), q.clone().add(v(0, 55, 0)), 75, ridgeMat, 10);
   for (let i = 0; i < outline.length; i++) {
     const p = outline[i], q = outline[(i + 1) % outline.length];
-    cylinder(g, v(p[0], eaveY + 0.018, p[1]), v(q[0], eaveY + 0.018, q[1]), 0.055, mat.dark, 6);
+    cylinder(g, v(p[0], eaveY + 18, p[1]), v(q[0], eaveY + 18, q[1]), 55, mat.dark, 6);
   }
   for (const p of [hatLeft, hatRight])
-    cylinder(g, p.clone().add(v(0, 0.035, -0.015)), hatRidge.clone().add(v(0, 0.035, -0.015)), 0.05, ridgeMat, 8);
+    cylinder(g, p.clone().add(v(0, 35, -15)), hatRidge.clone().add(v(0, 35, -15)), 50, ridgeMat, 8);
 
   const tympanum = new THREE.Shape();
-  tympanum.moveTo(-hatHalf + 0.12, eaveY - 0.04);
-  tympanum.lineTo(hatHalf - 0.12, eaveY - 0.04);
-  tympanum.lineTo(0, peak - 0.12);
+  tympanum.moveTo(-hatHalf + 120, eaveY - 40);
+  tympanum.lineTo(hatHalf - 120, eaveY - 40);
+  tympanum.lineTo(0, peak - 120);
   tympanum.closePath();
   const arch = new THREE.Path();
-  arch.moveTo(-0.27, eaveY + 0.18);
-  arch.lineTo(-0.27, eaveY + 0.82);
-  arch.absarc(0, eaveY + 0.82, 0.27, Math.PI, 0, true);
-  arch.lineTo(0.27, eaveY + 0.18);
+  arch.moveTo(-270, eaveY + 180);
+  arch.lineTo(-270, eaveY + 820);
+  arch.absarc(0, eaveY + 820, 270, Math.PI, 0, true);
+  arch.lineTo(270, eaveY + 180);
   arch.closePath();
   tympanum.holes.push(arch);
-  const triangle = new THREE.Mesh(new THREE.ExtrudeGeometry(tympanum, { depth: 0.14, bevelEnabled: false }), mat.inside);
-  triangle.position.z = hatFront + 0.08;
+  const triangle = new THREE.Mesh(new THREE.ExtrudeGeometry(tympanum, { depth: 140, bevelEnabled: false }), mat.inside);
+  triangle.position.z = hatFront + 80;
   triangle.castShadow = triangle.receiveShadow = true;
   g.add(triangle);
-  box(g, 0, eaveY + 0.66, hatFront + 0.2, 0.56, 1.05, 0.025, mat.glass, false);
+  box(g, 0, eaveY + 660, hatFront + 200, 560, 1050, 25, mat.glass, false);
 }
 
 export function buildRoadsideVilla(baseMat: Mats) {
@@ -206,40 +209,40 @@ export function buildRoadsideVilla(baseMat: Mats) {
     group.add(level);
     wallWithOpenings(level, [west, front], [east, front], base, height,
       bayCenters.map((x, i) => ({
-        at: x - west, w: i === 1 ? 2.15 : 2.05,
-        sill: i === 1 ? 0 : 0.72, h: i === 1 ? 2.66 : 2.04,
+        at: x - west, w: i === 1 ? 2150 : 2050,
+        sill: i === 1 ? 0 : 720, h: i === 1 ? 2660 : 2040,
         door: i === 1, glazed: i === 1 && floor > 0,
       })), mat);
     wallWithOpenings(level, [west, back], [east, back], base, height,
-      bayCenters.map((x) => ({ at: x - west, w: 1.45, sill: 1, h: 1.55 })), mat);
+      bayCenters.map((x) => ({ at: x - west, w: 1450, sill: 1000, h: 1550 })), mat);
     wallWithOpenings(level, [west, front], [west, back], base, height,
       floor === 2
-        ? [{ at: 2, w: 1.3, sill: 0.95, h: 1.55 }, { at: h.d - 1.9, w: 3.3, sill: 0, h: height - 0.22, open: true }]
-        : [{ at: 2.2, w: 1.25, sill: 1.06, h: 1.45 }], mat);
+        ? [{ at: 2000, w: 1300, sill: 950, h: 1550 }, { at: h.d - 1900, w: 3300, sill: 0, h: height - 220, open: true }]
+        : [{ at: 2200, w: 1250, sill: 1060, h: 1450 }], mat);
     wallWithOpenings(level, [east, front], [east, back], base, height,
-      floor === 0 ? [] : [{ at: 2.2, w: 1.2, sill: 0.95, h: 1.6 }, { at: 7, w: 1.45, sill: 0.95, h: 1.6 }], mat);
-    slab(level, rect(west, front, h.w, h.d), base + 0.025, 0.16, mat.inside);
+      floor === 0 ? [] : [{ at: 2200, w: 1200, sill: 950, h: 1600 }, { at: 7000, w: 1450, sill: 950, h: 1600 }], mat);
+    slab(level, rect(west, front, h.w, h.d), base + 25, 160, mat.inside);
     if (floor === 0) {
       // 照片中的下部粉色墙裙，只附在外侧，不盖住窗洞。
-      const skirtWidth = h.w / 2 - 1.18;
+      const skirtWidth = h.w / 2 - 1180;
       for (const sign of [-1, 1])
-        box(level, sign * (1.18 + skirtWidth / 2), 0.28, front - 0.14, skirtWidth, 0.56, 0.025, mat.trim);
-      box(level, west - 0.14, 0.28, 0, 0.025, 0.56, h.d, mat.trim);
+        box(level, sign * (1180 + skirtWidth / 2), 280, front - 140, skirtWidth, 560, 25, mat.trim);
+      box(level, west - 140, 280, 0, 25, 560, h.d, mat.trim);
     } else {
-      slab(level, rect(-h.portico.w / 2, porticoFront, h.portico.w, h.portico.d), base + 0.025, 0.19, mat.inside);
-      stoneRail(level, [-h.portico.w / 2, porticoFront], [h.portico.w / 2, porticoFront], base + 0.025, mat);
+      slab(level, rect(-h.portico.w / 2, porticoFront, h.portico.w, h.portico.d), base + 25, 190, mat.inside);
+      stoneRail(level, [-h.portico.w / 2, porticoFront], [h.portico.w / 2, porticoFront], base + 25, mat);
       for (const x of [-h.portico.w / 2, h.portico.w / 2])
-        stoneRail(level, [x, porticoFront + 0.08], [x, front - 0.1], base + 0.025, mat);
+        stoneRail(level, [x, porticoFront + 80], [x, front - 100], base + 25, mat);
     }
-    for (const x of [-h.portico.w / 2 + 0.27, h.portico.w / 2 - 0.27])
-      romanColumn(level, x, porticoFront + 0.27, base + 0.03, height - 0.12, mat);
-    box(level, 0, base + height - 0.1, porticoFront + 0.05, h.portico.w + 0.06, 0.2, 0.24, mat.trim);
+    for (const x of [-h.portico.w / 2 + 270, h.portico.w / 2 - 270])
+      romanColumn(level, x, porticoFront + 270, base + 30, height - 120, mat);
+    box(level, 0, base + height - 100, porticoFront + 50, h.portico.w + 60, 200, 240, mat.trim);
     if (floor === 2) {
-      stoneRail(level, [west - 0.025, back - 3.45], [west - 0.025, back - 0.2], base + 0.025, mat);
-      box(level, west + 0.65, base + 0.48, back - 1.7, 0.45, 0.1, 1.7, baseMat.wood);
+      stoneRail(level, [west - 25, back - 3450], [west - 25, back - 200], base + 25, mat);
+      box(level, west + 650, base + 480, back - 1700, 450, 100, 1700, baseMat.wood);
     }
-    for (const x of [west + 0.11, east - 0.11])
-      box(level, x, base + height / 2, front - 0.15, 0.26, height, 0.12, mat.trim);
+    for (const x of [west + 110, east - 110])
+      box(level, x, base + height / 2, front - 150, 260, height, 120, mat.trim);
     base += height;
   }
   blueRoof(group, mat, base);
@@ -249,22 +252,22 @@ export function buildRoadsideVilla(baseMat: Mats) {
   group.add(wing);
   const wingFront = front + h.wing.setback, wingBack = wingFront + h.wing.d;
   wallWithOpenings(wing, [east, wingFront], [east + h.wing.w, wingFront], 0, h.wing.h,
-    [{ at: h.wing.w * 0.3, w: 1.25, sill: 0, h: 2.45, door: true },
-      { at: h.wing.w * 0.72, w: 1.4, sill: 0.92, h: 1.4 }], mat);
+    [{ at: h.wing.w * 0.3, w: 1250, sill: 0, h: 2450, door: true },
+      { at: h.wing.w * 0.72, w: 1400, sill: 920, h: 1400 }], mat);
   wallWithOpenings(wing, [east + h.wing.w, wingFront], [east + h.wing.w, wingBack], 0, h.wing.h,
-    [{ at: h.wing.d * 0.45, w: 1.5, sill: 1, h: 1.35 }], mat);
-  box(wing, east + h.wing.w / 2, h.wing.h / 2, wingBack, h.wing.w, h.wing.h, 0.24, mat.wall);
-  slab(wing, rect(east, wingFront, h.wing.w, h.wing.d), 0.025, 0.16, mat.inside);
-  slab(wing, rect(east - 0.02, wingFront - 0.12, h.wing.w + 0.18, h.wing.d + 0.24), h.wing.h + 0.09, 0.18, mat.wall);
+    [{ at: h.wing.d * 0.45, w: 1500, sill: 1000, h: 1350 }], mat);
+  box(wing, east + h.wing.w / 2, h.wing.h / 2, wingBack, h.wing.w, h.wing.h, 240, mat.wall);
+  slab(wing, rect(east, wingFront, h.wing.w, h.wing.d), 25, 160, mat.inside);
+  slab(wing, rect(east - 20, wingFront - 120, h.wing.w + 180, h.wing.d + 240), h.wing.h + 90, 180, mat.wall);
   for (const [a, b] of [
-    [[east + 0.1, wingFront], [east + h.wing.w, wingFront]],
+    [[east + 100, wingFront], [east + h.wing.w, wingFront]],
     [[east + h.wing.w, wingFront], [east + h.wing.w, wingBack]],
-    [[east + 0.1, wingBack], [east + h.wing.w, wingBack]],
+    [[east + 100, wingBack], [east + h.wing.w, wingBack]],
   ] as [Point, Point][])
-    stoneRail(wing, a, b, h.wing.h + 0.09, { ...mat, trim: mat.wall });
+    stoneRail(wing, a, b, h.wing.h + 90, { ...mat, trim: mat.wall });
 
   // 台基沉入台地，减少墙脚穿模；前坪用略深铺装，避免大块发白空白感。
-  const yardFront = porticoFront - 0.95;
+  const yardFront = porticoFront - 950;
   const yardEast = east + h.wing.w;
   const foundation = new THREE.Group();
   foundation.name = "蓝顶邻房台基";
@@ -272,22 +275,22 @@ export function buildRoadsideVilla(baseMat: Mats) {
   box(
     foundation,
     (west + yardEast) / 2,
-    -0.22,
+    -220,
     (yardFront + back) / 2,
-    yardEast - west + 0.55,
-    0.44,
-    back - yardFront + 0.35,
+    yardEast - west + 550,
+    440,
+    back - yardFront + 350,
     mat.stone,
   );
   // 柴火房一侧补一截石裙，遮住田坎立面穿插。
   box(
     foundation,
     east + h.wing.w / 2,
-    -0.18,
+    -180,
     (wingFront + wingBack) / 2,
-    h.wing.w + 0.35,
-    0.36,
-    h.wing.d + 0.3,
+    h.wing.w + 350,
+    360,
+    h.wing.d + 300,
     mat.stone,
   );
 
@@ -297,11 +300,11 @@ export function buildRoadsideVilla(baseMat: Mats) {
   const yardPad = baseMat.paving.clone();
   yardPad.color = new THREE.Color(0x9a978c);
   yardPad.roughness = 0.92;
-  slab(yard, rect(west - 0.2, yardFront, yardEast - west + 0.4, front - yardFront), 0.02, 0.16, yardPad);
+  slab(yard, rect(west - 200, yardFront, yardEast - west + 400, front - yardFront), 20, 160, yardPad);
   // 只画首层前坪及矮基础；不生成地下室、地下车位或架空柱。
-  stoneRail(yard, [west, yardFront + 0.08], [-1.25, yardFront + 0.08], 0.02, mat);
-  stoneRail(yard, [1.25, yardFront + 0.08], [yardEast, yardFront + 0.08], 0.02, mat);
-  stoneRail(yard, [west - 0.13, yardFront + 0.08], [west - 0.13, front], 0.02, mat);
-  stoneRail(yard, [yardEast + 0.12, yardFront + 0.08], [yardEast + 0.12, wingFront], 0.02, mat);
+  stoneRail(yard, [west, yardFront + 80], [-1250, yardFront + 80], 20, mat);
+  stoneRail(yard, [1250, yardFront + 80], [yardEast, yardFront + 80], 20, mat);
+  stoneRail(yard, [west - 130, yardFront + 80], [west - 130, front], 20, mat);
+  stoneRail(yard, [yardEast + 120, yardFront + 80], [yardEast + 120, wingFront], 20, mat);
   return group;
 }

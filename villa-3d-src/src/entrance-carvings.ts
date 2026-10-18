@@ -18,7 +18,7 @@ function polygon(points: XY[]) {
 }
 
 function carvedShape(parent: THREE.Object3D, shapes: THREE.Shape | THREE.Shape[], front: number,
-  depth: number, material: THREE.Material, bevel = 0.0015) {
+  depth: number, material: THREE.Material, bevel = 1.5) {
   const geo = new THREE.ExtrudeGeometry(shapes, {
     depth, steps: 1, curveSegments: 10,
     bevelEnabled: bevel > 0, bevelSize: bevel, bevelThickness: bevel,
@@ -61,19 +61,19 @@ function ribbon(points: XY[], thickness: number, closed = false) {
 
 function strokes(parent: THREE.Object3D, paths: XY[][], thickness: number,
   front: number, mat: THREE.Material, closed = false) {
-  return carvedShape(parent, paths.map(path => ribbon(path, thickness, closed)), front, 0.012, mat);
+  return carvedShape(parent, paths.map(path => ribbon(path, thickness, closed)), front, 12, mat);
 }
 
 function frame(parent: THREE.Object3D, x: number, y: number, w: number, h: number,
-  front: number, mat: THREE.Material, thickness = 0.016) {
-  const c = Math.min(0.015, w * 0.025);
+  front: number, mat: THREE.Material, thickness = 16) {
+  const c = Math.min(15, w * 0.025);
   const p: XY[] = [[-w/2+c,-h/2],[w/2-c,-h/2],[w/2,-h/2+c],[w/2,h/2-c],
     [w/2-c,h/2],[-w/2+c,h/2],[-w/2,h/2-c],[-w/2,-h/2+c]];
   return strokes(parent, [p.map(([xx, yy]) => [xx + x, yy + y])], thickness, front, mat, true);
 }
 
 function circle(parent: THREE.Object3D, x: number, y: number, r: number,
-  front: number, mat: THREE.Material, thickness = 0.009) {
+  front: number, mat: THREE.Material, thickness = 9) {
   const path: XY[] = Array.from({ length: 64 }, (_, i) => {
     const a = i * Math.PI / 32;
     return [x + r * Math.cos(a), y + r * Math.sin(a)];
@@ -102,24 +102,24 @@ function seal(parent: THREE.Object3D, y: number, r: number, front: number, mat: 
     [[.6,-.27],[.18,-.27],[.18,-.78]],
     [[.6,-.42],[.36,-.42],[.36,-.6]],
   ];
-  strokes(g, paths.map(p => p.map(([x, yy]) => [x * r, y + yy * r])), r * 0.068, front - 0.001, mat.carvedStone);
+  strokes(g, paths.map(p => p.map(([x, yy]) => [x * r, y + yy * r])), r * 0.068, front - 1, mat.carvedStone);
   return g;
 }
 
 function sealBoss(parent: THREE.Object3D, y: number, r: number, mat: Mats) {
   const boss = group(parent, "柱冠浅浮雕圆饰");
-  boss.position.z = -.019;
+  boss.position.z = -19;
   const disk = new THREE.Shape();
   disk.absarc(0, y, r, 0, Math.PI * 2, false);
-  carvedShape(boss, disk, -0.018, 0.015, mat.carvingInset);
-  seal(boss, y, r * 0.87, -0.031, mat);
+  carvedShape(boss, disk, -18, 15, mat.carvingInset);
+  seal(boss, y, r * 0.87, -31, mat);
 }
 
 // 门厅柱的双心折线带。两条内外轮廓形成截图中的浅色折线及深色间隙。
 function heartBand(parent: THREE.Object3D, y: number, w: number, h: number, front: number, mat: Mats, count?: number) {
   const g = group(parent, "深底双心折线纹带");
-  box(g, 0, y, front + 0.012, w, h, 0.025, mat.carvingDark);
-  frame(g, 0, y, w + 0.014, h + 0.014, front - 0.012, mat.carvedStone, 0.014);
+  box(g, 0, y, front + 12, w, h, 25, mat.carvingDark);
+  frame(g, 0, y, w + 14, h + 14, front - 12, mat.carvedStone, 14);
   const cells = count ?? Math.max(2, Math.round(w / (h * 1.12)));
   const pitch = w / cells, paths: XY[][] = [];
   const heart: XY[] = [[-.45,.31],[-.45,.62],[-.22,.69],[0,.49],[.22,.69],[.45,.62],[.45,.31],
@@ -129,30 +129,30 @@ function heartBand(parent: THREE.Object3D, y: number, w: number, h: number, fron
     for (const s of [1, .62])
       paths.push(heart.map(([xx, yy]) => [x + xx * pitch * s, y + yy * h * .64 * s]));
   }
-  strokes(g, paths, Math.min(0.014, h * .062), front - .018, mat.carvedStone, true);
+  strokes(g, paths, Math.min(14, h * .062), front - 18, mat.carvedStone, true);
   return g;
 }
 
 // 包角柱用方折回纹，与门厅柱的双心带分开。
 function keyBand(parent: THREE.Object3D, y: number, w: number, h: number, mat: Mats) {
   const g = group(parent, "包角柱深底回纹带");
-  box(g, 0, y, -.008, w, h, .022, mat.carvingDark);
-  frame(g, 0, y, w + .014, h + .014, -.035, mat.carvedStone, .014);
-  const count = Math.max(2, Math.round(w / h)), pitch = (w - .03) / count;
+  box(g, 0, y, -8, w, h, 22, mat.carvingDark);
+  frame(g, 0, y, w + 14, h + 14, -35, mat.carvedStone, 14);
+  const count = Math.max(2, Math.round(w / h)), pitch = (w - 30) / count;
   const paths: XY[][] = [];
   for (let i = 0; i < count; i++) {
-    const x = -w/2 + .015 + (i+.5) * pitch;
+    const x = -w/2 + 15 + (i+.5) * pitch;
     paths.push([[-.49,-.36],[-.49,.36],[.34,.36],[.34,-.08],[-.12,-.08],[-.12,.13],[.12,.13]]
       .map(([xx, yy]) => [x + xx * pitch, y + yy * h]));
   }
-  strokes(g, paths, .016, -.036, mat.carvedStone);
+  strokes(g, paths, 16, -36, mat.carvedStone);
   return g;
 }
 
 function cloudPanel(parent: THREE.Object3D, y: number, w: number, h: number, mat: Mats) {
   const g = group(parent, "下段回折卷草花板");
-  box(g, 0, y, -.004, w, h, .02, mat.carvingInset);
-  frame(g, 0, y, w + .008, h + .01, -.025, mat.carvedStone, .016);
+  box(g, 0, y, -4, w, h, 20, mat.carvingInset);
+  frame(g, 0, y, w + 8, h + 10, -25, mat.carvedStone, 16);
   const cloud: XY[] = [[-.88,-.33],[-.88,.15],[-.68,.15],[-.68,.45],[-.32,.45],[-.32,.15],
     [-.12,.15],[-.12,-.05],[.12,-.05],[.12,.15],[.32,.15],[.32,.45],[.68,.45],[.68,.15],[.88,.15],[.88,-.33],
     [.62,-.33],[.62,-.1],[.4,-.1],[.4,-.42],[-.4,-.42],[-.4,-.1],[-.62,-.1],[-.62,-.33]];
@@ -161,11 +161,11 @@ function cloudPanel(parent: THREE.Object3D, y: number, w: number, h: number, mat
     const xx = side * w * .24;
     paths.push(cloud.map(([x, yy]) => [xx + x * w * .235, y + yy * h * .72]));
   }
-  strokes(g, paths, .011, -.031, mat.carvedStone);
+  strokes(g, paths, 11, -31, mat.carvedStone);
   for (const x of [-.39, 0, .39]) {
     const v = new THREE.Shape();
-    v.absarc(x * w, y + h * .3, .012, 0, Math.PI*2, false);
-    carvedShape(g, v, -.033, .012, mat.carvedStone);
+    v.absarc(x * w, y + h * .3, 12, 0, Math.PI*2, false);
+    carvedShape(g, v, -33, 12, mat.carvedStone);
   }
 }
 
@@ -175,74 +175,74 @@ function pendant(parent: THREE.Object3D, top: number, w: number, h: number, mat:
   outline.moveTo(-.42, .02); outline.lineTo(.42, .02); outline.lineTo(.35,-.23);
   outline.bezierCurveTo(.34,-.61,.14,-.79,0,-.94);
   outline.bezierCurveTo(-.14,-.79,-.34,-.61,-.35,-.23); outline.closePath();
-  const body = carvedShape(g, outline, -.025, .023, mat.carvedStone);
+  const body = carvedShape(g, outline, -25, 23, mat.carvedStone);
   body.scale.set(w, h, 1); body.position.y = top;
   const edge = outline.getPoints(24).slice(0, -1).map(p => [p.x * w, top + p.y * h] as XY);
-  strokes(g, [edge], .006, -.051, mat.carvingInset, true);
-  box(g, 0, top + h*.025, -.039, w*1.03, h*.06, .024, mat.carvedStone);
+  strokes(g, [edge], 6, -51, mat.carvingInset, true);
+  box(g, 0, top + h*.025, -39, w*1.03, h*.06, 24, mat.carvedStone);
   const scroll = new THREE.Path();
   scroll.moveTo(.02,-.19); scroll.bezierCurveTo(.44,-.11,.39,-.52,.18,-.41);
   scroll.bezierCurveTo(.02,-.32,.24,-.25,.25,-.35);
   const lower = new THREE.Path();
   lower.moveTo(0,-.59); lower.bezierCurveTo(.27,-.45,.31,-.73,.1,-.72);
   for (const dir of [-1,1]) {
-    curve(g, scroll, 0, top, w*dir, h, -.052, mat.carvingInset, .009);
-    curve(g, lower, 0, top, w*dir, h, -.052, mat.carvingInset, .008);
+    curve(g, scroll, 0, top, w*dir, h, -52, mat.carvingInset, 9);
+    curve(g, lower, 0, top, w*dir, h, -52, mat.carvingInset, 8);
   }
 }
 
 function shaftFace(parent: THREE.Object3D, bottom: number, top: number, w: number, mat: Mats, entry: boolean) {
   const g = group(parent, entry ? "门厅柱长槽与垂花" : "包角柱单黑线柱身");
   const h = top - bottom, y = (top + bottom) / 2;
-  frame(g, 0, y, w * .89, h, -.016, mat.carvedStone, .023);
-  frame(g, 0, y, w * .78, h - .09, -.021, mat.carvingInset, .006);
+  frame(g, 0, y, w * .89, h, -16, mat.carvedStone, 23);
+  frame(g, 0, y, w * .78, h - 90, -21, mat.carvingInset, 6);
   if (entry) {
     // 长竖槽延伸到花板上方，壁灯可覆盖中段；采用同色浅槽，而非黑色短条。
     const grooves: XY[][] = [], ridges: XY[][] = [];
     const span = w * .28;
     for (let i = 0; i < 6; i++) {
       const x = -span/2 + i * span/5;
-      const y0 = bottom + .11, y1 = top - .48;
+      const y0 = bottom + 110, y1 = top - 480;
       grooves.push([[x,y0],[x,y1]]);
-      ridges.push([[x + .009,y0+.018],[x+.009,y1-.018]]);
+      ridges.push([[x + 9,y0+18],[x+9,y1-18]]);
     }
-    strokes(g, grooves, .012, -.018, mat.carvingInset);
-    strokes(g, ridges, .008, -.025, mat.carvedStone);
-    pendant(g, top - .14, w * .36, .47, mat);
+    strokes(g, grooves, 12, -18, mat.carvingInset);
+    strokes(g, ridges, 8, -25, mat.carvedStone);
+    pendant(g, top - 140, w * .36, 470, mat);
   } else {
-    box(g, 0, y, -.016, .027, h - .2, .018, mat.carvingDark);
-    box(g, 0, top - .085, -.027, w * .33, .036, .035, mat.carvedStone);
-    box(g, 0, top - .055, -.024, w * .21, .025, .025, mat.carvingInset);
+    box(g, 0, y, -16, 27, h - 200, 18, mat.carvingDark);
+    box(g, 0, top - 85, -27, w * .33, 36, 35, mat.carvedStone);
+    box(g, 0, top - 55, -24, w * .21, 25, 25, mat.carvingInset);
   }
   // 顶端两侧的分层小挂耳。
   for (const side of [-1, 1]) {
-    box(g, side * w * .465, top - .14, -.018, .035, .23, .024, mat.carvedStone);
-    box(g, side * w * .45, top - .3, -.025, .06, .035, .03, mat.carvedStone);
+    box(g, side * w * .465, top - 140, -18, 35, 230, 24, mat.carvedStone);
+    box(g, side * w * .45, top - 300, -25, 60, 35, 30, mat.carvedStone);
   }
 }
 
 function apron(parent: THREE.Object3D, y: number, w: number, s: number, mat: Mats) {
   const g = group(parent, "柱脚倒垂折线裙饰");
-  const points: XY[] = [[-w*.48,y+.12*s],[-w*.19,y+.12*s],[0,y-.11*s],[w*.19,y+.12*s],[w*.48,y+.12*s]];
-  strokes(g, [points], .018, -.029, mat.carvedStone);
-  for (const dx of [-.018,.018])
-    strokes(g, [points.slice(1,4).map(([x,yy])=>[x+dx,yy+.008])], .006, -.027, mat.carvingInset);
+  const points: XY[] = [[-w*.48,y+120*s],[-w*.19,y+120*s],[0,y-110*s],[w*.19,y+120*s],[w*.48,y+120*s]];
+  strokes(g, [points], 18, -29, mat.carvedStone);
+  for (const dx of [-18,18])
+    strokes(g, [points.slice(1,4).map(([x,yy])=>[x+dx,yy+8])], 6, -27, mat.carvingInset);
 }
 
 function capitalFace(parent: THREE.Object3D, height: number, w: number, s: number, mat: Mats, entry: boolean) {
-  const bottom = height - 1.16 * s;
-  const y = height - .38 * s;
-  sealBoss(parent, y, .086*s, mat);
-  const h = .24*s;
-  if (entry) heartBand(parent, bottom + .14*s, w*.96, h, -.017, mat);
-  else keyBand(parent, bottom+.14*s, w*.96, h, mat);
-  const teeth = Math.max(5, Math.round(w/.065)), span = w*.67;
-  const toothY = height - .84*s;
+  const bottom = height - 1160 * s;
+  const y = height - 380 * s;
+  sealBoss(parent, y, 86*s, mat);
+  const h = 240*s;
+  if (entry) heartBand(parent, bottom + 140*s, w*.96, h, -17, mat);
+  else keyBand(parent, bottom+140*s, w*.96, h, mat);
+  const teeth = Math.max(5, Math.round(w/65)), span = w*.67;
+  const toothY = height - 840*s;
   for (let i=0;i<teeth;i++)
-    box(parent, -span/2+(i+.5)*span/teeth, toothY, -.025, .017, .12*s, .025, mat.carvedStone);
-  box(parent, 0, toothY-.078*s, -.031, w*.78, .024*s, .03, mat.carvedStone);
-  box(parent, 0, toothY-.105*s, -.021, w*.87, .026*s, .025, mat.carvedStone);
-  return bottom - .055*s;
+    box(parent, -span/2+(i+.5)*span/teeth, toothY, -25, 17, 120*s, 25, mat.carvedStone);
+  box(parent, 0, toothY-78*s, -31, w*.78, 24*s, 30, mat.carvedStone);
+  box(parent, 0, toothY-105*s, -21, w*.87, 26*s, 25, mat.carvedStone);
+  return bottom - 55*s;
 }
 
 // 有切角的整根柱体及一圈圈实体线脚；层叠线脚覆盖四个方向。
@@ -279,21 +279,21 @@ function octagonalCourse(parent: THREE.Object3D, y0: number, y1: number, w: numb
 type Course = [number, number, number, "stone" | "dark" | "brown", number?];
 function courses(height: number, s: number): Course[] {
   return [
-    [0,.09*s,.05,"stone"],[.09*s,.16*s,.025,"stone"],
-    [.16*s,.7*s,.027,"stone"],[.7*s,.76*s,.047,"stone"],
-    [.76*s,.81*s,.035,"stone"],[.81*s,.88*s,.014,"stone",.038],
-    [.88*s,.92*s,.038,"stone"],[1.16*s,1.21*s,.025,"stone"],
-    [height-1.19*s,height-1.14*s,.023,"stone"],
-    [height-.91*s,height-.86*s,.035,"stone"],
-    [height-.86*s,height-.64*s,.035,"stone",.005],
-    [height-.64*s,height-.6*s,.04,"stone"],
-    [height-.6*s,height-.49*s,.012,"dark"],
-    [height-.49*s,height-.46*s,.031,"stone"],
-    [height-.46*s,height-.2*s,.005,"stone",.032],
-    [height-.2*s,height-.15*s,.025,"brown"],
-    [height-.15*s,height-.09*s,.039,"brown"],
-    [height-.09*s,height-.035*s,.046,"brown"],
-    [height-.035*s,height,.05,"brown"],
+    [0,90*s,50,"stone"],[90*s,160*s,25,"stone"],
+    [160*s,700*s,27,"stone"],[700*s,760*s,47,"stone"],
+    [760*s,810*s,35,"stone"],[810*s,880*s,14,"stone",38],
+    [880*s,920*s,38,"stone"],[1160*s,1210*s,25,"stone"],
+    [height-1190*s,height-1140*s,23,"stone"],
+    [height-910*s,height-860*s,35,"stone"],
+    [height-860*s,height-640*s,35,"stone",5],
+    [height-640*s,height-600*s,40,"stone"],
+    [height-600*s,height-490*s,12,"dark"],
+    [height-490*s,height-460*s,31,"stone"],
+    [height-460*s,height-200*s,5,"stone",32],
+    [height-200*s,height-150*s,25,"brown"],
+    [height-150*s,height-90*s,39,"brown"],
+    [height-90*s,height-35*s,46,"brown"],
+    [height-35*s,height,50,"brown"],
   ];
 }
 
@@ -301,7 +301,7 @@ export function referencePorticoColumn(parent: THREE.Object3D, x: number, z: num
   base: number, height: number, width: number, depth: number, mat: Mats) {
   const g = group(parent, "参考图通高门厅雕花柱");
   g.position.set(x,base,z);
-  const s = Math.min(1, width/.8, height/4);
+  const s = Math.min(1, width/800, height/4000);
   octagonalCourse(g, 0, height, width, depth, mat.carvedStone);
   for (const [lo,hi,lip,tone,topLip=lip] of courses(height,s))
     octagonalCourse(g,lo,hi,width+lip*2,depth+lip*2,
@@ -311,16 +311,16 @@ export function referencePorticoColumn(parent: THREE.Object3D, x: number, z: num
     const face = group(g,"门厅柱连续转角饰面");
     face.rotation.y = rotation;
     face.position.set(-Math.sin(rotation)*offset,0,-Math.cos(rotation)*offset);
-    const top = capitalFace(face,height,span-.07,s,mat,true);
-    shaftFace(face,1.24*s,top,span-.07,mat,true);
+    const top = capitalFace(face,height,span-70,s,mat,true);
+    shaftFace(face,1240*s,top,span-70,mat,true);
     const plinth = group(face,"柱脚深底团寿花板");
-    plinth.position.z = -.027;
-    const size = Math.min(span-.18,.44*s);
-    box(plinth,0,.43*s,-.009,size,size,.018,mat.carvingDark);
-    frame(plinth,0,.43*s,size+.018,size+.018,-.029,mat.carvedStone,.018);
-    seal(plinth,.43*s,size*.43,-.035,mat);
-    cloudPanel(face,1.065*s,span*.69,.235*s,mat);
-    apron(face,.93*s,span*.89,s,mat);
+    plinth.position.z = -27;
+    const size = Math.min(span-180,440*s);
+    box(plinth,0,430*s,-9,size,size,18,mat.carvingDark);
+    frame(plinth,0,430*s,size+18,size+18,-29,mat.carvedStone,18);
+    seal(plinth,430*s,size*.43,-35,mat);
+    cloudPanel(face,1065*s,span*.69,235*s,mat);
+    apron(face,930*s,span*.89,s,mat);
   }
   return g;
 }
@@ -335,47 +335,47 @@ export function referenceCornerPilaster(parent: THREE.Object3D, cornerX: number,
   const placeL = (y0: number,y1: number,lip: number,material: THREE.Material,topLip=lip) => {
     // 两段轮廓合成一块L形柱箍，转角不留对穿或重叠的接缝。
     const outline = (v: number): XY[] => [[inner-outward*v,-project-v],[outer+outward*v,-project-v],
-      [outer+outward*v,leg+v],[-outward*.02,leg+v],[-outward*.02,.02],[inner-outward*v,.02]];
+      [outer+outward*v,leg+v],[-outward*20,leg+v],[-outward*20,20],[inner-outward*v,20]];
     solidCourse(g,y0,y1,outline(lip),outline(topLip),material);
   };
   placeL(0,height,0,mat.carvedStone);
   for (const [lo,hi,lip,tone,topLip=lip] of courses(height,s))
-    placeL(lo,hi,Math.min(.04,lip),tone==="brown"?mat.british:tone==="dark"?mat.carvingDark:mat.carvedStone,Math.min(.04,topLip));
+    placeL(lo,hi,Math.min(40,lip),tone==="brown"?mat.british:tone==="dark"?mat.carvingDark:mat.carvedStone,Math.min(40,topLip));
   const dress = (face: THREE.Object3D,w: number) => {
     const top=capitalFace(face,height,w,s,mat,false);
-    shaftFace(face,1.24*s,top,w,mat,false);
-    cloudPanel(face,1.065*s,w*.83,.235*s,mat);
+    shaftFace(face,1240*s,top,w,mat,false);
+    cloudPanel(face,1065*s,w*.83,235*s,mat);
     const size=w*.81, plinth=group(face,"包角柱柱脚三联双心纹");
-    plinth.position.z=-.027;
-    heartBand(plinth,.43*s,size,.145*s,-.019,mat,3);
-    frame(plinth,0,.43*s,size+.07,.43*s,-.027,mat.carvedStone,.016);
+    plinth.position.z=-27;
+    heartBand(plinth,430*s,size,145*s,-19,mat,3);
+    frame(plinth,0,430*s,size+70,430*s,-27,mat.carvedStone,16);
   };
   const front=group(g,"包角柱正面");
   front.position.set((outer+inner)/2,0,-project);
-  dress(front,leg+project-.07);
+  dress(front,leg+project-70);
   const side=group(g,"包角柱侧面");
   side.position.set(outer,0,leg/2);
   side.rotation.y=outward>0?-Math.PI/2:Math.PI/2;
-  dress(side,leg-.06);
+  dress(side,leg-60);
   return g;
 }
 
 function rosette(parent: THREE.Object3D, y: number, r: number, mat: Mats) {
   const g=group(parent,"横梁中央八瓣团花浮雕");
   const disk=new THREE.Shape(); disk.absarc(0,y,r,0,Math.PI*2,false);
-  carvedShape(g,disk,-.041,.025,mat.carvedStone);
-  circle(g,0,y,r*.9,-.064,mat.carvingInset,.007);
+  carvedShape(g,disk,-41,25,mat.carvedStone);
+  circle(g,0,y,r*.9,-64,mat.carvingInset,7);
   const petal=new THREE.Shape();
   petal.moveTo(0,.16); petal.bezierCurveTo(-.25,.37,-.25,.7,0,.79);
   petal.bezierCurveTo(.25,.7,.25,.37,0,.16);
   for(let i=0;i<8;i++) {
     const petalGroup=group(g,"团花花瓣"); petalGroup.position.y=y; petalGroup.rotation.z=i*Math.PI/4;
-    const mesh=carvedShape(petalGroup,petal,-.072,.019,mat.carvingInset,.003);
+    const mesh=carvedShape(petalGroup,petal,-72,19,mat.carvingInset,3);
     mesh.scale.set(r,r,1);
-    const raised=carvedShape(petalGroup,petal,-.08,.014,mat.carvedStone,.003);
+    const raised=carvedShape(petalGroup,petal,-80,14,mat.carvedStone,3);
     raised.scale.set(r*.8,r*.92,1);
   }
-  circle(g,0,y,r*.17,-.085,mat.carvingInset,.009);
+  circle(g,0,y,r*.17,-85,mat.carvingInset,9);
 }
 
 export function referencePorticoBeam(parent: THREE.Object3D, center: number, front: number,
@@ -383,51 +383,51 @@ export function referencePorticoBeam(parent: THREE.Object3D, center: number, fro
   const g=group(parent,"参考图门厅雕花横梁");
   g.position.set(center,top,front);
   // 横梁留在既有柱头净空内：上方方块饰、中央花板、下沿连续回纹。
-  const w=span+.14, h=.67, clear=span-columnWidth;
-  box(g,0,-h/2,.25,w,h,.5,mat.carvedStone);
-  box(g,0,-.035,.245,w+.05,.07,.51,mat.carvedStone);
-  const squares=Math.max(5,Math.round((clear-.12)/.31)), pitch=(clear-.12)/squares;
+  const w=span+140, h=670, clear=span-columnWidth;
+  box(g,0,-h/2,250,w,h,500,mat.carvedStone);
+  box(g,0,-35,245,w+50,70,510,mat.carvedStone);
+  const squares=Math.max(5,Math.round((clear-120)/310)), pitch=(clear-120)/squares;
   for(let i=0;i<squares;i++) {
-    const x=-clear/2+.06+(i+.5)*pitch;
-    box(g,x,-.17,-.012,.165,.17,.028,mat.carvedStone);
-    frame(g,x,-.17,.143,.146,-.031,mat.carvedStone,.014);
-    frame(g,x,-.17,.108,.111,-.027,mat.carvingInset,.006);
+    const x=-clear/2+60+(i+.5)*pitch;
+    box(g,x,-170,-12,165,170,28,mat.carvedStone);
+    frame(g,x,-170,143,146,-31,mat.carvedStone,14);
+    frame(g,x,-170,108,111,-27,mat.carvingInset,6);
   }
   for(const side of [-1,1]) {
-    const x=side*(clear/2-.155), y=-.365, size=.245;
-    box(g,x,y,-.012,size,size,.024,mat.carvingDark);
-    frame(g,x,y,size+.018,size+.018,-.034,mat.carvedStone,.015);
-    circle(g,x,y,size*.4,-.037,mat.carvedStone,.011);
-    strokes(g,[[[x,y+size*.32],[x+size*.25,y],[x,y-size*.32],[x-size*.25,y]]],.014,-.039,mat.carvedStone,true);
+    const x=side*(clear/2-155), y=-365, size=245;
+    box(g,x,y,-12,size,size,24,mat.carvingDark);
+    frame(g,x,y,size+18,size+18,-34,mat.carvedStone,15);
+    circle(g,x,y,size*.4,-37,mat.carvedStone,11);
+    strokes(g,[[[x,y+size*.32],[x+size*.25,y],[x,y-size*.32],[x-size*.25,y]]],14,-39,mat.carvedStone,true);
   }
-  const panelW=clear-.69;
-  for(const [yy,ww] of [[-.29,panelW+.04],[-.32,panelW],[-.495,panelW]])
-    box(g,0,yy,-.018,ww,.017,.036,mat.carvedStone);
-  const panelH=.137;
+  const panelW=clear-690;
+  for(const [yy,ww] of [[-290,panelW+40],[-320,panelW],[-495,panelW]])
+    box(g,0,yy,-18,ww,17,36,mat.carvedStone);
+  const panelH=137;
   for(const side of [-1,1]) {
-    frame(g,side*panelW*.278,-.405,panelW*.42,panelH,-.028,mat.carvingInset,.006);
-    frame(g,side*panelW*.278,-.405,panelW*.42+.025,panelH+.024,-.031,mat.carvedStone,.012);
+    frame(g,side*panelW*.278,-405,panelW*.42,panelH,-28,mat.carvingInset,6);
+    frame(g,side*panelW*.278,-405,panelW*.42+25,panelH+24,-31,mat.carvedStone,12);
   }
-  rosette(g,-.398,.156,mat);
-  const keyW=clear-.08, count=Math.max(10,Math.round(keyW/.22)), keyPitch=keyW/count;
+  rosette(g,-398,156,mat);
+  const keyW=clear-80, count=Math.max(10,Math.round(keyW/220)), keyPitch=keyW/count;
   const paths:XY[][]=[];
   for(let i=0;i<count;i++) {
     const x=-keyW/2+(i+.5)*keyPitch;
-    paths.push([[-.48,-.035],[-.48,.041],[.28,.041],[.28,-.01],[-.05,-.01]]
-      .map(([xx,yy])=>[x+xx*keyPitch,-.58+yy]));
+    paths.push([[-.48,-35],[-.48,41],[.28,41],[.28,-10],[-.05,-10]]
+      .map(([xx,yy])=>[x+xx*keyPitch,-580+yy]));
   }
-  strokes(g,paths,.012,-.033,mat.carvingInset);
-  for(const y of [-.525,-.635]) box(g,0,y,-.021,keyW+.04,.018,.036,mat.carvedStone);
+  strokes(g,paths,12,-33,mat.carvingInset);
+  for(const y of [-525,-635]) box(g,0,y,-21,keyW+40,18,36,mat.carvedStone);
   // 两侧阶梯托角从柱子内缘开始，随阶数向中间收短。
   for(const side of [-1,1]) {
     const inner=side*(span/2-columnWidth/2);
     for(let i=0;i<4;i++) {
-      const width=.3-i*.067;
-      box(g,inner-side*width/2,-.7-i*.055,.23,width,.06,.43,mat.carvedStone);
+      const width=300-i*67;
+      box(g,inner-side*width/2,-700-i*55,230,width,60,430,mat.carvedStone);
     }
-    const bracket=polygon([[0,0],[side*.12,0],[side*.12,-.39],[side*.055,-.35],[0,-.12]]);
-    const mesh=carvedShape(g,bracket,.035,.38,mat.carvedStone,.002);
-    mesh.position.x=inner; mesh.position.y=-.72;
+    const bracket=polygon([[0,0],[side*120,0],[side*120,-390],[side*55,-350],[0,-120]]);
+    const mesh=carvedShape(g,bracket,35,380,mat.carvedStone,2);
+    mesh.position.x=inner; mesh.position.y=-720;
   }
   return g;
 }

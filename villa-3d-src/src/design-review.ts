@@ -58,7 +58,7 @@ export function mountDesignReview(root: HTMLElement, api: ReviewAPI) {
       "新建／现状": view.existing ? "现状" : "新建", "屋面分水": view.fenShui.toFixed(1),
       "官帽造型": roofStyleLabels[view.roofStyle],
       "自家院坪": courtyardFinishLabels[view.courtyardFinish], "邻居院坪": courtyardFinishLabels[view.neighborCourtyardFinish],
-      "道路标高（待测）": `${view.roadY.toFixed(2)}m`, "坡长（待测）": `${view.rampLength.toFixed(1)}m`,
+      "道路标高（待测）": `${Math.round(view.roadY)} mm`, "坡长（待测）": `${Math.round(view.rampLength)} mm`,
       "车辆进度": `${view.progress}%`, "南侧浅阳台": view.balcony ? "有" : "无", "餐厅平面情景": view.dining === "daily" ? "日常6座（示意）" : "双桌满座18座",
       "日照时间": `${view.sunDate} ${formatHour(view.sunTime)}`,
       "机位XYZ": view.pose?.position.map((n) => n.toFixed(2)).join("／") ?? "3D不可用",

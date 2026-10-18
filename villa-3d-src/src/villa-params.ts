@@ -1,5 +1,5 @@
 /**
- * 方案尺寸参数：总面宽锁定 21 m；改参后重算场地／主辅楼／院坪，
+ * 方案尺寸参数（长度一律毫米）：总面宽锁定 21000 mm；改参后重算场地／主辅楼／院坪，
  * 并按主楼／辅楼面宽、进深轴向比例缩放室内房间与家具（相对默认几何，不叠乘）。
  *
  * 主辅楼改面宽／进深时以南墙、东墙为不动点：只动北墙与西墙。
@@ -17,6 +17,7 @@ import {
   circulation,
   construction,
   courtyardArcAnchors,
+  circleThrough,
   rebuildCourtyardGeometry,
   syncSideDoorToLivingBridge,
   type Floor,
@@ -29,15 +30,18 @@ import {
   roofGutterDesign,
   floatingHatDesign,
   eaveTrimDesign,
+  eyelidFixed,
   roofTileInset,
   syncRoofTileInset,
 } from "./roof-options";
 import { rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings";
 import { rebuildGarageLayout } from "./garage-layout";
+import { rebuildVehicleRoute } from "./vehicle-route";
 import { mainEaveY } from "./facades";
 import { ensureFurnitureWallClearance } from "./layout-align";
+import { formatMm, isMeterLengthPayload, migrateVillaParamsToMm } from "./units";
 
-export const LOCKED_SITE_WIDTH = 21;
+export const LOCKED_SITE_WIDTH = 21000;
 /** @deprecated 已改存 scheme 文件，仅供旧迁移识别。 */
 export const villaParamsPreferenceKey = "anhua-villa-params-v1";
 
@@ -57,7 +61,7 @@ export interface VillaParams {
   porticoProjection: number;
   porticoColumnSize: number;
   porticoColumnWallGap: number;
-  /** 包角柱比墙面外凸（米）；正面／侧面同值，默认 0.15＝15 cm */
+  /** 包角柱比墙面外凸（毫米）；正面／侧面同值，默认 150＝15 cm */
   cornerProject: number;
   annexWidth: number;
   annexDepth: number;
@@ -96,7 +100,7 @@ export interface VillaParams {
   courtyardWestTotal: number;
   courtyardMidTotal: number;
   courtyardEastTotal: number;
-  /** 中间取样点距东界的距离（米） */
+  /** 中间取样点距东界的距离（毫米） */
   courtyardMidFromEast: number;
   neighborWoodWidth: number;
   neighborWoodDepth: number;
@@ -105,57 +109,58 @@ export interface VillaParams {
 }
 
 export const DEFAULT_VILLA_PARAMS: VillaParams = {
-  westGap: 0.7,
-  eastGap: 0.8,
-  lane: 1.5,
-  mainWidth: 13.5,
-  mainDepth: 10,
-  floor1Height: 3.6,
-  floor2Height: 3.6,
-  floor3Height: 3.3,
-  thirdSetback: 1.2,
-  secondFrontEave: 0.8,
-  thirdEave: 0.8,
-  porticoWidth: 4.8,
-  porticoProjection: 2,
-  porticoColumnSize: 0.8,
+  westGap: 800,
+  eastGap: 800,
+  lane: 1800,
+  mainWidth: 13600,
+  mainDepth: 10000,
+  floor1Height: 3600,
+  floor2Height: 3600,
+  floor3Height: 3300,
+  thirdSetback: 1200,
+  secondFrontEave: 800,
+  thirdEave: 800,
+  /** 门厅面宽＝两根门厅柱心距；主楼面宽 13600 时左右各余 4500。 */
+  porticoWidth: 4600,
+  porticoProjection: 2000,
+  porticoColumnSize: 800,
   /** 派生：外伸 − 半柱；柱心在北沿角上时内侧到前墙＝外伸−半柱。 */
-  porticoColumnWallGap: 1.6,
-  cornerProject: 0.15,
-  annexWidth: 4.5,
-  annexDepth: 8,
-  annexHeight: 3.6,
-  annexSetback: 2,
-  annexEave: 0.8,
+  porticoColumnWallGap: 1600,
+  cornerProject: 150,
+  annexWidth: 4000,
+  annexDepth: 8000,
+  annexHeight: 3600,
+  annexSetback: 2000,
+  annexEave: 800,
   roofFenShui: 4.5,
-  gutterClearWidth: 0.6,
-  gutterClearDepth: 0.2,
-  gutterInnerDepth: 0.25,
-  gutterOuterTopWidth: 0.3,
+  gutterClearWidth: 600,
+  gutterClearDepth: 200,
+  gutterInnerDepth: 250,
+  gutterOuterTopWidth: 300,
   /** 整数度；几何用 tan(°) 转成小数坡度 */
   gutterBedSlope: 1,
-  gutterTileGap: 0.05,
-  gutterTileOverhang: 0.08,
+  gutterTileGap: 50,
+  gutterTileOverhang: 80,
   gutterCopingSlope: 4,
-  corbelLength: 0.5,
-  corbelSpacing: 0.7,
-  corbelCornerSpacing: 0.6,
-  eyelidToFasciaGap: 0.3,
-  floatingHatRidgeDrop: 0.5,
-  oldDepth: 10.8,
-  rearGap: 1.2,
-  entranceRise: 0.45,
-  outsideWall: 0.24,
-  partition: 0.12,
-  courtyardWestTotal: 11,
-  courtyardMidTotal: 15.8,
-  courtyardEastTotal: 19.4,
-  courtyardMidFromEast: 11,
-  neighborWoodWidth: 13,
-  neighborWoodDepth: 8.8,
-  neighborCementDepth: 2,
+  corbelLength: 500,
+  corbelSpacing: 700,
+  corbelCornerSpacing: 600,
+  eyelidToFasciaGap: 300,
+  floatingHatRidgeDrop: 500,
+  oldDepth: 10800,
+  rearGap: 1200,
+  entranceRise: 450,
+  outsideWall: 240,
+  partition: 120,
+  courtyardWestTotal: 11000,
+  courtyardMidTotal: 15800,
+  courtyardEastTotal: 19400,
+  courtyardMidFromEast: 11000,
+  neighborWoodWidth: 13000,
+  neighborWoodDepth: 8800,
+  neighborCementDepth: 2000,
   /** 与自家东界外沿齐平后的派生值；应用时按院坪东端重算 */
-  neighborYardBeyondCement: 8.6,
+  neighborYardBeyondCement: 8600,
 };
 
 /**
@@ -197,20 +202,96 @@ export function derivedAnnexSetback(p: Pick<VillaParams, "mainDepth" | "annexDep
   return p.mainDepth - p.annexDepth;
 }
 
+/** 三楼主体最小剩余进深（毫米）；再小则房间／楼梯／门洞无法合理布置。 */
+export const MIN_THIRD_BODY_DEPTH = 3000;
+/** 门厅柱间净宽下限（柱内皮之间）。 */
+export const MIN_PORTICO_CLEAR = 900;
+/** 两侧露台最小宽度。 */
+export const MIN_SIDE_TERRACE = 150;
+/** 瓦面相对外包络的最小半跨净尺寸。 */
+export const MIN_ROOF_TILE_RUN = 200;
+/** 院坪三点拱高下限（相对弦），过小视为近共线。 */
+export const MIN_COURTYARD_SAGITTA = 150;
+/** 两跑楼梯跨向净宽＝2×梯段＋缝。 */
+export function stairAcrossClear(flight: number, gap: number) {
+  return 2 * flight + gap;
+}
+
+const GUTTER_INNER_WALL = 55;
+
+/** 固定成品家具：只随房屋平移，不随面宽／进深缩放外形。 */
+const FIXED_FURNITURE_KINDS = new Set<Furniture["kind"]>([
+  "bed",
+  "toilet",
+  "squatToilet",
+  "shower",
+  "roundTable",
+  "basin",
+  "chair",
+  "hob",
+  "sink",
+  "stove",
+]);
+
+function predictedTileInset(p: VillaParams) {
+  return p.gutterOuterTopWidth + p.gutterClearWidth + GUTTER_INNER_WALL - p.gutterTileOverhang;
+}
+
+/** 院坪三点相对弦的拱高；近共线时趋近 0。 */
+export function courtyardAnchorSagitta(p: Pick<
+  VillaParams,
+  "oldDepth" | "courtyardWestTotal" | "courtyardMidTotal" | "courtyardEastTotal" | "courtyardMidFromEast"
+>) {
+  const x1 = 0;
+  const x2 = LOCKED_SITE_WIDTH - p.courtyardMidFromEast;
+  const x3 = LOCKED_SITE_WIDTH;
+  const z1 = p.oldDepth - p.courtyardWestTotal;
+  const z2 = p.oldDepth - p.courtyardMidTotal;
+  const z3 = p.oldDepth - p.courtyardEastTotal;
+  const det = 2 * (x1 * (z2 - z3) + x2 * (z3 - z1) + x3 * (z1 - z2));
+  const chord = Math.hypot(x3 - x1, z3 - z1) || 1;
+  const sagitta = Math.abs((z3 - z1) * x2 - (x3 - x1) * z2 + x3 * z1 - z3 * x1) / chord;
+  return { det, sagitta };
+}
+
+/** 在两栋楼各自的实际面宽内核对院坪弧线，不能拿东侧最深处当作全场进深。 */
+export function buildingDepthLimits(p: VillaParams) {
+  const circle = circleThrough([
+    [0, p.oldDepth - p.courtyardWestTotal],
+    [LOCKED_SITE_WIDTH - p.courtyardMidFromEast, p.oldDepth - p.courtyardMidTotal],
+    [LOCKED_SITE_WIDTH, p.oldDepth - p.courtyardEastTotal],
+  ]);
+  const mainEast = LOCKED_SITE_WIDTH - p.eastGap;
+  const mainWest = mainEast - p.mainWidth;
+  const annexEast = mainWest - p.lane;
+  const porticoWest = mainWest + (p.mainWidth - p.porticoWidth) / 2;
+  const depth = (lo: number, hi: number) => {
+    // 圆弧在区间内唯一可能的极值是圆心X；同时检查两端。
+    const xs = [lo, hi, Math.max(lo, Math.min(hi, circle.h))];
+    const front = Math.max(...xs.map((x) => circle.k + circle.sign * Math.sqrt(Math.max(0, circle.radius ** 2 - (x - circle.h) ** 2))));
+    return p.oldDepth - front;
+  };
+  return {
+    main: depth(mainWest, mainEast),
+    annex: depth(annexEast - p.annexWidth, annexEast),
+    portico: depth(porticoWest, porticoWest + p.porticoWidth),
+  };
+}
+
 export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   const issues: VillaParamsIssue[] = [];
   const west = derivedWestGap(p);
-  if (west <= 0.001) {
+  if (west <= 1) {
     issues.push({
       field: "mainWidth",
-      message: `东侧＋主楼＋子孙道＋辅楼过宽，西侧将为 ${west.toFixed(3)} m；东墙不动时须减小主楼／辅楼面宽或东侧／过道`,
+      message: `东侧＋主楼＋子孙道＋辅楼过宽，西侧将为 ${formatMm(west)} mm；东墙不动时须减小主楼／辅楼面宽或东侧／过道`,
     });
   }
   const setback = derivedAnnexSetback(p);
-  if (setback < -1e-9) {
+  if (setback < -1e-6) {
     issues.push({
       field: "annexDepth",
-      message: `辅楼进深 ${p.annexDepth} m 不能大于主楼进深 ${p.mainDepth} m（后墙与主楼齐平、只动前墙）`,
+      message: `辅楼进深 ${p.annexDepth} mm 不能大于主楼进深 ${p.mainDepth} mm（后墙与主楼齐平、只动前墙）`,
     });
   }
   const positive: (keyof VillaParams)[] = [
@@ -241,8 +322,8 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   if (p.porticoWidth <= p.porticoColumnSize) {
     issues.push({ field: "porticoWidth", message: "门厅面宽须大于柱截面" });
   }
-  if (p.cornerProject > 0.5) {
-    issues.push({ field: "cornerProject", message: "包角柱突出墙面不宜超过 0.5 m（50 cm）" });
+  if (p.cornerProject > 500) {
+    issues.push({ field: "cornerProject", message: "包角柱突出墙面不宜超过 500 mm（50 cm）" });
   }
   if (p.porticoWidth > p.mainWidth) {
     issues.push({ field: "porticoWidth", message: "门厅面宽不能超过主楼面宽" });
@@ -266,6 +347,14 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   }
   if (p.corbelLength > p.thirdEave) {
     issues.push({ field: "corbelLength", message: "梁托长度不宜超过三楼檐口挑出" });
+  }
+  // 二楼前檐经三眼皮两级内收后的最下层出挑须能容纳梁托。
+  const lowestSecondEave = p.secondFrontEave - 2 * eyelidFixed.stepExtra;
+  if (lowestSecondEave > 0 && p.corbelLength > lowestSecondEave + 1e-6) {
+    issues.push({
+      field: "corbelLength",
+      message: `梁托 ${p.corbelLength} mm 超过二楼前檐最下层出挑约 ${formatMm(lowestSecondEave)} mm；请减小梁托或加大二楼前檐`,
+    });
   }
   if (p.corbelCornerSpacing > p.corbelSpacing) {
     issues.push({ field: "corbelCornerSpacing", message: "拐角梁托间距宜不大于同墙面间距" });
@@ -294,6 +383,110 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
       issues.push({ field: key, message: "院坪总进深须大于屋后至老水泥边" });
     }
   }
+
+  // —— 几何包络／净空约束（无效组合直接拒绝应用）——
+  const bodyDepth = p.mainDepth - p.thirdSetback;
+  if (!(p.thirdSetback < p.mainDepth - MIN_THIRD_BODY_DEPTH + 1e-6)) {
+    issues.push({
+      field: "thirdSetback",
+      message: `三楼北退后剩余进深须至少 ${MIN_THIRD_BODY_DEPTH} mm（当前约 ${formatMm(bodyDepth)} mm）；请减小北退或加大主楼进深`,
+    });
+  }
+
+  const { det: courtyardDet, sagitta } = courtyardAnchorSagitta(p);
+  if (!Number.isFinite(courtyardDet) || Math.abs(courtyardDet) < 100 || sagitta < MIN_COURTYARD_SAGITTA) {
+    issues.push({
+      field: "courtyardMidTotal",
+      message: `院坪西／中／东三点近共线（拱高约 ${formatMm(sagitta)} mm），圆弧无法生成；请让中间总进深明显不同于两端`,
+    });
+  } else if (west > 0 && [p.mainDepth, p.annexDepth, p.rearGap, p.porticoProjection].every(Number.isFinite)) {
+    const limits = buildingDepthLimits(p);
+    for (const [field, name, used, limit] of [
+      ["mainDepth", "主楼＋屋后预留", p.mainDepth + p.rearGap, limits.main],
+      ["annexDepth", "辅楼＋屋后预留", p.annexDepth + p.rearGap, limits.annex],
+      ["porticoProjection", "主楼＋门厅外伸＋屋后预留", p.mainDepth + p.porticoProjection + p.rearGap, limits.portico],
+    ] as const) {
+      if (used > limit + 1) issues.push({
+        field,
+        message: `${name}共 ${formatMm(used)} mm，超过该面宽范围内的院坪总进深 ${formatMm(limit)} mm；请缩小进深／外伸或调整院坪尺寸`,
+      });
+    }
+  }
+
+  const tileInset = predictedTileInset(p);
+  const mainRoofW = p.mainWidth + 2 * p.thirdEave;
+  const mainRoofD = bodyDepth + 2 * p.thirdEave;
+  const annexRoofW = p.annexWidth + 2 * p.thirdEave;
+  const annexRoofD = p.annexDepth + 2 * p.thirdEave;
+  const mainRun = (Math.min(mainRoofW, mainRoofD) - 2 * tileInset) / 2;
+  const annexRun = (Math.min(annexRoofW, annexRoofD) - 2 * tileInset) / 2;
+  if (mainRun < MIN_ROOF_TILE_RUN || annexRun < MIN_ROOF_TILE_RUN) {
+    issues.push({
+      field: "gutterClearWidth",
+      message: `天沟／瓦边缩进后屋面净半跨过小（主楼 ${formatMm(mainRun)} mm、辅楼 ${formatMm(annexRun)} mm）；请减小天沟净宽或外边宽度`,
+    });
+  }
+
+  const bedDegOk = normalizeGutterBedSlopeDegrees(p.gutterBedSlope);
+  const halfSpan = Math.max(500, Math.min(annexRoofW, annexRoofD, mainRoofW, mainRoofD) / 2);
+  const bedRise = Math.tan((bedDegOk * Math.PI) / 180) * halfSpan;
+  if (bedRise >= p.gutterClearDepth - 20) {
+    issues.push({
+      field: "gutterBedSlope",
+      message: `天沟找坡 ${bedDegOk}° 在约 ${formatMm(halfSpan)} mm 跨度上抬升 ${formatMm(bedRise)} mm，将高过外挡 ${p.gutterClearDepth} mm；请减小找坡或加深外侧反坎`,
+    });
+  }
+
+  const porticoClear = p.porticoWidth - p.porticoColumnSize;
+  if (porticoClear < MIN_PORTICO_CLEAR) {
+    issues.push({
+      field: "porticoWidth",
+      message: `门厅柱间净宽约 ${formatMm(porticoClear)} mm，须至少 ${MIN_PORTICO_CLEAR} mm`,
+    });
+  }
+  const wallGapCheck = derivedPorticoColumnWallGap(p);
+  if (wallGapCheck <= 50) {
+    issues.push({
+      field: "porticoProjection",
+      message: `门厅外伸过小，柱内侧到前墙为 ${formatMm(wallGapCheck)} mm；外伸须大于半柱截面`,
+    });
+  }
+  const cornerOffsetCheck = 180 * (p.mainWidth / DEFAULT_VILLA_PARAMS.mainWidth);
+  const sideTerrace = (p.mainWidth - p.porticoWidth) / 2 - cornerOffsetCheck;
+  if (sideTerrace < MIN_SIDE_TERRACE) {
+    issues.push({
+      field: "porticoWidth",
+      message: `门厅过宽导致两侧露台约 ${formatMm(sideTerrace)} mm；请减小门厅面宽以保留至少 ${MIN_SIDE_TERRACE} mm`,
+    });
+  }
+
+  if (p.annexHeight < 2900) {
+    issues.push({
+      field: "annexHeight",
+      message: `辅楼墙高 ${p.annexHeight} mm 低于常用窗顶约 2700 mm；请至少 2900 mm 或改小洞口后再调`,
+    });
+  }
+  if (p.entranceRise >= p.floor1Height - 200) {
+    issues.push({
+      field: "entranceRise",
+      message: `入口抬高 ${p.entranceRise} mm 不低于一层层高，楼梯高差将不合理`,
+    });
+  }
+
+  // 楼梯跨向：默认 axis=x，两跑占进深方向；缩进深时洞口不能小于 2×flight＋gap。
+  const baseGeom = ensureBaseline();
+  const szCheck = p.mainDepth / baseGeom.main.d;
+  const sxCheck = p.mainWidth / baseGeom.main.w;
+  const sl0 = baseGeom.stairLayout;
+  const acrossNeed = stairAcrossClear(sl0.flight, sl0.gap);
+  const holeAcross = sl0.axis === "x" ? sl0.hole.d * szCheck : sl0.hole.w * sxCheck;
+  if (holeAcross + 1e-6 < acrossNeed) {
+    issues.push({
+      field: sl0.axis === "x" ? "mainDepth" : "mainWidth",
+      message: `楼梯两跑需约 ${formatMm(acrossNeed)} mm，按比例缩放后洞口仅 ${formatMm(holeAcross)} mm；请加大主楼对应尺寸或改楼梯布局`,
+    });
+  }
+
   return issues;
 }
 
@@ -347,12 +540,13 @@ function scaleRoom(r: Room, oE: number, oS: number, nE: number, nS: number, sx: 
 }
 
 function scaleFurniture(f: Furniture, oE: number, oS: number, nE: number, nS: number, sx: number, sz: number): Furniture {
+  const fixed = FIXED_FURNITURE_KINDS.has(f.kind);
   return {
     ...f,
     x: nE - (oE - f.x) * sx,
     z: nS - (oS - f.z) * sz,
-    w: f.w * sx,
-    d: f.d * sz,
+    w: fixed ? f.w : f.w * sx,
+    d: fixed ? f.d : f.d * sz,
   };
 }
 
@@ -371,20 +565,52 @@ function scaleWall(w: Wall, oE: number, oS: number, nE: number, nS: number, sx: 
   };
 }
 
+/** 墙长不足时删门或缩门，避免门洞超出墙段。 */
+function fitDoorToWall(w: Wall): Wall {
+  if (!w.door) return w;
+  const len = Math.hypot(w.a[0] - w.b[0], w.a[1] - w.b[1]);
+  const margin = 80;
+  if (len < w.door.width + margin) {
+    if (len < 550) {
+      const { door: _drop, ...rest } = w;
+      return rest;
+    }
+    const width = Math.max(500, len - margin);
+    return {
+      ...w,
+      door: {
+        ...w.door,
+        width,
+        offset: Math.min(w.door.offset, Math.max(0, len - width)),
+      },
+    };
+  }
+  if (w.door.offset + w.door.width > len - 20) {
+    return {
+      ...w,
+      door: {
+        ...w.door,
+        offset: Math.max(0, len - w.door.width - 20),
+      },
+    };
+  }
+  return w;
+}
+
 /** 三楼北退加大时，把穿出露台的房间／隔墙／家具北缘钳到 floors[2].front。 */
 function clampThirdFloorNorth(floor: Floor, front: number): Floor {
   const clampZ = (z: number) => Math.max(z, front);
   const rooms = floor.rooms.map((r) => {
     const south = r.z + r.d;
-    if (south <= front + 0.05) {
+    if (south <= front + 50) {
       // 整间已在露台内：收到退台墙内侧最小进深，避免消失。
-      return { ...r, z: front, d: 0.4, label: r.label ? [r.label[0], clampZ(r.label[1])] as Point : r.label };
+      return { ...r, z: front, d: 400, label: r.label ? [r.label[0], clampZ(r.label[1])] as Point : r.label };
     }
     if (r.z >= front) return r;
     return {
       ...r,
       z: front,
-      d: Math.max(0.4, south - front),
+      d: Math.max(400, south - front),
       label: r.label ? [r.label[0], clampZ(r.label[1])] as Point : r.label,
     };
   });
@@ -394,7 +620,8 @@ function clampThirdFloorNorth(floor: Floor, front: number): Floor {
       a: [w.a[0], clampZ(w.a[1])] as Point,
       b: [w.b[0], clampZ(w.b[1])] as Point,
     }))
-    .filter((w) => Math.hypot(w.a[0] - w.b[0], w.a[1] - w.b[1]) > 0.01);
+    .filter((w) => Math.hypot(w.a[0] - w.b[0], w.a[1] - w.b[1]) > 10)
+    .map(fitDoorToWall);
   const furniture = floor.furniture.map((f) => ({
     ...f,
     z: clampZ(f.z),
@@ -409,12 +636,24 @@ function replaceArray<T>(target: T[], next: T[]) {
 
 let currentParams: VillaParams = { ...DEFAULT_VILLA_PARAMS };
 
+/**
+ * 若载入的参数像旧米制稿（mainWidth<100），迁成毫米；已是毫米则原样返回副本。
+ * 应用／记忆／保存前统一走这里，避免米制 JSON 直接进入毫米管线。
+ */
+export function normalizeVillaParamsLengths(params: VillaParams): VillaParams {
+  if (isMeterLengthPayload(params, { mainWidth: params.mainWidth })) {
+    return migrateVillaParamsToMm({ ...params });
+  }
+  return { ...params };
+}
+
 export function getVillaParams(): VillaParams {
   return { ...currentParams };
 }
 
 /** 只更新内存中的当前参数（及分水写回 site），不重算几何。 */
-export function rememberVillaParams(params: VillaParams) {
+export function rememberVillaParams(input: VillaParams) {
+  const params = normalizeVillaParamsLengths(input);
   currentParams = { ...params };
   site.roofFenShui = params.roofFenShui;
 }
@@ -426,14 +665,15 @@ export function loadVillaParams(): VillaParams {
 
 /** 只更新内存中的当前参数；落盘请用「保存方案／保存版本」。 */
 export function saveVillaParams(params: VillaParams) {
-  currentParams = { ...params };
+  currentParams = normalizeVillaParamsLengths(params);
 }
 
 /**
  * 将参数写入运行时 `site`／`floors`／院坪／邻居等。
  * 须先通过 `validateVillaParams`；返回用于 UI 的缩放信息。
  */
-export function applyVillaParams(params: VillaParams) {
+export function applyVillaParams(input: VillaParams) {
+  const params = normalizeVillaParamsLengths(input);
   const issues = validateVillaParams(params);
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
 
@@ -521,6 +761,7 @@ export function applyVillaParams(params: VillaParams) {
   rebuildCourtyardGeometry();
   rebuildTerraceLinkage();
   rebuildGarageLayout();
+  rebuildVehicleRoute();
   // 邻院北缘已在 rebuildCourtyardGeometry 里与自家东界外沿拉齐；回写派生值供面板显示。
   synced.neighborYardBeyondCement = neighborCourtyardPlan.yardBeyondCement;
   currentParams = synced;
@@ -575,25 +816,30 @@ export function applyVillaParams(params: VillaParams) {
     base.annexPartitions.map((w) => scaleWall(w, aoE, aoS, anE, anS, asx, asz)),
   );
 
+  // 楼梯：位置随外包络；梯段／缝／踏深保持实体尺寸；洞口跨向不低于两跑净宽。
   const sl = base.stairLayout;
+  const acrossOnZ = String(sl.axis) !== "z"; // 默认 axis=x：两跑占进深（Z）
+  const acrossMin = stairAcrossClear(sl.flight, sl.gap);
+  const holeW = Math.max(sl.hole.w * sx, acrossOnZ ? 1500 : acrossMin);
+  const holeD = Math.max(sl.hole.d * sz, acrossOnZ ? acrossMin : 1500);
   Object.assign(stairLayout, {
     room: {
       x: nE - (oE - sl.room.x) * sx,
       z: nS - (oS - sl.room.z) * sz,
-      w: sl.room.w * sx,
-      d: sl.room.d * sz,
+      w: Math.max(sl.room.w * sx, acrossOnZ ? sl.room.w * sx : acrossMin + 200),
+      d: Math.max(sl.room.d * sz, acrossOnZ ? acrossMin + 200 : sl.room.d * sz),
     },
     x: nE - (oE - sl.x) * sx,
     z: nS - (oS - sl.z) * sz,
-    flight: sl.flight * (sl.axis === "x" ? sx : sz),
-    gap: sl.gap * (sl.axis === "x" ? sx : sz),
-    tread: sl.tread * (sl.axis === "x" ? sx : sz),
-    landing: sl.landing * (sl.axis === "x" ? sx : sz),
+    flight: sl.flight,
+    gap: sl.gap,
+    tread: sl.tread,
+    landing: sl.landing,
     hole: {
       x: nE - (oE - sl.hole.x) * sx,
       z: nS - (oS - sl.hole.z) * sz,
-      w: sl.hole.w * sx,
-      d: sl.hole.d * sz,
+      w: holeW,
+      d: holeD,
     },
   });
 
@@ -631,11 +877,11 @@ function syncFrontElevation(params: VillaParams) {
 
   // 门厅柱心落在外伸投影北沿左右两角的直角处（用户约定）：X＝门厅左右边，Z＝北沿。
   frontElevation.postXs = [porch.x, porch.x + porch.w];
-  // 官帽柱／墙内构造柱：北皮贴一层前墙外皮（recessedHatPier 进深 0.5 m，中心在外皮以南半深）。
-  frontElevation.postZ = main.z + 0.25;
-  frontElevation.wallCornerXs = [main.x + 0.27, main.x + main.w - 0.27];
-  frontElevation.cornerWestX = main.x + 0.12;
-  frontElevation.cornerEastX = main.x + main.w - 0.12;
+  // 官帽柱／墙内构造柱：北皮贴一层前墙外皮（recessedHatPier 进深 500 mm，中心在外皮以南半深）。
+  frontElevation.postZ = main.z + 250;
+  frontElevation.wallCornerXs = [main.x + 270, main.x + main.w - 270];
+  frontElevation.cornerWestX = main.x + 120;
+  frontElevation.cornerEastX = main.x + main.w - 120;
   const wallGap = derivedPorticoColumnWallGap(params);
   params.porticoColumnWallGap = wallGap;
   frontElevation.porticoColumnWallGap = wallGap;
@@ -645,7 +891,7 @@ function syncFrontElevation(params: VillaParams) {
   // 包角柱正面段中心（与下层 L 形柱身同轴）。
   const cornerShaft = (cornerX: number, outward: number) => ({
     x: cornerX + (outward * (project - leg)) / 2,
-    z: main.z - 0.12 - project / 2,
+    z: main.z - 120 - project / 2,
     w: shortW,
   });
   const westCorner = cornerShaft(frontElevation.cornerWestX, -1);
@@ -665,8 +911,8 @@ function syncFrontElevation(params: VillaParams) {
   // 露台北缘包住短柱外皮，与下层柱北缘对齐。
   frontElevation.centerFront = middleWest.z - middleWest.w / 2;
   frontElevation.terraceFront = Math.min(westCorner.z - westCorner.w / 2, eastCorner.z - eastCorner.w / 2);
-  frontElevation.terraceBack = main.z + params.thirdSetback + 0.04;
-  const cornerOffset = 0.18 * (params.mainWidth / DEFAULT_VILLA_PARAMS.mainWidth);
+  frontElevation.terraceBack = main.z + params.thirdSetback + 40;
+  const cornerOffset = 180 * (params.mainWidth / DEFAULT_VILLA_PARAMS.mainWidth);
   frontElevation.sideTerraces = [
     { x: main.x + cornerOffset, w: porch.x - (main.x + cornerOffset) },
     {
@@ -674,8 +920,8 @@ function syncFrontElevation(params: VillaParams) {
       w: main.x + main.w - cornerOffset - (porch.x + porch.w),
     },
   ];
-  frontElevation.hatFront = main.z - 0.98 * (params.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection);
-  frontElevation.hatWidth = porch.w + 1.04;
+  frontElevation.hatFront = main.z - 980 * (params.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection);
+  frontElevation.hatWidth = porch.w + 1040;
   // 官帽檐口随三层层高累加；悬浮方案另有 floatingHatLayout 抬高。
   frontElevation.hatEave = mainEaveY();
 }
@@ -684,5 +930,6 @@ export function resetVillaParams() {
   applyVillaParams({ ...DEFAULT_VILLA_PARAMS });
 }
 
-// 冻结默认几何快照（须在首次改参前）
+// 冻结默认几何快照（须在首次改参前），再应用默认参数以同步立面柱位等派生项。
 ensureBaseline();
+applyVillaParams({ ...DEFAULT_VILLA_PARAMS });

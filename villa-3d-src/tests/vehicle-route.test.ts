@@ -8,14 +8,14 @@ import {
   routeHeight, routePose, routeRanges, vehicleRoute,
 } from "../src/vehicle-route";
 
-const assessment = assessVehicleRoute(surroundings.road.entryY, 5);
+const assessment = assessVehicleRoute(surroundings.road.entryY, 5000);
 
 test("扫掠保留原路线端点、L9尺寸与偏航方向，弯道包络包含整车前后悬", () => {
   const first = assessment.poses[0], last = assessment.poses.at(-1)!;
   assert.equal(first.x, surroundings.road.x + surroundings.road.w / 2);
-  assert.equal(first.z, -18);
-  assert.ok(Math.abs(last.x - 18.5) < 1e-8);
-  assert.ok(Math.abs(last.z + 2.8) < 1e-8);
+  assert.equal(first.z, -18000);
+  assert.ok(Math.abs(last.x - 18500) < 0.01);
+  assert.ok(Math.abs(last.z + 2800) < 0.01);
   const footprint = carCorners(0, 0, 0);
   assert.equal(Math.max(...footprint.map((p) => p[0])) * 2, site.vehicle.width);
   assert.equal(Math.max(...footprint.map((p) => p[1])) * 2, site.vehicle.length);
@@ -23,38 +23,38 @@ test("扫掠保留原路线端点、L9尺寸与偏航方向，弯道包络包含
   for (const [i, cell] of assessment.cells.entries()) {
     for (const p of [...assessment.poses[i].corners, ...assessment.poses[i + 1].corners])
       assert.ok(contains(p, cell.footprint), `整车占位在扫掠外 @ ${i}`);
-    assert.ok(polygonArea(cell.footprint) >= site.vehicle.width * site.vehicle.length - 1e-6);
+    assert.ok(polygonArea(cell.footprint) >= site.vehicle.width * site.vehicle.length - 1);
     const a = assessment.poses[i], b = assessment.poses[i + 1];
     const yawDelta = Math.abs(Math.atan2(Math.sin(b.yaw - a.yaw), Math.cos(b.yaw - a.yaw)));
     assert.ok(yawDelta <= Math.PI / 90 + 1e-6);
   }
-  const pose = routePose(0.7, surroundings.road.entryY, 5);
+  const pose = routePose(0.7, surroundings.road.entryY, 5000);
   const tangent = vehicleRoute.getTangentAt(0.7);
   assert.ok(Math.abs(-Math.sin(pose.yaw) - tangent.x) < 1e-6);
   assert.ok(Math.abs(-Math.cos(pose.yaw) - tangent.z) < 1e-6);
 });
 
 test("柱完全落在车身内、细墙交叉与贴边均能发现，分离物体不误报", () => {
-  const car = rectangle(-1, -2.6, 2, 5.2);
-  const insideColumn = rectangle(-0.18, -0.18, 0.36, 0.36);
+  const car = rectangle(-1000, -2600, 2000, 5200);
+  const insideColumn = rectangle(-180, -180, 360, 360);
   assert.ok(car.every((p) => !contains(p, insideColumn)));
   assert.ok(polygonsOverlap(car, insideColumn));
-  const crossWall = rectangle(-4, -0.1, 8, 0.2);
+  const crossWall = rectangle(-4000, -100, 8000, 200);
   assert.ok(car.every((p) => !contains(p, crossWall)));
   assert.ok(crossWall.every((p) => !contains(p, car)));
   assert.ok(polygonsOverlap(car, crossWall));
-  assert.ok(polygonsOverlap(car, rectangle(1, -1, 0.2, 2)));
-  assert.equal(polygonsOverlap(car, rectangle(1.01, -1, 0.2, 2)), false);
+  assert.ok(polygonsOverlap(car, rectangle(1000, -1000, 200, 2000)));
+  assert.equal(polygonsOverlap(car, rectangle(1010, -1000, 200, 2000)), false);
 });
 
 test("通道检查识别四角都在范围内但车身横跨凹口，同时允许相接通道并集", () => {
   const concave: [number, number][] = [
-    [0, 0], [5, 0], [5, 5], [3, 5], [3, 2], [2, 2], [2, 5], [0, 5],
+    [0, 0], [5000, 0], [5000, 5000], [3000, 5000], [3000, 2000], [2000, 2000], [2000, 5000], [0, 5000],
   ];
-  const car = rectangle(1, 1, 3, 3);
+  const car = rectangle(1000, 1000, 3000, 3000);
   assert.ok(car.every((p) => contains(p, concave)));
   assert.equal(footprintWithin(car, [concave]), false);
-  assert.ok(footprintWithin(rectangle(0.5, 0.5, 2, 1), [rectangle(0, 0, 1.5, 2), rectangle(1.5, 0, 1.5, 2)]));
+  assert.ok(footprintWithin(rectangle(500, 500, 2000, 1000), [rectangle(0, 0, 1500, 2000), rectangle(1500, 0, 1500, 2000)]));
 });
 
 test("全程筛查覆盖保留地坪与实际模型柱，未确认的拟切口不消除净高待测状态", () => {
@@ -63,7 +63,7 @@ test("全程筛查覆盖保留地坪与实际模型柱，未确认的拟切口�
   assert.ok(assessment.underDeck);
   assert.ok(assessment.conflicts.some((o) => o.id === "column-5-inner"));
   const cut = garageLayout.proposedCut.footprint;
-  const whollyInCut = rectangle(cut[0][0] + 0.1, cut[0][1] + 0.1, 1, 1);
+  const whollyInCut = rectangle(cut[0][0] + 100, cut[0][1] + 100, 1000, 1000);
   assert.ok(footprintWithin(whollyInCut, [cut]));
   assert.ok(inspectFootprint(whollyInCut).underDeck, "待协商切口不能直接算露天区");
   const ranges = routeRanges(assessment.cells, (c) => c.underDeck);
@@ -79,7 +79,7 @@ test("柱墙筛查共用实体尺寸，包括墙内包含车身的潜在投影�
     for (const [j, row] of (["outer", "inner"] as const).entries()) {
       const model = garageLayout.columns[i * 2 + j];
       assert.ok(contains(column[row], model.footprint));
-      assert.ok(Math.abs(polygonArea(model.footprint) - 0.36 ** 2) < 1e-7);
+      assert.ok(Math.abs(polygonArea(model.footprint) - 360 ** 2) < 1);
     }
   }
   const wall = garageLayout.wallSegments.at(-1)!;
@@ -89,16 +89,16 @@ test("柱墙筛查共用实体尺寸，包括墙内包含车身的潜在投影�
 });
 
 test("改示意道路标高与坡长只改变高度，路线与净高未知状态保持一致", () => {
-  const z = -7.35, length = 5, roadY = -2;
+  const z = -7350, length = 5000, roadY = -2000;
   const surface = roadHeight(z) + roadY - surroundings.road.entryY;
   assert.equal(routeHeight(site.width, z, roadY, length), site.garageFloor);
   assert.ok(Math.abs(routeHeight(site.width + length / 2, z, roadY, length)
-    - (site.garageFloor + surface) / 2) < 1e-8);
-  const a = routePose(0, roadY, length), b = routePose(0, roadY + 0.6, 9);
+    - (site.garageFloor + surface) / 2) < 0.01);
+  const a = routePose(0, roadY, length), b = routePose(0, roadY + 600, 9000);
   assert.equal(a.x, b.x);
   assert.equal(a.z, b.z);
   assert.equal(a.yaw, b.yaw);
-  assert.ok(Math.abs(b.y - a.y - 0.6) < 1e-8);
-  assert.equal(routePose(1, roadY + 0.6, 9).y, site.garageFloor);
+  assert.ok(Math.abs(b.y - a.y - 600) < 0.01);
+  assert.equal(routePose(1, roadY + 600, 9000).y, site.garageFloor);
   assert.equal(garageLayout.retainedDeck.soffitY, null);
 });

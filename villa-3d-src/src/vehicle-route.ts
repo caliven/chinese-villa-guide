@@ -3,18 +3,54 @@ import { carCorners, contains, site, type Point } from "./data";
 import { garageLayout, rectangle } from "./garage-layout";
 import { roadHeight, surroundings } from "./surroundings";
 
-// 原有空间探索曲线原样保留。它不是按轴距、转向角或最小转弯半径求出的车辆轨迹。
-export const vehicleRoute = new THREE.CatmullRomCurve3([
-  new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -18),
-  new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -12),
-  new THREE.Vector3(surroundings.road.x + surroundings.road.w / 2, 0, -8.5),
-  new THREE.Vector3(surroundings.road.x - 0.2, 0, -7.4),
-  new THREE.Vector3(28, 0, -7.35),
-  new THREE.Vector3(23.2, 0, -7.15),
-  new THREE.Vector3(20.2, 0, -6.35),
-  new THREE.Vector3(18.6, 0, -4.5),
-  new THREE.Vector3(18.5, 0, -2.8),
-], false, "centripetal");
+/**
+ * 道路段随 surroundings.road.x 移动；院坪内段仍用原探索折点（相对自家东界）。
+ * 不是按轴距或最小转弯半径求出的车辆轨迹。
+ */
+function buildVehicleRoutePoints() {
+  const roadMidX = surroundings.road.x + surroundings.road.w / 2;
+  const east = site.width;
+  return [
+    new THREE.Vector3(roadMidX, 0, -18000),
+    new THREE.Vector3(roadMidX, 0, -12000),
+    new THREE.Vector3(roadMidX, 0, -8500),
+    new THREE.Vector3(surroundings.road.x - 200, 0, -7400),
+    new THREE.Vector3(east + 7000, 0, -7350),
+    new THREE.Vector3(east + 2200, 0, -7150),
+    new THREE.Vector3(east - 800, 0, -6350),
+    new THREE.Vector3(east - 2400, 0, -4500),
+    new THREE.Vector3(east - 2500, 0, -2800),
+  ];
+}
+
+export let vehicleRoute = new THREE.CatmullRomCurve3(buildVehicleRoutePoints(), false, "centripetal");
+
+export const routeRegions: Point[][] = [
+  site.field,
+  rectangle(garageLayout.entry.x, garageLayout.entry.z, garageLayout.entry.w, garageLayout.entry.d),
+  rectangle(
+    surroundings.road.x,
+    surroundings.road.front,
+    surroundings.road.w,
+    surroundings.road.back - surroundings.road.front,
+  ),
+];
+
+/** 道路或邻房参数变更后重算控制点与通行区域。 */
+export function rebuildVehicleRoute() {
+  vehicleRoute = new THREE.CatmullRomCurve3(buildVehicleRoutePoints(), false, "centripetal");
+  routeRegions.length = 0;
+  routeRegions.push(
+    site.field,
+    rectangle(garageLayout.entry.x, garageLayout.entry.z, garageLayout.entry.w, garageLayout.entry.d),
+    rectangle(
+      surroundings.road.x,
+      surroundings.road.front,
+      surroundings.road.w,
+      surroundings.road.back - surroundings.road.front,
+    ),
+  );
+}
 
 export function routeHeight(x: number, z: number, roadY: number, rampLength: number) {
   const surface = roadHeight(z) + roadY - surroundings.road.entryY;
@@ -39,10 +75,10 @@ function segmentCuts(a: Point, b: Point, c: Point, d: Point): number[] {
   const dx = b[0] - a[0], dz = b[1] - a[1];
   const ux = d[0] - c[0], uz = d[1] - c[1];
   const det = dx * uz - dz * ux;
-  if (Math.abs(det) < 1e-10) {
-    if (Math.abs(cross(a, b, c)) > 1e-8) return [];
+  if (Math.abs(det) < 1e-4) {
+    if (Math.abs(cross(a, b, c)) > 1e-2) return [];
     const length2 = dx * dx + dz * dz;
-    if (length2 < 1e-12) return [];
+    if (length2 < 1e-6) return [];
     return [c, d].map((p) => ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / length2)
       .filter((t) => t >= -1e-8 && t <= 1 + 1e-8).map((t) => Math.max(0, Math.min(1, t)));
   }
@@ -88,13 +124,6 @@ export function convexHull(points: Point[]): Point[] {
   return [...half(sorted), ...half(sorted.slice().reverse())];
 }
 
-export const routeRegions = [
-  site.field,
-  rectangle(garageLayout.entry.x, garageLayout.entry.z, garageLayout.entry.w, garageLayout.entry.d),
-  rectangle(surroundings.road.x, surroundings.road.front, surroundings.road.w,
-    surroundings.road.back - surroundings.road.front),
-];
-
 export function inspectFootprint(footprint: Point[]) {
   return {
     outside: !footprintWithin(footprint, routeRegions),
@@ -113,7 +142,7 @@ export type SweepCell = ReturnType<typeof inspectFootprint> & {
 export function assessVehicleRoute(roadY: number, rampLength: number) {
   const pose = (t: number) => routePose(t, roadY, rampLength);
   const poses = [pose(0)];
-  const steps = Math.ceil(vehicleRoute.getLength() / 0.15);
+  const steps = Math.ceil(vehicleRoute.getLength() / 150);
   // 弯道额外细分至相邻偏航角不超过 2°，再连接两次整车占位的凸包。仍是离散近似。
   const append = (a: ReturnType<typeof pose>, b: ReturnType<typeof pose>, depth = 0) => {
     const angle = Math.abs(Math.atan2(Math.sin(b.yaw - a.yaw), Math.cos(b.yaw - a.yaw)));

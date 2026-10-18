@@ -5,40 +5,40 @@ import { placeRoadsideVilla, roadsideToWorld } from "./roadside-villa-layout";
 // 全部左右关系按站在北侧、面对房子描述：画面左侧为 X 增大。
 // 对齐关系来自用户；周边房屋尺寸、未测标高和田坎折点仍是航拍估算。
 // 自家旧木房前墙。左侧邻居木房前墙与它对齐；邻居进深更大，多出的长度在后墙。都是口述，不是测绘。
-const alignedWoodFront = 1.1;
-const sideHouse = { x: 21.75, z: alignedWoodFront, w: 12, d: 8.8, y: 0, h: 5.3 };
+const alignedWoodFront = 1100;
+const sideHouse = { x: 21750, z: alignedWoodFront, w: 12000, d: 8800, y: 0, h: 5300 };
 const leftEdge = sideHouse.x + sideHouse.w;
 const rearRight = site.main.x + site.main.w / 2;
 const frontRight = site.main.x + (site.main.w * 2) / 3;
 const frontHouseY = frontFieldLevel - site.frontHouseDrop;
 // 屋脊原先比自家一层顶高约 2 米。整栋再降 1.5 米后，约高 0.5 米。口述调整，不是测绘。
 // 航拍里人字坡很平，起坡只留约 0.9 米，是照片估算。
-const frontRoofRise = 0.9;
-const frontRidgeDrop = 1.5;
-const frontRidge = floors[0].y + floors[0].height + 2 - frontRidgeDrop;
+const frontRoofRise = 900;
+const frontRidgeDrop = 1500;
+const frontRidge = floors[0].y + floors[0].height + 2000 - frontRidgeDrop;
 const frontFloorHeight = (frontRidge - frontRoofRise - frontHouseY) / 2;
 // 进深原 7.5 米。按航拍向北加 2 米，后墙和屋后 0.4 米田外沿不动。
-const frontHouseDepth = 9.5;
-const frontDepthAdded = frontHouseDepth - 7.5;
+const frontHouseDepth = 9500;
+const frontDepthAdded = frontHouseDepth - 7500;
 // 与 neighborBayPlan("side") 相同：三开间、堂屋居中且更宽。右沿是口述大约位置，不是测绘。
 const sideHallScale = 1.45;
 const sideOrdinary = sideHouse.w / (2 + sideHallScale);
 const sideHallCenter =
   sideHouse.x + sideHouse.w - sideOrdinary - (sideOrdinary * sideHallScale) / 2;
-const neighborYardWest = sideHallCenter - 0.5;
+const neighborYardWest = sideHallCenter - 500;
 const neighborFrontZ = courtyardFront.at(-1)![1];
 // 马路东侧高地比邻居院坪外沿再向房内收。4 米是口述，不是测绘。
-const leftPlatformInset = 4;
+const leftPlatformInset = 4000;
 const leftPlatformFront = neighborFrontZ + leftPlatformInset;
 const frontSpan = leftEdge - frontRight;
 // 屋后田原约1米。宽度按5/2压缩后为0.4米；房子朝道路反方向退0.6米，田埂外沿不动。
-const frontRearTerrace = 1 * 2 / 5;
-const frontHouseSetback = 1 - frontRearTerrace;
+const frontRearTerrace = 1000 * 2 / 5;
+const frontHouseSetback = 1000 - frontRearTerrace;
 // 整条西侧上田田埂相对原曲线向房前平移 2.5 米（先前只拉了靠屋几米）。折点间距不变，弧度不变。
 // 下方原田北沿仍贴地库外沿，因此这段下田比上田窄。
-const rightTerraceAdvance = 2.5;
+const rightTerraceAdvance = 2500;
 // 左侧马路连续上坡，接到屋后第一层与东侧大平地的同一标高后停止，不再往南爬。
-const roadFrontZ = -26.5;
+const roadFrontZ = -26500;
 const sharedPlaneY = site.rearField;
 let roadBackZ = site.oldDepth;
 function roadGrade(z: number) {
@@ -51,15 +51,15 @@ export const surroundings = {
   roadsideVilla,
   rearHouse: {
     x: rearRight,
-    z: 20,
+    z: 20000,
     w: leftEdge - rearRight,
-    d: 8,
-    y: 5,
-    h: 5.2,
+    d: 8000,
+    y: 5000,
+    h: 5200,
   },
   frontHouse: {
     x: frontRight,
-    z: -23.75 + frontHouseSetback - frontDepthAdded,
+    z: -23750 + frontHouseSetback - frontDepthAdded,
     w: leftEdge - frontRight,
     d: frontHouseDepth,
     y: frontHouseY,
@@ -77,41 +77,41 @@ export const surroundings = {
   },
   road: {
     x: leftEdge,
-    w: 3.4,
+    w: 3400,
     front: roadFrontZ,
     back: roadBackZ,
     // 连续纵坡在接入中心的高度，只作坡道初值，不是实测路面标高。
-    entryY: Math.round(roadGrade(-7.35) * 100) / 100,
+    entryY: Math.round(roadGrade(-7350)),
   },
   // 东侧大平地与屋后第一层梯田同一标高。2.5 米沿用屋后田，不是新的测绘。
-  leftPlatform: { x: leftEdge + 3.4, front: leftPlatformFront, back: site.oldDepth, y: sharedPlaneY },
-  rearFirst: { front: site.oldDepth, back: 16.2, y: site.rearField },
-  rearSecond: { front: 16.2, back: 29.5, y: 5 },
-  rearThird: { front: 29.5, back: 36, y: 6.8 },
+  leftPlatform: { x: leftEdge + 3400, front: leftPlatformFront, back: site.oldDepth, y: sharedPlaneY },
+  rearFirst: { front: site.oldDepth, back: 16200, y: site.rearField },
+  rearSecond: { front: 16200, back: 29500, y: 5000 },
+  rearThird: { front: 29500, back: 36000, y: 6800 },
   rightTerraceAdvance,
   rightStep: site.annex.z + (site.annex.d * 2) / 3 - rightTerraceAdvance,
   // 浏览器标记 2 的近屋同线段；长度是建模范围，不是新增实测。
-  rightFrontAlignedWidth: 8,
-  forestStart: 36,
-  extent: { left: -32, right: 55, front: -30, back: 36 },
+  rightFrontAlignedWidth: 8000,
+  forestStart: 36000,
+  extent: { left: -32000, right: 55000, front: -30000, back: 36000 },
 };
 
 // 俯拍里主马路在蓝顶房前向西南转弯。保留东侧 T 形路口，只有西段随邻房转向。
 // 道路宽度与曲线都是照片估算；与上坡支路不同，这一段与前方砖房首层同高。
 // 路心贴近门厅前坪外沿（约 2.1 m），避免房前露出大块空白田面把路面“吃掉”。
-const villageRoadWidth = 3.5;
+const villageRoadWidth = 3500;
 
 function buildVillageRoadCenter(): Point[] {
-  const villageRoadFront = -roadsideVilla.d / 2 - roadsideVilla.portico.d - 2.1;
+  const villageRoadFront = -roadsideVilla.d / 2 - roadsideVilla.portico.d - 2100;
   return smoothContour([
-    [surroundings.extent.left, -14.5],
-    roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2 - 1.2, villageRoadFront),
+    [surroundings.extent.left, -14500],
+    roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2 - 1200, villageRoadFront),
     roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2, villageRoadFront),
-    roadsideToWorld(roadsideVilla, 2, villageRoadFront),
+    roadsideToWorld(roadsideVilla, 2000, villageRoadFront),
     roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w, villageRoadFront),
-    roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w + 1.5, villageRoadFront - 0.4),
-    [-5, -29.25], [2, -28.25], [20, -28.25], [surroundings.extent.right, -28.25],
-  ], 0.45);
+    roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w + 1500, villageRoadFront - 400),
+    [-5000, -29250], [2000, -28250], [20000, -28250], [surroundings.extent.right, -28250],
+  ], 450);
 }
 
 function buildVillageRoadEdges(center: Point[]) {
@@ -152,7 +152,7 @@ export function syncNeighborFootprint(width: number, depth: number) {
   const left = sideHouse.x + sideHouse.w;
   const ordinary = sideHouse.w / (2 + sideHallScale);
   const hallCenter = sideHouse.x + sideHouse.w - ordinary - (ordinary * sideHallScale) / 2;
-  const yardWest = hallCenter - 0.5;
+  const yardWest = hallCenter - 500;
   surroundings.neighborYard.x = yardWest;
   surroundings.neighborYard.w = left - yardWest;
   surroundings.neighborYard.d = sideHouse.z - surroundings.neighborYard.z;
@@ -161,7 +161,7 @@ export function syncNeighborFootprint(width: number, depth: number) {
   surroundings.rearHouse.w = left - surroundings.rearHouse.x;
   surroundings.frontHouse.w = left - surroundings.frontHouse.x;
   const span = surroundings.frontHouse.w;
-  if (span > 0.1) surroundings.frontHouse.wingRatio = (left - yardWest) / span;
+  if (span > 100) surroundings.frontHouse.wingRatio = (left - yardWest) / span;
 }
 
 /** 按当前辅楼西墙重算蓝顶邻房世界坐标，并刷新弯道。 */
@@ -179,13 +179,13 @@ export function syncRoadsideVillaPlacement() {
 const shiftedFar = (z: number) => z - rightTerraceAdvance;
 
 function buildRightTerraceBreak(): Point[] {
-  const zAtMinus6 = shiftedFar(5.5);
+  const zAtMinus6 = shiftedFar(5500);
   const zAtHouse = surroundings.rightStep;
   return smoothContour([
-    [-55, shiftedFar(21.5)], [-44, shiftedFar(18.2)], [-34, shiftedFar(14.4)],
-    [-24, shiftedFar(10.6)], [-16, shiftedFar(7.8)],
-    [-10, shiftedFar(6.3)], [-6, zAtMinus6],
-    [-2.4, zAtMinus6 + (zAtHouse - zAtMinus6) * (3.6 / 6)],
+    [-55000, shiftedFar(21500)], [-44000, shiftedFar(18200)], [-34000, shiftedFar(14400)],
+    [-24000, shiftedFar(10600)], [-16000, shiftedFar(7800)],
+    [-10000, shiftedFar(6300)], [-6000, zAtMinus6],
+    [-2400, zAtMinus6 + (zAtHouse - zAtMinus6) * (3.6 / 6)],
     [0, zAtHouse],
   ]);
 }
@@ -194,9 +194,9 @@ function buildUnexcavatedFront(): Point[] {
   // 取地库实际轮廓端点作为旁田基准。靠屋 8 米与地库外沿同线，再往西才朝南弯。
   const garageFrontZ = courtyardFront[0]?.[1] ?? 0;
   return smoothContour([
-    [-55, 15.2], [-44, 11.4], [-34, 6.8], [-24, 2.4], [-16, -0.6], [-12, -2.1],
+    [-55000, 15200], [-44000, 11400], [-34000, 6800], [-24000, 2400], [-16000, -600], [-12000, -2100],
     [-surroundings.rightFrontAlignedWidth, garageFrontZ],
-    [-5, garageFrontZ], [-2.5, garageFrontZ], [0, garageFrontZ],
+    [-5000, garageFrontZ], [-2500, garageFrontZ], [0, garageFrontZ],
   ]);
 }
 
@@ -207,14 +207,14 @@ function basementOuterArc(): Point[] {
   const lipZ = surroundings.frontHouse.z + surroundings.frontHouse.d + frontRearTerrace;
   return smoothContour(
     [
-      [-16, -7.1],
-      [-8, -6.35],
-      [0, -5.7],
-      [8, Math.min(-5.1, lipZ + 0.9)],
-      [Math.max(lipX - 3, 12), lipZ + 0.2],
+      [-16000, -7100],
+      [-8000, -6350],
+      [0, -5700],
+      [8000, Math.min(-5100, lipZ + 900)],
+      [Math.max(lipX - 3000, 12000), lipZ + 200],
       [lipX, lipZ],
     ],
-    0.75,
+    750,
   );
 }
 
@@ -231,9 +231,9 @@ function buildRearFirst(): Point[] {
   const d = site.oldDepth;
   const w = site.width;
   return smoothContour([
-    [-55, 27.2], [-44, 24], [-34, 20.2], [-24, 16.4], [-16, 13.6],
-    [-8, 11.8], [-3, 11.1], [0, d], [w, d], [33.75, d],
-    [42, 11.4], [54, 12.6], [66, 13.4], [77, 14.2],
+    [-55000, 27200], [-44000, 24000], [-34000, 20200], [-24000, 16400], [-16000, 13600],
+    [-8000, 11800], [-3000, 11100], [0, d], [w, d], [33750, d],
+    [42000, 11400], [54000, 12600], [66000, 13400], [77000, 14200],
   ]);
 }
 
@@ -243,28 +243,28 @@ export const terraceContours = {
   // 旁田近屋段与地库右端外沿同线；远处继续采用航拍估算曲线。
   sharedFront: buildSharedFront(),
   frontLower: smoothContour([
-    [-55, 9.2], [-44, 5.2], [-34, 0.6], [-24, -4.2],
+    [-55000, 9200], [-44000, 5200], [-34000, 600], [-24000, -4200],
     // 靠屋外沿改成一条圆润圆弧，西端折角已往外拉齐。外偏接到砖房屋后田坎，不是新的测绘。
     ...basementOuterArc(),
-    [24, surroundings.frontHouse.z + surroundings.frontHouse.d + frontRearTerrace],
+    [24000, surroundings.frontHouse.z + surroundings.frontHouse.d + frontRearTerrace],
     [surroundings.road.x, surroundings.frontHouse.z + surroundings.frontHouse.d + frontRearTerrace],
   ]),
   // 前坎停在院坪外沿以南约 4 米，远处不再朝北甩过这条线。
   leftPlatform: [] as Point[],
   rearFirst: buildRearFirst(),
   rearSecond: smoothContour([
-    [-55, 33.4], [-44, 30.2], [-34, 26.4], [-24, 22.8], [-16, 20.4],
-    [-8, 18.9], [0, 18.2], [7, 17.7], [13.55, 16.8], [21, 16.2],
-    [28, 16.2], [33.75, 16.2], [44, 17.2], [56, 18.2], [66, 19], [77, 19.6],
+    [-55000, 33400], [-44000, 30200], [-34000, 26400], [-24000, 22800], [-16000, 20400],
+    [-8000, 18900], [0, 18200], [7000, 17700], [13550, 16800], [21000, 16200],
+    [28000, 16200], [33750, 16200], [44000, 17200], [56000, 18200], [66000, 19000], [77000, 19600],
   ]),
   rearThird: smoothContour([
-    [-55, 40.2], [-44, 37.2], [-34, 34.2], [-24, 31.6], [-14, 30.2],
-    [-6, 29.7], [0, 29.5], [13.55, 29.5], [28, 29.5], [33.75, 30.6],
-    [46, 31.6], [60, 32.5], [77, 33.4],
+    [-55000, 40200], [-44000, 37200], [-34000, 34200], [-24000, 31600], [-14000, 30200],
+    [-6000, 29700], [0, 29500], [13550, 29500], [28000, 29500], [33750, 30600],
+    [46000, 31600], [60000, 32500], [77000, 33400],
   ]),
   hillFoot: smoothContour([
-    [-55, 47], [-40, 43], [-28, 40], [-12, 37.4], [0, 36.5],
-    [13.55, 36], [28, 36.2], [44, 38.2], [60, 40], [77, 41.2],
+    [-55000, 47000], [-40000, 43000], [-28000, 40000], [-12000, 37400], [0, 36500],
+    [13550, 36000], [28000, 36200], [44000, 38200], [60000, 40000], [77000, 41200],
   ]),
 };
 
@@ -277,11 +277,11 @@ function buildLeftPlatformContour(): Point[] {
   const f = surroundings.leftPlatform.front;
   return smoothContour([
     [surroundings.leftPlatform.x, f],
-    [44, f + 0.35],
-    [52, f + 0.7],
-    [60, f + 0.5],
-    [68, f + 0.2],
-    [77, f],
+    [44000, f + 350],
+    [52000, f + 700],
+    [60000, f + 500],
+    [68000, f + 200],
+    [77000, f],
   ]);
 }
 
@@ -311,7 +311,7 @@ export function rebuildTerraceLinkage() {
 function buildRoadStations(): Point[] {
   return Array.from({ length: 29 }, (_, i) => {
     const z = roadFrontZ + ((roadBackZ - roadFrontZ) * i) / 28;
-    return [Math.round(z * 1000) / 1000, roadGrade(z)] as Point;
+    return [Math.round(z), roadGrade(z)] as Point;
   });
 }
 
@@ -329,15 +329,15 @@ export function roadHeight(z: number) {
 
 // 地库只留两排柱：外沿内收一排，房前墙下一排。中间不立柱。柱距是示意模数。
 export function basementColumns() {
-  const spacing = 4.2;
-  const outerInset = 0.55;
+  const spacing = 4200;
+  const outerInset = 550;
   const ourFront = insetContour(courtyardFront, outerInset);
   const xs: number[] = [];
-  const first = 0.7;
-  const last = surroundings.road.x - 0.55;
-  for (let x = first; x <= last + 1e-6; x += spacing)
-    xs.push(Math.round(x * 100) / 100);
-  if (last - xs[xs.length - 1] > 2.4) xs.push(Math.round(last * 100) / 100);
+  const first = 700;
+  const last = surroundings.road.x - 550;
+  for (let x = first; x <= last + 1e-3; x += spacing)
+    xs.push(Math.round(x));
+  if (last - xs[xs.length - 1] > 2400) xs.push(Math.round(last));
   return {
     spacing,
     outerInset,
@@ -352,7 +352,7 @@ export function basementColumns() {
         x,
         outer: [x, outerZ] as Point,
         inner: [x, innerZ] as Point,
-        span: Math.round(Math.abs(innerZ - outerZ) * 100) / 100,
+        span: Math.round(Math.abs(innerZ - outerZ)),
       };
     }),
   };
@@ -369,7 +369,7 @@ export function groundHeight(x: number, z: number) {
     return (
       base +
       distance * 0.34 +
-      Math.sin(x * 0.13) * 1.6 * Math.min(1, distance / 12)
+      Math.sin(x * 0.00013) * 1600 * Math.min(1, distance / 12000)
     );
   }
   if (contains([x, z], villageRoadEdges.outline)) return c.frontHouse.y;
@@ -404,14 +404,14 @@ export function forestTrees() {
   let seed = 92013;
   const rand = () => (seed = (1664525 * seed + 1013904223) >>> 0) / 4294967296;
   return Array.from({ length: 420 }, () => {
-    const x = -48 + rand() * 120,
-      z = Math.max(surroundings.forestStart, contourAt(terraceContours.hillFoot, x)) + 2 + rand() * 43;
+    const x = -48000 + rand() * 120000,
+      z = Math.max(surroundings.forestStart, contourAt(terraceContours.hillFoot, x)) + 2000 + rand() * 43000;
     return {
       x,
       z,
       y: groundHeight(x, z),
-      h: 4.5 + rand() * 7,
-      r: 1.1 + rand() * 1.4,
+      h: 4500 + rand() * 7000,
+      r: 1100 + rand() * 1400,
     };
   });
 }

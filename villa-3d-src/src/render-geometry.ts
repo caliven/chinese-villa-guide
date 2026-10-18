@@ -9,7 +9,10 @@ type Face = {
   bounds: number[];
   pieces: Vertex[][];
 };
-const epsilon = 1e-7;
+// 几何在毫米根坐标下计算：面积类容差 1e-7 ㎡ ≈ 0.1 mm²，长度类容差 0.1 μm。
+const areaEpsilon = 0.1;
+const lengthEpsilon = 1e-4;
+const normalEpsilon = 1e-7;
 
 // 缩放碰撞只检查当前可见的实体表面，标签、路线和隐藏组不能挡住镜头。
 export function visibleSurfaceMeshes(root: THREE.Object3D) {
@@ -41,9 +44,9 @@ function split(points: Vertex[], a: Vertex, b: Vertex, axes: number[], sign: num
   for (let i = 0; i < points.length; i++) {
     const p = points[i], q = points[(i + 1) % points.length];
     const dp = sign * cross(a, b, p, axes), dq = sign * cross(a, b, q, axes);
-    if (dp >= -epsilon) inside.push(p);
-    if (dp <= epsilon) outside.push(p);
-    if ((dp > epsilon && dq < -epsilon) || (dp < -epsilon && dq > epsilon)) {
+    if (dp >= -areaEpsilon) inside.push(p);
+    if (dp <= areaEpsilon) outside.push(p);
+    if ((dp > areaEpsilon && dq < -areaEpsilon) || (dp < -areaEpsilon && dq > areaEpsilon)) {
       const t = dp / (dp - dq);
       const cut = {
         p: p.p.clone().lerp(q.p, t),
@@ -64,7 +67,7 @@ function subtract(points: Vertex[], cover: Face) {
   const result: Vertex[][] = [];
   for (let i = 0; i < 3 && remainder.length >= 3; i++) {
     const halves = split(remainder, cover.vertices[i], cover.vertices[(i + 1) % 3], cover.axes, sign);
-    if (area(halves.outside, cover.axes) > epsilon) result.push(halves.outside);
+    if (area(halves.outside, cover.axes) > areaEpsilon) result.push(halves.outside);
     remainder = halves.inside;
   }
   return result;
@@ -108,7 +111,7 @@ export function removeCoplanarOverlap(root: THREE.Object3D, skip = new Set<THREE
       });
       const n = vertices[1].p.clone().sub(vertices[0].p).cross(vertices[2].p.clone().sub(vertices[0].p)).normalize();
       if (!normal) vertices.forEach((v) => v.n.copy(n));
-      const axis = [0, 1, 2].find((k) => Math.abs(n.getComponent(k)) > 1 - epsilon);
+      const axis = [0, 1, 2].find((k) => Math.abs(n.getComponent(k)) > 1 - normalEpsilon);
       const axes = [0, 1, 2].filter((k) => k !== (axis ?? 2));
       const bounds = [
         Math.min(...vertices.map((v) => v.p.getComponent(axes[0]))),
@@ -119,7 +122,7 @@ export function removeCoplanarOverlap(root: THREE.Object3D, skip = new Set<THREE
       const face: Face = { mesh, vertices, axes, bounds, pieces: [vertices] };
       list.push(face);
       if (axis === undefined) continue;
-      const key = `${axis}:${Math.sign(n.getComponent(axis))}:${Math.round(vertices[0].p.getComponent(axis) * 1e4)}`;
+      const key = `${axis}:${Math.sign(n.getComponent(axis))}:${Math.round(vertices[0].p.getComponent(axis) * 10)}`;
       if (!planes.has(key)) planes.set(key, []);
       planes.get(key)!.push(face);
     }
@@ -131,13 +134,13 @@ export function removeCoplanarOverlap(root: THREE.Object3D, skip = new Set<THREE
       const face = list[i];
       for (let j = i + 1; j < list.length && face.pieces.length; j++) {
         const cover = list[j];
-        if (face.mesh === cover.mesh || cover.bounds[0] >= face.bounds[2] - epsilon
-          || face.bounds[0] >= cover.bounds[2] - epsilon || cover.bounds[1] >= face.bounds[3] - epsilon
-          || face.bounds[1] >= cover.bounds[3] - epsilon) continue;
+        if (face.mesh === cover.mesh || cover.bounds[0] >= face.bounds[2] - lengthEpsilon
+          || face.bounds[0] >= cover.bounds[2] - lengthEpsilon || cover.bounds[1] >= face.bounds[3] - lengthEpsilon
+          || face.bounds[1] >= cover.bounds[3] - lengthEpsilon) continue;
         const pieces = face.pieces.flatMap((piece) => subtract(piece, cover));
         const oldArea = face.pieces.reduce((sum, p) => sum + area(p, face.axes), 0);
         const newArea = pieces.reduce((sum, p) => sum + area(p, face.axes), 0);
-        if (oldArea - newArea > epsilon) {
+        if (oldArea - newArea > areaEpsilon) {
           face.pieces = pieces;
           changed.add(face.mesh);
         }

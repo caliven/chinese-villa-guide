@@ -32,17 +32,17 @@ export function meander(
   parent: THREE.Object3D,
   x: number, y: number, z: number, width: number, mat: Mats,
 ) {
-  const count = Math.max(1, Math.floor(width / 0.28));
+  const count = Math.max(1, Math.floor(width / 280));
   const pitch = width / count;
   for (let i = 0; i < count; i++) {
     const xx = x + (i + 0.5) * pitch;
-    const scale = Math.min(1, pitch / 0.28);
+    const scale = Math.min(1, pitch / 280);
     // 两端留同宽收边，每个回字关于自身中线对称，不再用余数留一截空白。
-    const w = 0.215 * scale, h = 0.16, t = 0.018;
-    reliefFrame(parent, xx, y, z - 0.006, w, h, t, mat);
+    const w = 215 * scale, h = 160, t = 18;
+    reliefFrame(parent, xx, y, z - 6, w, h, t, mat);
     for (const side of [-1, 1]) {
-      box(parent, xx + side * w * 0.17, y, z - 0.004, t, h * 0.52, 0.012, mat.relief, false);
-      box(parent, xx, y + side * h * 0.2, z - 0.004, w * 0.34, t, 0.012, mat.relief, false);
+      box(parent, xx + side * w * 0.17, y, z - 4, t, h * 0.52, 12, mat.relief, false);
+      box(parent, xx, y + side * h * 0.2, z - 4, w * 0.34, t, 12, mat.relief, false);
     }
   }
 }
@@ -56,112 +56,112 @@ function reliefFrame(parent: THREE.Object3D, x: number, y: number, front: number
     new THREE.Vector2(-w / 2 + t, -h / 2 + t), new THREE.Vector2(-w / 2 + t, h / 2 - t),
     new THREE.Vector2(w / 2 - t, h / 2 - t), new THREE.Vector2(w / 2 - t, -h / 2 + t),
   ]));
-  const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.01, bevelEnabled: true, bevelSize: 0.001, bevelThickness: 0.001, bevelSegments: 2, steps: 1 });
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: true, bevelSize: 1, bevelThickness: 1, bevelSegments: 2, steps: 1 });
   const mesh = new THREE.Mesh(geometry, mat.relief);
   mesh.position.set(x, y, front);
   parent.add(mesh);
 }
 
 function framedRelief(parent: THREE.Object3D, x: number, y: number, z: number, w: number, h: number, mat: Mats) {
-  box(parent, x, y, z, w, h, 0.025, mat.trim);
-  reliefFrame(parent, x, y, z - 0.024, w - 0.04, h - 0.04, 0.018, mat);
+  box(parent, x, y, z, w, h, 25, mat.trim);
+  reliefFrame(parent, x, y, z - 24, w - 40, h - 40, 18, mat);
   for (const sign of [-1, 1]) {
     for (const side of [-1, 1]) {
-      const xx = x + side * (w / 2 - 0.08), yy = y + sign * (h / 2 - 0.095);
-      box(parent, xx, yy, z - 0.02, 0.075, 0.018, 0.016, mat.relief, false);
-      box(parent, xx + side * 0.03, yy - sign * 0.027, z - 0.02, 0.018, 0.07, 0.016, mat.relief, false);
+      const xx = x + side * (w / 2 - 80), yy = y + sign * (h / 2 - 95);
+      box(parent, xx, yy, z - 20, 75, 18, 16, mat.relief, false);
+      box(parent, xx + side * 30, yy - sign * 27, z - 20, 18, 70, 16, mat.relief, false);
     }
   }
 }
 
 // 包角柱和门厅柱共用的柱头：花板、齿饰、层叠线脚。局部 -Z 朝外。
 function columnCapitalFace(parent: THREE.Object3D, top: number, width: number, mat: Mats) {
-  const panelW = Math.min(0.5, Math.max(0.26, width - 0.06));
-  const panelH = Math.min(0.4, panelW * 0.86);
-  const crown = 0.36;
-  const panelCenter = top - crown - panelH / 2 - 0.02;
-  framedRelief(parent, 0, panelCenter, -0.012, panelW, panelH, mat);
-  const teeth = Math.max(4, Math.round(panelW / 0.072));
+  const panelW = Math.min(500, Math.max(260, width - 60));
+  const panelH = Math.min(400, panelW * 0.86);
+  const crown = 360;
+  const panelCenter = top - crown - panelH / 2 - 20;
+  framedRelief(parent, 0, panelCenter, -12, panelW, panelH, mat);
+  const teeth = Math.max(4, Math.round(panelW / 72));
   const span = panelW * 0.84;
   for (let i = 0; i < teeth; i++) {
     const xx = -span / 2 + (i + 0.5) * (span / teeth);
-    box(parent, xx, top - crown + 0.03, -0.026, Math.min(0.03, span / teeth * 0.42), 0.09, 0.016, mat.relief, false);
+    box(parent, xx, top - crown + 30, -26, Math.min(30, span / teeth * 0.42), 90, 16, mat.relief, false);
   }
-  box(parent, 0, top - 0.2, -0.02, Math.min(width * 0.94, panelW + 0.06), 0.04, 0.02, mat.trim);
-  box(parent, 0, top - 0.12, -0.026, Math.min(width * 0.98, panelW + 0.1), 0.055, 0.024, mat.trim);
-  box(parent, 0, top - 0.045, -0.032, width * 0.98, 0.07, 0.026, mat.dressedStone);
-  return panelCenter - panelH / 2 - 0.04;
+  box(parent, 0, top - 200, -20, Math.min(width * 0.94, panelW + 60), 40, 20, mat.trim);
+  box(parent, 0, top - 120, -26, Math.min(width * 0.98, panelW + 100), 55, 24, mat.trim);
+  box(parent, 0, top - 45, -32, width * 0.98, 70, 26, mat.dressedStone);
+  return panelCenter - panelH / 2 - 40;
 }
 
 // 包角柱柱脚是方花板，和门厅柱的圆纹柱脚分开。
 // 方板这一截比上面柱身再凸出约 4 厘米，花板贴在凸出的面上。4 厘米是造型尺寸。
-const basePanelProject = 0.04;
+const basePanelProject = 40;
 function cornerBaseFace(parent: THREE.Object3D, span: number, mat: Mats) {
-  const panelW = Math.min(0.44, Math.max(0.24, span));
-  const panelH = Math.min(0.48, panelW * 1.08);
-  const y = 0.18 + panelH / 2;
+  const panelW = Math.min(440, Math.max(240, span));
+  const panelH = Math.min(480, panelW * 1.08);
+  const y = 180 + panelH / 2;
   const face = new THREE.Group();
   face.position.z = -basePanelProject;
   parent.add(face);
-  framedRelief(face, 0, y, -0.012, panelW, panelH, mat);
-  return y + panelH / 2 + 0.04;
+  framedRelief(face, 0, y, -12, panelW, panelH, mat);
+  return y + panelH / 2 + 40;
 }
 
 // 效果图1：竖纹只在正面，壁灯以上、柱头以下的一小段，四道细线，不铺满柱身。
 function frontFlutes(parent: THREE.Object3D, y0: number, y1: number, width: number, mat: Mats) {
-  if (y1 - y0 < 0.3 || width < 0.2) return;
+  if (y1 - y0 < 300 || width < 200) return;
   const count = 4;
-  const span = Math.min(width * 0.42, 0.32);
+  const span = Math.min(width * 0.42, 320);
   const pitch = span / (count - 1);
   const y = (y0 + y1) / 2;
   const h = y1 - y0;
   for (let i = 0; i < count; i++) {
     const xx = -span / 2 + i * pitch;
-    box(parent, xx, y, -0.016, 0.012, h, 0.012, mat.dark);
+    box(parent, xx, y, -16, 12, h, 12, mat.dark);
   }
 }
 
 function roundMedallion(parent: THREE.Object3D, y: number, radius: number, mat: Mats) {
   const plaque = radius * 2.15;
-  const z = -0.008;
+  const z = -8;
   const face = new THREE.Group();
   face.position.z = -basePanelProject;
   parent.add(face);
-  box(face, 0, y, z, plaque, plaque, 0.016, mat.trim);
-  box(face, 0, y + plaque / 2 - 0.015, z - 0.012, plaque, 0.02, 0.01, mat.dressedStone);
-  box(face, 0, y - plaque / 2 + 0.015, z - 0.012, plaque, 0.02, 0.01, mat.dressedStone);
-  box(face, plaque / 2 - 0.015, y, z - 0.012, 0.02, plaque, 0.01, mat.dressedStone);
-  box(face, -plaque / 2 + 0.015, y, z - 0.012, 0.02, plaque, 0.01, mat.dressedStone);
+  box(face, 0, y, z, plaque, plaque, 16, mat.trim);
+  box(face, 0, y + plaque / 2 - 15, z - 12, plaque, 20, 10, mat.dressedStone);
+  box(face, 0, y - plaque / 2 + 15, z - 12, plaque, 20, 10, mat.dressedStone);
+  box(face, plaque / 2 - 15, y, z - 12, 20, plaque, 10, mat.dressedStone);
+  box(face, -plaque / 2 + 15, y, z - 12, 20, plaque, 10, mat.dressedStone);
   for (const r of [radius * 0.9, radius * 0.58]) {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.011, 12, 80), mat.relief);
-    ring.position.set(0, y, z - 0.008);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 11, 12, 80), mat.relief);
+    ring.position.set(0, y, z - 8);
     face.add(ring);
   }
-  box(face, 0, y, z - 0.01, radius * 0.62, 0.014, 0.008, mat.dark);
-  box(face, 0, y, z - 0.01, 0.014, radius * 0.62, 0.008, mat.dark);
+  box(face, 0, y, z - 10, radius * 0.62, 14, 8, mat.dark);
+  box(face, 0, y, z - 10, 14, radius * 0.62, 8, mat.dark);
 }
 
 export function carvedPilaster(
   parent: THREE.Object3D, x: number, z: number, base: number,
-  height: number, width: number, mat: Mats, depth = 0.56, medallion = false,
+  height: number, width: number, mat: Mats, depth = 560, medallion = false,
 ) {
   const g = new THREE.Group();
   g.position.set(x, base, z);
   g.name = "新中式效果图1通高装饰柱";
   parent.add(g);
   box(g, 0, height / 2, 0, width, height, depth, mat.trim);
-  box(g, 0, 0.07, 0, width + 0.1, 0.14, depth + 0.1, mat.dressedStone);
-  box(g, 0, 0.2, 0, width + 0.04, 0.12, depth + 0.04, mat.trim);
+  box(g, 0, 70, 0, width + 100, 140, depth + 100, mat.dressedStone);
+  box(g, 0, 200, 0, width + 40, 120, depth + 40, mat.trim);
   // 柱脚方饰这一截四面都比上面柱身凸出约 4 厘米。
-  const baseRadius = Math.min(0.17, Math.max(width, depth) * 0.92 * 0.24);
+  const baseRadius = Math.min(170, Math.max(width, depth) * 0.92 * 0.24);
   const basePlaque = baseRadius * 2.15;
-  box(g, 0, 0.64, 0, width + basePanelProject * 2, basePlaque + 0.04, depth + basePanelProject * 2, mat.trim);
+  box(g, 0, 640, 0, width + basePanelProject * 2, basePlaque + 40, depth + basePanelProject * 2, mat.trim);
   const dress = (face: THREE.Object3D, span: number, withMedallion: boolean, flutes: boolean) => {
     const shaftTop = columnCapitalFace(face, height, span, mat);
-    if (withMedallion) roundMedallion(face, 0.64, Math.min(0.17, span * 0.24), mat);
+    if (withMedallion) roundMedallion(face, 640, Math.min(170, span * 0.24), mat);
     if (flutes) {
-      const fluteTop = shaftTop - 0.9;
-      frontFlutes(face, fluteTop - 1.25, fluteTop, span, mat);
+      const fluteTop = shaftTop - 900;
+      frontFlutes(face, fluteTop - 1250, fluteTop, span, mat);
     }
   };
   const front = new THREE.Group();
@@ -200,7 +200,7 @@ export function cornerPilaster(
   const frontW = leg + project;
   const frontX = (xOuter + xInner) / 2;
   const placeL = (y: number, h: number, lip: number, material: THREE.Material) => {
-    const embed = 0.02;
+    const embed = 20;
     const outer = xOuter + outward * lip;
     const inner = xInner - outward * lip;
     const zFar = outwardZ * (project + lip);
@@ -210,27 +210,27 @@ export function cornerPilaster(
     box(g, (outer + sideInner) / 2, y, -outwardZ * (leg + lip) / 2, project + lip + embed, h, leg + lip, material);
   };
   placeL(height / 2, height, 0, mat.sand);
-  placeL(0.08, 0.16, 0.03, mat.dressedStone);
+  placeL(80, 160, 30, mat.dressedStone);
   // 方花板所在的这一截，两面都比上面柱身再凸出约 4 厘米。
-  placeL(0.42, 0.5, basePanelProject, mat.sand);
+  placeL(420, 500, basePanelProject, mat.sand);
   // 柱顶这一截顶住上面的三眼皮，用英国棕。
-  placeL(height - 0.05, 0.1, 0.03, mat.british);
+  placeL(height - 50, 100, 30, mat.british);
   const dress = (face: THREE.Object3D, span: number) => {
     const shaftTop = columnCapitalFace(face, height, span, mat);
     const shaftBottom = cornerBaseFace(face, span * 0.92, mat);
-    if (shaftTop - shaftBottom > 0.25)
-      box(face, 0, (shaftBottom + shaftTop) / 2, -0.02, 0.034, shaftTop - shaftBottom, 0.02, mat.dark);
+    if (shaftTop - shaftBottom > 250)
+      box(face, 0, (shaftBottom + shaftTop) / 2, -20, 34, shaftTop - shaftBottom, 20, mat.dark);
   };
   const frontFace = new THREE.Group();
   frontFace.position.set(frontX, 0, outwardZ * project);
   frontFace.rotation.y = outwardZ > 0 ? Math.PI : 0;
   g.add(frontFace);
-  dress(frontFace, Math.min(0.48, frontW - 0.06));
+  dress(frontFace, Math.min(480, frontW - 60));
   const sideFace = new THREE.Group();
   sideFace.position.set(xOuter, 0, -outwardZ * leg / 2);
   sideFace.rotation.y = outward > 0 ? -Math.PI / 2 : Math.PI / 2;
   g.add(sideFace);
-  dress(sideFace, Math.min(0.4, leg - 0.04));
+  dress(sideFace, Math.min(400, leg - 40));
   return g;
 }
 
@@ -242,9 +242,9 @@ export function solidLattice(
   g.name = "门厅铸铝花格";
   g.position.set(x, y, z);
   parent.add(g);
-  box(g, 0, 0, 0, w, h, 0.04, mat.dark);
-  const cols = Math.max(3, Math.round(w / 0.27));
-  const rows = Math.max(2, Math.round(h / 0.3));
+  box(g, 0, 0, 0, w, h, 40, mat.dark);
+  const cols = Math.max(3, Math.round(w / 270));
+  const rows = Math.max(2, Math.round(h / 300));
   const cw = w / cols;
   const ch = h / rows;
   for (let c = 0; c < cols; c++) {
@@ -252,14 +252,14 @@ export function solidLattice(
       const xx = -w / 2 + (c + 0.5) * cw;
       const yy = -h / 2 + (r + 0.5) * ch;
       const flip = (r + c) % 2 ? 1 : -1;
-      box(g, xx, yy, -0.028, cw * 0.88, 0.02, 0.012, mat.trim);
-      box(g, xx + flip * cw * 0.2, yy, -0.028, 0.02, ch * 0.88, 0.012, mat.trim);
+      box(g, xx, yy, -28, cw * 0.88, 20, 12, mat.trim);
+      box(g, xx + flip * cw * 0.2, yy, -28, 20, ch * 0.88, 12, mat.trim);
     }
   }
-  box(g, 0, h / 2, -0.02, w + 0.07, 0.045, 0.03, mat.trim);
-  box(g, 0, -h / 2, -0.02, w + 0.07, 0.045, 0.03, mat.trim);
-  box(g, -w / 2, 0, -0.02, 0.045, h, 0.03, mat.trim);
-  box(g, w / 2, 0, -0.02, 0.045, h, 0.03, mat.trim);
+  box(g, 0, h / 2, -20, w + 70, 45, 30, mat.trim);
+  box(g, 0, -h / 2, -20, w + 70, 45, 30, mat.trim);
+  box(g, -w / 2, 0, -20, 45, h, 30, mat.trim);
+  box(g, w / 2, 0, -20, 45, h, 30, mat.trim);
   return g;
 }
 
@@ -272,13 +272,13 @@ export function brownSlashPanel(
   g.name = "门厅中段棕色斜纹";
   g.position.set(x, y, z);
   parent.add(g);
-  box(g, 0, 0, 0, w, h, 0.04, mat.bronze);
-  box(g, 0, h / 2 - 0.018, -0.018, w, 0.026, 0.014, mat.bronzeDark);
-  box(g, 0, -h / 2 + 0.018, -0.018, w, 0.026, 0.014, mat.bronzeDark);
-  box(g, -w / 2 + 0.018, 0, -0.018, 0.026, h, 0.014, mat.bronzeDark);
-  box(g, w / 2 - 0.018, 0, -0.018, 0.026, h, 0.014, mat.bronzeDark);
-  const x0 = -w / 2 + 0.08, x1 = w / 2 - 0.08, y0 = -h / 2 + 0.07, y1 = h / 2 - 0.07;
-  for (let b = -w - h; b <= w + h; b += 0.26) {
+  box(g, 0, 0, 0, w, h, 40, mat.bronze);
+  box(g, 0, h / 2 - 18, -18, w, 26, 14, mat.bronzeDark);
+  box(g, 0, -h / 2 + 18, -18, w, 26, 14, mat.bronzeDark);
+  box(g, -w / 2 + 18, 0, -18, 26, h, 14, mat.bronzeDark);
+  box(g, w / 2 - 18, 0, -18, 26, h, 14, mat.bronzeDark);
+  const x0 = -w / 2 + 80, x1 = w / 2 - 80, y0 = -h / 2 + 70, y1 = h / 2 - 70;
+  for (let b = -w - h; b <= w + h; b += 260) {
     const hits: [number, number][] = [];
     for (const [px, py] of [
       [x0, x0 + b],
@@ -286,16 +286,16 @@ export function brownSlashPanel(
       [y0 - b, y0],
       [y1 - b, y1],
     ] as [number, number][]) {
-      if (px >= x0 - 0.02 && px <= x1 + 0.02 && py >= y0 - 0.02 && py <= y1 + 0.02)
+      if (px >= x0 - 20 && px <= x1 + 20 && py >= y0 - 20 && py <= y1 + 20)
         hits.push([Math.min(x1, Math.max(x0, px)), Math.min(y1, Math.max(y0, py))]);
     }
     if (hits.length < 2) continue;
     const a = hits[0], c = hits[hits.length - 1];
     const dx = c[0] - a[0], dy = c[1] - a[1];
     const len = Math.hypot(dx, dy);
-    if (len < 0.16) continue;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, 0.02, 0.01), mat.bronzeDark);
-    mesh.position.set((a[0] + c[0]) / 2, (a[1] + c[1]) / 2, -0.028);
+    if (len < 160) continue;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(len, 20, 10), mat.bronzeDark);
+    mesh.position.set((a[0] + c[0]) / 2, (a[1] + c[1]) / 2, -28);
     mesh.rotation.z = Math.atan2(dy, dx);
     mesh.castShadow = false;
     mesh.receiveShadow = false;
@@ -312,17 +312,17 @@ export function balconyCornerPost(
   g.name = "三楼露台短柱";
   parent.add(g);
   // 柱脚收边下挂10厘米，挡住坡瓦在柱脚处的薄边；上部柱高和盖板标高不变。
-  box(g, 0, 0.015, 0, width + 0.08, 0.23, width + 0.08, mat.dressedStone);
-  box(g, 0, height / 2, 0, width, height - 0.16, width, mat.trim);
+  box(g, 0, 15, 0, width + 80, 230, width + 80, mat.dressedStone);
+  box(g, 0, height / 2, 0, width, height - 160, width, mat.trim);
   // 盖板厚 10 厘米，顶面齐在柱高。每边比柱身多出 10 厘米。下面一条线脚收在盖板下。
-  const capThick = 0.1;
-  box(g, 0, height - capThick - 0.03, 0, width + 0.06, 0.06, width + 0.06, mat.trim);
-  box(g, 0, height - capThick / 2, 0, width + 0.2, capThick, width + 0.2, mat.dressedStone);
+  const capThick = 100;
+  box(g, 0, height - capThick - 30, 0, width + 60, 60, width + 60, mat.trim);
+  box(g, 0, height - capThick / 2, 0, width + 200, capThick, width + 200, mat.dressedStone);
   for (const angle of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
     const face = new THREE.Group();
     face.rotation.y = angle;
     g.add(face);
-    framedRelief(face, 0, height * 0.51, -width / 2 - 0.0125, width - 0.1, height * 0.62, mat);
+    framedRelief(face, 0, height * 0.51, -width / 2 - 12.5, width - 100, height * 0.62, mat);
   }
   return g;
 }
@@ -345,14 +345,14 @@ export function hatColumnFrontDecor(
   g.position.set(x, 0, columnCenterZ);
   parent.add(g);
   const decorMid = decorTopY - decorHeight / 2;
-  const faceZ = -0.27;
-  box(g, 0, decorMid, faceZ, columnWidth + 0.08, decorHeight, 0.05, mat.trim);
-  box(g, 0, decorMid, faceZ - 0.018, columnWidth - 0.06, decorHeight - 0.12, 0.02, mat.sand);
-  const bandH = 0.2;
-  const bands = Math.max(1, Math.round((decorHeight - 0.16) / 0.28));
+  const faceZ = -270;
+  box(g, 0, decorMid, faceZ, columnWidth + 80, decorHeight, 50, mat.trim);
+  box(g, 0, decorMid, faceZ - 18, columnWidth - 60, decorHeight - 120, 20, mat.sand);
+  const bandH = 200;
+  const bands = Math.max(1, Math.round((decorHeight - 160) / 280));
   for (let i = 0; i < bands; i++) {
-    const yy = decorTopY - 0.1 - bandH / 2 - i * ((decorHeight - 0.16) / bands);
-    meander(g, -columnWidth / 2 + 0.06, yy, faceZ - 0.028, columnWidth - 0.12, mat);
+    const yy = decorTopY - 100 - bandH / 2 - i * ((decorHeight - 160) / bands);
+    meander(g, -columnWidth / 2 + 60, yy, faceZ - 28, columnWidth - 120, mat);
   }
   return g;
 }
@@ -374,14 +374,14 @@ export function recessedHatPier(
   g.name = "官帽柱";
   g.position.set(x, base, z);
   parent.add(g);
-  box(g, 0, height / 2, 0, width, height, 0.5, mat.trim);
+  box(g, 0, height / 2, 0, width, height, 500, mat.trim);
   for (const sign of [-1, 1])
-    box(g, sign * (width / 2 - 0.035), height / 2, -0.27, 0.035, height - 0.3, 0.03, mat.wall);
+    box(g, sign * (width / 2 - 35), height / 2, -270, 35, height - 300, 30, mat.wall);
   // 柱顶只留薄盖，正面大装饰下移到下沿线以下。
-  box(g, 0, height - 0.06, 0, width + 0.06, 0.12, 0.52, mat.trim);
+  box(g, 0, height - 60, 0, width + 60, 120, 520, mat.trim);
   if (opts?.decorTopY != null || opts?.decorHeight !== 0) {
     const decorH = opts?.decorHeight ?? 1;
-    const decorTop = opts?.decorTopY ?? base + height - 0.12;
+    const decorTop = opts?.decorTopY ?? base + height - 120;
     hatColumnFrontDecor(g, 0, 0, decorTop - base, width, mat, decorH);
   }
   return g;
@@ -397,23 +397,23 @@ export function glassBalustrade(
   g.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
   g.name = "三楼通透玻璃栏板与细金属框";
   parent.add(g);
-  const count = Math.max(1, Math.ceil(length / 2.3));
+  const count = Math.max(1, Math.ceil(length / 2300));
   // 这组栏杆的 y 是 50 厘米挡墙顶。横条顶离露台地面约 1.18 米，停在柱盖板下面。
-  const railTop = 0.68;
-  const railH = 0.05;
+  const railTop = 680;
+  const railH = 50;
   const railY = railTop - railH / 2;
-  const glassBottom = 0.02;
+  const glassBottom = 20;
   const glassTop = railY - railH / 2;
   for (let i = 0; i < count; i++) {
     const span = length / count;
     // 玻璃和横条都收到柱中心，柱身挡住之后，外面看是嵌进柱子里。
-    box(g, (i + 0.5) * span, (glassBottom + glassTop) / 2, 0, Math.max(0.05, span - 0.02), glassTop - glassBottom, 0.012, mat.glass, false);
-    box(g, (i + 0.5) * span, railY, 0, span, railH, 0.075, mat.dark, false);
+    box(g, (i + 0.5) * span, (glassBottom + glassTop) / 2, 0, Math.max(50, span - 20), glassTop - glassBottom, 12, mat.glass, false);
+    box(g, (i + 0.5) * span, railY, 0, span, railH, 75, mat.dark, false);
   }
   for (let i = omitStart ? 1 : 0; i <= count; i++) {
     const xx = i * length / count;
-    const postBottom = 0.02;
-    box(g, xx, (postBottom + railTop) / 2, 0, 0.035, railTop - postBottom, 0.045, mat.dark, false);
+    const postBottom = 20;
+    box(g, xx, (postBottom + railTop) / 2, 0, 35, railTop - postBottom, 45, mat.dark, false);
   }
 }
 
@@ -440,7 +440,7 @@ function eyelidLayerTops(stackTop: number) {
 function wallHole(wall: WallFootprint | undefined, outerX: number, outerZ: number, outerW: number, outerD: number): Point[] {
   if (wall) return rect(wall.x, wall.z, wall.w, wall.d);
   // 无墙皮时按平均出檐内收，避免封成整板天花板。
-  const inset = Math.min(0.95, Math.min(outerW, outerD) * 0.2);
+  const inset = Math.min(950, Math.min(outerW, outerD) * 0.2);
   return rect(outerX + inset, outerZ + inset, outerW - 2 * inset, outerD - 2 * inset);
 }
 
@@ -471,11 +471,11 @@ function insetToward(outer: Point[], inner: Point[], dist: number): Point[] {
   for (let i = 0; i < outer.length; i++) {
     const dx = Math.abs(outer[i][0] - inner[i][0]);
     const dz = Math.abs(outer[i][1] - inner[i][1]);
-    if (dx > 0.01 && dz <= 0.01) projection = Math.min(projection, dx);
-    if (dz > 0.01 && dx <= 0.01) projection = Math.min(projection, dz);
+    if (dx > 10 && dz <= 10) projection = Math.min(projection, dx);
+    if (dz > 10 && dx <= 10) projection = Math.min(projection, dz);
   }
-  const span = Number.isFinite(projection) ? projection : 0.7;
-  const t = Math.min(1, dist / Math.max(span, 1e-6));
+  const span = Number.isFinite(projection) ? projection : 700;
+  const t = Math.min(1, dist / Math.max(span, 1e-3));
   return outer.map((p, i) => {
     const q = inner[i];
     return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
@@ -497,8 +497,8 @@ function polylineEyelid(
 /** 同墙面梁托中心：两端按拐角中心距的一半内收，中间按间距均分。 */
 export function corbelCentersOnEdge(length: number) {
   const endInset = eaveTrimDesign.corbelCornerSpacing / 2;
-  if (length <= 0.05) return [] as number[];
-  if (length <= endInset * 2 + 0.02) return [length / 2];
+  if (length <= 50) return [] as number[];
+  if (length <= endInset * 2 + 20) return [length / 2];
   const usable = length - 2 * endInset;
   const gaps = Math.max(1, Math.round(usable / eaveTrimDesign.corbelSpacing));
   const step = usable / gaps;
@@ -564,7 +564,7 @@ function addStyle07Corbel(
 ) {
   const { corbelWidth: W, corbelHeight: H } = eaveTrimDesign;
   const L = length;
-  const embed = 0.008;
+  const embed = 8;
   const geo = new THREE.ExtrudeGeometry(corbelProfileShape(L, H), {
     depth: W,
     bevelEnabled: false,
@@ -615,7 +615,7 @@ function placeCorbelEdges(
 
   for (const edge of edges) {
     const len = edge.to - edge.from;
-    if (len < 0.05) continue;
+    if (len < 50) continue;
     for (const t of corbelCentersOnEdge(len)) {
       addStyle07Corbel(trim, edge.along, edge.face, edge.sign, edge.from + t, corbelTop, eaveTrimDesign.corbelLength, sand);
     }
@@ -660,10 +660,10 @@ function addPolylineCorbelsAndFascia(
     const oa = outerPts[i], ob = outerPts[i + 1];
     const dx = b[0] - a[0], dz = b[1] - a[1];
     const len = Math.hypot(dx, dz);
-    if (len < 0.05) continue;
+    if (len < 50) continue;
     const outX = (oa[0] + ob[0]) / 2 - (a[0] + b[0]) / 2;
     const outZ = (oa[1] + ob[1]) / 2 - (a[1] + b[1]) / 2;
-    if (Math.hypot(outX, outZ) < 0.02) continue;
+    if (Math.hypot(outX, outZ) < 20) continue;
     if (Math.abs(dx) >= Math.abs(dz)) {
       edges.push({
         along: "x",
@@ -712,14 +712,14 @@ function slopeGutterCoping(mesh: THREE.Mesh, outer: Point[], width: number, clos
   const top = mesh.geometry.boundingBox!.max.y;
   const tangent = Math.tan(THREE.MathUtils.degToRad(roofGutterDesign.copingSlopeDegrees));
   for (let i = 0; i < positions.count; i++) {
-    if (Math.abs(positions.getY(i) - top) > 1e-6) continue;
+    if (Math.abs(positions.getY(i) - top) > 1e-2) continue;
     const x = positions.getX(i), z = positions.getZ(i);
     let distance = Infinity;
     for (let j = 0; j < outer.length - (closed ? 0 : 1); j++) {
       const a = outer[j], b = outer[(j + 1) % outer.length];
       const dx = b[0] - a[0], dz = b[1] - a[1];
       const len2 = dx * dx + dz * dz;
-      if (len2 < 1e-12) continue;
+      if (len2 < 1e-6) continue;
       const t = THREE.MathUtils.clamp(((x - a[0]) * dx + (z - a[1]) * dz) / len2, 0, 1);
       distance = Math.min(distance, Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz));
     }
@@ -743,7 +743,7 @@ function slopeGutterBed(mesh: THREE.Mesh, outer: Point[]) {
   // Extrude 后顶面在本地 Y≈thickness；绝不能写入世界标高，否则会撑成整层楼高的灰盒子。
   const top = mesh.geometry.boundingBox!.max.y;
   for (let i = 0; i < positions.count; i++) {
-    if (Math.abs(positions.getY(i) - top) > 1e-5) continue;
+    if (Math.abs(positions.getY(i) - top) > 1e-2) continue;
     const x = positions.getX(i), z = positions.getZ(i);
     let dist = Infinity;
     for (const d of drains) dist = Math.min(dist, Math.hypot(x - d[0], z - d[1]));
@@ -778,14 +778,14 @@ export function roofEaves(
   const cement = gutterCement(mat);
   const bedY = base + gutterBedTop;
   // 槽底只铺在沟槽内，不要铺到外皮——否则水泥灰会在三眼皮立面露出一道白线。
-  const bed = slab(g, outerInner, bedY, 0.08, cement, [innerLipHole.slice().reverse()]);
+  const bed = slab(g, outerInner, bedY, 80, cement, [innerLipHole.slice().reverse()]);
   bed.name = "天沟槽底";
   slopeGutterBed(bed, outerInner);
 
   // 外挡坐在三眼皮顶上；压顶与三眼皮同色（英国棕）并外飘。外挡顶略低于压顶底，避免共面闪线。
   const outerWallH = roofGutterDesign.clearDepth;
-  const copeThick = 0.03;
-  const wallTopGap = 0.003;
+  const copeThick = 30;
+  const wallTopGap = 3;
   const outerWall = slab(
     g,
     outer,
@@ -806,7 +806,7 @@ export function roofEaves(
 
   // 内挡保留；底边埋进槽底约 1cm，避免与槽顶共面穿模闪灰线。
   const innerTop = gutterInnerWallTop();
-  const innerEmbed = 0.01;
+  const innerEmbed = 10;
   const innerWall = slab(
     g,
     channelHole,
@@ -822,7 +822,7 @@ export function roofEaves(
     const lids = eyelidGroup(g);
     const hole = wall
       ? rect(wall.x, wall.z, wall.w, wall.d)
-      : bayOutline(x, z, w, d, bay.x, bay.w, bay.z, 0.95);
+      : bayOutline(x, z, w, d, bay.x, bay.w, bay.z, 950);
     for (const layer of eyelidLayerTops(stackTop)) {
       slab(
         lids,
@@ -866,17 +866,17 @@ function addWallAndHatBayCorbels(
     { along: "z", face: wall.x + wall.w, from: wall.z, to: wall.z + wall.d, sign: 1 },
   ];
   // 北墙两翼（官帽开间以外）。
-  if (bayWest > wall.x + 0.05)
+  if (bayWest > wall.x + 50)
     edges.push({ along: "x", face: wallNorth, from: wall.x, to: Math.min(bayWest, wall.x + wall.w), sign: -1 });
-  if (bayEast < wall.x + wall.w - 0.05)
+  if (bayEast < wall.x + wall.w - 50)
     edges.push({ along: "x", face: wallNorth, from: Math.max(bayEast, wall.x), to: wall.x + wall.w, sign: -1 });
   // 官帽前／左／右：梁托背面落在外沿内侧（天沟净宽一带），向外挑，避免贴在最外皮外甩。
   const under = roofGutterDesign.outerTopWidth + roofGutterDesign.clearWidth * 0.35;
   const p = eyelidFixed.fasciaProtrusion;
   edges.push({ along: "x", face: bayFront + under, from: bayWest, to: bayEast, sign: -1 });
-  const sideTo = Math.max(bayFront + 0.05, roofNorthZ);
+  const sideTo = Math.max(bayFront + 50, roofNorthZ);
   // 侧边北端内收一个下沿线凸出量，避免 +2p 咬合把下沿线甩出官帽前皮。
-  if (sideTo - (bayFront + p) > 0.05) {
+  if (sideTo - (bayFront + p) > 50) {
     edges.push({ along: "z", face: bayWest + under, from: bayFront + p, to: sideTo, sign: -1 });
     edges.push({ along: "z", face: bayEast - under, from: bayFront + p, to: sideTo, sign: 1 });
   }
@@ -907,7 +907,7 @@ export function integratedHatEaves(
     if (coping) slopeGutterCoping(mesh, [[x - eyelidFixed.copingOverhang, end], [x - eyelidFixed.copingOverhang, z - eyelidFixed.copingOverhang], [x + w + eyelidFixed.copingOverhang, z - eyelidFixed.copingOverhang], [x + w + eyelidFixed.copingOverhang, end]], outerT + eyelidFixed.copingOverhang, false);
     const positions = mesh.geometry.getAttribute("position");
     for (let i = 0; i < positions.count; i++) {
-      if (Math.abs(positions.getZ(i) - end) < 1e-5)
+      if (Math.abs(positions.getZ(i) - end) < 1e-2)
         positions.setZ(i, end + (positions.getY(i) + mesh.position.y - top) / slope);
     }
     mesh.geometry.computeVertexNormals();
@@ -920,11 +920,11 @@ export function integratedHatEaves(
   const cement = gutterCement(mat);
   const bedY = base + gutterBedTop;
   // 槽底只在沟内，避免外皮露出水泥灰白线。
-  const bed = finish(end => rim(outerT, innerFace, end), bedY, 0.08, cement);
+  const bed = finish(end => rim(outerT, innerFace, end), bedY, 80, cement);
   bed.name = "天沟槽底";
-  slopeGutterBed(bed, [[x + outerT, z + outerT], [x + w - outerT, z + outerT], [x + w - outerT, z + 1], [x + outerT, z + 1]]);
+  slopeGutterBed(bed, [[x + outerT, z + outerT], [x + w - outerT, z + outerT], [x + w - outerT, z + 1000], [x + outerT, z + 1000]]);
   const outerWallH = roofGutterDesign.clearDepth;
-  const wallTopGap = 0.003;
+  const wallTopGap = 3;
   finish(
     end => rim(0, outerT, end),
     base + outerWallH - wallTopGap,
@@ -934,13 +934,13 @@ export function integratedHatEaves(
   const copeOh = eyelidFixed.copingOverhang;
   finish(
     end => rim(-copeOh, outerT, end),
-    base + outerWallH + 0.03,
-    0.03,
+    base + outerWallH + 30,
+    30,
     mat.british,
     true,
   ).name = "天沟外边反坎压顶";
   const innerTop = gutterInnerWallTop();
-  const innerEmbed = 0.01;
+  const innerEmbed = 10;
   finish(
     end => rim(channel, channel + innerT, end),
     base + innerTop,
@@ -951,11 +951,11 @@ export function integratedHatEaves(
   for (const layer of eyelidLayerTops(base))
     lids.add(finish(end => rim(layer.inset, innerFace, end), layer.top, layer.thick, mat.british));
   const underside = apronFasciaBottom(base, 0);
-  finish(end => rect(x + 0.2, z + 0.2, w - 0.4, end - z - 0.2), underside + 0.045, 0.045, mat.trim).name = "悬浮官帽封闭檐底";
+  finish(end => rect(x + 200, z + 200, w - 400, end - z - 200), underside + 45, 45, mat.trim).name = "悬浮官帽封闭檐底";
   // 前／左／右梁托与下沿线；侧边预留下沿线／梁托外伸，避免未斜切穿进正屋坡面。
   const under = outerT + roofGutterDesign.clearWidth * 0.35;
   const p = eyelidFixed.fasciaProtrusion;
-  const sidePad = p + eaveTrimDesign.corbelWidth / 2 + 0.02;
+  const sidePad = p + eaveTrimDesign.corbelWidth / 2 + 20;
   const sideEnd = Math.min(
     mainTileFront - sidePad,
     mainTileFront + (base - mainTileEave) / slope - sidePad,
@@ -963,7 +963,7 @@ export function integratedHatEaves(
   const edges: CorbelEdge[] = [
     { along: "x", face: z + under, from: x, to: x + w, sign: -1 },
   ];
-  if (sideEnd - (z + p) > 0.08) {
+  if (sideEnd - (z + p) > 80) {
     edges.push({ along: "z", face: x + under, from: z + p, to: sideEnd, sign: -1 });
     edges.push({ along: "z", face: x + w - under, from: z + p, to: sideEnd, sign: 1 });
   }
@@ -1009,11 +1009,11 @@ export function tiledApron(
   const faces: RoofFace[] = inner.slice(0, -1).map((a, i) => {
     const b = inner[i + 1];
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (len < 1e-6) return null;
+    if (len < 1e-3) return null;
     return {
       points: [at(tileRim[i], tileOuterY), at(tileRim[i + 1], tileOuterY), at(b, top), at(a, top)],
       across: [(b[0] - a[0]) / len, (b[1] - a[1]) / len],
-      origin: [13.7, inner[1][1]],
+      origin: [13700, inner[1][1]],
       owner: 0,
     };
   }).filter((f): f is RoofFace => !!f);
@@ -1030,19 +1030,19 @@ export function tiledApron(
   const oLip = insetToward(outer, inner, innerFace);
   const cement = gutterCement(mat);
   const bedY = apronBase + gutterBedTop;
-  const bed = slab(g, band(oWall, oLip), bedY, 0.08, cement);
+  const bed = slab(g, band(oWall, oLip), bedY, 80, cement);
   bed.name = "天沟槽底";
   slopeGutterBed(bed, oWall);
   const outerWallH = roofGutterDesign.clearDepth;
-  const wallTopGap = 0.003;
+  const wallTopGap = 3;
   slab(g, band(outer, oWall), apronBase + outerWallH - wallTopGap, outerWallH - wallTopGap, mat.british).name = "天沟外挡边";
   const copeOh = eyelidFixed.copingOverhang;
   const copeOuter = insetToward(outer, inner, -copeOh);
-  const cope = slab(g, band(copeOuter, oWall), apronBase + outerWallH + 0.03, 0.03, mat.british);
+  const cope = slab(g, band(copeOuter, oWall), apronBase + outerWallH + 30, 30, mat.british);
   cope.name = "天沟外边反坎压顶";
   slopeGutterCoping(cope, copeOuter, outerT + copeOh, false);
   const innerTop = gutterInnerWallTop();
-  const innerEmbed = 0.01;
+  const innerEmbed = 10;
   slab(g, band(oChannel, oLip), apronBase + innerTop, innerTop - gutterBedTop + innerEmbed, cement).name = "天沟内挡边";
 
   polylineEyelid(g, outer, inner, apronBase, mat);
@@ -1062,7 +1062,7 @@ export function openingFrame(
   w: number, h: number, mat: Mats,
   edges: { top?: boolean; bottom?: boolean } = {},
 ) {
-  const t = 0.07, d = 0.04;
+  const t = 70, d = 40;
   if (edges.top !== false)
     box(parent, x, sill + h + t / 2, z, w + t * 2, t, d, mat.trim);
   if (edges.bottom !== false)

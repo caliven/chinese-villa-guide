@@ -68,34 +68,34 @@ export function buildGarageRouteVisual(assessment: RouteAssessment) {
   clearance.name = "保留地坪下方净高待核区";
   conflicts.name = "柱墙及示意通道潜在冲突";
   group.add(sweep, clearance, conflicts);
-  const y = ([x, z]: Point) => routeHeight(x, z, assessment.roadY, assessment.rampLength) + 0.11;
-  sweep.add(footprintMesh(assessment.cells.map((c) => c.footprint), y, routeColors.sweep, 0.32, 2, 1));
+  const y = ([x, z]: Point) => routeHeight(x, z, assessment.roadY, assessment.rampLength) + 110;
+  sweep.add(footprintMesh(assessment.cells.map((c) => c.footprint), y, routeColors.sweep, 320, 2, 1));
   // 定距显示整车矩形，能看见转向时前后悬与车尾的占位，避免把定宽路线带当成扫掠。
   assessment.poses.filter((_, i, all) => i % 22 === 0 || i === all.length - 1).forEach((p) => {
-    outline(sweep, p.corners, p.y + 0.13, routeColors.sweep);
+    outline(sweep, p.corners, p.y + 130, routeColors.sweep);
   });
   const deck = garageLayout.retainedDeck;
-  clearance.add(footprintMesh([deck.footprint], () => deck.modelSlabBottom, routeColors.pending, 0.1, 1));
+  clearance.add(footprintMesh([deck.footprint], () => deck.modelSlabBottom, routeColors.pending, 100, 1));
   outline(clearance, deck.footprint, deck.modelSlabBottom, routeColors.pending, true);
   clearance.add(footprintMesh(assessment.cells.filter((c) => c.underDeck)
     .map((c) => clipToDeck(c.footprint)).filter((p) => p.length >= 3),
-  y, routeColors.pending, 0.45, 3, 2));
+  y, routeColors.pending, 450, 3, 2));
   const centerX = (deck.footprint[0][0] + deck.footprint[1][0]) / 2;
-  tag(clearance, "保留地坪下方 · 净高待测", centerX, 1.1, -2.2, "#895b14", 0.9);
+  tag(clearance, "保留地坪下方 · 净高待测", centerX, 1100, -2200, "#895b14", 0.9);
   // 只叠加待协商范围，不隐藏地坪、也不把切口视作露天口。
   const cut = garageLayout.proposedCut.footprint;
-  outline(clearance, cut, 0.04, routeColors.cut, true);
-  tag(clearance, "拟切口 · 协商待确认", site.cut.x + site.cut.w / 2, 1.2,
-    site.cut.z - 0.6, "#8052a3", 0.78);
+  outline(clearance, cut, 40, routeColors.cut, true);
+  tag(clearance, "拟切口 · 协商待确认", site.cut.x + site.cut.w / 2, 1200,
+    site.cut.z - 600, "#8052a3", 0.78);
 
   const bad = assessment.cells.filter((c) => c.outside || c.obstacles.length);
-  conflicts.add(footprintMesh(bad.map((c) => c.footprint), y, routeColors.conflict, 0.4, 4, 3));
+  conflicts.add(footprintMesh(bad.map((c) => c.footprint), y, routeColors.conflict, 400, 4, 3));
   for (const obstacle of assessment.conflicts) {
     const { footprint, top, bottom } = obstacle;
-    outline(conflicts, footprint, bottom + 0.04, routeColors.conflict);
-    outline(conflicts, footprint, top + 0.04, routeColors.conflict);
+    outline(conflicts, footprint, bottom + 40, routeColors.conflict);
+    outline(conflicts, footprint, top + 40, routeColors.conflict);
     for (const [x, z] of footprint) {
-      const vertical = line(conflicts, [new THREE.Vector3(x, bottom, z), new THREE.Vector3(x, top + 0.04, z)], routeColors.conflict);
+      const vertical = line(conflicts, [new THREE.Vector3(x, bottom, z), new THREE.Vector3(x, top + 40, z)], routeColors.conflict);
       vertical.material.depthTest = false;
       vertical.material.depthWrite = false;
       vertical.renderOrder = 8;
@@ -103,7 +103,7 @@ export function buildGarageRouteVisual(assessment: RouteAssessment) {
     if (obstacle.kind === "column") {
       const x = (footprint[0][0] + footprint[2][0]) / 2;
       const z = (footprint[0][1] + footprint[2][1]) / 2;
-      tag(conflicts, `${obstacle.label} · 潜在冲突`, x, top + 0.8, z, "#b02e32", 0.68);
+      tag(conflicts, `${obstacle.label} · 潜在冲突`, x, top + 800, z, "#b02e32", 0.68);
     }
   }
   const current = new THREE.LineSegments(

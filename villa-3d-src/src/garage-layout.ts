@@ -34,8 +34,8 @@ export interface GarageLayout {
   };
 }
 
-const modelSlabBottom = -0.23;
-const columnWidth = 0.36;
+const modelSlabBottom = -230;
+const columnWidth = 360;
 
 /** 按当前院坪外沿／site.cut／房子前墙现场计算地库布局（勿模块级快照）。 */
 export function buildGarageLayout(): GarageLayout {
@@ -54,24 +54,24 @@ export function buildGarageLayout(): GarageLayout {
     }),
   );
   const wallOuter: Point[] = [
-    ...contourSection(insetContour(courtyardFront, 0.035), 0.12, site.width),
-    [surroundings.road.x - 0.35, surroundings.neighborYard.z + 0.035],
+    ...contourSection(insetContour(courtyardFront, 35), 120, site.width),
+    [surroundings.road.x - 350, surroundings.neighborYard.z + 35],
   ];
-  const wallInner = insetContour(wallOuter, 0.2);
+  const wallInner = insetContour(wallOuter, 200);
   const wallSegments: GarageObstacle[] = wallOuter.slice(1).map((p, i) => ({
     id: `outer-wall-${i + 1}`,
     label: "外沿矮墙",
     kind: "wall",
     footprint: [wallOuter[i], p, wallInner[i + 1], wallInner[i]],
     bottom: site.garageFloor,
-    top: site.garageFloor + 1.04,
+    top: site.garageFloor + 1040,
   }));
   const westFront = courtyardFront[0]?.[1] ?? 0;
   const westWall: GarageObstacle = {
     id: "west-wall",
     label: "旁田交界墙",
     kind: "wall",
-    footprint: rectangle(0, westFront, 0.12, -westFront),
+    footprint: rectangle(0, westFront, 120, -westFront),
     bottom: site.garageFloor,
     top: site.adjacentUnexcavatedLevel,
   };
