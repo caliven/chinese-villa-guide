@@ -190,7 +190,7 @@ window.originalMaterials = [
   },
   {
     "path": "新中式参考图/参考户型图2楼.JPG",
-    "bytes": 328356
+    "bytes": 325917
   },
   {
     "path": "新中式参考图/参考户型图3楼.JPG",
