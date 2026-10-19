@@ -41,10 +41,16 @@ export interface Room {
   note?: string;
   label?: Point;
   purposeStatus?: "pending";
+  /** 墙中线／外墙外皮组成的真实正交轮廓；缺省为 x/z/w/d 矩形。 */
+  outline?: Point[];
+  /** 稳定墙边界关联；开敞分区和已失围合不能冒充闭合房间。 */
+  boundary?: { key: string; status: "enclosed" | "open" | "unbounded" };
 }
 /** virtual 仅为开放区域分界，无实体、无墙厚。 */
 export type WallRole = "bearing" | "partition" | "virtual";
 export interface Wall {
+  /** 编辑器内部的稳定身份，删除其他墙后不随数组下标变化。 */
+  id?: string;
   a: Point;
   b: Point;
   /** 隔墙上的门／窗洞口（可含开向与类型） */
@@ -505,7 +511,7 @@ export const floors: Floor[] = [
         note: "北门起居进；西门靠南入主卧；衣柜贴东墙，西侧留走道。" },
       { id: "hall2", name: "东侧短过道", x: 13550, z: 5400, w: 2250, d: 1200, kind: "hall", label: [14650, 6000],
         note: "后过道东半北段；北接起居，东门进东南卧，南门进公卫。" },
-      { id: "bath1", name: "公卫", x: 13550, z: 6600, w: 2250, d: 3000, kind: "bath", label: [14650, 8100],
+      { id: "bath1", name: "公卫", x: 13550, z: 6600, w: 2250, d: 2400, kind: "bath", label: [14650, 7800],
         note: "北门自短过道进。洗漱靠北、马桶靠南；不与卧室共用门。" },
       { id: "front2", name: "东前卧室", x: 15800, z: -1000, w: 4500, d: 3200, kind: "bed", label: [18050, 600],
         note: "东房：床头贴东墙（无窗）；衣柜贴南墙。西门贴楼梯南端，门口留空。" },
@@ -556,7 +562,7 @@ export const floors: Floor[] = [
       fixture("basin", 10600, 4500, 700, 450),
       // 公卫：洗漱贴北墙、马桶贴南墙
       { ...fixture("basin", 14650, 6850, 550, 400), rotation: Math.PI, label: "公卫洗漱" },
-      fixture("toilet", 14650, 9150, 480, 700),
+      fixture("toilet", 14650, 8390, 480, 700),
       // 东前卧（东房）：床头贴东墙（+90°）；衣柜贴南墙（不朝北玻）
       { ...bed(18950, 550, 2200), rotation: Math.PI / 2 },
       { ...fixture("wardrobe", 17100, 1900, 1600, 500), rotation: 0 },

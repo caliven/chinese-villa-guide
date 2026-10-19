@@ -1519,7 +1519,7 @@ function showRoom(id: string) {
   if (!room) return;
   const areas = roomAreas(room, level);
   $("room-detail").hidden = false;
-  $("room-detail").innerHTML = `<strong>${escapeHtml(room.name)}</strong>${room.kind !== "void" ? `<p>建筑面积 ${areas.building.toFixed(2)} m² · 套内面积 ${areas.interior.toFixed(2)} m²</p>` : ""}<p>${escapeHtml(room.note ?? "家具与空间为方案参考，需结合结构、装修和使用进一步深化。")}</p>${room.purposeStatus ? "<p>用途待确认；当前不计入6间用途明确的卧室。</p>" : ""}<button class="text-button" data-design-issue="${room.id === "dining" ? "D09" : room.id === "stair" ? "D03" : room.id === "spare" ? "D10" : "D08"}">打开相关议题与记录 ↗</button>`;
+  $("room-detail").innerHTML = `<strong>${escapeHtml(room.name)}</strong>${room.kind !== "void" ? `<p>墙线面积 ${areas.building.toFixed(2)} m² · 净空面积 ${areas.interior.toFixed(2)} m²</p>` : ""}<p>${escapeHtml(room.note ?? "家具与空间为方案参考，需结合结构、装修和使用进一步深化。")}</p>${room.purposeStatus ? "<p>用途待确认；当前不计入6间用途明确的卧室。</p>" : ""}<button class="text-button" data-design-issue="${room.id === "dining" ? "D09" : room.id === "stair" ? "D03" : room.id === "spare" ? "D10" : "D08"}">打开相关议题与记录 ↗</button>`;
 }
 function captureMeetingView(): MeetingView {
   return {
@@ -1918,6 +1918,8 @@ $("layout-inspector").addEventListener("change", (event) => {
       return;
     }
     layoutEditor.updateSelectedNumber(field, value);
+    // 约束拒绝时也回显实际几何，避免输入值与图纸尺寸不一致。
+    refreshLayoutInspector();
   }
 });
 $("layout-inspector").addEventListener("keydown", (event) => {

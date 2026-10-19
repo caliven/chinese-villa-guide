@@ -24,6 +24,7 @@ import {
 } from "./facades";
 import { projectMeta } from "./project-meta";
 import { snapMm } from "./units";
+import { reconcileWallOpening } from "./wall-constraints";
 
 export const layoutDraftKey = "anhua-villa-layout-draft-v1";
 export const layoutDraftSchema = 1 as const;
@@ -226,6 +227,26 @@ function parseRoom(value: unknown, i: number): Room {
   if (value.note !== undefined) room.note = str(value.note, `房间 ${i} 说明`, 500);
   if (value.label !== undefined) room.label = point(value.label, `房间 ${i} 标签`);
   if (value.purposeStatus === "pending") room.purposeStatus = "pending";
+  if (value.outline !== undefined) {
+    if (!Array.isArray(value.outline) || value.outline.length < 4 || value.outline.length > 512) throw new Error(`房间 ${i} 轮廓顶点数无效`);
+    const polygon = value.outline.map((p,j) => point(p, `房间 ${i} 轮廓 ${j}`));
+    if (polygon.some((p,j) => {
+      const q = polygon[(j+1)%polygon.length]!;
+      return (p[0] !== q[0] && p[1] !== q[1]) || (p[0] === q[0] && p[1] === q[1]);
+    })) throw new Error(`房间 ${i} 轮廓须为正交非零边`);
+    const xs=polygon.map(p=>p[0]), zs=polygon.map(p=>p[1]);
+    if (Math.abs(Math.min(...xs)-room.x)>1 || Math.abs(Math.min(...zs)-room.z)>1 || Math.abs(Math.max(...xs)-room.x-room.w)>1 || Math.abs(Math.max(...zs)-room.z-room.d)>1) throw new Error(`房间 ${i} 轮廓与外包络不一致`);
+    // 非相邻正交边相交意味着自交或重复边，不能作为房间计算依据。
+    for (let a=0;a<polygon.length;a++) for(let b=a+1;b<polygon.length;b++) {
+      if (b===a+1 || (a===0 && b===polygon.length-1)) continue;
+      const p=polygon[a]!,q=polygon[(a+1)%polygon.length]!,r=polygon[b]!,t=polygon[(b+1)%polygon.length]!;
+      if (Math.max(Math.min(p[0],q[0]),Math.min(r[0],t[0])) <= Math.min(Math.max(p[0],q[0]),Math.max(r[0],t[0])) && Math.max(Math.min(p[1],q[1]),Math.min(r[1],t[1])) <= Math.min(Math.max(p[1],q[1]),Math.max(r[1],t[1]))) throw new Error(`房间 ${i} 轮廓不能自交`);
+    }
+    room.outline = polygon;
+  }
+  if (isRecord(value.boundary) && ["enclosed","open","unbounded"].includes(String(value.boundary.status))) {
+    room.boundary = {key:str(value.boundary.key, `房间 ${i} 边界关联`, 30000), status:value.boundary.status as "enclosed"|"open"|"unbounded"};
+  }
   return room;
 }
 
@@ -246,6 +267,7 @@ function parseOpening(value: unknown, label: string): WallOpening {
 function parseWall(value: unknown, i: number): Wall {
   if (!isRecord(value)) throw new Error(`隔墙 ${i} 格式不对`);
   const wall: Wall = { a: point(value.a, `隔墙 ${i} a`), b: point(value.b, `隔墙 ${i} b`) };
+  if (value.id !== undefined) wall.id = str(value.id, `隔墙 ${i} id`, 80);
   if (value.role === "bearing" || value.role === "partition" || value.role === "virtual") wall.role = value.role;
   if (value.door !== undefined && wall.role !== "virtual") wall.door = parseOpening(value.door, `隔墙 ${i} 门窗`);
   // 旧草稿里可能带 roomId（曾自动造墙），忽略即可。
@@ -488,6 +510,7 @@ function scaleRoomDraft(r: Room, oE: number, oS: number, nE: number, nS: number,
     d: r.d * sz,
   };
   if (r.label) next.label = scalePointDraft(r.label, oE, oS, nE, nS, sx, sz);
+  if (r.outline) next.outline = r.outline.map(p => scalePointDraft(p, oE, oS, nE, nS, sx, sz));
   return next;
 }
 
@@ -937,6 +960,7 @@ export function extendOrthoEndToFarFace(
       { x: s.ax, z: s.az },
       { x: s.bx, z: s.bz },
     ]) {
+      if (ortho === "h" ? Math.abs(az-tip.z)>1 : Math.abs(ax-tip.x)>1) continue;
       const d = Math.hypot(bx - tip.x, bz - tip.z);
       if (d < bestTipD) {
         bestTipD = d;
@@ -953,7 +977,7 @@ export function extendOrthoEndToFarFace(
         { x: s.bx, z: s.bz },
       ]) {
         if (ortho === "h") {
-          if (Math.abs(az - tip.z) > threshold * 0.5) continue;
+          if (Math.abs(az - tip.z) > 1) continue;
           const d = Math.abs(bx - tip.x);
           if (d < bestAxisTipD) {
             bestAxisTipD = d;
@@ -961,7 +985,7 @@ export function extendOrthoEndToFarFace(
             bestTipD = d;
           }
         } else {
-          if (Math.abs(ax - tip.x) > threshold * 0.5) continue;
+          if (Math.abs(ax - tip.x) > 1) continue;
           const d = Math.abs(bz - tip.z);
           if (d < bestAxisTipD) {
             bestAxisTipD = d;
@@ -974,8 +998,8 @@ export function extendOrthoEndToFarFace(
   }
   if (bestTip) {
     return {
-      x: snapMeter(bestTip.x),
-      z: snapMeter(bestTip.z),
+      x: ortho === "h" ? snapMeter(bestTip.x) : ax,
+      z: ortho === "v" ? snapMeter(bestTip.z) : az,
       snapped: true,
       guideXs: [bestTip.x],
       guideZs: [bestTip.z],
@@ -1132,8 +1156,8 @@ export function refineWallEnd(
       }
     }
     for (const a of anchors) {
-      if (Math.hypot(bx - a.x, az - a.z) <= threshold) {
-        return { x: a.x, z: a.z, ortho: "h", guideXs: [a.x], guideZs: [a.z] };
+      if (Math.abs(az-a.z)<=1 && Math.abs(bx-a.x)<=threshold) {
+        return { x: a.x, z: az, ortho: "h", guideXs: [a.x], guideZs: [a.z] };
       }
     }
     return { x: bx, z: az, ortho: "h", guideXs, guideZs: [az] };
@@ -1146,8 +1170,8 @@ export function refineWallEnd(
     }
   }
   for (const a of anchors) {
-    if (Math.hypot(ax - a.x, bz - a.z) <= threshold) {
-      return { x: a.x, z: a.z, ortho: "v", guideXs: [a.x], guideZs: [a.z] };
+    if (Math.abs(ax-a.x)<=1 && Math.abs(bz-a.z)<=threshold) {
+      return { x: ax, z: a.z, ortho: "v", guideXs: [a.x], guideZs: [a.z] };
     }
   }
   return { x: ax, z: bz, ortho: "v", guideXs: [ax], guideZs };
@@ -1164,15 +1188,15 @@ export function wallAxis(wall: Pick<Wall, "a" | "b">): "h" | "v" {
 
 /**
  * 强制水平或竖直，消除拖动／浮点造成的歪斜。
- * 水平墙取两端 Z 中值；竖直墙取两端 X 中值。
+ * 默认保留墙线中位；拖端点时可指定固定端，避免吸附移动原本固定的端点。
  */
-export function forceOrthoWall(wall: Wall): Wall {
+export function forceOrthoWall(wall: Wall, anchor: "a" | "b" | "center" = "center"): Wall {
   if (wallAxis(wall) === "h") {
-    const z = snapMeter((wall.a[1] + wall.b[1]) / 2);
+    const z = snapMeter(anchor === "center" ? (wall.a[1] + wall.b[1]) / 2 : wall[anchor][1]);
     wall.a = [snapMeter(wall.a[0]), z];
     wall.b = [snapMeter(wall.b[0]), z];
   } else {
-    const x = snapMeter((wall.a[0] + wall.b[0]) / 2);
+    const x = snapMeter(anchor === "center" ? (wall.a[0] + wall.b[0]) / 2 : wall[anchor][0]);
     wall.a = [x, snapMeter(wall.a[1])];
     wall.b = [x, snapMeter(wall.b[1])];
   }
@@ -1181,30 +1205,37 @@ export function forceOrthoWall(wall: Wall): Wall {
 
 /** 改隔墙长度：先正交，再沿主轴伸缩；center 则两端对称。 */
 export function setWallLength(wall: Wall, length: number, anchor: "a" | "center" = "a") {
+  if (!Number.isFinite(length)) return wall;
+  const original: Wall = { ...wall, a: [...wall.a], b: [...wall.b], ...(wall.door ? { door: { ...wall.door } } : {}) };
   forceOrthoWall(wall);
   const cur = wallLength(wall);
   const L = Math.max(300, snapMeter(length));
   if (cur < 1e-6) {
     wall.b = [snapMeter(wall.a[0] + L), wall.a[1]];
-    return wall;
-  }
-  const axis = wallAxis(wall);
-  if (anchor === "center") {
+  } else if (anchor === "center") {
+    const axis = wallAxis(wall);
+    const direction = Math.sign(wall.b[axis === "h" ? 0 : 1] - wall.a[axis === "h" ? 0 : 1]) || 1;
     const cx = (wall.a[0] + wall.b[0]) / 2;
     const cz = (wall.a[1] + wall.b[1]) / 2;
     if (axis === "h") {
-      wall.a = [snapMeter(cx - L / 2), snapMeter(cz)];
-      wall.b = [snapMeter(cx + L / 2), snapMeter(cz)];
+      wall.a = [snapMeter(cx - direction * L / 2), snapMeter(cz)];
+      wall.b = [snapMeter(cx + direction * L / 2), snapMeter(cz)];
     } else {
-      wall.a = [snapMeter(cx), snapMeter(cz - L / 2)];
-      wall.b = [snapMeter(cx), snapMeter(cz + L / 2)];
+      wall.a = [snapMeter(cx), snapMeter(cz - direction * L / 2)];
+      wall.b = [snapMeter(cx), snapMeter(cz + direction * L / 2)];
     }
-  } else if (axis === "h") {
+  } else if (wallAxis(wall) === "h") {
     const dir = Math.sign(wall.b[0] - wall.a[0]) || 1;
     wall.b = [snapMeter(wall.a[0] + dir * L), wall.a[1]];
   } else {
     const dir = Math.sign(wall.b[1] - wall.a[1]) || 1;
     wall.b = [wall.a[0], snapMeter(wall.a[1] + dir * L)];
+  }
+  if (!reconcileWallOpening(wall, original).ok) {
+    wall.a = original.a;
+    wall.b = original.b;
+    if (original.door) wall.door = original.door;
+    else delete wall.door;
   }
   return wall;
 }

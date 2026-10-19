@@ -1204,6 +1204,12 @@ input[type="range"] {
   width: 100%;
   box-sizing: border-box;
   --plan-zoom: 1;
+  --plan-scroll-top-gap: 28px;
+}
+/* 工具条仍悬浮固定，初始图纸内容需避开其实际高度，小屏换行后也能操作成房按钮。 */
+.plan-canvas-wrap:has(#layout-edit-bar:not([hidden])) .plan-scroll {
+  padding-top: calc(var(--layout-edit-bar-h, 48px) + var(--plan-scroll-top-gap));
+  scroll-padding-top: calc(var(--layout-edit-bar-h, 48px) + 8px);
 }
 .floor-svg {
   /* 小于视口时 margin:auto 居中；大于视口时自动边距归零，可滚到左右边缘 */
@@ -1393,6 +1399,9 @@ body.plan-editor-focus .workspace {
   padding: 0;
 }
 body.plan-editor-focus .stage {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
   border: 0;
   border-radius: 0;
 }
@@ -2887,6 +2896,7 @@ dialog .secondary-button {
   }
   .plan-scroll {
     padding: 16px 48px 72px 16px;
+    --plan-scroll-top-gap: 16px;
   }
   .floor-svg {
     min-width: calc(700px * var(--plan-zoom, 1));

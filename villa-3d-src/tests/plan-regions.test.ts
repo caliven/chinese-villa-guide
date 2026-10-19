@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { site } from "../src/data.ts";
+import { site, type Point, type Room, type Wall } from "../src/data.ts";
 import { clonePublishedLayout, removeStairFromDraft } from "../src/layout-draft.ts";
 import { LayoutEditor } from "../src/layout-editor.ts";
 import { collectPlanDimensions } from "../src/plan-dimensions.ts";
 import { floorPlan, planSourceFromDraft } from "../src/plan.ts";
-import { virtualWallRegions } from "../src/plan-regions.ts";
+import {
+  applyRoomToEnclosedRegion, enclosedRoomRegions, findEnclosedRegionAt,
+  polygonAreaMm2, polygonContainsPoint, regionTouchesWall, threeWallRoomRegions,
+  virtualWallRegions,
+} from "../src/plan-regions.ts";
 
 const body = () => ({ x: site.main.x, z: site.main.z, w: site.main.w, d: site.main.d });
 
@@ -127,4 +131,98 @@ test("拖放虚拟墙写入 role=virtual，默认长度短于实体隔墙", () =
   assert.equal(wall.role, "virtual");
   assert.ok(Math.abs(wall.b[0] - wall.a[0] - 1500) < 1);
   assert.ok(toasts.some((t) => t.includes("虚拟墙")));
+});
+
+const polygonBody = { x: 0, z: 0, w: 12000, d: 10000 };
+function loop(points: Point[]): Wall[] {
+  return points.map((a, i) => ({ id: `l${i}`, a: [...a], b: [...points[(i + 1) % points.length]!], role: "partition" }));
+}
+const lPoints: Point[] = [[2000, 2000], [8000, 2000], [8000, 4000], [5000, 4000], [5000, 7000], [2000, 7000]];
+const box = (): Wall[] => loop([[2000, 2000], [8000, 2000], [8000, 7000], [2000, 7000]]);
+
+test("闭合L形提取为一条真实轮廓，面积不包含凹口", () => {
+  const regions = enclosedRoomRegions(polygonBody, loop(lPoints));
+  assert.equal(regions.length, 1);
+  const r = regions[0]!;
+  assert.equal(r.rectangular, false);
+  assert.deepEqual(r.polygon, lPoints);
+  assert.equal(r.geometryArea, 21);
+  assert.equal(r.buildingArea, 21);
+  assert.equal(polygonAreaMm2(r.polygon!), 21_000_000);
+  assert.equal(polygonContainsPoint(r.polygon!, 6500, 5500), false);
+  assert.equal(polygonContainsPoint(r.polygon!, 3500, 5500), true);
+  assert.notEqual(findEnclosedRegionAt(6500, 5500, polygonBody, loop(lPoints))?.boundaryKey, r.boundaryKey);
+});
+
+test("同一墙拆为多段且反向绘制，闭合轮廓和面积不变", () => {
+  const walls = loop(lPoints);
+  const original = enclosedRoomRegions(polygonBody, walls)[0]!;
+  const split = structuredClone(walls);
+  const first = split.shift()!;
+  split.push({ ...first, a: [5000, 2000], b: [2000, 2000] });
+  split.push({ ...first, id: "l0-split", a: [8000, 2000], b: [5000, 2000] });
+  const after = enclosedRoomRegions(polygonBody, split)[0]!;
+  assert.deepEqual(after.polygon, original.polygon);
+  assert.equal(after.geometryArea, original.geometryArea);
+});
+
+test("三墙U形基边拆段不改变手动开敞候选", () => {
+  const walls = box();
+  walls.splice(0, 1);
+  const original = threeWallRoomRegions(polygonBody, walls).find(r => r.x === 2000 && r.z === 2000 && r.w === 6000 && r.d === 5000);
+  assert.ok(original);
+  const split = structuredClone(walls);
+  split.splice(1, 1, { id: "split-1", a: [8000, 7000], b: [5000, 7000] }, { id: "split-2", a: [5000, 7000], b: [2000, 7000] });
+  const after = threeWallRoomRegions(polygonBody, split).find(r => r.x === original.x && r.z === original.z && r.w === original.w && r.d === original.d);
+  assert.ok(after);
+  assert.equal(after.openSide, true);
+  assert.deepEqual(enclosedRoomRegions(polygonBody, split), []);
+});
+
+test("墙面接触可围合，墙面外仍有80空隙则不冒充闭合", () => {
+  const walls = box();
+  walls[1]!.a[1] += 60;
+  assert.equal(enclosedRoomRegions(polygonBody, walls).length, 1, "端点停在隔墙内皮属于实际墙体接触");
+  walls[1]!.a[1] += 80;
+  assert.deepEqual(enclosedRoomRegions(polygonBody, walls), []);
+});
+
+test("墙ID保持时移动同一闭合墙环，边界关联键稳定", () => {
+  const walls = box();
+  const before = enclosedRoomRegions(polygonBody, walls)[0]!;
+  walls[1]!.a[0] += 700;
+  walls[1]!.b[0] += 700;
+  walls[0]!.b[0] += 700;
+  walls[2]!.a[0] += 700;
+  const after = enclosedRoomRegions(polygonBody, walls)[0]!;
+  assert.equal(after.boundaryKey, before.boundaryKey);
+  assert.equal(after.w, before.w + 700);
+});
+
+test("凹形边界也识别为改墙相邻区，房间标签落在实际轮廓内", () => {
+  const walls = loop(lPoints);
+  const region = enclosedRoomRegions(polygonBody, walls)[0]!;
+  assert.equal(regionTouchesWall(region, walls[3]!), true);
+  const room: Room = { id: "l-room", name: "L形", x: 0, z: 0, w: 1000, d: 1000, kind: "living" };
+  applyRoomToEnclosedRegion(room, region);
+  assert.deepEqual(room.outline, lPoints);
+  assert.equal(room.boundary?.status, "enclosed");
+  assert.equal(polygonContainsPoint(room.outline!, room.label![0], room.label![1]), true);
+});
+
+test("重复重叠的半墙不能通过累加覆盖率补成一整面墙", () => {
+  const walls: Wall[] = [
+    { a: [2000, 7000], b: [8000, 7000] },
+    { a: [2000, 2000], b: [2000, 4500] },
+    { a: [2000, 2000], b: [2000, 4500] },
+    { a: [8000, 2000], b: [8000, 7000] },
+  ];
+  assert.equal(threeWallRoomRegions(polygonBody, walls).some(r => r.x === 2000 && r.z === 2000 && r.w === 6000 && r.d === 5000), false);
+});
+
+test("含内洞的分区不以外包矩形填满，只返回可用单环表达的内房", () => {
+  const regions = enclosedRoomRegions(polygonBody, box());
+  assert.equal(regions.length, 1);
+  assert.equal(regions[0]!.x, 2000);
+  assert.equal(regions[0]!.z, 2000);
 });

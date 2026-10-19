@@ -4,14 +4,14 @@ import { roomFillBounds } from "./design-data";
 import { furnitureLocalBounds, furnitureLocalToWorld } from "./furniture-catalog";
 import { normalizeOpening, type WallOpening } from "./openings";
 import {
-  collectWallSnapSegs,
-  extendOrthoEndToFarFace,
   forceOrthoWall,
   snapMeter,
   wallAxis,
   WALL_EDGE_SNAP_GAP,
-  type WallSnapSeg,
 } from "./layout-draft";
+import { constrainWallEdits, type WallConstraintResult } from "./wall-constraints";
+import { polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomOutline } from "./room-geometry";
+import { polygonIntersectionAreaMm2 } from "./plan-regions";
 
 /** 家具贴墙内皮后再留的示意缝（mm），避免色块压进墙线。 */
 export const FURNITURE_WALL_FINISH = 20;
@@ -211,11 +211,9 @@ export function furnitureWorldBounds(f: Furniture) {
 
 /** 家具中心落在哪个房间内（优先面积较小者）。 */
 export function findRoomContaining(f: Furniture, rooms: Room[]): Room | null {
-  const hits = rooms.filter(
-    (r) => f.x >= r.x && f.x <= r.x + r.w && f.z >= r.z && f.z <= r.z + r.d,
-  );
+  const hits = rooms.filter(r => roomContainsPoint(r, [f.x, f.z]));
   if (!hits.length) return null;
-  hits.sort((a, b) => a.w * a.d - b.w * b.d);
+  hits.sort((a, b) => polygonAreaMm2(roomOutline(a)) - polygonAreaMm2(roomOutline(b)));
   return hits[0]!;
 }
 
@@ -254,6 +252,7 @@ export function roomMargins(f: Furniture, room: Room, floorIndex = 0, partitions
 
 /** 房间几何中心（旧行为，桌椅等自由件不再用）。 */
 export function centerFurnitureInRoom(f: Furniture, room: Room) {
+  if (!roomIsRectangular(room)) return f;
   f.x = snapMeter(room.x + room.w / 2);
   f.z = snapMeter(room.z + room.d / 2);
   return f;
@@ -323,6 +322,7 @@ export function pullFurnitureClearOfWalls(
   finish = FURNITURE_WALL_FINISH,
   partitions?: Wall[],
 ) {
+  if (!roomIsRectangular(room)) return f;
   const clear = roomFurnitureClearRect(room, floorIndex, finish, partitions);
   const box = furnitureWorldBounds(f);
   const fw = box.x1 - box.x0;
@@ -381,6 +381,7 @@ export function centerFurnitureAgainstNearestWall(
   finish = FURNITURE_WALL_FINISH,
   partitions?: Wall[],
 ) {
+  if (!roomIsRectangular(room)) return f;
   const box = furnitureWorldBounds(f);
   const fw = box.x1 - box.x0;
   const fd = box.z1 - box.z0;
@@ -746,10 +747,12 @@ export function clampRoomToEnvelope(room: Room, body: EnvelopeRect, tol = 120): 
     if (Math.abs(z1 - south) <= Math.abs(z0 - body.z)) z0 = z1 - 800;
     else z1 = z0 + 800;
   }
-  out.x = snapMeter(x0);
-  out.z = snapMeter(z0);
-  out.w = snapMeter(x1 - x0);
-  out.d = snapMeter(z1 - z0);
+  // 关闭磁吸时保留旧稿尚未量化的原点；数值编辑只改明确输入的尺寸轴。
+  const quantize = (value: number) => tol === 0 ? value : snapMeter(value);
+  out.x = quantize(x0);
+  out.z = quantize(z0);
+  out.w = quantize(x1 - x0);
+  out.d = quantize(z1 - z0);
   out.label = [out.x + out.w / 2, out.z + out.d / 2];
   return out;
 }
@@ -765,14 +768,15 @@ export function anchorRoomSizeAgainstEnvelope(
   field: "w" | "d",
   nextSize: number,
   body: EnvelopeRect,
+  tol = 120,
 ): Room {
   const size = Math.max(800, snapMeter(nextSize));
   // 先吸回外皮，再判锁边，避免用 20212 这种漂移边当「外墙」
-  const base = clampRoomToEnvelope(room, body);
+  const base = clampRoomToEnvelope(room, body, tol);
   const out: Room = { ...base, label: base.label ? ([...base.label] as [number, number]) : undefined };
   if (field === "w") {
-    const westLock = roomEdgeOnEnvelope(base, "west", body);
-    const eastLock = roomEdgeOnEnvelope(base, "east", body);
+    const westLock = roomEdgeOnEnvelope(base, "west", body, tol);
+    const eastLock = roomEdgeOnEnvelope(base, "east", body, tol);
     if (westLock && eastLock) {
       out.x = snapMeter(body.x);
       out.w = snapMeter(body.w);
@@ -784,12 +788,12 @@ export function anchorRoomSizeAgainstEnvelope(
       out.x = snapMeter(body.x);
       out.w = Math.min(size, snapMeter(body.x + body.w - out.x));
     } else {
-      out.x = snapMeter(base.x);
+      out.x = tol === 0 ? base.x : snapMeter(base.x);
       out.w = size;
     }
   } else {
-    const northLock = roomEdgeOnEnvelope(base, "north", body);
-    const southLock = roomEdgeOnEnvelope(base, "south", body);
+    const northLock = roomEdgeOnEnvelope(base, "north", body, tol);
+    const southLock = roomEdgeOnEnvelope(base, "south", body, tol);
     if (northLock && southLock) {
       out.z = snapMeter(body.z);
       out.d = snapMeter(body.d);
@@ -801,18 +805,142 @@ export function anchorRoomSizeAgainstEnvelope(
       out.z = snapMeter(body.z);
       out.d = Math.min(size, snapMeter(body.z + body.d - out.z));
     } else {
-      out.z = snapMeter(base.z);
+      out.z = tol === 0 ? base.z : snapMeter(base.z);
       out.d = size;
     }
   }
   out.label = [out.x + out.w / 2, out.z + out.d / 2];
-  return clampRoomToEnvelope(out, body);
+  return clampRoomToEnvelope(out, body, tol);
+}
+
+const ROOM_EDGES: RoomEdgeSide[] = ["west", "east", "north", "south"];
+
+function wallHalfForRoom(wall: Wall): number {
+  return !isPhysicalWall(wall) ? 0 :
+    (wallRoleOf(wall) === "bearing" ? construction.outsideWall : construction.partition) / 2;
+}
+
+/** 中线或房间一侧实际内皮才算邻接；此处不使用鼠标吸附距离。 */
+function roomEdgeMeetsWall(room: Room, edge: RoomEdgeSide, wall: Wall): boolean {
+  const g = roomEdgeGeom(room, edge);
+  const axis = wallAxis(wall);
+  if (axis !== g.axis) return false;
+  const normal = axis === "v" ? 0 : 1;
+  const along = axis === "v" ? 1 : 0;
+  if (Math.abs(wall.a[normal] - wall.b[normal]) > 1) return false;
+  const at = (wall.a[normal] + wall.b[normal]) / 2;
+  const inwardOffset = (edge === "west" || edge === "north") ? g.c - at : at - g.c;
+  return inwardOffset >= -1 && inwardOffset <= wallHalfForRoom(wall) + 1 &&
+    spanOverlap(wall.a[along], wall.b[along], g.lo, g.hi) > 1;
+}
+
+function validRoomRect(room: Room, body: EnvelopeRect): boolean {
+  return [room.x, room.z, room.w, room.d].every(Number.isFinite) &&
+    room.w >= 800 && room.d >= 800 && room.x >= body.x - 1 && room.z >= body.z - 1 &&
+    room.x + room.w <= body.x + body.w + 1 && room.z + room.d <= body.z + body.d + 1;
+}
+
+function updateRectOutline(room: Room): void {
+  if (room.outline) room.outline = [
+    [room.x, room.z], [room.x + room.w, room.z],
+    [room.x + room.w, room.z + room.d], [room.x, room.z + room.d],
+  ];
+  room.label = [room.x + room.w / 2, room.z + room.d / 2];
 }
 
 /**
- * 房间宽深变更后：把贴在「非外皮边」上的内墙推到新边中线（含与邻房共用的内墙）。
- * 外皮边不改墙。共用内墙挪动后，邻房对应边跟着对齐，避免一边 3900、标注 3945。
- * 邻房只传播一层（A→B）；更长的房间链暂不递归。
+ * 普通房不能在修改轮廓后新增覆盖楼梯／挑空。历史套叠只允许维持或减少交集。
+ * 使用同 id 的保护区前后轮廓比较，面积舍入容差为其 1 mm 周界带面积。
+ * 普通房自身真实几何未变化时跳过，以允许专用楼梯／挑空操作主动调整位置。
+ */
+export function validateProtectedRoomOverlaps(originalRooms: Room[], rooms: Room[]): WallConstraintResult {
+  const originals = new Map(originalRooms.map(room => [room.id, room]));
+  const protectedRooms = rooms.filter(room => room.kind === "stair" || room.kind === "void");
+  for (const room of rooms) {
+    if (room.kind === "stair" || room.kind === "void") continue;
+    const original = originals.get(room.id);
+    const outline = roomOutline(room);
+    const originalOutline = original ? roomOutline(original) : null;
+    if (originalOutline && JSON.stringify(originalOutline) === JSON.stringify(outline)) continue;
+    for (const protectedRoom of protectedRooms) {
+      const protectedOutline = roomOutline(protectedRoom);
+      const originalProtected = originals.get(protectedRoom.id);
+      const before = originalOutline && originalProtected ?
+        polygonIntersectionAreaMm2(originalOutline, roomOutline(originalProtected)) : 0;
+      const after = polygonIntersectionAreaMm2(outline, protectedOutline);
+      const oneMillimeterBandArea = protectedOutline.reduce((length, point, i) => {
+        const next = protectedOutline[(i + 1) % protectedOutline.length]!;
+        return length + Math.hypot(next[0] - point[0], next[1] - point[1]);
+      }, 0);
+      if (after - before > Math.max(1, oneMillimeterBandArea)) {
+        return { ok: false, reason: `${room.name}调整后新增覆盖${protectedRoom.name}，请先通过专用几何调整楼梯或挑空` };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * 所有墙编辑入口共用的手工房边界更新。用原墙、原房识别关系，同时更新贯通墙两侧及同侧房间。
+ * 已关联真实轮廓的普通房由 room-sync 重算；楼梯／挑空和手工非矩形不得被隐式改写。
+ * 成功才提交 rooms；失败保留调用时内容，walls 由上层墙事务负责回滚。
+ */
+export function syncRoomsToMovedWalls(
+  originalWalls: Wall[],
+  walls: Wall[],
+  originalRooms: Room[],
+  rooms: Room[],
+  body: EnvelopeRect,
+): WallConstraintResult {
+  if (originalWalls.length !== walls.length) return { ok: false, reason: "墙体快照与当前墙列表不一致" };
+  const candidate = structuredClone(rooms);
+  for (const originalRoom of originalRooms) {
+    const target = candidate.find(room => room.id === originalRoom.id);
+    if (!target) continue;
+    const changes = new Map<RoomEdgeSide, number>();
+    for (let i = 0; i < walls.length; i += 1) {
+      const original = originalWalls[i]!;
+      const next = walls[i]!;
+      const normal = wallAxis(original) === "v" ? 0 : 1;
+      const delta = (next.a[normal] + next.b[normal] - original.a[normal] - original.b[normal]) / 2;
+      if (Math.abs(delta) < 0.5) continue;
+      for (const edge of ROOM_EDGES) {
+        if (!roomEdgeMeetsWall(originalRoom, edge, original)) continue;
+        if (originalRoom.kind === "stair" || originalRoom.kind === "void") {
+          return { ok: false, reason: `${originalRoom.name}为楼梯或挑空，须通过专用几何编辑后再调整共墙` };
+        }
+        if (originalRoom.boundary && !roomIsRectangular(originalRoom)) continue;
+        if (originalRoom.outline && originalRoom.outline.length > 4) {
+          return { ok: false, reason: `${originalRoom.name}为非矩形房间，请编辑轮廓或墙边界` };
+        }
+        const existing = changes.get(edge);
+        if (existing !== undefined && Math.abs(existing - delta) > 1) {
+          return { ok: false, reason: `${originalRoom.name}的同一房边对应墙段位移不一致` };
+        }
+        changes.set(edge, delta);
+      }
+    }
+    if (changes.size === 0) continue;
+    const west = originalRoom.x + (changes.get("west") ?? 0);
+    const east = originalRoom.x + originalRoom.w + (changes.get("east") ?? 0);
+    const north = originalRoom.z + (changes.get("north") ?? 0);
+    const south = originalRoom.z + originalRoom.d + (changes.get("south") ?? 0);
+    target.x = snapMeter(west);
+    target.z = snapMeter(north);
+    target.w = snapMeter(east - west);
+    target.d = snapMeter(south - north);
+    if (!validRoomRect(target, body)) {
+      return { ok: false, reason: `${target.name}调整后小于800或超出楼体，已取消本次编辑` };
+    }
+    updateRectOutline(target);
+  }
+  for (let i = 0; i < rooms.length; i += 1) Object.assign(rooms[i]!, candidate[i]!);
+  return { ok: true };
+}
+
+/**
+ * 房间尺寸撑墙的完整事务：先生成候选墙，统一传播真实接点，再更新所有相邻房间。
+ * 成功同时提交 walls 和 rooms 中同 id 的选中房；失败不修改任何输入。
  */
 export function syncInteriorWallsToRoom(
   roomOrig: Room,
@@ -820,84 +948,56 @@ export function syncInteriorWallsToRoom(
   walls: Wall[],
   rooms: Room[],
   body: EnvelopeRect,
-): void {
-  const edges: RoomEdgeSide[] = ["west", "east", "north", "south"];
-  for (const edge of edges) {
-    const g0 = roomEdgeGeom(roomOrig, edge);
-    const g1 = roomEdgeGeom(roomNext, edge);
-    const cMoved = Math.abs(g0.c - g1.c) >= 0.5;
-    const spanMoved =
-      Math.abs(g0.lo - g1.lo) >= 0.5 || Math.abs(g0.hi - g1.hi) >= 0.5;
-    if (!cMoved && !spanMoved) continue;
-    // 外皮边：中线不动；若仅开间变化仍可伸长贴外皮的横／竖墙沿向
-    const exterior = roomEdgeOnEnvelope(roomOrig, edge, body);
-    if (exterior && cMoved) continue;
-
-    for (const wall of walls) {
-      const touch = wallTouchesRoomEdge(wall, roomOrig, { softCover: 200, tol: 120 });
-      if (touch !== edge) continue;
-      forceOrthoWall(wall);
-      const axis = wallAxis(wall);
-      if (axis === "v" && (edge === "west" || edge === "east")) {
-        if (exterior && cMoved) continue; // 外皮竖墙中线不挪
-        const z0 = Math.min(wall.a[1], wall.b[1]);
-        const z1 = Math.max(wall.a[1], wall.b[1]);
-        let lo = z0;
-        let hi = z1;
-        if (Math.abs(z0 - g0.lo) <= 120) lo = g1.lo;
-        else lo = Math.min(z0, g1.lo);
-        if (Math.abs(z1 - g0.hi) <= 120) hi = g1.hi;
-        else hi = Math.max(z1, g1.hi);
-        const at = exterior ? (wall.a[0] + wall.b[0]) / 2 : g1.c;
-        wall.a = [snapMeter(at), snapMeter(Math.min(lo, hi))];
-        wall.b = [snapMeter(at), snapMeter(Math.max(lo, hi))];
-      } else if (axis === "h" && (edge === "north" || edge === "south")) {
-        if (exterior && cMoved) continue;
-        const x0 = Math.min(wall.a[0], wall.b[0]);
-        const x1 = Math.max(wall.a[0], wall.b[0]);
-        // 沿向跟新开间：端点若贴旧房角则跟到新角，否则保留更长贯通
-        let lo = x0;
-        let hi = x1;
-        if (Math.abs(x0 - g0.lo) <= 120) lo = g1.lo;
-        else lo = Math.min(x0, g1.lo);
-        if (Math.abs(x1 - g0.hi) <= 120) hi = g1.hi;
-        else hi = Math.max(x1, g1.hi);
-        const at = exterior ? (wall.a[1] + wall.b[1]) / 2 : g1.c;
-        wall.a = [snapMeter(Math.min(lo, hi)), snapMeter(at)];
-        wall.b = [snapMeter(Math.max(lo, hi)), snapMeter(at)];
-      } else {
-        continue;
+): WallConstraintResult {
+  if (roomOrig.kind === "stair" || roomOrig.kind === "void") {
+    return { ok: false, reason: "楼梯与挑空须通过专用几何编辑" };
+  }
+  if ((roomOrig.outline?.length ?? 0) > 4 || (roomNext.outline?.length ?? 0) > 4) {
+    return { ok: false, reason: "非矩形房间不能用包络宽深撑墙，请编辑轮廓或墙边界" };
+  }
+  if (!validRoomRect(roomNext, body)) return { ok: false, reason: "房间尺寸小于800或超出楼体" };
+  const originalWalls = structuredClone(walls);
+  const candidateWalls = structuredClone(walls);
+  const candidateRooms = structuredClone(rooms);
+  const originalRooms = rooms.map(room => structuredClone(room.id === roomOrig.id ? roomOrig : room));
+  const edited = new Set<number>();
+  for (const edge of ROOM_EDGES) {
+    const before = roomEdgeGeom(roomOrig, edge);
+    const after = roomEdgeGeom(roomNext, edge);
+    const delta = after.c - before.c;
+    const exterior = roomEdgeOnEnvelope(roomOrig, edge, body, 1);
+    if (exterior && Math.abs(delta) > 1) return { ok: false, reason: "外墙外皮固定，不能通过房间尺寸移动外墙" };
+    for (let i = 0; i < originalWalls.length; i += 1) {
+      const original = originalWalls[i]!;
+      if (!roomEdgeMeetsWall(roomOrig, edge, original)) continue;
+      const next = candidateWalls[i]!;
+      const along = before.axis === "v" ? 1 : 0;
+      const normal = before.axis === "v" ? 0 : 1;
+      for (const end of ["a", "b"] as const) {
+        next[end][normal] = snapMeter(original[end][normal] + (exterior ? 0 : delta));
+        if (Math.abs(original[end][along] - before.lo) <= wallHalfForRoom(original) + 1) {
+          next[end][along] = snapMeter(original[end][along] + after.lo - before.lo);
+        } else if (Math.abs(original[end][along] - before.hi) <= wallHalfForRoom(original) + 1) {
+          next[end][along] = snapMeter(original[end][along] + after.hi - before.hi);
+        }
       }
-      forceOrthoWall(wall);
-    }
-
-    if (!cMoved) continue;
-    if (exterior) continue;
-
-    // 邻房旧时贴在本房对边上的边，跟着新中线
-    const opp =
-      edge === "west" ? "east" : edge === "east" ? "west" : edge === "north" ? "south" : "north";
-    for (const other of rooms) {
-      if (other.id === roomOrig.id) continue;
-      const og = roomEdgeGeom(other, opp);
-      if (Math.abs(og.c - g0.c) > 120) continue;
-      if (spanOverlap(og.lo, og.hi, g0.lo, g0.hi) < 200) continue;
-      if (opp === "east") {
-        other.w = snapMeter(Math.max(800, g1.c - other.x));
-      } else if (opp === "west") {
-        const x1 = other.x + other.w;
-        other.x = snapMeter(g1.c);
-        other.w = snapMeter(Math.max(800, x1 - g1.c));
-      } else if (opp === "south") {
-        other.d = snapMeter(Math.max(800, g1.c - other.z));
-      } else {
-        const z1 = other.z + other.d;
-        other.z = snapMeter(g1.c);
-        other.d = snapMeter(Math.max(800, z1 - g1.c));
-      }
-      other.label = [other.x + other.w / 2, other.z + other.d / 2];
+      if (next.a.some((value, k) => value !== original.a[k]) || next.b.some((value, k) => value !== original.b[k])) edited.add(i);
     }
   }
+  const constrained = constrainWallEdits(candidateWalls, originalWalls, [...edited]);
+  if (!constrained.ok) return constrained;
+  const synchronized = syncRoomsToMovedWalls(originalWalls, candidateWalls, originalRooms, candidateRooms, body);
+  if (!synchronized.ok) return synchronized;
+  const target = candidateRooms.find(room => room.id === roomOrig.id);
+  if (target) {
+    Object.assign(target, structuredClone(roomNext));
+    updateRectOutline(target);
+  }
+  const protectedResult = validateProtectedRoomOverlaps(originalRooms, candidateRooms);
+  if (!protectedResult.ok) return protectedResult;
+  for (let i = 0; i < walls.length; i += 1) Object.assign(walls[i]!, candidateWalls[i]!);
+  for (let i = 0; i < rooms.length; i += 1) Object.assign(rooms[i]!, candidateRooms[i]!);
+  return { ok: true };
 }
 
 /** 取一层中开间：优先堂屋，否则主楼面宽三等分的中跨。 */
@@ -1102,6 +1202,9 @@ export function collectFurnitureRoomAnchors(
 } {
   const finish = options?.finish ?? FURNITURE_WALL_FINISH;
   const clear = roomFurnitureClearRect(room, floorIndex, finish, options?.partitions);
+  if (!roomIsRectangular(room)) return {
+    edgeXs: [], edgeZs: [], centerXs: [], centerZs: [], corners: [], clear,
+  };
   const edgeXs = [clear.x0, clear.x1];
   const edgeZs = [clear.z0, clear.z1];
   const centerXs = [(clear.x0 + clear.x1) / 2];
@@ -1180,7 +1283,7 @@ export function collectWallMagnetAnchors(
 }
 
 /**
- * 拖隔墙过程中吸附：平移贴平行墙持平；拉端点优先贴正交墙对侧外皮／墙尖。
+ * 拖隔墙过程中吸附：平移贴平行墙持平；拉端点只能沿固定端原轴线吸向真实墙段交点。
  * 就地改 wall，返回引导线。
  */
 export function snapWallDuringDrag(
@@ -1190,7 +1293,8 @@ export function snapWallDuringDrag(
   axisAnchors: { xs: number[]; zs: number[] },
   maxGap = MAGNET_SNAP_GAP,
 ): { guideXs: number[]; guideZs: number[] } {
-  forceOrthoWall(wall);
+  const fixedEnd = mode === "a" ? "b" : "a";
+  forceOrthoWall(wall, mode === "move" ? "center" : fixedEnd);
   const axis = wallAxis(wall);
   const { xs, zs } = collectWallMagnetAnchors(wall, candidates, axisAnchors);
   const guideXs: number[] = [];
@@ -1218,39 +1322,37 @@ export function snapWallDuringDrag(
     }
   } else {
     const edgeGap = Math.max(maxGap, WALL_EDGE_SNAP_GAP);
-    const segs: WallSnapSeg[] = collectWallSnapSegs(candidates);
     const fixed = mode === "a" ? wall.b : wall.a;
     const moving = mode === "a" ? wall.a : wall.b;
-    const extended = extendOrthoEndToFarFace(
-      fixed[0],
-      fixed[1],
-      moving[0],
-      moving[1],
-      segs,
-      edgeGap,
-    );
-    if (extended.snapped) {
-      if (mode === "a") wall.a = [extended.x, extended.z];
-      else wall.b = [extended.x, extended.z];
-      guideXs.push(...extended.guideXs);
-      guideZs.push(...extended.guideZs);
-    } else if (axis === "h") {
-      const target = nearestAnchor(moving[0], xs, maxGap);
-      if (target != null) {
-        if (mode === "a") wall.a = [snapMeter(target), snapMeter(wall.a[1])];
-        else wall.b = [snapMeter(target), snapMeter(wall.b[1])];
-        guideXs.push(target);
+    const along = axis === "h" ? 0 : 1;
+    const normal = axis === "h" ? 1 : 0;
+    const targets: number[] = [];
+    for (const candidate of candidates) {
+      const candidateAxis = wallAxis(candidate);
+      if (candidateAxis === axis) {
+        if (Math.abs(candidate.a[normal] - fixed[normal]) > 1 ||
+            Math.abs(candidate.b[normal] - fixed[normal]) > 1) continue;
+        targets.push(candidate.a[along], candidate.b[along]);
+      } else {
+        const lo = Math.min(candidate.a[normal], candidate.b[normal]);
+        const hi = Math.max(candidate.a[normal], candidate.b[normal]);
+        if (fixed[normal] < lo - 1 || fixed[normal] > hi + 1) continue;
+        targets.push((candidate.a[along] + candidate.b[along]) / 2);
       }
-    } else {
-      const target = nearestAnchor(moving[1], zs, maxGap);
-      if (target != null) {
-        if (mode === "a") wall.a = [snapMeter(wall.a[0]), snapMeter(target)];
-        else wall.b = [snapMeter(wall.b[0]), snapMeter(target)];
-        guideZs.push(target);
+    }
+    const wallTarget = nearestAnchor(moving[along], targets, edgeGap);
+    const target = wallTarget ?? nearestAnchor(moving[along], axis === "h" ? axisAnchors.xs : axisAnchors.zs, maxGap);
+    if (target !== null) {
+      wall[mode] = axis === "h" ? [snapMeter(target), fixed[1]] : [fixed[0], snapMeter(target)];
+      if (axis === "h") guideXs.push(target);
+      else guideZs.push(target);
+      if (wallTarget !== null) {
+        if (axis === "h") guideZs.push(fixed[1]);
+        else guideXs.push(fixed[0]);
       }
     }
   }
-  forceOrthoWall(wall);
+  forceOrthoWall(wall, mode === "move" ? "center" : fixedEnd);
   return { guideXs, guideZs };
 }
 
@@ -1320,6 +1422,8 @@ export function snapFurnitureDuringDrag(
   const floorIndex = options?.floorIndex ?? 0;
   const partitions = options?.partitions;
   const room = options?.room ?? null;
+  // 凹形净空不能以包络矩形吸附／钳位，待真实轮廓家具约束实现后再启用。
+  if (room && !roomIsRectangular(room)) return { guideXs: [], guideZs: [] };
   const allowCenter = options?.allowCenter !== false;
 
   let edgeXs = xs;

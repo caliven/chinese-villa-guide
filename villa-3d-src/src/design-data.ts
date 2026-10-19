@@ -11,7 +11,8 @@ import {
   type Wall,
 } from "./data";
 import { facades } from "./facades";
-import { areaM2, formatMm } from "./units";
+import { formatMm } from "./units";
+import { outlinePath, polygonAreaMm2, roomLabelPoint, roomNetGeometry, roomOutline, type RoomNetGeometry } from "./room-geometry";
 
 export const floorFinish = (index: number) => floors[index].y + (index === 0 ? site.entranceRise : 0);
 export const bedroomSummary = (index: number) => {
@@ -83,8 +84,7 @@ export function roomEdgeInsets(
   }) as [number, number, number, number];
 }
 
-/** 套内净空矩形（色块／家具占位）：落在墙线内侧；开敞相邻边不缩，避免白缝。 */
-export function roomFillBounds(room: Room, index: number, partitionsOverride?: Wall[]) {
+function legacyRoomFillBounds(room: Room, index: number, partitionsOverride?: Wall[]) {
   const [west, east, north, south] = roomEdgeInsets(room, index, partitionsOverride);
   return {
     x: room.x + west,
@@ -94,21 +94,41 @@ export function roomFillBounds(room: Room, index: number, partitionsOverride?: W
   };
 }
 
+/** 轮廓关联房间扣真实墙带；旧矩形草稿保留原有整边参考口径。 */
+export function roomFillGeometry(room: Room, index: number, partitionsOverride?: Wall[]): RoomNetGeometry {
+  if (room.outline?.length || room.boundary) {
+    const annex = room.x < site.main.x;
+    const body = annex ? site.annex : { ...site.main, z: floors[index].front, d: site.main.z + site.main.d - floors[index].front };
+    return roomNetGeometry(room, body, partitionsOverride ?? (annex ? annexPartitions : floors[index].partitions), construction.outsideWall, construction.partition);
+  }
+  const bounds = legacyRoomFillBounds(room, index, partitionsOverride);
+  const path = roomOutline({ ...room, ...bounds, outline: undefined });
+  return { paths: [path], pathData: outlinePath(path), bounds, areaMm2: bounds.w * bounds.d, label: room.label ?? [bounds.x + bounds.w / 2, bounds.z + bounds.d / 2] };
+}
+
+/** 净空包络。凹形房间的包络不能作为真实填色、面积或家具容纳范围。 */
+export function roomFillBounds(room: Room, index: number, partitionsOverride?: Wall[]) {
+  return room.outline?.length || room.boundary ? roomFillGeometry(room, index, partitionsOverride).bounds : legacyRoomFillBounds(room, index, partitionsOverride);
+}
+
+export function roomLabelPosition(room: Room, index: number, partitionsOverride?: Wall[]) {
+  return room.outline?.length || room.boundary ? roomFillGeometry(room, index, partitionsOverride).label : roomLabelPoint(room);
+}
+
 /**
- * 房间面积示意（非报建／非实测）：
- * - 套内面积＝墙内皮净空（色块）；虚拟墙无厚度，贴虚线计。
- * - 建筑面积＝开间外轮廓（外墙外皮／内墙中线），含该房分摊墙厚示意。
+ * 模型墙线／净空面积，不能代替法定建筑面积、套内面积或实测使用面积。
+ * building/interior 字段保留供已有调用兼容，界面使用下述明确口径。
  */
 export function roomAreas(room: Room, index: number, partitionsOverride?: Wall[]) {
-  const fill = roomFillBounds(room, index, partitionsOverride);
-  // 面积统一 m²；长宽为 mm。
-  const interior = areaM2(Math.max(0, fill.w), Math.max(0, fill.d));
-  const building = areaM2(Math.max(0, room.w), Math.max(0, room.d));
+  const geometry = roomFillGeometry(room, index, partitionsOverride);
+  const fill = geometry.bounds;
+  const interior = geometry.areaMm2 / 1_000_000;
+  const building = polygonAreaMm2(roomOutline(room)) / 1_000_000;
   return {
     interior,
     building,
     fill,
-    note: "套内＝墙内皮净空；建筑＝开间外轮廓（含墙厚分摊示意）。非报建认定、未扣柱梁装修。",
+    note: `${room.boundary?.status === "unbounded" ? "墙边界已失去围合，保留轮廓与面积待核。" : room.boundary?.status === "open" ? "开敞分区，边界包含虚拟分界。" : ""}墙线面积沿外墙外皮／内墙中线；净空扣模型实体墙厚${room.outline?.length || room.boundary ? "（交叉墙不重复扣）" : "（旧矩形按整边参考）"}。非建筑面积或套内面积认定，未扣柱梁、装修与设备。`,
   };
 }
 

@@ -20,7 +20,8 @@ import {
 } from "./data";
 import { contourAt } from "./contours";
 import { facades, type Facade } from "./facades";
-import { roomFillBounds } from "./design-data";
+import { roomAreas, roomFillBounds, roomFillGeometry, roomLabelPosition } from "./design-data";
+import { physicalWallJoinExtensions, roomIsRectangular } from "./room-geometry";
 import { formatMm } from "./units";
 import { collectPlanDimensions, collectPlanSiteDimensions, planDimSpanMm, type PlanBuilding } from "./plan-dimensions";
 import { virtualWallRegions } from "./plan-regions";
@@ -552,9 +553,14 @@ function room(r: Room, floorIndex: number, editable: boolean, annex = false, par
   const hit = editable
     ? ` data-edit="room" data-id="${r.id}"${annex ? ' data-annex="1"' : ""}`
     : "";
-  // 房间 x/z/w/d 是开间外轮廓；色块缩到墙内侧（套内）。开敞边不缩，相邻房间色块相接无白缝。
+  const status = r.boundary?.status === "unbounded" ? "墙边界已失去围合" : r.boundary?.status === "open" ? "开敞分区" : "";
+  return `<g tabindex="0" role="button" data-room="${r.id}" aria-label="${r.name}，${status || r.note || "点击查看空间说明"}"${hit}>${roomFillShape(r, floorIndex, partitions, "room-fill")}</g>`;
+}
+
+function roomFillShape(r: Room, floorIndex: number, partitions: Wall[] | undefined, cls: string) {
+  if (r.outline?.length || r.boundary) return `<path d="${roomFillGeometry(r, floorIndex, partitions).pathData}" fill="${colors[r.kind]}" fill-rule="evenodd" class="${cls}"/>`;
   const b = roomFillBounds(r, floorIndex, partitions);
-  return `<g tabindex="0" role="button" data-room="${r.id}" aria-label="${r.name}，${r.note ?? "点击查看空间说明"}"${hit}>${rect(b.x, b.z, b.w, b.d, `fill="${colors[r.kind]}" class="room-fill"`)}</g>`;
+  return rect(b.x, b.z, b.w, b.d, `fill="${colors[r.kind]}" class="${cls}"`);
 }
 
 /** 一层返跑在头顶，不能把其投影填成落地房间；上层表达完整梯井。 */
@@ -704,55 +710,7 @@ export function wallStrokeJoinExtend(
   peers: WallStrokePeer[],
   opts: { endpointTol?: number; collinearDot?: number } = {},
 ): { start: number; end: number } {
-  const endpointTol = opts.endpointTol ?? 80;
-  const collinearDot = opts.collinearDot ?? 0.2;
-  const len = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
-  if (len < 1e-9) return { start: 0, end: 0 };
-  const ux = (wall.b[0] - wall.a[0]) / len;
-  const uz = (wall.b[1] - wall.a[1]) / len;
-
-  const extendAt = (px: number, pz: number, outX: number, outZ: number) => {
-    let best = 0;
-    for (const peer of peers) {
-      const plen = Math.hypot(peer.b[0] - peer.a[0], peer.b[1] - peer.a[1]);
-      if (plen < 1e-9) continue;
-      // 跳过自身（同端点同走向）
-      if (
-        Math.abs(peer.a[0] - wall.a[0]) < 1e-9 &&
-        Math.abs(peer.a[1] - wall.a[1]) < 1e-9 &&
-        Math.abs(peer.b[0] - wall.b[0]) < 1e-9 &&
-        Math.abs(peer.b[1] - wall.b[1]) < 1e-9
-      ) {
-        continue;
-      }
-      const pux = (peer.b[0] - peer.a[0]) / plen;
-      const puz = (peer.b[1] - peer.a[1]) / plen;
-      // 仅正交墙：共线相接不应再伸出
-      if (Math.abs(ux * pux + uz * puz) > collinearDot) continue;
-      const dx = px - peer.a[0];
-      const dz = pz - peer.a[1];
-      const t = dx * pux + dz * puz;
-      if (t < -endpointTol || t > plen + endpointTol) continue;
-      const cx = peer.a[0] + pux * Math.max(0, Math.min(plen, t));
-      const cz = peer.a[1] + puz * Math.max(0, Math.min(plen, t));
-      if (Math.hypot(px - cx, pz - cz) > endpointTol) continue;
-      // 沿本墙外伸方向，取对侧外皮更远的一侧面；已越过中线则少伸。
-      const half = peer.thick / 2;
-      const nx = -puz;
-      const nz = pux;
-      const reach = Math.max(
-        (cx + nx * half - px) * outX + (cz + nz * half - pz) * outZ,
-        (cx - nx * half - px) * outX + (cz - nz * half - pz) * outZ,
-      );
-      if (reach > 1e-9) best = Math.max(best, reach);
-    }
-    return best;
-  };
-
-  return {
-    start: extendAt(wall.a[0], wall.a[1], -ux, -uz),
-    end: extendAt(wall.b[0], wall.b[1], ux, uz),
-  };
+  return physicalWallJoinExtensions(wall, peers, { epsilon: opts.endpointTol ?? 1, collinearDot: opts.collinearDot });
 }
 
 function wallStrokePaths(
@@ -913,15 +871,18 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     : { name: -40, mid: 280, net: 480 };
   const labels = allRooms.filter(r => r.kind !== "stair")
     .map((r) => {
-      const [x, z] = r.label ?? [r.x + r.w / 2, r.z + r.d / 2];
+      const [x, z] = r.outline?.length || r.boundary ? roomLabelPosition(r, index, partitionsFor(r)) : r.label ?? [r.x + r.w / 2, r.z + r.d / 2];
       if (r.kind === "void") {
         return `<g class="room-label" pointer-events="none">${text(x, z + labelStack.name, r.name)}${text(x, z + labelStack.mid, "两层通高 · 无楼板", "room-size")}</g>`;
       }
-      // 屏幕上：名称 → 建筑开间外轮廓 W×D（绿）→ 套内墙内皮 W×D（灰）。
+      // 凹形按实际轮廓算面积，禁止把包络 W×D 冒充面积或净空尺寸。
       const fill = roomFillBounds(r, index, partitionsFor(r));
-      const buildingMm = `${Math.round(r.w)}×${Math.round(r.d)}`;
-      const netMm = `${Math.round(fill.w)}×${Math.round(fill.d)}`;
-      return `<g class="room-label" pointer-events="none">${text(x, z + labelStack.name, r.name)}${text(x, z + labelStack.mid, buildingMm, "room-size")}${text(x, z + labelStack.net, netMm, "room-area-net")}</g>`;
+      const irregular = !roomIsRectangular(r);
+      const areas = roomAreas(r, index, partitionsFor(r));
+      const buildingMm = irregular ? `墙线 ${areas.building.toFixed(2)}㎡` : `${Math.round(r.w)}×${Math.round(r.d)}`;
+      const netMm = irregular || r.boundary ? `净空 ${areas.interior.toFixed(2)}㎡` : `${Math.round(fill.w)}×${Math.round(fill.d)}`;
+      const status = r.boundary?.status === "unbounded" ? "失去围合 · 面积待核" : r.boundary?.status === "open" ? "开敞分区" : "";
+      return `<g class="room-label" pointer-events="none">${text(x, z + labelStack.name, r.name)}${text(x, z + labelStack.mid, buildingMm, "room-size")}${text(x, z + labelStack.net, netMm, "room-area-net")}${status ? text(x, z + (PLAN_ENTRANCE_DOWN ? -300 : 740), status, "room-area-net") : ""}</g>`;
     })
     .join("");
   const stair = src.stair;
@@ -966,10 +927,7 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     : [];
   // 选中房间：色块抬过邻房但仍在家具之下；框线与拉角手柄都贴墙内皮（套内），避免角点飘在开间外。
   const roomLiftFills = selectedRoomList
-    .map((r) => {
-      const b = roomFillBounds(r, index, partitionsFor(r));
-      return rect(b.x, b.z, b.w, b.d, `fill="${colors[r.kind]}" class="room-fill room-fill-lifted"`);
-    })
+    .map((r) => roomFillShape(r, index, partitionsFor(r), "room-fill room-fill-lifted"))
     .join("");
   const roomSelectionChrome = selectedRoomList
     .map((r) => {
@@ -982,8 +940,10 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
       const fz = b.z + pad;
       const fw = Math.max(100, b.w - 2 * pad);
       const fd = Math.max(100, b.d - 2 * pad);
-      const frame = rect(fx, fz, fw, fd, 'class="edit-selection edit-selection-room" fill="none"');
-      const handles = primary
+      const frame = r.outline?.length || r.boundary
+        ? `<path d="${roomFillGeometry(r, index, partitionsFor(r)).pathData}" class="edit-selection edit-selection-room" fill="none"/>`
+        : rect(fx, fz, fw, fd, 'class="edit-selection edit-selection-room" fill="none"');
+      const handles = primary && roomIsRectangular(r) && r.boundary?.status !== "unbounded"
         ? [
             ["nw", b.x, b.z],
             ["ne", b.x + b.w, b.z],

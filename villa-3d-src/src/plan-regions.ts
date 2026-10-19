@@ -1,5 +1,8 @@
-import { construction, isPhysicalWall, wallRoleOf, type Room, type Wall } from "./data";
+import { construction, isPhysicalWall, wallRoleOf, type Point, type Room, type Wall } from "./data";
 import { areaM2 } from "./units";
+import { constrainWallEdits } from "./wall-constraints";
+import { polygonAreaMm2, polygonContainsPoint as containsPolygonPoint, roomLabelPoint, roomOutline } from "./room-geometry";
+export { polygonAreaMm2 } from "./room-geometry";
 
 type Envelope = { x: number; z: number; w: number; d: number };
 type Boundary = { axis: "h" | "v"; at: number; lo: number; hi: number; half: number; virtual: boolean };
@@ -33,21 +36,27 @@ export type VirtualRegionLabel = {
 };
 
 /**
- * 墙围合出的矩形房间候选（4 面封闭或 3 面 U 形最大矩形）。
+ * 实际闭合正交多边形，或供手动放置参考的三面 U 形开敞候选。
  * 坐标为开间外轮廓（外墙外皮／内墙中线／虚拟线），与 Room.x/z/w/d 同口径；
- * 图面色块再经 roomFillBounds 缩到墙内皮＝套内。门窗洞口仍属墙段。
+ * 图面色块另扣墙内皮表示模型净空。门窗洞口仍属墙段。
  */
 export type EnclosedRoomRegion = {
   x: number;
   z: number;
   w: number;
   d: number;
-  /** 外轮廓面积（m²），示意建筑面积分摊前的开间面积。 */
+  /** 轮廓参考面积（㎡），不是法定建筑面积或套内建筑面积。 */
   buildingArea: number;
   rectangular: boolean;
   /** 至少一边贴着内墙／虚拟墙（非整栋空壳）。 */
   hasInternalWall: boolean;
-  /** 三面墙 U 形最大矩形（开敞边无墙）。 */
+  /** 正交轮廓；x/z/w/d 仅为外包络，不代表凹多边形实际面积。 */
+  polygon?: Point[];
+  /** 实际轮廓面积（㎡），不含墙内皮扣减。 */
+  geometryArea?: number;
+  /** 墙体身份和墙侧组成的边界关联，不随同一墙平移改变。 */
+  boundaryKey?: string;
+  /** 开敞候选无闭合边界，不能自动覆盖正式房间。 */
   openSide?: boolean;
 };
 
@@ -55,7 +64,7 @@ type Seg = { axis: "h" | "v"; at: number; lo: number; hi: number; half: number; 
 
 const MIN_ROOM_MM = 800;
 const REGION_MATCH_TOL = 120;
-const CONNECT_TOL = 80;
+const CONNECT_TOL = 1;
 
 /** 墙墙正交交叉角（平面 mm）。 */
 export type WallCorner = { x: number; z: number; hIndex: number; vIndex: number };
@@ -103,7 +112,7 @@ function cornersFromSegs(segs: Seg[], tol = CONNECT_TOL): WallCorner[] {
   const seen = new Set<string>();
   for (const h of hs) {
     for (const v of vs) {
-      const pad = tol + h.half + v.half;
+      const pad = tol + Math.max(h.half, v.half);
       const x = v.at, z = h.at;
       if (x < h.lo - pad || x > h.hi + pad) continue;
       if (z < v.lo - pad || z > v.hi + pad) continue;
@@ -154,13 +163,17 @@ function edgeWallCoverage(
 ): number {
   const len = hi - lo;
   if (len < 50) return 0;
-  let covered = 0;
+  const intervals: Array<[number, number]> = [];
   for (const s of segs) {
-    if (s.axis !== axis) continue;
-    if (Math.abs(s.at - at) > tol + s.half) continue;
-    const o0 = Math.max(lo, s.lo);
-    const o1 = Math.min(hi, s.hi);
-    if (o1 > o0) covered += o1 - o0;
+    if (s.axis !== axis || Math.abs(s.at - at) > tol + s.half) continue;
+    const o0 = Math.max(lo, s.lo), o1 = Math.min(hi, s.hi);
+    if (o1 > o0) intervals.push([o0, o1]);
+  }
+  intervals.sort((a, b) => a[0] - b[0]);
+  let covered = 0, end = lo;
+  for (const [start, stop] of intervals) {
+    covered += Math.max(0, stop - Math.max(start, end));
+    end = Math.max(end, stop);
   }
   return Math.min(1, covered / len);
 }
@@ -315,14 +328,12 @@ export function virtualWallRegions(body: Envelope, walls: Wall[]): VirtualRegion
 /** 区域是否被内墙／虚拟墙与其它区分隔（非整栋空壳）。 */
 function regionHasInternalEdge(flood: FloodResult, regionId: number): boolean {
   const { nx, nz, vertical, horizontal, owner } = flood;
-  for (let row = 0; row < nz; row++) {
-    for (let col = 0; col < nx; col++) {
-      if (owner[row * nx + col] !== regionId) continue;
-      if (col > 0 && vertical[row * (nx + 1) + col] && owner[row * nx + col - 1] !== regionId) return true;
-      if (col + 1 < nx && vertical[row * (nx + 1) + col + 1] && owner[row * nx + col + 1] !== regionId) return true;
-      if (row > 0 && horizontal[row * nx + col] && owner[(row - 1) * nx + col] !== regionId) return true;
-      if (row + 1 < nz && horizontal[(row + 1) * nx + col] && owner[(row + 1) * nx + col] !== regionId) return true;
-    }
+  for (const cell of flood.regions[regionId]!.cells) {
+    const row = Math.floor(cell / nx), col = cell % nx;
+    if (col > 0 && vertical[row * (nx + 1) + col] && owner[cell - 1] !== regionId) return true;
+    if (col + 1 < nx && vertical[row * (nx + 1) + col + 1] && owner[cell + 1] !== regionId) return true;
+    if (row > 0 && horizontal[row * nx + col] && owner[cell - nx] !== regionId) return true;
+    if (row + 1 < nz && horizontal[(row + 1) * nx + col] && owner[cell + nx] !== regionId) return true;
   }
   return false;
 }
@@ -348,27 +359,114 @@ function pushRegion(
   });
 }
 
+/** 基础命中与绘制／家具共用 room-geometry；此处只保留墙线的毫米容差包装。 */
+export function polygonContainsPoint(polygon: readonly Point[], x: number, z: number, tol = 1): boolean {
+  const inside = containsPolygonPoint(polygon, [x, z]);
+  if (tol === 0) return inside;
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]!, b = polygon[(i + 1) % polygon.length]!;
+    const near = (a[0] === b[0] && Math.abs(x - a[0]) <= Math.abs(tol) && z >= Math.min(a[1], b[1]) - Math.abs(tol) && z <= Math.max(a[1], b[1]) + Math.abs(tol)) ||
+      (a[1] === b[1] && Math.abs(z - a[1]) <= Math.abs(tol) && x >= Math.min(a[0], b[0]) - Math.abs(tol) && x <= Math.max(a[0], b[0]) + Math.abs(tol));
+    if (near) return tol > 0;
+  }
+  return inside;
+}
+
+/** 从网格分区提取真实边界，合并共线点；有孔区域不能用单一 outline 表达，暂不自动生成。 */
+function regionPolygon(flood: FloodResult, id: number): Point[] | null {
+  const { xs, zs, nx, nz, owner } = flood;
+  type Edge = { a: Point; b: Point; dir: number; used?: boolean };
+  const edges: Edge[] = [];
+  const add = (a: Point, b: Point, dir: number) => edges.push({ a, b, dir });
+  for (const cell of flood.regions[id]!.cells) {
+    const row = Math.floor(cell / nx), col = cell % nx;
+    const x0 = xs[col]!, x1 = xs[col + 1]!, z0 = zs[row]!, z1 = zs[row + 1]!;
+    if (row === 0 || owner[cell - nx] !== id) add([x0, z0], [x1, z0], 0);
+    if (col + 1 === nx || owner[cell + 1] !== id) add([x1, z0], [x1, z1], 1);
+    if (row + 1 === nz || owner[cell + nx] !== id) add([x1, z1], [x0, z1], 2);
+    if (col === 0 || owner[cell - 1] !== id) add([x0, z1], [x0, z0], 3);
+  }
+  const key = (p: Point) => `${p[0]}:${p[1]}`;
+  const from = new Map<string, Edge[]>();
+  for (const e of edges) from.set(key(e.a), [...(from.get(key(e.a)) ?? []), e]);
+  const first = edges[0];
+  if (!first) return null;
+  const points: Point[] = [];
+  let edge = first;
+  while (!edge.used) {
+    edge.used = true;
+    points.push(edge.a);
+    if (key(edge.b) === key(first.a)) break;
+    const next = (from.get(key(edge.b)) ?? []).filter(e => !e.used).sort((a, b) => {
+      const priority = (dir: number) => [1, 0, 3, 2].indexOf((dir - edge.dir + 4) % 4);
+      return priority(a.dir) - priority(b.dir);
+    })[0];
+    if (!next) return null;
+    edge = next;
+  }
+  if (key(edge.b) !== key(first.a) || edges.some(e => !e.used)) return null;
+  const simple = points.filter((p, i) => {
+    const prev = points[(i + points.length - 1) % points.length]!, next = points[(i + 1) % points.length]!;
+    return !((prev[0] === p[0] && p[0] === next[0]) || (prev[1] === p[1] && p[1] === next[1]));
+  });
+  // 自接触的轮廓不能作为一个有效房间环。
+  if (new Set(simple.map(key)).size !== simple.length || simple.length < 4) return null;
+  if (Math.abs(polygonAreaMm2(simple) - flood.regions[id]!.area) > 1) return null;
+  // 从最小坐标开始，保证无关墙拆段后输出和序列化仍稳定。
+  const start = simple.reduce((best, p, i) => p[0] < simple[best]![0] || (p[0] === simple[best]![0] && p[1] < simple[best]![1]) ? i : best, 0);
+  return [...simple.slice(start), ...simple.slice(0, start)];
+}
+
+function boundaryKeyFor(polygon: Point[], body: Envelope, walls: Wall[]): string {
+  const keys = new Set<string>();
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]!, b = polygon[(i + 1) % polygon.length]!;
+    const vertical = a[0] === b[0], at = vertical ? a[0] : a[1];
+    const lo = Math.min(vertical ? a[1] : a[0], vertical ? b[1] : b[0]);
+    const hi = Math.max(vertical ? a[1] : a[0], vertical ? b[1] : b[0]);
+    const side = vertical ? b[1] > a[1] ? "west" : "east" : b[0] > a[0] ? "south" : "north";
+    const min = vertical ? body.x : body.z, max = min + (vertical ? body.w : body.d);
+    if (at === Math.round(min) || at === Math.round(max)) {
+      keys.add(`exterior:${vertical ? at === Math.round(min) ? "west" : "east" : at === Math.round(min) ? "north" : "south"}`);
+      continue;
+    }
+    for (const wall of walls) {
+      const wallVertical = wall.a[0] === wall.b[0], wallHorizontal = wall.a[1] === wall.b[1];
+      if ((vertical && !wallVertical) || (!vertical && !wallHorizontal)) continue;
+      if (Math.round(vertical ? wall.a[0] : wall.a[1]) !== at) continue;
+      const wlo = Math.min(vertical ? wall.a[1] : wall.a[0], vertical ? wall.b[1] : wall.b[0]);
+      const whi = Math.max(vertical ? wall.a[1] : wall.a[0], vertical ? wall.b[1] : wall.b[0]);
+      if (Math.min(hi, whi) - Math.max(lo, wlo) <= 0) continue;
+      // 没有持久 id 的旧稿用几何键，不使用易因删除而错位的数组索引。
+      const identity = wall.id ?? `${vertical ? "v" : "h"}:${at}:${Math.round(wlo)}:${Math.round(whi)}`;
+      keys.add(`${identity}:${side}`);
+    }
+  }
+  return [...keys].sort().join("|");
+}
+
 /**
- * 四面墙（含外墙与虚拟墙）围合出的矩形区域。
- * 短虚线未接墙、非矩形凹区不返回；整栋无内墙时不返回（避免空壳自动造房）。
+ * 按真实闭合边界生成正交多边形。短墙不无限延伸，门洞不打断墙的房间边界。
+ * 三面 U 形仅为手动开敞分区候选，不属于此处的闭合房间。
+ * 外墙外皮／内墙中线是模型分区参考，geometryArea 不是法定建筑面积。
  */
 export function enclosedRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoomRegion[] {
   if (!walls.length) return [];
   const flood = floodWallRegions(body, walls);
   if (!flood) return [];
-  const segs = [...toSegs(walls), ...envelopeSegs(body)];
   const out: EnclosedRoomRegion[] = [];
   for (let id = 0; id < flood.regions.length; id++) {
-    const r = flood.regions[id]!;
-    const w = r.maxX - r.minX, d = r.maxZ - r.minZ;
-    if (w < MIN_ROOM_MM || d < MIN_ROOM_MM) continue;
-    const rectangular = r.area === w * d;
-    if (!rectangular) continue;
-    const hasInternalWall = regionHasInternalEdge(flood, id);
-    if (!hasInternalWall) continue;
-    // 中间隔墙未贯通时洪水仍是一块矩形，但不得当成一整间
-    if (wallCrossesInterior({ x: r.minX, z: r.minZ, w, d }, segs)) continue;
-    pushRegion(out, r.minX, r.minZ, w, d);
+    const r = flood.regions[id]!, w = r.maxX - r.minX, d = r.maxZ - r.minZ;
+    if (w < MIN_ROOM_MM || d < MIN_ROOM_MM || !regionHasInternalEdge(flood, id)) continue;
+    const polygon = regionPolygon(flood, id);
+    if (!polygon) continue;
+    pushRegion(out, r.minX, r.minZ, w, d, {
+      rectangular: r.area === w * d,
+      polygon,
+      geometryArea: r.area / 1_000_000,
+      buildingArea: r.area / 1_000_000,
+      boundaryKey: boundaryKeyFor(polygon, body, walls),
+    });
   }
   return out;
 }
@@ -472,12 +570,20 @@ function wallCrossesInterior(
 
 /**
  * 三面墙成房：只沿同一面墙上的相邻交叉角成对组成房间（点互斥，不跳过中间交叉）。
- * 开敞方向取两臂较长者定最大尺寸——隔墙与房子最外侧墙一并参与比较；
- * 外墙臂按其上最近交叉角截断。较短臂一侧允许部分贴合。
+ * 开敞方向仅取两臂共同覆盖的较短长度，不把不存在的墙臂推定为闭合。
+ * 外墙臂按其上最近交叉角截断；候选必须由用户明确采纳为开敞分区。
  * 矩形内部若被其它墙穿过则丢弃。
  */
 export function threeWallRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoomRegion[] {
-  const partSegs = toSegs(walls);
+  // 合并共线邻段，避免同一面墙拆成两段后失去 U 形基边。
+  const partSegs: Seg[] = [];
+  for (const seg of toSegs(walls).sort((a, b) => a.axis.localeCompare(b.axis) || a.at - b.at || a.lo - b.lo)) {
+    const previous = partSegs[partSegs.length - 1];
+    if (previous && previous.axis === seg.axis && previous.at === seg.at && seg.lo <= previous.hi + 1) {
+      previous.hi = Math.max(previous.hi, seg.hi);
+      previous.half = Math.max(previous.half, seg.half);
+    } else partSegs.push({ ...seg });
+  }
   if (!partSegs.length) return [];
   const segs = [...partSegs, ...envelopeSegs(body)];
   const junctions = cornersFromSegs(segs);
@@ -498,7 +604,7 @@ export function threeWallRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoo
 
   const out: EnclosedRoomRegion[] = [];
   const seen = new Set<string>();
-  // 较短臂一侧覆盖 ≥0.5 即可；顶边有横墙时可凑成第三／四面
+  // 开敞候选至少三面确有连续完整边界，不把半截墙当完整房边。
   const consider = (rect: { x: number; z: number; w: number; d: number }): boolean => {
     const x0 = Math.max(rect.x, body.x);
     const z0 = Math.max(rect.z, body.z);
@@ -508,25 +614,24 @@ export function threeWallRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoo
     if (w < MIN_ROOM_MM || d < MIN_ROOM_MM) return false;
     if (w * d > body.w * body.d * 0.85) return false;
     if (wallCrossesInterior({ x: x0, z: z0, w, d }, segs)) return false;
-    const sides = countWalledSides({ x: x0, z: z0, w, d }, segs, 0.5);
+    const sides = countWalledSides({ x: x0, z: z0, w, d }, segs, 0.999999);
     if (sides.n < 3 || !sides.hasPartition) return false;
     const key = `${Math.round(x0)}:${Math.round(z0)}:${Math.round(w)}:${Math.round(d)}`;
     if (seen.has(key)) return false;
     seen.add(key);
-    pushRegion(out, x0, z0, w, d, { openSide: true });
+    const polygon: Point[] = [[x0, z0], [x0 + w, z0], [x0 + w, z0 + d], [x0, z0 + d]];
+    pushRegion(out, x0, z0, w, d, { openSide: true, polygon, geometryArea: areaM2(w, d) });
     return true;
   };
 
-  /** 优先按最长臂（含外墙）成房；若不成立再退回较短臂。 */
+  /** 只用两臂共同覆盖的深度；长臂超出段不构造虚假的完整边界。 */
   const considerExtents = (
     eA: number,
     eB: number,
     place: (extent: number) => { x: number; z: number; w: number; d: number },
   ) => {
-    const eMax = Math.max(eA, eB);
-    const eMin = Math.min(eA, eB);
-    if (eMax >= MIN_ROOM_MM && consider(place(eMax))) return;
-    if (eMin >= MIN_ROOM_MM && eMin < eMax - 1) consider(place(eMin));
+    const extent = Math.min(eA, eB);
+    if (extent >= MIN_ROOM_MM) consider(place(extent));
   };
 
   for (const [wallIdx, corners] of byWall) {
@@ -595,10 +700,11 @@ function regionsRoughlySame(a: EnclosedRoomRegion, b: EnclosedRoomRegion, tol = 
 }
 
 function regionContainsPoint(r: EnclosedRoomRegion, x: number, z: number, tol = 1): boolean {
+  if (r.polygon) return polygonContainsPoint(r.polygon, x, z, tol);
   return x >= r.x - tol && x <= r.x + r.w + tol && z >= r.z - tol && z <= r.z + r.d + tol;
 }
 
-/** 4 面封闭区 + 3 面 U 形最大矩形；封闭区优先，U 形不与已有封闭区重复。 */
+/** 真实闭合区优先，三面 U 形仅作为可手工采纳的开敞候选。 */
 export function allRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoomRegion[] {
   const closed = enclosedRoomRegions(body, walls);
   const open = threeWallRoomRegions(body, walls);
@@ -610,11 +716,11 @@ export function allRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoomRegio
     out.push(r);
   }
   // 小面积优先，便于点选／匹配时取最贴合的一间
-  out.sort((a, b) => a.w * a.d - b.w * b.d);
+  out.sort((a, b) => Number(!!a.openSide) - Number(!!b.openSide) || (a.geometryArea ?? a.buildingArea) - (b.geometryArea ?? b.buildingArea));
   return out;
 }
 
-/** 点落在哪个围合矩形内（优先面积较小者）。 */
+/** 点选优先真实闭合轮廓，其次才是用户可采纳的开敞候选。 */
 export function findEnclosedRegionAt(
   x: number,
   z: number,
@@ -623,46 +729,55 @@ export function findEnclosedRegionAt(
 ): EnclosedRoomRegion | null {
   const hits = allRoomRegions(body, walls).filter((r) => regionContainsPoint(r, x, z));
   if (!hits.length) return null;
-  hits.sort((a, b) => a.w * a.d - b.w * b.d);
+  hits.sort((a, b) => Number(!!a.openSide) - Number(!!b.openSide) || (a.geometryArea ?? a.buildingArea) - (b.geometryArea ?? b.buildingArea));
   return hits[0]!;
 }
 
-/** 找应与该围合区同步的已有房间（中心落入，或重叠过半）。 */
+export const roomPolygon = roomOutline;
+
+/** 正交多边形精确交集面积，按两轮廓的坐标网格积分，不把凹口计为重叠。 */
+export function polygonIntersectionAreaMm2(a: readonly Point[], b: readonly Point[]): number {
+  const xs = [...new Set([...a, ...b].map(p => p[0]))].sort((x, y) => x - y);
+  const zs = [...new Set([...a, ...b].map(p => p[1]))].sort((x, y) => x - y);
+  let area = 0;
+  for (let xi = 0; xi + 1 < xs.length; xi++) for (let zi = 0; zi + 1 < zs.length; zi++) {
+    const x = (xs[xi]! + xs[xi + 1]!) / 2, z = (zs[zi]! + zs[zi + 1]!) / 2;
+    if (polygonContainsPoint(a, x, z, 0) && polygonContainsPoint(b, x, z, 0)) area += (xs[xi + 1]! - xs[xi]!) * (zs[zi + 1]! - zs[zi]!);
+  }
+  return area;
+}
+
+export function roomRegionOverlap(room: Room, region: EnclosedRoomRegion): { room: number; region: number; iou: number } {
+  const a = roomPolygon(room), b = region.polygon ?? [[region.x, region.z], [region.x + region.w, region.z], [region.x + region.w, region.z + region.d], [region.x, region.z + region.d]] as Point[];
+  const aa = polygonAreaMm2(a), ba = polygonAreaMm2(b), overlap = polygonIntersectionAreaMm2(a, b);
+  return { room: overlap / Math.max(1, aa), region: overlap / Math.max(1, ba), iou: overlap / Math.max(1, aa + ba - overlap) };
+}
+
+/**
+ * 仅精确边界身份或双向几何高度重合才匹配，不能让小卫浴的中心抢占整个大房。
+ * 一对一排他分配由调用方先从候选房间中移除已经匹配的房间。
+ */
 export function findRoomForRegion(rooms: Room[], region: EnclosedRoomRegion): Room | null {
-  const containing = rooms.filter((r) =>
-    regionContainsPoint(region, r.x + r.w / 2, r.z + r.d / 2, REGION_MATCH_TOL),
-  );
-  if (containing.length) {
-    containing.sort((a, b) => a.w * a.d - b.w * b.d);
-    return containing[0]!;
+  const candidates = rooms.filter(r => r.kind !== "void" && r.kind !== "stair");
+  if (region.boundaryKey) {
+    const linked = candidates.filter(r => r.boundary?.key === region.boundaryKey);
+    if (linked.length === 1) return linked[0]!;
+    if (linked.length > 1) return null;
   }
-  let best: { room: Room; score: number } | null = null;
-  for (const r of rooms) {
-    const ox = Math.max(0, Math.min(r.x + r.w, region.x + region.w) - Math.max(r.x, region.x));
-    const oz = Math.max(0, Math.min(r.z + r.d, region.z + region.d) - Math.max(r.z, region.z));
-    const overlap = ox * oz;
-    const score = overlap / Math.max(1, Math.min(r.w * r.d, region.w * region.d));
-    if (score >= 0.45 && (!best || score > best.score)) best = { room: r, score };
-  }
-  return best?.room ?? null;
+  const matches = candidates.map(room => ({ room, overlap: roomRegionOverlap(room, region) }))
+    .filter(r => r.overlap.room >= 0.8 && r.overlap.region >= 0.8)
+    .sort((a, b) => b.overlap.iou - a.overlap.iou);
+  // 同几何的重叠手工房不擅自选择身份，留给用户消除重复。
+  if (matches.length > 1 && Math.abs(matches[0]!.overlap.iou - matches[1]!.overlap.iou) < 0.01) return null;
+  return matches[0]?.room ?? null;
 }
 
-function roomMatchesRegion(room: Room, region: EnclosedRoomRegion, tol = REGION_MATCH_TOL): boolean {
-  if (!regionContainsPoint(region, room.x + room.w / 2, room.z + room.d / 2, tol)) return false;
-  const sameSize =
-    Math.abs(room.w - region.w) <= tol * 2 && Math.abs(room.d - region.d) <= tol * 2;
-  const sameOrigin =
-    Math.abs(room.x - region.x) <= tol && Math.abs(room.z - region.z) <= tol;
-  return sameSize || sameOrigin;
-}
-
-/** 房间是否已覆盖该围合区（中心落入且尺寸接近）。 */
-export function roomMatchesEnclosedRegion(
-  room: Room,
-  region: EnclosedRoomRegion,
-  tol = REGION_MATCH_TOL,
-): boolean {
-  return roomMatchesRegion(room, region, tol);
+/** 同一实际区域：边界身份一致或各边近似一致且多边形双向覆盖。 */
+export function roomMatchesEnclosedRegion(room: Room, region: EnclosedRoomRegion, tol = REGION_MATCH_TOL): boolean {
+  if (region.boundaryKey && room.boundary?.key === region.boundaryKey) return true;
+  if (Math.abs(room.x - region.x) > tol || Math.abs(room.z - region.z) > tol || Math.abs(room.w - region.w) > tol * 2 || Math.abs(room.d - region.d) > tol * 2) return false;
+  const overlap = roomRegionOverlap(room, region);
+  return overlap.room >= 0.8 && overlap.region >= 0.8;
 }
 
 /** 围合区是否贴着指定墙段（用于「刚改的墙」只触发相邻成房）。 */
@@ -672,90 +787,44 @@ export function regionTouchesWall(
   tol = REGION_MATCH_TOL,
 ): boolean {
   const ax = wall.a[0], az = wall.a[1], bx = wall.b[0], bz = wall.b[1];
-  const vertical = Math.abs(ax - bx) <= Math.abs(az - bz) * 0.35;
-  if (vertical) {
-    const at = (ax + bx) / 2;
-    const lo = Math.min(az, bz), hi = Math.max(az, bz);
-    const onWest = Math.abs(at - region.x) <= tol;
-    const onEast = Math.abs(at - (region.x + region.w)) <= tol;
-    if (!onWest && !onEast) return false;
-    return Math.min(hi, region.z + region.d) - Math.max(lo, region.z) > 50;
+  if (ax !== bx && az !== bz) return false;
+  const vertical = ax === bx, at = vertical ? ax : az;
+  const lo = Math.min(vertical ? az : ax, vertical ? bz : bx), hi = Math.max(vertical ? az : ax, vertical ? bz : bx);
+  const polygon = region.polygon ?? [[region.x, region.z], [region.x + region.w, region.z], [region.x + region.w, region.z + region.d], [region.x, region.z + region.d]] as Point[];
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]!, b = polygon[(i + 1) % polygon.length]!;
+    if (vertical !== (a[0] === b[0]) || Math.abs(at - (vertical ? a[0] : a[1])) > tol) continue;
+    if (Math.min(hi, Math.max(vertical ? a[1] : a[0], vertical ? b[1] : b[0])) - Math.max(lo, Math.min(vertical ? a[1] : a[0], vertical ? b[1] : b[0])) > 1) return true;
   }
-  const at = (az + bz) / 2;
-  const lo = Math.min(ax, bx), hi = Math.max(ax, bx);
-  const onNorth = Math.abs(at - region.z) <= tol;
-  const onSouth = Math.abs(at - (region.z + region.d)) <= tol;
-  if (!onNorth && !onSouth) return false;
-  return Math.min(hi, region.x + region.w) - Math.max(lo, region.x) > 50;
+  return false;
 }
 
-/** 把房间外轮廓贴到围合区四边（色块经 roomFillBounds 落在墙内皮＝套内）。 */
+/** 将分区参考轮廓写入房间；净面积由墙内皮计算模块另行求得。 */
 export function applyRoomToEnclosedRegion(room: Room, region: EnclosedRoomRegion): Room {
-  const snap = (v: number) => Math.round(v);
-  room.x = snap(region.x);
-  room.z = snap(region.z);
-  room.w = snap(Math.max(MIN_ROOM_MM, region.w));
-  room.d = snap(Math.max(MIN_ROOM_MM, region.d));
-  room.label = [room.x + room.w / 2, room.z + room.d / 2];
+  room.x = Math.round(region.x);
+  room.z = Math.round(region.z);
+  room.w = Math.round(region.w);
+  room.d = Math.round(region.d);
+  room.outline = region.rectangular ? undefined : region.polygon?.map(p => [...p] as Point);
+  room.boundary = { key: region.boundaryKey ?? `open:${room.x}:${room.z}:${room.w}:${room.d}`, status: region.openSide ? "open" : "enclosed" };
+  room.label = roomLabelPoint(room, [room.x + room.w / 2, room.z + room.d / 2]);
   return room;
 }
 
 /**
- * 拖动某段墙时，与其垂直相接的墙端点跟着贴住，从而变长／变短。
- * movedOrig：拖前快照，用来识别「原本接在这堵墙上」的端点（门窗不影响连接）。
- * 直角 L 角：若端点原本贴在墙尖，沿向也跟着新墙尖走，避免只改轴线留下 45mm 缝。
+ * 旧调用兼容层。完整拖前快照可保持连续拖动拓扑；编辑器统一使用 constrainWallEdits。
+ * movedOrig-only 仅能提供单墙快照，新调用应传 originals。
  */
 export function stretchOrthogonalWallsToMoved(
   movedIndex: number,
   walls: Wall[],
   movedOrig?: Wall,
-  tol = CONNECT_TOL,
+  _tol = CONNECT_TOL,
+  originals?: Wall[],
 ): void {
   const moved = walls[movedIndex];
   if (!moved) return;
-  const ref = movedOrig ?? moved;
-  const rax = Math.round(ref.a[0]), raz = Math.round(ref.a[1]);
-  const rbx = Math.round(ref.b[0]), rbz = Math.round(ref.b[1]);
-  const axis = rax === rbx ? "v" : raz === rbz ? "h" : null;
-  if (!axis) return;
-  const oldAt = axis === "v" ? rax : raz;
-  const oldLo = Math.min(axis === "v" ? raz : rax, axis === "v" ? rbz : rbx);
-  const oldHi = Math.max(axis === "v" ? raz : rax, axis === "v" ? rbz : rbx);
-  const half = wallHalfMm(ref);
-
-  const nax = Math.round(moved.a[0]), naz = Math.round(moved.a[1]);
-  const nbx = Math.round(moved.b[0]), nbz = Math.round(moved.b[1]);
-  const newAt = axis === "v" ? nax : naz;
-  const newLo = Math.min(axis === "v" ? naz : nax, axis === "v" ? nbz : nbx);
-  const newHi = Math.max(axis === "v" ? naz : nax, axis === "v" ? nbz : nbx);
-  const tipTol = tol + half;
-
-  for (let i = 0; i < walls.length; i++) {
-    if (i === movedIndex) continue;
-    const w = walls[i]!;
-    const wax = Math.round(w.a[0]), waz = Math.round(w.a[1]);
-    const wbx = Math.round(w.b[0]), wbz = Math.round(w.b[1]);
-    const wAxis = wax === wbx ? "v" : waz === wbz ? "h" : null;
-    if (!wAxis || wAxis === axis) continue;
-
-    for (const end of ["a", "b"] as const) {
-      const pt = end === "a" ? w.a : w.b;
-      const along = axis === "h" ? pt[0] : pt[1];
-      const cross = axis === "h" ? pt[1] : pt[0];
-      // 端点原本贴在拖前墙线上（含曾误吸到外皮的半厚偏差）
-      if (Math.abs(cross - oldAt) > tol + half + wallHalfMm(w)) continue;
-      if (along < oldLo - tipTol || along > oldHi + tipTol) continue;
-      // 轴线贴新中线；若原本在墙尖，沿向也跟到新墙尖
-      let nextAlong = Math.round(along);
-      if (Math.abs(along - oldLo) <= tipTol) nextAlong = newLo;
-      else if (Math.abs(along - oldHi) <= tipTol) nextAlong = newHi;
-      if (axis === "h") {
-        if (end === "a") w.a = [nextAlong, newAt];
-        else w.b = [nextAlong, newAt];
-      } else {
-        if (end === "a") w.a = [newAt, nextAlong];
-        else w.b = [newAt, nextAlong];
-      }
-    }
-  }
+  const snapshot = originals ?? structuredClone(walls);
+  if (!originals && movedOrig) snapshot[movedIndex] = structuredClone(movedOrig);
+  constrainWallEdits(walls, snapshot, [movedIndex]);
 }

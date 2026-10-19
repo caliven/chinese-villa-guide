@@ -73,15 +73,15 @@ test("三点补第四角得到轴对齐矩形", () => {
   assert.equal(rectFromThreeCorners({ x: 0, z: 0 }, { x: 1000, z: 0 }, { x: 500, z: 500 }), null);
 });
 
-test("三面垂直连接墙按最长臂生成最大矩形", () => {
+test("三面墙仅按短臂共同覆盖范围给出开敞候选", () => {
   const walls = uWalls();
   const regions = threeWallRoomRegions(body(), walls);
-  // 开敞向北：最长臂为西臂 3000，基边跨度 4000 → 房间 4000×3000（最长墙定最大尺寸）
-  const hit = regions.find((r) => Math.abs(r.w - 4000) < 50 && Math.abs(r.d - 3000) < 50);
-  assert.ok(hit, `应检出按最长臂的 U 形矩形，实际 ${JSON.stringify(regions)}`);
+  // 两臂共同覆盖 2000，不推定短臂不存在的北侧延长墙。
+  const hit = regions.find((r) => Math.abs(r.w - 4000) < 50 && Math.abs(r.d - 2000) < 50);
+  assert.ok(hit, `应检出短臂覆盖的开敞候选，实际 ${JSON.stringify(regions)}`);
   assert.equal(hit.openSide, true);
-  // 不再用短臂 2000 限制
-  assert.equal(regions.some((r) => Math.abs(r.w - 4000) < 50 && Math.abs(r.d - 2000) < 50), false);
+  assert.equal(regions.some((r) => Math.abs(r.w - 4000) < 50 && Math.abs(r.d - 3000) < 50), false);
+  assert.deepEqual(enclosedRoomRegions(body(), walls), [], "三墙开敞不属于闭合房间");
 });
 
 test("两面 L 形墙不成房", () => {
@@ -118,15 +118,15 @@ test("靠外墙的东北 U 形三面可成房", () => {
   const b = body();
   const walls = neExteriorUWalls();
   const regions = threeWallRoomRegions(b, walls);
-  // 无中间横墙时，东外墙到南转角比西隔墙更长 → 按最长外侧墙取满进深
+  // 隔墙仅长5483，不能把三墙候选延伸到远端南外墙。
   const hit = regions.find(
     (r) =>
       Math.abs(r.x - (b.x + b.w - 4274)) < 50 &&
       Math.abs(r.z - b.z) < 50 &&
       Math.abs(r.w - 4274) < 50 &&
-      Math.abs(r.d - b.d) < 50,
+      Math.abs(r.d - 5483) < 50,
   );
-  assert.ok(hit, `应检出按东外墙最长尺寸的东北 U 区，实际 ${JSON.stringify(regions)}`);
+  assert.ok(hit, `应检出隔墙实际覆盖长度的东北开敞候选，实际 ${JSON.stringify(regions)}`);
 });
 
 test("靠外墙的东南 U 形三面可成房", () => {
@@ -152,10 +152,9 @@ test("南北两道隔墙同时可贴出东北与东南两间", () => {
 });
 
 /**
- * 左短右长 + 短臂顶 stub 横墙未接到右侧：应按右臂最长尺寸成房，
- * stub 不得挡住外接矩形（否则上方会留白）。
+ * 左短右长且顶部有短墙：只能采纳两臂共同覆盖的开敞范围。
  */
-test("左右臂不等长时按长臂成房，短臂顶 stub 不挡", () => {
+test("左右臂不等长时不把短臂之外范围冒充完整房间", () => {
   const b = body();
   const x0 = b.x + 3000, x1 = b.x + 8000;
   const zBot = b.z + 6000, zStub = b.z + 3000, zTop = b.z + 2000;
@@ -171,17 +170,16 @@ test("左右臂不等长时按长臂成房，短臂顶 stub 不挡", () => {
     (r) =>
       Math.abs(r.x - x0) < 50 &&
       Math.abs(r.w - (x1 - x0)) < 50 &&
-      Math.abs(r.z - zTop) < 50 &&
-      Math.abs(r.d - (zBot - zTop)) < 50,
+      Math.abs(r.z - zStub) < 50 &&
+      Math.abs(r.d - (zBot - zStub)) < 50,
   );
-  assert.ok(tall, `应按右臂撑到顶墙填满空白，实际 ${JSON.stringify(regions)}`);
+  assert.ok(tall, `应仅检出共同覆盖的开敞候选，实际 ${JSON.stringify(regions)}`);
 });
 
 /**
- * 宽开间南墙中部竖向隔墙未接到北侧：应按相邻交叉拆成左右两间，
- * 不得保留跨过隔墙的通长大房间。
+ * 中隔未接到对边时仍是一个闭合区；左右开敞候选供用户主动分区。
  */
-test("南侧中间隔墙未贯通也拆成左右两间", () => {
+test("中间隔墙未贯通保持一个闭合区，左右仅为开敞候选", () => {
   const b = body();
   const xW = b.x + 3000, xM = b.x + 7000, xE = b.x + 11000;
   const zN = b.z + 2000, zS = b.z + 7000;
@@ -202,9 +200,9 @@ test("南侧中间隔墙未贯通也拆成左右两间", () => {
   assert.ok(left, `应有左间，实际 ${JSON.stringify(regions)}`);
   assert.ok(right, `应有右间，实际 ${JSON.stringify(regions)}`);
   assert.equal(
-    regions.some((r) => Math.abs(r.w - (xE - xW)) < 80 && Math.abs(r.d - (zS - zN)) < 80),
-    false,
-    `不应保留跨中隔的通间，实际 ${JSON.stringify(regions)}`,
+    regions.some((r) => !r.openSide && Math.abs(r.w - (xE - xW)) < 80 && Math.abs(r.d - (zS - zN)) < 80),
+    true,
+    `未贯通的中隔不能把一个闭合区虚构成两个闭合房间，实际 ${JSON.stringify(regions)}`,
   );
 });
 
@@ -240,7 +238,7 @@ test("有门洞的墙仍参与三面成房", () => {
   const walls = uWalls();
   walls[0]!.door = { offset: 500, width: 900, kind: "door", side: "in", hinge: "left" };
   const regions = threeWallRoomRegions(body(), walls);
-  assert.ok(regions.some((r) => Math.abs(r.w - 4000) < 50 && Math.abs(r.d - 3000) < 50));
+  assert.ok(regions.some((r) => Math.abs(r.w - 4000) < 50 && Math.abs(r.d - 2000) < 50));
 });
 
 test("四面含虚拟墙同样围合出房间区", () => {
