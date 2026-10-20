@@ -15,8 +15,7 @@ import { formatMm } from "./units";
 import { outlinePath, polygonAreaMm2, roomLabelPoint, roomNetGeometry, roomOutline, type RoomNetGeometry } from "./room-geometry";
 
 export const floorFinish = (index: number) => floors[index].y + (index === 0 ? site.entranceRise : 0);
-export const bedroomSummary = (index: number) => {
-  const rooms = floors[index].rooms;
+export const bedroomSummary = (index: number, rooms: Room[] = floors[index].rooms) => {
   const count = rooms.filter((r) => r.kind === "bed" && !r.purposeStatus).length;
   const pending = rooms.filter((r) => r.purposeStatus).length;
   return `${count}间卧室${pending ? `＋${pending}间用途待定` : ""}`;
@@ -94,21 +93,37 @@ function legacyRoomFillBounds(room: Room, index: number, partitionsOverride?: Wa
   };
 }
 
+// 每个仍存活的房间只保存最近一次结果；草稿替换后可由 GC 释放，不累积历史版本。
+// 编辑器会原地改坐标和墙线，因此不能只用 Room／Wall[] 的引用判断是否命中。
+const roomFillGeometryCache = new WeakMap<Room, { signature: string; geometry: RoomNetGeometry }>();
+
 /** 轮廓关联房间扣真实墙带；旧矩形草稿保留原有整边参考口径。 */
 export function roomFillGeometry(room: Room, index: number, partitionsOverride?: Wall[]): RoomNetGeometry {
+  const annex = room.x < site.main.x;
+  const body = annex ? site.annex : { ...site.main, z: floors[index].front, d: site.main.z + site.main.d - floors[index].front };
+  const partitions = partitionsOverride ?? (annex ? annexPartitions : floors[index].partitions);
+  const signature = JSON.stringify([
+    room.x, room.z, room.w, room.d, room.outline, room.label, !!room.boundary,
+    body.x, body.z, body.w, body.d, construction.outsideWall, construction.partition,
+    partitions.map(wall => [wall.a[0], wall.a[1], wall.b[0], wall.b[1], wallRoleOf(wall)]),
+  ]);
+  const cached = roomFillGeometryCache.get(room);
+  if (cached?.signature === signature) return cached.geometry;
+  let geometry: RoomNetGeometry;
   if (room.outline?.length || room.boundary) {
-    const annex = room.x < site.main.x;
-    const body = annex ? site.annex : { ...site.main, z: floors[index].front, d: site.main.z + site.main.d - floors[index].front };
-    return roomNetGeometry(room, body, partitionsOverride ?? (annex ? annexPartitions : floors[index].partitions), construction.outsideWall, construction.partition);
+    geometry = roomNetGeometry(room, body, partitions, construction.outsideWall, construction.partition);
+  } else {
+    const bounds = legacyRoomFillBounds(room, index, partitions);
+    const path = roomOutline({ ...room, ...bounds, outline: undefined });
+    geometry = { paths: [path], pathData: outlinePath(path), bounds, areaMm2: bounds.w * bounds.d, label: room.label ? [...room.label] : [bounds.x + bounds.w / 2, bounds.z + bounds.d / 2] };
   }
-  const bounds = legacyRoomFillBounds(room, index, partitionsOverride);
-  const path = roomOutline({ ...room, ...bounds, outline: undefined });
-  return { paths: [path], pathData: outlinePath(path), bounds, areaMm2: bounds.w * bounds.d, label: room.label ?? [bounds.x + bounds.w / 2, bounds.z + bounds.d / 2] };
+  roomFillGeometryCache.set(room, { signature, geometry });
+  return geometry;
 }
 
 /** 净空包络。凹形房间的包络不能作为真实填色、面积或家具容纳范围。 */
 export function roomFillBounds(room: Room, index: number, partitionsOverride?: Wall[]) {
-  return room.outline?.length || room.boundary ? roomFillGeometry(room, index, partitionsOverride).bounds : legacyRoomFillBounds(room, index, partitionsOverride);
+  return roomFillGeometry(room, index, partitionsOverride).bounds;
 }
 
 export function roomLabelPosition(room: Room, index: number, partitionsOverride?: Wall[]) {

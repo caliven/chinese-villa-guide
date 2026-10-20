@@ -9,6 +9,11 @@ export function roomOutline(room: Room): Point[] {
     : [[room.x, room.z], [room.x + room.w, room.z], [room.x + room.w, room.z + room.d], [room.x, room.z + room.d]];
 }
 
+/** 墙线计算以整数毫米为准，旧稿的小数坐标在比较分区时按同一规则取整。 */
+export function roundedRoomOutline(room: Room): Point[] {
+  return roomOutline(room).map(([x, z]) => [Math.round(x), Math.round(z)]);
+}
+
 export function polygonAreaMm2(points: readonly Point[]): number {
   return Math.abs(points.reduce((sum, p, i) => {
     const q = points[(i + 1) % points.length];

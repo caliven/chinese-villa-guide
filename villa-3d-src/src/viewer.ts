@@ -7,7 +7,7 @@ import { MM_PER_M, toM } from "./units";
 import { materials, line, tag, setCourtyardFinishes } from "./primitives";
 import { courtyardFinishLabels, type CourtyardFinish } from "./courtyard-finishes";
 import { roofStyleLabels, type RoofStyle } from "./roof-options";
-import { buildVilla, attachRoofs, type VillaLayoutLive } from "./architecture";
+import { buildVilla, attachLayoutRoofs, type VillaLayoutLive } from "./architecture";
 import { buildL9 } from "./cars";
 import { buildSite, makeRamp } from "./terrain";
 import { surroundings } from "./surroundings";
@@ -69,8 +69,10 @@ function disposeReplaced(
   keep: Set<THREE.Material>,
 ) {
   const meshes: THREE.Mesh[] = [];
+  const sprites: THREE.Sprite[] = [];
   root.traverse((obj) => {
     if (obj instanceof THREE.Mesh) meshes.push(obj);
+    if (obj instanceof THREE.Sprite) sprites.push(obj);
   });
   const geometries = new Set(meshes.map((mesh) => mesh.geometry));
   const materials = new Set<THREE.Material>();
@@ -86,6 +88,10 @@ function disposeReplaced(
   });
   for (const geometry of geometries) if (!live.has(geometry)) geometry.dispose();
   for (const material of materials) material.dispose();
+  for (const sprite of sprites) {
+    sprite.material.map?.dispose();
+    sprite.material.dispose();
+  }
 }
 
 function disposeDetached(
@@ -537,7 +543,7 @@ export class VillaViewer {
       const keep = new Set<THREE.Material>(Object.values(this.mat));
       for (const root of [this.villa.roof, this.villa.annexRoof])
         disposeReplaced(root, this.scene, keep);
-      attachRoofs(this.villa.roof, this.villa.annexRoof, this.mat, next, this.builtRoofStyle);
+      attachLayoutRoofs(this.villa.roof, this.villa.annexRoof, this.mat, next, this.builtRoofStyle, this.layoutLive);
       const created: THREE.Mesh[] = [];
       for (const root of [this.villa.roof, this.villa.annexRoof]) {
         root.traverse((obj) => {
@@ -552,7 +558,7 @@ export class VillaViewer {
   }
 
   /**
-   * 方案尺寸／户型草稿变更后重砌主辅楼与场地。
+   * 方案外轮廓尺寸变更后重砌主辅楼与场地；仅户型变化用 rebuildLayout。
    * layout：传入覆盖用草稿几何；undefined＝保持现有 layoutLive；null＝清回源码默认户型。
    */
   rebuildAfterParams(fenShui = site.roofFenShui, layout?: VillaLayoutLive | null) {
@@ -626,6 +632,41 @@ export class VillaViewer {
     this.setState({});
     this.renderer.shadowMap.needsUpdate = true;
     this.needsRender = true;
+  }
+
+  /** 户型变化只更新受影响楼层／构件，场地、道路、邻房及车辆路线保持原对象。 */
+  rebuildLayout(layout: VillaLayoutLive | null) {
+    const previous = this.villa;
+    const oldRoots = new Set<THREE.Object3D>([
+      ...previous.levels, previous.roof, previous.annex, previous.annexRoof,
+      previous.portico, previous.balcony, this.livingGlass, this.entryBay, this.eastBand,
+    ]);
+    const next = buildVilla(this.mat, true, this.fenShui, this.state.roofStyle, layout, previous);
+    this.layoutLive = layout;
+    if (next === previous) return;
+    const livingGlass = next.group.getObjectByName("挑空客厅一二层通高玻璃")!;
+    const entryBay = next.group.getObjectByName("门厅一二层通高门")!;
+    const eastBand = next.group.getObjectByName("烤火房回纹横披")!;
+    const created: THREE.Mesh[] = [];
+    for (const root of [
+      ...next.levels, next.roof, next.annex, next.annexRoof, next.portico,
+      next.balcony, livingGlass, entryBay, eastBand,
+    ]) {
+      if (oldRoots.has(root)) continue;
+      root.traverse(obj => { if (obj instanceof THREE.Mesh) created.push(obj); });
+      batch(root);
+    }
+    this.mmRoot.add(next.group);
+    this.mmRoot.remove(previous.group);
+    this.villa = next;
+    this.livingGlass = livingGlass;
+    this.entryBay = entryBay;
+    this.eastBand = eastBand;
+    this.builtRoofStyle = this.state.roofStyle;
+    const keep = new Set<THREE.Material>(Object.values(this.mat));
+    disposeReplaced(previous.group, this.scene, keep);
+    disposeDetached(created, this.scene, keep);
+    this.setState({});
   }
   setSun(date: string, hour: number) {
     const result = sunDirection(date, hour);

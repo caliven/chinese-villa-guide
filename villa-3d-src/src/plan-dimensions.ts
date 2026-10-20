@@ -1,5 +1,4 @@
 import { construction, isPhysicalWall, site, type Floor, type Wall } from "./data";
-import type { StairDraft } from "./layout-draft";
 
 /** 图上统一到整数毫米端点；先取端点再相减，分段之和才能严格等于总尺寸。 */
 export const planDimMm = (value: number) => Math.round(value);
@@ -76,7 +75,7 @@ function wallAxes(body: Envelope, walls: Wall[]) {
   };
 }
 
-export function collectPlanDimensions(index: number, floor: Floor, annexWalls: Wall[], building: PlanBuilding = "main", stair?: StairDraft) {
+export function collectPlanDimensions(index: number, floor: Floor, annexWalls: Wall[], building: PlanBuilding = "main") {
   // 后墙来自外包络；不能用 floor.front + (main.d - setback)，旧稿前缘会把后墙算偏。
   const south = site.main.z + site.main.d;
   const main = { ...site.main, z: floor.front, d: south - floor.front };
@@ -86,21 +85,9 @@ export function collectPlanDimensions(index: number, floor: Floor, annexWalls: W
   const bodyAxes = building === "annex" ? annexAxes : mainAxes;
   const lo = body.x;
   const hi = body.x + body.w;
-  // 有楼梯间时，只在实际贴靠的那一侧外侧链插入梯间左右边（贯通南北时只标南侧，避免对边重复）。
-  let northXs = bodyAxes.north;
-  let southXs = bodyAxes.south;
-  if (building === "main" && stair) {
-    const r = stair.room;
-    const x0 = planDimMm(r.x), x1 = planDimMm(r.x + r.w);
-    if (x1 > x0) {
-      const t = construction.outsideWall;
-      const touchesNorth = Math.abs(r.z - body.z) <= t + 1;
-      const touchesSouth = Math.abs(r.z + r.d - (body.z + body.d)) <= t + 1;
-      if (touchesNorth && touchesSouth) southXs = axes([...southXs, x0, x1], lo, hi);
-      else if (touchesNorth) northXs = axes([...northXs, x0, x1], lo, hi);
-      else if (touchesSouth) southXs = axes([...southXs, x0, x1], lo, hi);
-    }
-  }
+  // 楼梯只是模型，不是墙；其框边不参与外圈墙线定位，也不与自画侧墙拆出碎档。
+  const northXs = bodyAxes.north;
+  const southXs = bodyAxes.south;
   // 主楼：门厅两柱心＋主楼西／东外皮 → 左余量｜柱心距｜右余量（默认 4500＋4600＋4500）。
   // 辅楼：无门厅控制档，controls 仅外皮两端。
   const porch = site.portico;

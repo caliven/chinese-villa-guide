@@ -57,11 +57,15 @@ import { roomAreas } from "./design-data";
 import { formatMm } from "./units";
 import {
   applyRoomToEnclosedRegion,
+  enclosedRoomRegions,
+  polygonIntersectionAreaMm2,
   roomRegionOverlap,
   findEnclosedRegionAt,
 } from "./plan-regions";
+import { roundedRoomOutline } from "./room-geometry";
 import { constrainWallEdits } from "./wall-constraints";
 import { syncRoomsFromWalls } from "./room-sync";
+import { subdivideRoomRegions } from "./room-subdivision";
 import {
   validateProtectedRoomOverlaps,
   syncRoomsToMovedWalls,
@@ -648,7 +652,7 @@ export class LayoutEditor {
       walls.push(placed);
       this.selection = { kind: "wall", index: walls.length - 1, floor, annex: annex || undefined };
       this.tool = "select";
-      const sync = this.afterWallsChanged(floor, annex, placed);
+      const sync = this.afterWallsChanged(floor, annex, placed, false, true);
       this.commit();
       if (kind === "virtual" && sync.created === 0 && sync.updated === 0) {
         this.host.toast("已放置虚拟墙：细灰虚线分界；拉长两端接墙后显示分区尺寸");
@@ -706,13 +710,24 @@ export class LayoutEditor {
     const walls = annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
     const region = findEnclosedRegionAt(x, z, body, walls);
     if (region) {
+      const oldIds = new Set(list.map(r => r.id));
+      // 与画墙和全局生成共用完整分割事务；手动点击只处理目标区所在原房。
+      const split = !region.openSide ? subdivideRoomRegions(list, enclosedRoomRegions(body, walls), {
+        targetRegion: region, namePrefix: annex ? "辅楼房间" : "房间",
+      }) : undefined;
       const occupied = list.find(r => (!!region.boundaryKey && r.boundary?.key === region.boundaryKey) ||
         (r.x === region.x && r.z === region.z && r.w === region.w && r.d === region.d && roomRegionOverlap(r, region).iou > 0.999));
       if (occupied) {
+        if (!oldIds.has(occupied.id)) {
+          occupied.kind = this.roomKind;
+          delete occupied.purposeStatus;
+          occupied.note = "按墙边界生成；色块表示模型净空。设计建议。";
+        }
         this.selection = { kind: "room", id: occupied.id, floor, annex: annex || undefined };
         this.tool = "select";
-        this.host.redraw();
-        this.host.toast("该围合区已有房间，已选中");
+        if (split && (split.created || split.changedIds.size)) this.commit();
+        else this.host.redraw();
+        this.host.toast(split && (split.created || split.changedIds.size) ? "已按墙分割原房并选中房间" : "该围合区已有房间，已选中");
         return;
       }
       if (list.some(r => (r.kind === "void" || r.kind === "stair") && x >= r.x && x <= r.x+r.w && z >= r.z && z <= r.z+r.d)) {
@@ -736,6 +751,10 @@ export class LayoutEditor {
     if (!region) this.snapRoomEdges(room, floor);
     const protection = validateProtectedRoomOverlaps(list, [...list, room]);
     if (!protection.ok) { this.host.toast(protection.reason ?? "该区域覆盖楼梯或挑空"); return; }
+    if (region && list.some(r => polygonIntersectionAreaMm2(roundedRoomOutline(r), roundedRoomOutline(room)) > 1)) {
+      this.host.toast("该墙线分区与已有房间重叠，剩余区域尚未形成完整分界，请先核对墙线");
+      return;
+    }
     list.push(room);
     this.selection = { kind: "room", id: room.id, floor, annex: annex || undefined };
     this.tool = "select";
@@ -857,7 +876,7 @@ export class LayoutEditor {
   }
 
   /**
-   * 闭合墙分区：按稳定边界关联已有房间，否则在空区新建。
+   * 墙线分区：关联已有房间；新画墙或明确生成时允许新建三面开敞区。
    * touchWall：只处理贴着刚改墙段的区，避免整层扫走廊。
    */
   private ensureAutoRoomsFromWalls(
@@ -865,11 +884,12 @@ export class LayoutEditor {
     annex: boolean,
     touchWall?: Wall,
     associateExisting = false,
+    createOpen = false,
   ): { created: number; updated: number; issues: string[] } {
     this.ensureWallIds();
     return syncRoomsFromWalls(this.planBody(floor, annex),
       annex ? this.draft.annexPartitions : this.floorData(floor).partitions,
-      this.roomList(floor, annex), { touchWall, associateExisting, namePrefix: annex ? "辅楼房间" : "房间" });
+      this.roomList(floor, annex), { touchWall, associateExisting, createOpen: createOpen || associateExisting, namePrefix: annex ? "辅楼房间" : "房间" });
   }
 
   /** 墙体落成／拖完后同步房间；有新建或改尺寸则提示。 */
@@ -878,16 +898,19 @@ export class LayoutEditor {
     annex: boolean,
     touchWall?: Wall,
     associateExisting = false,
+    createOpen = false,
   ): { created: number; updated: number; issues: string[] } {
-    const sync = this.ensureAutoRoomsFromWalls(floor, annex, touchWall, associateExisting);
+    const sync = this.ensureAutoRoomsFromWalls(floor, annex, touchWall, associateExisting, createOpen);
+    let message = "";
     if (sync.created > 0 && sync.updated > 0) {
-      this.host.toast(`已同步房间：新建 ${sync.created} · 更新 ${sync.updated}`);
+      message = `已同步房间：新建 ${sync.created} · 更新 ${sync.updated}`;
     } else if (sync.created > 0) {
-      this.host.toast(sync.created === 1 ? "已自动生成房间（贴墙内皮）" : `已自动生成 ${sync.created} 个房间`);
+      message = sync.created === 1 ? "已自动生成房间（贴墙内皮）" : `已自动生成 ${sync.created} 个房间`;
     } else if (sync.updated > 0) {
-      this.host.toast(sync.updated === 1 ? "已更新房间尺寸" : `已更新 ${sync.updated} 个房间尺寸`);
+      message = sync.updated === 1 ? "已更新房间尺寸" : `已更新 ${sync.updated} 个房间尺寸`;
     }
-    if (sync.issues.length) this.host.toast(sync.issues[0]!);
+    if (sync.issues.length) message += `${message ? "；" : ""}${sync.issues[0]}${sync.issues.length > 1 ? `；另有${sync.issues.length - 1}处分区需处理` : ""}`;
+    if (message) this.host.toast(message);
     return sync;
   }
 
@@ -897,7 +920,7 @@ export class LayoutEditor {
     const before = this.contentKey();
     const sync = this.afterWallsChanged(floor, annex, undefined, true);
     if (sync.created === 0 && sync.updated === 0) {
-      this.host.toast(sync.issues[0] ?? "没有新增或变化的闭合房间；开敞分区请手动放置房间");
+      if (!sync.issues.length) this.host.toast("没有新增或变化的房间；已有房间、楼梯及挑空已跳过。空区需至少三面相接墙线");
     } else if (this.contentKey() !== before) {
       this.commit();
     } else {
@@ -920,6 +943,7 @@ export class LayoutEditor {
     applyRoomToEnclosedRegion(candidate, region);
     const rooms = this.roomList(floor, annex);
     if (!validateProtectedRoomOverlaps(rooms, rooms.map(r => r.id === room.id ? candidate : r)).ok) return false;
+    if (rooms.some(r => r.id !== room.id && polygonIntersectionAreaMm2(roundedRoomOutline(r), roundedRoomOutline(candidate)) > 1)) return false;
     restoreRecord(room, candidate);
     return JSON.stringify(before) !== JSON.stringify(room);
   }
@@ -1180,7 +1204,7 @@ export class LayoutEditor {
           floor,
           annex: annex || undefined,
         };
-        this.afterWallsChanged(floor, annex, wall);
+        this.afterWallsChanged(floor, annex, wall, false, true);
         this.commit();
         return;
       }
@@ -2667,7 +2691,7 @@ export class LayoutEditor {
     const sel = this.selection;
     if (!sel) return "";
     const head = (title: string, deletable = true) =>
-      `<div class="layout-inspector-head"><strong class="layout-inspector-title">${title}</strong>${
+      `<div class="layout-inspector-head" data-inspector-drag-handle title="拖动标题栏以移动属性面板"><strong class="layout-inspector-title">${title}</strong>${
         deletable
           ? `<button type="button" class="layout-delete-link" data-edit-delete>${this.selections.length > 1 ? "删除所选" : "删除"}</button>`
           : ""

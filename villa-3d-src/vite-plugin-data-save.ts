@@ -68,7 +68,13 @@ async function handleSave(req: IncomingMessage, res: ServerResponse) {
     const id = typeof body.document?.id === "string" && body.document.id
       ? body.document.id
       : `${body.kind}-${Date.now()}`;
-    const fileName = `${id}.json`;
+    const fileName = safeVersionFileName(`${id}.json`);
+    if (!fileName) {
+      res.statusCode = 400;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "无效的版本编号" }));
+      return;
+    }
     await writeFile(path.join(dir, fileName), `${JSON.stringify(body.document, null, 2)}\n`, "utf8");
     if (body.index) {
       await writeFile(path.join(dir, "index.json"), `${JSON.stringify(body.index, null, 2)}\n`, "utf8");

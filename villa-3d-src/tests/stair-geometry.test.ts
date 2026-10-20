@@ -56,22 +56,17 @@ test("放置楼梯时吸附到附近竖墙内侧，三层房间框同步", () =>
   assert.ok(draft.stairLayout.x + draft.stairLayout.flight <= draft.stairLayout.room.x + draft.stairLayout.room.w + 1);
 });
 
-test("有楼梯间时南北外侧尺寸链标出梯间宽度；不因自带侧墙拆出 60mm 碎档；房屋总宽不变", () => {
+test("楼梯框不生成外圈墙距或墙厚碎档；房屋控制尺寸及总宽不变", () => {
   const draft = clonePublishedLayout(), s = stair();
-  const read = (floor: number, withStair = true) =>
-    collectPlanDimensions(floor, draft.floors[floor]!, draft.annexPartitions, "main", withStair ? s : undefined);
-  // 一层：梯间只在实际贴靠的那一侧外侧链插入左右边（贯通时只标南），宽度 2800
-  const ground = read(0);
-  const stairSide = ground.southXs.includes(12900) ? ground.southXs : ground.northXs;
-  assert.ok(stairSide.includes(12900) && stairSide.includes(15700), `梯间边应在外侧链：北 ${ground.northXs.join(",")} 南 ${ground.southXs.join(",")}`);
-  assert.equal(planDimSpanMm(12900, 15700), 2800);
-  // 不对边重复插入同一梯间
-  assert.ok(!(ground.northXs.includes(12900) && ground.southXs.includes(12900)));
-  // 二三层不再自动补侧墙，故不应出现 edge±60 的碎档（旧为 12960）
+  draft.stairLayout = s;
+  for (const floor of draft.floors) floor.partitions = [];
+  const read = (floor: number) => collectPlanDimensions(floor, draft.floors[floor]!, draft.annexPartitions, "main");
+  for (let i = 0; i < 3; i++) {
+    const dims = read(i);
+    assert.deepEqual(dims.northXs, [dims.xLo, dims.xHi]);
+    assert.deepEqual(dims.southXs, [dims.xLo, dims.xHi]);
+  }
   const upper = read(1);
-  assert.ok(!upper.southXs.includes(12960) && !upper.northXs.includes(12960));
-  assert.ok(!upper.southXs.includes(15640) && !upper.northXs.includes(15640));
-  // 控制线只含外墙两端；房屋总宽不变
   const controls = upper.controls;
   s.room.w += 300;
   assert.deepEqual(read(1).controls, controls);

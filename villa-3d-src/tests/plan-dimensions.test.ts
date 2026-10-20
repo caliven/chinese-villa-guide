@@ -53,6 +53,21 @@ test("三层楼梯移位与拉伸只改楼梯框，外部尺寸不变", () => {
   }
 });
 
+test("楼梯旁18mm偏差不生成碎档，外侧链只定位用户墙线", () => {
+  const draft = clonePublishedLayout();
+  Object.assign(draft.stairLayout.room, { x: x(6800), z: z(5800), w: 2900, d: 4200 });
+  ensureStairRooms(draft);
+  for (const floor of draft.floors) floor.partitions = [
+    { a: [x(6782), z(5800)], b: [x(6782), z(10000)], role: "bearing" },
+  ];
+  for (let i = 0; i < 3; i++) {
+    const svg = buildingSvg(floorPlan(i, false, false, {}, planSourceFromDraft(draft, i)), "main");
+    assert.deepEqual(renderedChain(svg, "south", "walls"), [6782, 6818]);
+    assert.deepEqual(renderedChain(svg, "north", "overall"), [13600]);
+    assert.ok(svg.includes("梯间 2900×4200"));
+  }
+});
+
 test("任意房间／套卫／辅楼房间框改变而墙不动时，墙线定位也不变", () => {
   const draft = clonePublishedLayout();
   const before = dims(draft);

@@ -146,7 +146,7 @@ export function buildLayoutVersionDocument(
     id: input?.id ?? title,
     title,
     savedAt: formatSavedAt(now),
-    layoutDraft,
+    layoutDraft: structuredClone(layoutDraft),
   };
 }
 
@@ -249,13 +249,19 @@ async function fetchJson(url: string): Promise<unknown | null> {
   }
 }
 
+// 静态服务器没有写接口，下载后的版本仍可在本次页面会话内继续编辑与切换。
+const sessionIndexes = new Map<DataKind, DataVersionsIndex>();
+const sessionDocuments = new Map<string, unknown>();
+
 export async function loadDataVersionsIndex(kind: DataKind): Promise<DataVersionsIndex> {
+  const cached = sessionIndexes.get(kind);
+  if (cached) return structuredClone(cached);
   const raw = await fetchJson(dataIndexUrl(kind));
   return parseDataVersionsIndex(raw, kind);
 }
 
 export async function loadSizeVersion(file: string): Promise<SizeVersionDocument | null> {
-  const raw = await fetchJson(dataVersionUrl("尺寸", file));
+  const raw = sessionDocuments.get(`尺寸/${file}`) ?? await fetchJson(dataVersionUrl("尺寸", file));
   if (raw == null) return null;
   try {
     return parseSizeVersionDocument(raw);
@@ -265,7 +271,7 @@ export async function loadSizeVersion(file: string): Promise<SizeVersionDocument
 }
 
 export async function loadLayoutVersion(file: string): Promise<LayoutVersionDocument | null> {
-  const raw = await fetchJson(dataVersionUrl("户型", file));
+  const raw = sessionDocuments.get(`户型/${file}`) ?? await fetchJson(dataVersionUrl("户型", file));
   if (raw == null) return null;
   try {
     return parseLayoutVersionDocument(raw);
@@ -294,24 +300,23 @@ type PersistBody = {
 
 /** 优先 POST 写入 data/；静态服务则下载单个 JSON。 */
 export async function persistDataVersion(body: PersistBody): Promise<DataPersistResult> {
+  let res: Response | undefined;
   try {
-    const res = await fetch("/__data_save", {
+    res = await fetch("/__data_save", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (res.ok) {
-      const data = (await res.json()) as { path?: string };
-      return {
-        ok: true,
-        via: "api",
-        path: data.path,
-        message: `已保存${body.kind}版本 → ${data.path ?? `data/${body.kind}/`}`,
-      };
-    }
   } catch {
     /* 静态服务无写入接口时走下载 */
   }
+  if (res?.ok) {
+    const data = (await res.json()) as { path?: string };
+    sessionIndexes.delete(body.kind);
+    sessionDocuments.delete(`${body.kind}/${body.document.id}.json`);
+    return { ok: true, via: "api", path: data.path, message: `已保存${body.kind}版本 → ${data.path ?? `data/${body.kind}/`}` };
+  }
+  if (res && ![404, 405, 501].includes(res.status)) throw new Error(`保存${body.kind}版本失败（${res.status}），请重试`);
 
   const file = `${body.document.id}.json`;
   const text =
@@ -319,10 +324,12 @@ export async function persistDataVersion(body: PersistBody): Promise<DataPersist
       ? sizeDocToJson(body.document as SizeVersionDocument)
       : layoutDocToJson(body.document as LayoutVersionDocument);
   downloadText(file, text);
+  sessionIndexes.set(body.kind, structuredClone(body.index));
+  sessionDocuments.set(`${body.kind}/${file}`, structuredClone(body.document));
   return {
     ok: true,
     via: "download",
-    message: `已下载 ${file}；请放到 villa-3d-src/data/${body.kind}/ 并更新 index.json（npm run dev 可自动写入）`,
+    message: `已下载 ${file}；请放到 villa-3d-src/data/${body.kind}/ 并更新 index.json。本次页面内可继续使用，刷新前请完成文件保存（npm run dev 可自动写入）`,
   };
 }
 
@@ -366,24 +373,25 @@ export async function deleteDataVersion(body: DeleteBody): Promise<DataPersistRe
     return { ok: false, via: "download", message: "无效的版本文件名" };
   }
   const index = removeVersionMeta(body.index, file);
+  let res: Response | undefined;
   try {
-    const res = await fetch("/__data_delete", {
+    res = await fetch("/__data_delete", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ kind: body.kind, file, index }),
     });
-    if (res.ok) {
-      const data = (await res.json()) as { path?: string };
-      return {
-        ok: true,
-        via: "api",
-        path: data.path,
-        message: `已删除${body.kind}版本 → ${data.path ?? `data/${body.kind}/${file}`}`,
-      };
-    }
   } catch {
     /* 静态服务无删除接口 */
   }
+  if (res?.ok) {
+    const data = (await res.json()) as { path?: string };
+    sessionIndexes.delete(body.kind);
+    sessionDocuments.delete(`${body.kind}/${file}`);
+    return { ok: true, via: "api", path: data.path, message: `已删除${body.kind}版本 → ${data.path ?? `data/${body.kind}/${file}`}` };
+  }
+  if (res && ![404, 405, 501].includes(res.status)) throw new Error(`删除${body.kind}版本失败（${res.status}），请重试`);
+  sessionIndexes.set(body.kind, structuredClone(index));
+  sessionDocuments.delete(`${body.kind}/${file}`);
 
   downloadText("index.json", `${JSON.stringify(index, null, 2)}\n`);
   return {

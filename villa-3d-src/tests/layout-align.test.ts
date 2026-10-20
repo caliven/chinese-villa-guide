@@ -72,6 +72,19 @@ test("楼梯和挑空共墙受影响时禁止撑墙，专用几何不被隐式�
   }
 });
 
+test("侧墙移离楼梯可同步邻房，不联动楼梯框；挑空边墙仍受保护", () => {
+  for (const kind of ["stair", "void"] as const) {
+    const originalRooms = [room("bed", 0, 0, 5000, 8000), room(kind, 5000, 0, 5000, 8000, kind)];
+    const rooms = structuredClone(originalRooms);
+    const originalWalls: Wall[] = [{ a: [5000, 0], b: [5000, 8000] }];
+    const movedWalls: Wall[] = [{ a: [4800, 0], b: [4800, 8000] }];
+    const result = syncRoomsToMovedWalls(originalWalls, movedWalls, originalRooms, rooms, body);
+    assert.equal(result.ok, kind === "stair");
+    assert.deepEqual(rooms[1], originalRooms[1]);
+    assert.equal(rooms[0]!.w, kind === "stair" ? 4800 : 5000);
+  }
+});
+
 test("矩形尺寸编辑拒绝非矩形轮廓，防止只改变外包络", () => {
   const selected = room("L", 1000, 1000, 5000, 5000);
   selected.outline = [[1000, 1000], [6000, 1000], [6000, 3000], [4000, 3000], [4000, 6000], [1000, 6000]];

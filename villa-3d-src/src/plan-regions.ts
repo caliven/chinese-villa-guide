@@ -56,7 +56,7 @@ export type EnclosedRoomRegion = {
   geometryArea?: number;
   /** 墙体身份和墙侧组成的边界关联，不随同一墙平移改变。 */
   boundaryKey?: string;
-  /** 开敞候选无闭合边界，不能自动覆盖正式房间。 */
+  /** 三面开敞分区，不将缺失的一边当作实体墙。 */
   openSide?: boolean;
 };
 
@@ -90,6 +90,34 @@ function toSegs(walls: Wall[]): Seg[] {
     out.push({ axis, at, lo, hi, half: wallHalfMm(wall), index: i });
   }
   return out;
+}
+
+/**
+ * 房间边界统一使用外墙外皮／内墙中线：先验证原墙体实际接触，再把接点延至参考线。
+ * 只补实际墙厚内的端点及同轴分段的 1 mm 舍入误差，不沿归一后的墙继续跨接空隙。
+ * 保留墙段身份与角色；门窗洞口不打断墙边界。
+ */
+function normalizeWallContacts<T extends Pick<Seg, "axis" | "at" | "lo" | "hi" | "half">>(body: Envelope, lines: T[]): T[] {
+  const x0 = Math.round(body.x), x1 = Math.round(body.x + body.w);
+  const z0 = Math.round(body.z), z1 = Math.round(body.z + body.d);
+  const outer = Math.round(construction.outsideWall);
+  return lines.map(line => {
+    const min = line.axis === "v" ? z0 : x0, max = line.axis === "v" ? z1 : x1;
+    let lo = line.lo <= min + outer + CONNECT_TOL ? min : line.lo;
+    let hi = line.hi >= max - outer - CONNECT_TOL ? max : line.hi;
+    for (const other of lines) {
+      if (other.axis === line.axis) {
+        if (other.at !== line.at) continue;
+        if (line.lo > other.hi && line.lo - other.hi <= CONNECT_TOL) lo = Math.min(lo, other.hi);
+        if (line.hi < other.lo && other.lo - line.hi <= CONNECT_TOL) hi = Math.max(hi, other.lo);
+        continue;
+      }
+      if (line.at < other.lo - line.half - CONNECT_TOL || line.at > other.hi + line.half + CONNECT_TOL) continue;
+      if (Math.abs(line.lo - other.at) <= other.half + CONNECT_TOL) lo = Math.min(lo, other.at);
+      if (Math.abs(line.hi - other.at) <= other.half + CONNECT_TOL) hi = Math.max(hi, other.at);
+    }
+    return { ...line, lo, hi };
+  });
 }
 
 /** 建筑外轮廓四边（外皮），index 为负，与隔墙一并参与交叉角／三面成房。 */
@@ -226,18 +254,7 @@ function floodWallRegions(body: Envelope, walls: Wall[]): FloodResult | null {
       half: wallHalfMm(wall),
     });
   }
-  // 端点贴到墙面就视为接墙，延伸至该墙中线；不跨过真实空隙。门洞仍属墙段。
-  const connected = lines.map(line => {
-    const min = line.axis === "v" ? z0 : x0, max = line.axis === "v" ? z1 : x1;
-    let lo = line.lo <= min + outer + 1 ? min : line.lo;
-    let hi = line.hi >= max - outer - 1 ? max : line.hi;
-    for (const other of lines) {
-      if (other.axis === line.axis || line.at < other.lo - line.half - 1 || line.at > other.hi + line.half + 1) continue;
-      if (Math.abs(line.lo - other.at) <= other.half + 1) lo = Math.min(lo, other.at);
-      if (Math.abs(line.hi - other.at) <= other.half + 1) hi = Math.max(hi, other.at);
-    }
-    return { ...line, lo, hi };
-  });
+  const connected = normalizeWallContacts(body, lines);
   const xs = [...new Set([x0, x1, ...connected.flatMap(l => l.axis === "v" ? [l.at] : [l.lo, l.hi])])].sort((a, b) => a - b);
   const zs = [...new Set([z0, z1, ...connected.flatMap(l => l.axis === "h" ? [l.at] : [l.lo, l.hi])])].sort((a, b) => a - b);
   const nx = xs.length - 1, nz = zs.length - 1;
@@ -571,15 +588,15 @@ function wallCrossesInterior(
 /**
  * 三面墙成房：只沿同一面墙上的相邻交叉角成对组成房间（点互斥，不跳过中间交叉）。
  * 开敞方向仅取两臂共同覆盖的较短长度，不把不存在的墙臂推定为闭合。
- * 外墙臂按其上最近交叉角截断；候选必须由用户明确采纳为开敞分区。
+ * 外墙臂按其上最近交叉角截断；空区可自动生成开敞分区，不覆盖已有房间。
  * 矩形内部若被其它墙穿过则丢弃。
  */
 export function threeWallRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoomRegion[] {
   // 合并共线邻段，避免同一面墙拆成两段后失去 U 形基边。
   const partSegs: Seg[] = [];
-  for (const seg of toSegs(walls).sort((a, b) => a.axis.localeCompare(b.axis) || a.at - b.at || a.lo - b.lo)) {
+  for (const seg of normalizeWallContacts(body, toSegs(walls)).sort((a, b) => a.axis.localeCompare(b.axis) || a.at - b.at || a.lo - b.lo)) {
     const previous = partSegs[partSegs.length - 1];
-    if (previous && previous.axis === seg.axis && previous.at === seg.at && seg.lo <= previous.hi + 1) {
+    if (previous && previous.axis === seg.axis && previous.at === seg.at && seg.lo <= previous.hi + CONNECT_TOL) {
       previous.hi = Math.max(previous.hi, seg.hi);
       previous.half = Math.max(previous.half, seg.half);
     } else partSegs.push({ ...seg });
@@ -620,7 +637,10 @@ export function threeWallRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoo
     if (seen.has(key)) return false;
     seen.add(key);
     const polygon: Point[] = [[x0, z0], [x0 + w, z0], [x0 + w, z0 + d], [x0, z0 + d]];
-    pushRegion(out, x0, z0, w, d, { openSide: true, polygon, geometryArea: areaM2(w, d) });
+    pushRegion(out, x0, z0, w, d, {
+      openSide: true, polygon, geometryArea: areaM2(w, d),
+      boundaryKey: `open-walls:${boundaryKeyFor(polygon, body, walls)}`,
+    });
     return true;
   };
 
@@ -704,7 +724,7 @@ function regionContainsPoint(r: EnclosedRoomRegion, x: number, z: number, tol = 
   return x >= r.x - tol && x <= r.x + r.w + tol && z >= r.z - tol && z <= r.z + r.d + tol;
 }
 
-/** 真实闭合区优先，三面 U 形仅作为可手工采纳的开敞候选。 */
+/** 真实闭合区优先，三面 U 形另列为开敞分区。 */
 export function allRoomRegions(body: Envelope, walls: Wall[]): EnclosedRoomRegion[] {
   const closed = enclosedRoomRegions(body, walls);
   const open = threeWallRoomRegions(body, walls);

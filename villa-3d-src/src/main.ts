@@ -1,4 +1,7 @@
 import "./style.css";
+import { loadingOverlayHtml, withLoadingOverlay } from "./loading-overlay";
+import { DeferredSceneUpdate, FrameRedraw } from "./deferred-scene-update";
+import { patchPlanDrawing } from "./plan-dom";
 import { formatMm } from "./units";
 import { VillaViewer, defaultView, type CameraName } from "./viewer";
 import { site, floors, facts, photos, annexRooms, buildingAreas } from "./data";
@@ -60,6 +63,7 @@ import {
 } from "./villa-params-ui";
 import {
   clearLayoutDraft,
+  clonePublishedLayout,
   envelopeFromSite,
   loadLayoutDraft,
   replaceLayoutDraftMemory,
@@ -80,6 +84,7 @@ import {
 } from "./scheme-store";
 import {
   buildLayoutVersionDocument,
+  emptyDataIndex,
   buildSizeVersionDocument,
   loadDataVersionsIndex,
   loadLayoutVersion,
@@ -93,6 +98,8 @@ import {
   type LayoutVersionDocument,
   type SizeVersionDocument,
 } from "./data-versions";
+
+import { blankLayoutDraft, createLayoutVersion, layoutVersionName, renameLayoutVersion, suggestLayoutVersionName } from "./layout-version-management";
 
 const shapes: Record<string, string> = {
   house: '<path d="M3 10 12 3l9 7M5 9v12h14V9M10 21v-7h4v7"/>',
@@ -155,7 +162,8 @@ document.querySelector("#app")!.innerHTML = `
   <main class="workspace">
     <section class="stage" aria-label="方案查看区">
       <div id="viewport"></div>
-      <div id="loading"><span class="spinner"></span><strong>正在构建山居场景</strong><span>加载地形、屋顶与楼层模型</span></div>
+      ${loadingOverlayHtml({ id: "loading", text: "正在构建山居场景…", hidden: false })}
+      ${loadingOverlayHtml({ id: "scene-loading", text: "正在更新立体模型…" })}
       <div class="scene-tools" id="scene-tools">
         <button class="icon-button" id="reset-camera" aria-label="恢复当前视角" title="恢复视角">${icon("reset")}</button>
         <button class="icon-button" id="save-view" aria-label="保存当前模型图片" title="保存视图">${icon("save")}</button>
@@ -183,7 +191,7 @@ document.querySelector("#app")!.innerHTML = `
             <select id="layout-version-select" aria-label="选择已保存的户型版本（一二三楼一体）">
               <option value="">（当前草稿）</option>
             </select>
-          </label><button type="button" id="layout-delete-version" class="secondary-button" title="删除所选户型版本">删除版本</button></div></div><div id="plan-loading" class="plan-loading" hidden aria-live="polite" aria-busy="false"><span class="spinner"></span><span id="plan-loading-text">正在载入户型…</span></div><div class="plan-canvas-wrap"><div id="layout-edit-bar" class="layout-edit-bar layout-edit-bar-float" hidden>
+          </label><button type="button" id="layout-new-version" class="secondary-button">新增</button><button type="button" id="layout-copy-version" class="secondary-button" title="复制当前三层户型，包含未保存的编辑">复制</button><button type="button" id="layout-rename-version" class="secondary-button">重命名</button><button type="button" id="layout-delete-version" class="secondary-button" title="删除所选户型版本">删除版本</button></div></div>${loadingOverlayHtml({ id: "plan-loading", text: "正在载入户型…", className: "plan-loading" })}<div class="plan-canvas-wrap"><div id="layout-edit-bar" class="layout-edit-bar layout-edit-bar-float" hidden>
         <div class="layout-edit-row">
           <div class="layout-tools" role="toolbar" aria-label="布局编辑类别">
             <button type="button" data-edit-tool="select" class="active">选择</button>
@@ -267,6 +275,16 @@ document.querySelector("#app")!.innerHTML = `
     </aside>
   </main>
   <footer class="app-footer"><span id="interaction-hint">拖动旋转 · 滚轮缩放 · 右键平移</span><span>概念方案 · 待实测与设计</span><a href="#" id="footer-sources">查看数据依据 ↗</a></footer>
+  <dialog id="layout-version-dialog" class="layout-version-dialog" aria-labelledby="layout-version-dialog-title">
+    <form id="layout-version-form">
+      <h2 id="layout-version-dialog-title">新增户型</h2>
+      <p id="layout-version-dialog-note"></p>
+      <label for="layout-version-name">户型名称</label>
+      <input id="layout-version-name" name="title" required maxlength="80" autocomplete="off" />
+      <p id="layout-version-error" class="layout-version-error" role="alert"></p>
+      <div class="layout-version-dialog-actions"><button type="button" id="layout-version-cancel" class="secondary-button">取消</button><button type="submit" id="layout-version-submit" class="secondary-button">确定</button></div>
+    </form>
+  </dialog>
   <dialog id="photo-modal"><form method="dialog"><button class="icon-button" aria-label="关闭图片">${icon("close")}</button></form><img id="modal-img" alt="现场参考"/><div><h2 id="modal-title"></h2><p id="modal-note"></p><button id="match-photo" class="secondary-button">按此照片方向观察模型</button></div></dialog>
   <dialog id="export-modal"><form method="dialog"><button class="icon-button" aria-label="关闭导出预览">${icon("close")}</button></form><img id="export-image" alt="当前模型视图导出预览"/><div><h2>当前模型视图</h2><p>图片附版本与未核状态。</p><a id="export-download" class="secondary-button" download="安化山居.png">下载 PNG 图片</a></div></dialog>
   <div id="toast" role="status" hidden></div>
@@ -290,6 +308,15 @@ let toastTimer: ReturnType<typeof setTimeout>;
 let layoutEditing = false;
 let layoutEditor: LayoutEditor | null = null;
 let unbindLayoutEditor: (() => void) | null = null;
+type LayoutInspectorPosition = { left: number; top: number };
+/** 手动拖动后保留本次页面会话的位置，不写入户型数据。 */
+let layoutInspectorPosition: LayoutInspectorPosition | null = null;
+let layoutInspectorDrag: {
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+  position: LayoutInspectorPosition;
+} | null = null;
 let unbindCourtyardDims: (() => void) | null = null;
 let courtyardDimLayout: CourtyardDimLayout = loadCourtyardDimLayout();
 /**
@@ -477,13 +504,105 @@ async function refreshSizeVersionSelect(index?: DataVersionsIndex) {
   );
 }
 
+let layoutVersionsIndex = emptyDataIndex("户型");
+let activeLayoutVersionFile = "";
+function syncLayoutVersionActions() {
+  for (const id of ["layout-version-select", "layout-new-version", "layout-copy-version", "layout-rename-version", "layout-delete-version", "layout-save"]) {
+    const control = document.getElementById(id) as HTMLButtonElement | HTMLSelectElement | null;
+    if (control) control.disabled = planLoadingTasks > 0 || (["layout-rename-version", "layout-delete-version"].includes(id) && !activeLayoutVersionFile);
+  }
+}
 async function refreshLayoutVersionSelect(index?: DataVersionsIndex) {
-  const data = index ?? (await loadDataVersionsIndex("户型"));
-  fillVersionSelect(
-    document.getElementById("layout-version-select") as HTMLSelectElement | null,
-    data,
-    "（当前草稿）",
-  );
+  layoutVersionsIndex = index ?? (await loadDataVersionsIndex("户型"));
+  const select = $("layout-version-select") as HTMLSelectElement;
+  select.innerHTML = layoutVersionsIndex.versions.map(v =>
+    `<option value="${escapeHtml(v.file)}">${escapeHtml(v.title)} · ${escapeHtml(formatSavedAtDisplay(v.savedAt))}</option>`).join("");
+  if (!layoutVersionsIndex.versions.some(v => v.file === activeLayoutVersionFile)) {
+    select.insertAdjacentHTML("afterbegin", '<option value="">（当前草稿）</option>');
+    activeLayoutVersionFile = "";
+  }
+  select.value = activeLayoutVersionFile;
+  syncLayoutVersionActions();
+}
+
+async function selectLayoutVersion(file: string, silent = false) {
+  const doc = await loadLayoutVersion(file);
+  if (!doc) throw new Error("载入户型版本失败，当前编辑已保留");
+  await applyLayoutVersion(doc, silent);
+  activeLayoutVersionFile = file;
+  await refreshLayoutVersionSelect(layoutVersionsIndex);
+  drawPlan();
+}
+
+async function runLayoutVersionTask(message: string, work: () => Promise<void>) {
+  if (planLoadingTasks) return;
+  try { await withPlanLoading(message, work); }
+  catch (error) { toast(error instanceof Error ? error.message : "户型版本操作失败"); }
+}
+
+function currentLayoutDraft() {
+  return layoutEditor?.draft ?? loadLayoutDraft() ?? clonePublishedLayout();
+}
+
+let layoutVersionAction: "new" | "copy" | "rename" = "new";
+let layoutVersionDialogFile = "";
+function openLayoutVersionDialog(action: typeof layoutVersionAction) {
+  if (planLoadingTasks) return;
+  layoutVersionAction = action;
+  layoutVersionDialogFile = activeLayoutVersionFile;
+  const current = layoutVersionsIndex.versions.find(v => v.file === activeLayoutVersionFile);
+  if (action === "rename" && !current) return;
+  $("layout-version-dialog-title").textContent = action === "new" ? "新增户型" : action === "copy" ? "复制户型" : "重命名户型";
+  $("layout-version-dialog-note").textContent = action === "new"
+    ? "保留当前建筑外轮廓、层高和外部门窗，清空三层及辅楼内部布局。当前版本保留。"
+    : action === "copy" ? "复制当前三层及辅楼的完整户型，包含尚未保存的编辑。原版本保留。" : "只修改版本名称，编号、排序和图纸内容保持不变。";
+  const input = $("layout-version-name") as HTMLInputElement;
+  input.value = action === "rename" ? current!.title : suggestLayoutVersionName(action === "new" ? "新户型" : `${current?.title ?? "当前户型"} - 副本`, layoutVersionsIndex);
+  $("layout-version-error").textContent = "";
+  ($("layout-version-dialog") as HTMLDialogElement).showModal();
+  input.focus();
+  input.select();
+}
+
+async function submitLayoutVersionDialog(event: SubmitEvent) {
+  event.preventDefault();
+  if (planLoadingTasks) return;
+  const dialog = $("layout-version-dialog") as HTMLDialogElement;
+  const submit = $("layout-version-submit") as HTMLButtonElement;
+  const cancel = $("layout-version-cancel") as HTMLButtonElement;
+  try {
+    const title = layoutVersionName(($("layout-version-name") as HTMLInputElement).value);
+    submit.disabled = cancel.disabled = true;
+    await withPlanLoading("正在保存户型版本…", async () => {
+      const index = await loadDataVersionsIndex("户型");
+      if (layoutVersionAction === "rename") {
+        const original = await loadLayoutVersion(layoutVersionDialogFile);
+        if (!original) throw new Error("载入原版本失败，未修改名称");
+        const renamed = renameLayoutVersion(original, index, layoutVersionDialogFile, title);
+        const result = await persistDataVersion({ kind: "户型", ...renamed });
+        if (!result.ok) throw new Error(result.message);
+        await refreshLayoutVersionSelect(renamed.index);
+        drawPlan();
+        toast(result.via === "api" ? `已重命名为「${title}」` : result.message);
+      } else {
+        const source = currentLayoutDraft();
+        const draft = layoutVersionAction === "new" ? blankLayoutDraft(source) : source;
+        const doc = createLayoutVersion(draft, title, index);
+        const nextIndex = prependVersionMeta(index, { id: doc.id, title: doc.title, savedAt: doc.savedAt, file: `${doc.id}.json` });
+        const result = await persistDataVersion({ kind: "户型", document: doc, index: nextIndex });
+        if (!result.ok) throw new Error(result.message);
+        if (level < 0) level = 0;
+        await applyLayoutVersion(doc, true);
+        activeLayoutVersionFile = `${doc.id}.json`;
+        await refreshLayoutVersionSelect(nextIndex);
+        setLayoutEditing(true);
+        toast(result.via === "api" ? `已${layoutVersionAction === "new" ? "新增" : "复制"}户型「${title}」` : result.message);
+      }
+      dialog.close();
+    });
+  } catch (error) {
+    $("layout-version-error").textContent = error instanceof Error ? error.message : "户型版本保存失败";
+  } finally { submit.disabled = cancel.disabled = false; }
 }
 
 async function applySchemeDocument(doc: SchemeDocument, options?: { toastMsg?: string }) {
@@ -529,14 +648,15 @@ async function applySizeVersion(doc: SizeVersionDocument, options?: { toastMsg?:
   setSchemeStatus(`已载入尺寸：${doc.title}（${formatSavedAtDisplay(doc.savedAt, true)}）`);
 }
 
-async function applyLayoutVersion(doc: LayoutVersionDocument) {
+async function applyLayoutVersion(doc: LayoutVersionDocument, silent = false) {
   replaceLayoutDraftMemory(doc.layoutDraft);
   if (layoutEditor) {
+    layoutEditor.setTool("select");
     layoutEditor.loadDraft(doc.layoutDraft);
   }
   drawPlan();
-  applyLayoutDraftTo3d();
-  toast(`已载入户型版本：${doc.title}（一二三楼）`);
+  await applyLayoutDraftTo3d();
+  if (!silent) toast(`已载入户型版本：${doc.title}（一二三楼）`);
 }
 
 async function saveSchemeCurrent() {
@@ -607,72 +727,44 @@ async function deleteSizeVersion() {
 }
 
 async function deleteLayoutVersion() {
-  const select = document.getElementById("layout-version-select") as HTMLSelectElement | null;
-  const file = select?.value;
-  if (!file) {
-    toast("请先选择要删除的户型版本");
-    return;
-  }
-  const label = select?.selectedOptions[0]?.textContent?.trim() || file;
-  if (!window.confirm(`确定删除户型版本「${label}」？将从仓库 data/户型/ 去掉该文件（一二三楼一体），不可撤销。`)) return;
-  try {
+  if (planLoadingTasks || !activeLayoutVersionFile) return;
+  const file = activeLayoutVersionFile;
+  const title = layoutVersionsIndex.versions.find(v => v.file === file)?.title ?? file;
+  if (!window.confirm(`确定删除户型版本「${title}」？一二三楼一体删除，不可撤销。`)) return;
+  await runLayoutVersionTask("正在删除户型版本…", async () => {
     const index = await loadDataVersionsIndex("户型");
     const nextIndex = removeVersionMeta(index, file);
     const result = await deleteDataVersion({ kind: "户型", file, index: nextIndex });
+    if (!result.ok) throw new Error(result.message);
+    activeLayoutVersionFile = "";
     await refreshLayoutVersionSelect(nextIndex);
-    if (select) select.value = "";
-    const status = document.getElementById("layout-save-status");
-    if (status) status.textContent = result.message;
+    if (nextIndex.versions[0]) await selectLayoutVersion(nextIndex.versions[0].file, true);
+    $("layout-save-status").textContent = result.message;
     toast(result.message);
-  } catch (error) {
-    toast(error instanceof Error ? error.message : "删除户型版本失败");
-  }
+  });
 }
 
-/** 户型图「保存」→ data/户型/；已选版本则覆盖该文件，未选则新建。 */
+/** 保存当前三层户型；新增与复制通过独立入口创建，避免误覆盖。 */
 async function saveLayoutVersion() {
-  try {
+  await runLayoutVersionTask("正在保存户型版本…", async () => {
     layoutEditor?.saveNow({ silent: true });
-    const draft = loadLayoutDraft();
-    if (!draft) {
-      toast("没有可保存的户型草稿，请先编辑布局");
-      return;
-    }
-    if (draft.floors.length !== 3) {
-      toast("户型版本必须包含一二三楼，无法按单层保存");
-      return;
-    }
-    const select = document.getElementById("layout-version-select") as HTMLSelectElement | null;
-    const selectedFile = select?.value?.trim() || "";
+    const draft = currentLayoutDraft();
     const index = await loadDataVersionsIndex("户型");
-    const existing = selectedFile
-      ? index.versions.find((v) => v.file === selectedFile || `${v.id}.json` === selectedFile)
-      : undefined;
+    const existing = index.versions.find(v => v.file === activeLayoutVersionFile);
+    if (activeLayoutVersionFile && !existing) throw new Error("当前版本已不存在，请通过「复制」另存为新版本");
     const doc = existing
       ? buildLayoutVersionDocument(draft, { id: existing.id, title: existing.title })
-      : (() => {
-          const title = makeDataVersionTitle("户型");
-          return buildLayoutVersionDocument(draft, { id: title, title });
-        })();
+      : createLayoutVersion(draft, makeDataVersionTitle("户型"), index);
     const file = existing?.file ?? `${doc.id}.json`;
-    const nextIndex = prependVersionMeta(index, {
-      id: doc.id,
-      title: doc.title,
-      savedAt: doc.savedAt,
-      file,
-    });
+    const nextIndex = prependVersionMeta(index, { id: doc.id, title: doc.title, savedAt: doc.savedAt, file });
     const result = await persistDataVersion({ kind: "户型", document: doc, index: nextIndex });
+    if (!result.ok) throw new Error(result.message);
+    activeLayoutVersionFile = file;
     await refreshLayoutVersionSelect(nextIndex);
-    if (select) select.value = file;
-    const status = document.getElementById("layout-save-status");
-    const msg = existing
-      ? `已更新户型版本「${doc.title}」`
-      : result.message;
-    if (status) status.textContent = msg;
-    toast(msg);
-  } catch (error) {
-    toast(error instanceof Error ? error.message : "户型版本保存失败");
-  }
+    const message = result.via === "api" ? `已保存户型版本「${doc.title}」` : result.message;
+    $("layout-save-status").textContent = message;
+    toast(message);
+  });
 }
 
 async function resetSchemeToInitial() {
@@ -764,39 +856,20 @@ function rescaleStoredLayoutDraft(): LayoutDraft | null {
   return next;
 }
 
-function paintFrame() {
-  return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-  });
-}
-
-/** 户型图透明遮罩：下拉切换版本等异步载入时挡住交互并提示。 */
+/** 版本载入及立体更新共用遮罩与绘制时序。 */
+let planLoadingTasks = 0;
 async function withPlanLoading<T>(message: string, work: () => Promise<T> | T): Promise<T> {
-  const overlay = document.getElementById("plan-loading");
-  const text = document.getElementById("plan-loading-text");
-  const select = document.getElementById("layout-version-select") as HTMLSelectElement | null;
-  const deleteBtn = document.getElementById("layout-delete-version") as HTMLButtonElement | null;
-  if (text) text.textContent = message;
-  if (overlay) {
-    overlay.hidden = false;
-    overlay.setAttribute("aria-busy", "true");
-  }
-  if (select) select.disabled = true;
-  if (deleteBtn) deleteBtn.disabled = true;
-  await paintFrame();
+  planLoadingTasks++;
+  syncLayoutVersionActions();
   try {
-    return await work();
+    return await withLoadingOverlay($("plan-loading"), message, work);
   } finally {
-    if (overlay) {
-      overlay.hidden = true;
-      overlay.setAttribute("aria-busy", "false");
-    }
-    if (select) select.disabled = false;
-    if (deleteBtn) deleteBtn.disabled = false;
+    planLoadingTasks--;
+    syncLayoutVersionActions();
   }
 }
 
-async function withVillaParamsBusy(message: string, work: () => void) {
+async function withVillaParamsBusy(message: string, work: () => void | Promise<void>) {
   const section = document.getElementById("villa-params-section");
   const applyBtn = document.getElementById("villa-params-apply") as HTMLButtonElement | null;
   const actionBtns = [
@@ -815,10 +888,9 @@ async function withVillaParamsBusy(message: string, work: () => void) {
   }
   for (const btn of actionBtns) btn.disabled = true;
   if (applyBtn) applyBtn.textContent = "重建中…";
-  await paintFrame();
   try {
-    work();
-    await paintFrame();
+    const overlay = isSceneVisible() ? $("scene-loading") : $("plan-loading");
+    await withLoadingOverlay(overlay, message, work);
   } finally {
     section?.classList.remove("is-busy");
     if (busy) busy.hidden = true;
@@ -855,18 +927,13 @@ async function commitVillaParams(params: VillaParams, options?: { persist?: bool
       `主楼升高 ${formatMm(pitched.mainRise)}，半坡 ${formatMm(pitched.mainRun)}。辅楼升高 ${formatMm(pitched.annexRise)}，半坡 ${formatMm(pitched.annexRun)}（mm）。`;
     const scaledDraft = rescaleStoredLayoutDraft();
     draftRescaled = !!scaledDraft;
-    const liveLayout = scaledDraft
-      ? villaLayoutFromDraft(scaledDraft)
-      : (() => {
-          const d = loadLayoutDraft();
-          return d ? villaLayoutFromDraft(d) : null;
-        })();
-    viewer?.rebuildAfterParams(params.roofFenShui, liveLayout);
+    sceneUpdates.invalidate();
     refreshAreaMetrics();
     updateScene();
     drawPlan();
     syncVillaParamsWidthSum();
   });
+  await syncLayoutTo3d();
   toast(
     options?.toastMsg ??
       (draftRescaled ? "已应用方案尺寸；布局草稿已随方案参数重算" : "已应用方案尺寸"),
@@ -880,20 +947,62 @@ function parseLayoutNumber(raw: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function refreshLayoutInspector() {
+function refreshLayoutInspector(force = false) {
   const panel = $("layout-inspector");
   if (!layoutEditor || !layoutEditing || !layoutEditor.selection) {
+    stopLayoutInspectorDrag();
     panel.innerHTML = "";
     panel.hidden = true;
     return;
   }
   // 仅在有选中对象时展示属性条，避免空提示占高度
-  panel.innerHTML = layoutEditor.inspectorHtml();
+  const html = layoutEditor.inspectorHtml();
+  if (force || panel.innerHTML !== html) panel.innerHTML = html;
   panel.hidden = false;
   positionLayoutInspector();
 }
 
-/** 参数框贴着当前选中模型；优先右侧，空间不够再左侧／下方。 */
+/** 为长属性面板预留滚动空间，并避开顶部操作条／模型面板。 */
+function layoutInspectorBounds(panel: HTMLElement, wrap: HTMLElement) {
+  const rect = wrap.getBoundingClientRect();
+  let minTop = 8;
+  for (const id of ["layout-edit-bar", "layout-palette"] as const) {
+    const el = document.getElementById(id);
+    if (!el || el.hidden) continue;
+    minTop = Math.max(minTop, el.getBoundingClientRect().bottom - rect.top + 8);
+  }
+  panel.style.maxHeight = `${Math.max(0, rect.height - minTop - 8)}px`;
+  return {
+    minTop,
+    maxTop: Math.max(minTop, rect.height - panel.offsetHeight - 8),
+    maxLeft: Math.max(8, rect.width - panel.offsetWidth - 8),
+  };
+}
+
+function placeLayoutInspector(
+  panel: HTMLElement,
+  position: LayoutInspectorPosition,
+  bounds: ReturnType<typeof layoutInspectorBounds>,
+): LayoutInspectorPosition {
+  const left = Math.round(Math.max(8, Math.min(position.left, bounds.maxLeft)));
+  const top = Math.round(Math.max(bounds.minTop, Math.min(position.top, bounds.maxTop)));
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+  panel.style.right = "auto";
+  panel.style.bottom = "auto";
+  return { left, top };
+}
+
+function stopLayoutInspectorDrag() {
+  if (!layoutInspectorDrag) return;
+  const { pointerId } = layoutInspectorDrag;
+  layoutInspectorDrag = null;
+  const panel = $("layout-inspector");
+  panel.classList.remove("is-dragging");
+  if (panel.hasPointerCapture(pointerId)) panel.releasePointerCapture(pointerId);
+}
+
+/** 初次贴着选中模型定位；手动拖动后，重绘、缩放与切换模型均保留位置。 */
 function positionLayoutInspector() {
   const panel = $("layout-inspector");
   if (panel.hidden) return;
@@ -901,6 +1010,11 @@ function positionLayoutInspector() {
   if (!wrap) return;
   const place = () => {
     if (panel.hidden || wrap.offsetWidth < 8) return;
+    const bounds = layoutInspectorBounds(panel, wrap);
+    if (layoutInspectorPosition) {
+      layoutInspectorPosition = placeLayoutInspector(panel, layoutInspectorPosition, bounds);
+      return;
+    }
     const marks = wrap.querySelectorAll(".edit-selection");
     const wrapRect = wrap.getBoundingClientRect();
     const gap = 10;
@@ -933,21 +1047,7 @@ function positionLayoutInspector() {
         top = selB + gap;
       }
     }
-    // 避开顶栏吸附的操作条／模型面板
-    let chromeBottom = 8;
-    for (const id of ["layout-edit-bar", "layout-palette"] as const) {
-      const el = document.getElementById(id);
-      if (!el || el.hidden) continue;
-      const r = el.getBoundingClientRect();
-      chromeBottom = Math.max(chromeBottom, r.bottom - wrapRect.top + 8);
-    }
-    const minTop = chromeBottom;
-    top = Math.max(minTop, Math.min(top, Math.max(minTop, wrapRect.height - ph - 8)));
-    left = Math.max(8, Math.min(left, Math.max(8, wrapRect.width - pw - 8)));
-    panel.style.left = `${Math.round(left)}px`;
-    panel.style.top = `${Math.round(top)}px`;
-    panel.style.right = "auto";
-    panel.style.bottom = "auto";
+    placeLayoutInspector(panel, { left, top }, bounds);
   };
   requestAnimationFrame(place);
 }
@@ -1039,16 +1139,22 @@ function syncLayoutPalette() {
     .join("");
   requestAnimationFrame(syncLayoutChromeHeight);
 }
+const planRedraw = new FrameRedraw(() => {
+  if (tab === "floor" && planMode === "2d") drawPlan();
+});
+let boundPlanSvgs: SVGSVGElement[] = [];
 function drawPlan() {
+  planRedraw.clear();
   const sharedDimensionsOpen = $("plan-drawing").querySelector<HTMLDetailsElement>(".plan-shared-dimensions")?.open ?? false;
-  unbindLayoutEditor?.();
-  unbindLayoutEditor = null;
   unbindCourtyardDims?.();
   unbindCourtyardDims = null;
   const sitePlan = level < 0;
   if (sitePlan && layoutEditing) layoutEditing = false;
 
   if (sitePlan) {
+    unbindLayoutEditor?.();
+    unbindLayoutEditor = null;
+    boundPlanSvgs = [];
     $("plan-drawing").innerHTML = courtyardSitePlan(courtyardDimLayout);
     syncWallWidthToggle();
     active("[data-floor]", (b) => Number(b.dataset.floor) === level);
@@ -1099,7 +1205,7 @@ function drawPlan() {
   const layoutVersionLabel = document.querySelector<HTMLElement>(".layout-version-label");
   if (layoutVersionLabel) layoutVersionLabel.hidden = false;
 
-  const memoryDraft = loadLayoutDraft();
+  const memoryDraft = layoutEditing && layoutEditor ? null : loadLayoutDraft();
   const source = layoutEditing && layoutEditor
     ? planSourceFromDraft(layoutEditor.draft, level)
     : memoryDraft
@@ -1141,7 +1247,7 @@ function drawPlan() {
           .filter((s): s is Extract<typeof s, { kind: "room" }> => s.kind === "room" && s.floor === level)
           .map((s) => s.id)
       : [];
-  $("plan-drawing").innerHTML = floorPlan(
+  patchPlanDrawing($("plan-drawing"), floorPlan(
     level,
     checked("chair-clearance"),
     balcony,
@@ -1157,7 +1263,7 @@ function drawPlan() {
       alignGuide: layoutEditing ? layoutEditor?.getAlignGuide() ?? null : null,
     },
     source,
-  );
+  ));
   const sharedDimensions = $("plan-drawing").querySelector<HTMLDetailsElement>(".plan-shared-dimensions");
   if (sharedDimensions) sharedDimensions.open = sharedDimensionsOpen;
   syncWallWidthToggle();
@@ -1165,18 +1271,20 @@ function drawPlan() {
   document.querySelectorAll<HTMLInputElement>('input[name="floor"]').forEach(input => {
     input.checked = Number(input.value) === level;
   });
+  const liveFloors = layoutEditing && layoutEditor ? layoutEditor.draft.floors : memoryDraft?.floors ?? floors;
+  document.querySelectorAll<HTMLElement>("#floor-select label small").forEach((small, i) => {
+    small.textContent = bedroomSummary(i, liveFloors[i].rooms);
+  });
   $("floor-summary-title").textContent =
-    `${floors[level].name} · ${bedroomSummary(level)}`;
+    `${source.floor.name} · ${bedroomSummary(level, source.floor.rooms)}`;
   $("floor-summary").textContent = layoutEditing
-    ? "编辑草稿中。外墙锁定；房间、隔墙、门洞、家具、楼梯和门厅可拖。松手后立体会按草稿重绘（示意）；导出 JSON 仍可回写源码定稿。"
-    : [
-    "默认版本1：右侧挑空客厅与堂屋进深持平；茶室与楼梯、堂屋开敞；楼梯西缘内收1000并设公卫；后跨为临时餐厅；尊亲房带横向内卫。辅楼前室外圆桌，南窗居中，柴火灶横向靠南窗。",
-    "挑空仍在右侧。茶室上方是一间 3000 进深的东前卧室；主卧在楼梯南侧，带内卫。西侧另有一间卧室。楼梯井与一楼对齐（西缘内收1000）。",
-    "中间仍是家庭多功能厅。西侧前为主卧，后部是影音室。东侧楼梯与下面对齐，楼梯北是通东侧露台的过厅，南侧是卧室和内卫。",
-  ][level];
+    ? "编辑草稿中。外墙锁定；房间、隔墙、门洞、家具、楼梯和门厅可拖。切换立体时按最新草稿更新（示意）；导出 JSON 仍可回写源码定稿。"
+    : activeLayoutVersionFile
+      ? `当前户型：${layoutVersionsIndex.versions.find(v => v.file === activeLayoutVersionFile)?.title ?? "已保存版本"}。切换楼层查看，点「编辑布局」修改，点「保存」写入当前版本。`
+      : "当前草稿。切换楼层查看，点「编辑布局」修改，点「新增」建立空白户型，或点「复制」另存当前布局。";
   $("room-detail").hidden = true;
   $("room-detail").replaceChildren();
-  $("dining-check").hidden = level !== 0 || layoutEditing;
+  $("dining-check").hidden = level !== 0 || layoutEditing || !source.annexFurniture.some(item => item.kind === "roundTable");
   $("layout-edit-bar").hidden = !layoutEditing;
   $("toggle-layout-edit").setAttribute("aria-pressed", String(layoutEditing));
   $("toggle-layout-edit").classList.toggle("active", layoutEditing);
@@ -1205,16 +1313,21 @@ function drawPlan() {
         : "外轮廓／内侧参考未扣装修；南向上、西向右（门头朝下）";
   }
   refreshLayoutInspector();
-  if (layoutEditing && layoutEditor) {
-    const cleanups: (() => void)[] = [];
-    for (const svg of $("plan-drawing").querySelectorAll<SVGSVGElement>("svg.floor-svg")) {
-      svg.classList.toggle("tool-wall", layoutEditor.tool === "wall");
-      svg.classList.toggle("tool-room", layoutEditor.tool === "room");
-      svg.classList.toggle("tool-door", layoutEditor.tool === "door");
-      svg.classList.toggle("tool-furniture", layoutEditor.tool === "furniture");
-      cleanups.push(layoutEditor.bind(svg));
+  const svgs = [...$("plan-drawing").querySelectorAll<SVGSVGElement>("svg.floor-svg")];
+  if (!layoutEditing || !layoutEditor || svgs.length !== boundPlanSvgs.length || svgs.some((svg, i) => svg !== boundPlanSvgs[i])) {
+    unbindLayoutEditor?.();
+    unbindLayoutEditor = null;
+    boundPlanSvgs = [];
+    if (layoutEditing && layoutEditor) {
+      const cleanups = svgs.map(svg => layoutEditor!.bind(svg));
+      boundPlanSvgs = svgs;
+      unbindLayoutEditor = () => cleanups.forEach(cleanup => cleanup());
     }
-    unbindLayoutEditor = () => cleanups.forEach((cleanup) => cleanup());
+  }
+  for (const svg of svgs) {
+    for (const tool of ["wall", "room", "door", "furniture"]) {
+      svg.classList.toggle(`tool-${tool}`, layoutEditing && layoutEditor?.tool === tool);
+    }
   }
   applyPlanZoom();
 }
@@ -1226,24 +1339,42 @@ function formatSaveStatus(updatedAt: string, manual: boolean) {
   return manual ? `已写入内存 ${clock} · 可点「保存」` : `已暂存 ${clock}`;
 }
 
-/** 平面草稿 → 立体：防抖重砌，避免拖拽每帧全量重建。 */
-let layout3dSyncTimer = 0;
-function applyLayoutDraftTo3d() {
-  if (!viewer) return;
-  const draft = layoutEditor?.draft ?? loadLayoutDraft();
-  viewer.rebuildAfterParams(
-    getVillaParams().roofFenShui,
-    draft ? villaLayoutFromDraft(draft) : null,
-  );
+/** 二维编辑只标记脏数据；三维显示前集中同步最新版本。 */
+function isSceneVisible() {
+  return !!viewer && (tab === "model" || tab === "sun" || (tab === "floor" && planMode === "3d"));
 }
-function scheduleSyncLayoutTo3d() {
-  window.clearTimeout(layout3dSyncTimer);
-  layout3dSyncTimer = window.setTimeout(() => applyLayoutDraftTo3d(), 220);
+let sceneParamsKey = "";
+const sceneUpdates = new DeferredSceneUpdate({
+  visible: isSceneVisible,
+  capture: () => {
+    const draft = layoutEditor?.draft ?? loadLayoutDraft();
+    const layout = draft ? villaLayoutFromDraft(draft) : null;
+    const params = getVillaParams();
+    return { key: JSON.stringify({ params, layout }), value: { params, layout } };
+  },
+  apply: ({ params, layout }) => {
+    const paramsKey = JSON.stringify(params);
+    if (paramsKey !== sceneParamsKey) viewer!.rebuildAfterParams(params.roofFenShui, layout);
+    else viewer!.rebuildLayout(layout);
+    sceneParamsKey = paramsKey;
+  },
+  loading: work => withLoadingOverlay($("scene-loading"), "正在更新立体模型…", work),
+});
+async function syncLayoutTo3d() {
+  try { await sceneUpdates.flush(); }
+  catch (error) {
+    console.error("立体模型更新失败", error);
+    toast("立体更新失败，请重新切换立体重试；户型草稿已保留");
+  }
+}
+function applyLayoutDraftTo3d() {
+  sceneUpdates.invalidate();
+  return syncLayoutTo3d();
 }
 function setLayoutSaveStatus(updatedAt: string, manual: boolean) {
   const el = document.getElementById("layout-save-status");
   if (el) el.textContent = formatSaveStatus(updatedAt, manual);
-  scheduleSyncLayoutTo3d();
+  void applyLayoutDraftTo3d();
 }
 
 function setLayoutEditing(on: boolean) {
@@ -1259,14 +1390,13 @@ function setLayoutEditing(on: boolean) {
   if (on && !layoutEditor) {
     layoutEditor = new LayoutEditor({
       getFloor: () => level,
-      redraw: () => drawPlan(),
+      redraw: () => planRedraw.schedule(),
       toast,
       onDraftSaved: setLayoutSaveStatus,
     });
   } else if (on && layoutEditor) {
     setLayoutSaveStatus(layoutEditor.draft.updatedAt, false);
   }
-  if (on) applyLayoutDraftTo3d();
   if (!on) {
     const el = document.getElementById("layout-save-status");
     if (el) el.textContent = "";
@@ -1379,7 +1509,8 @@ function updateScene() {
   $("interaction-hint").textContent = plan
     ? "点击房间查看说明 · 小屏可横向滚动图纸"
     : "拖动旋转 · 滚轮缩放 · 右键平移";
-  if (tab === "floor") drawPlan();
+  if (plan) drawPlan();
+  if (isSceneVisible()) void syncLayoutTo3d();
 }
 function switchTab(name: string) {
   const resumePose = tab === "design" && name === lastViewingTab ? reviewPose : null;
@@ -1883,6 +2014,49 @@ window.addEventListener("resize", () => {
   syncLayoutChromeHeight();
   positionLayoutInspector();
 });
+// 绑定到外层面板，避免属性重绘替换标题栏后丢失拖动监听或指针捕获。
+$("layout-inspector").addEventListener("pointerdown", (event) => {
+  const target = event.target;
+  if (event.button !== 0 || !event.isPrimary || !(target instanceof Element)) return;
+  if (!target.closest("[data-inspector-drag-handle]")) return;
+  if (target.closest("button, input, select, textarea, a, [contenteditable]")) return;
+  const panel = $("layout-inspector");
+  const wrap = panel.closest<HTMLElement>(".plan-canvas-wrap");
+  if (!wrap) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const rect = panel.getBoundingClientRect();
+  const wrapRect = wrap.getBoundingClientRect();
+  layoutInspectorPosition = { left: rect.left - wrapRect.left, top: rect.top - wrapRect.top };
+  layoutInspectorDrag = {
+    pointerId: event.pointerId,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    position: layoutInspectorPosition,
+  };
+  panel.classList.add("is-dragging");
+  panel.setPointerCapture(event.pointerId);
+});
+$("layout-inspector").addEventListener("pointermove", (event) => {
+  const drag = layoutInspectorDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const panel = $("layout-inspector");
+  const wrap = panel.closest<HTMLElement>(".plan-canvas-wrap");
+  if (!wrap) return;
+  event.preventDefault();
+  event.stopPropagation();
+  layoutInspectorPosition = placeLayoutInspector(panel, {
+    left: drag.position.left + event.clientX - drag.clientX,
+    top: drag.position.top + event.clientY - drag.clientY,
+  }, layoutInspectorBounds(panel, wrap));
+});
+for (const type of ["pointerup", "pointercancel", "lostpointercapture"] as const) {
+  $("layout-inspector").addEventListener(type, (event) => {
+    if (event.pointerId !== layoutInspectorDrag?.pointerId) return;
+    stopLayoutInspectorDrag();
+  });
+}
+window.addEventListener("blur", stopLayoutInspectorDrag);
 $("layout-inspector").addEventListener("change", (event) => {
   const el = event.target as HTMLElement;
   if (!layoutEditor) return;
@@ -1914,12 +2088,12 @@ $("layout-inspector").addEventListener("change", (event) => {
     const value = parseLayoutNumber(el.value);
     if (value === null) {
       toast("请输入有效数字，可用小数点，例如 1.5");
-      refreshLayoutInspector();
+      refreshLayoutInspector(true);
       return;
     }
     layoutEditor.updateSelectedNumber(field, value);
-    // 约束拒绝时也回显实际几何，避免输入值与图纸尺寸不一致。
-    refreshLayoutInspector();
+    // 成功提交由下一帧统一刷新；约束拒绝仍立即回显实际几何。
+    if (!planRedraw.pending) refreshLayoutInspector(true);
   }
 });
 $("layout-inspector").addEventListener("keydown", (event) => {
@@ -1943,6 +2117,7 @@ function layoutEditorTypingTarget(target: EventTarget | null) {
 document.addEventListener(
   "keydown",
   (event) => {
+    if (planLoadingTasks || document.querySelector("dialog[open]")) return;
     if (layoutEditorTypingTarget(event.target)) return;
     if (!layoutEditing || !layoutEditor) return;
 
@@ -2235,22 +2410,20 @@ document.getElementById("scheme-delete-version")?.addEventListener("click", () =
 document.getElementById("layout-delete-version")?.addEventListener("click", () => {
   void deleteLayoutVersion();
 });
+for (const [id, action] of [["layout-new-version", "new"], ["layout-copy-version", "copy"], ["layout-rename-version", "rename"]] as const) {
+  $(id).addEventListener("click", () => openLayoutVersionDialog(action));
+}
+$("layout-version-form").addEventListener("submit", event => { void submitLayoutVersionDialog(event as SubmitEvent); });
+$("layout-version-cancel").addEventListener("click", () => ($("layout-version-dialog") as HTMLDialogElement).close());
+$("layout-version-dialog").addEventListener("cancel", event => { if (planLoadingTasks) event.preventDefault(); });
 document.getElementById("layout-version-select")?.addEventListener("change", () => {
-  void (async () => {
-    const select = document.getElementById("layout-version-select") as HTMLSelectElement | null;
-    const file = select?.value;
-    if (!file) return;
-    await withPlanLoading("正在载入户型…", async () => {
-      const doc = await loadLayoutVersion(file);
-      if (!doc) {
-        toast("载入户型版本失败");
-        select!.value = "";
-        return;
-      }
-      await applyLayoutVersion(doc);
-      await paintFrame();
-    });
-  })();
+  const select = $("layout-version-select") as HTMLSelectElement;
+  const file = select.value;
+  if (!file) return;
+  void runLayoutVersionTask("正在载入户型…", async () => {
+    try { await selectLayoutVersion(file); }
+    catch (error) { select.value = activeLayoutVersionFile; throw error; }
+  });
 });
 $("villa-params-reset").addEventListener("click", () => {
   void resetSchemeToInitial();
@@ -2301,11 +2474,18 @@ $("dining-warning").textContent =
   }
   await refreshSizeVersionSelect();
   await refreshLayoutVersionSelect();
+  // 首次打开载入目录第一项；视图切换不重载，保留用户正在编辑的内容。
+  const first = layoutVersionsIndex.versions[0];
+  if (first) {
+    try { await selectLayoutVersion(first.file, true); }
+    catch (error) { toast(error instanceof Error ? error.message : "默认户型载入失败"); }
+  }
 }
 
 await new Promise((resolve) => requestAnimationFrame(resolve));
 try {
   viewer = new VillaViewer($("viewport"));
+  sceneParamsKey = JSON.stringify(getVillaParams());
   viewer.onCompass = (angle) =>
     $("compass-arrow").setAttribute(
       "transform",
@@ -2313,19 +2493,23 @@ try {
     );
   viewer.onContextLoss = () => {
     $("loading").hidden = false;
+    $("loading").classList.add("is-error");
+    $("loading").setAttribute("aria-busy", "false");
     $("loading").innerHTML =
       "<strong>图形上下文已中断</strong><p>请刷新页面恢复3D；仍可查看分层平面与资料。</p>";
   };
   updateSun();
   updateRamp();
   // 已有布局草稿时立体与平面一致（挑空边栏杆由家具「栏杆」自画）
-  applyLayoutDraftTo3d();
+  await applyLayoutDraftTo3d();
   updateScene();
   const initialView = new URLSearchParams(location.search).get("view");
   if (initialView === "garage") setCamera("garage");
   $("loading").hidden = true;
 } catch (error) {
   console.error(error);
+  $("loading").classList.add("is-error");
+  $("loading").setAttribute("aria-busy", "false");
   $("loading").innerHTML =
     "<strong>当前环境未能启动3D</strong><p>请在支持WebGL2的浏览器打开。分层平面与资料仍可查看。</p>";
   toast("3D加载失败，平面图与资料可以继续查看。");

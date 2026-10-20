@@ -187,6 +187,70 @@ test("墙面接触可围合，墙面外仍有80空隙则不冒充闭合", () => 
   assert.deepEqual(enclosedRoomRegions(polygonBody, walls), []);
 });
 
+test("主辅楼四向U形接外墙内皮可识别，外墙内皮外真实留缝不补", () => {
+  const bodies = [polygonBody, { x: 21000, z: 3000, w: 4000, d: 8000 }];
+  for (const b of bodies) for (const side of ["north", "south", "west", "east"]) {
+    const transform = (u: number, v: number): Point => side === "north" ? [b.x + u, b.z + v]
+      : side === "south" ? [b.x + u, b.z + b.d - v]
+      : side === "west" ? [b.x + v, b.z + u] : [b.x + b.w - v, b.z + u];
+    const u0 = b.w === 4000 ? 1000 : 2000, u1 = b.w === 4000 ? 3000 : 6000;
+    const a = transform(u0, 0), c = transform(u1, 3000);
+    const expected = { x: Math.min(a[0], c[0]), z: Math.min(a[1], c[1]), w: Math.abs(a[0] - c[0]), d: Math.abs(a[1] - c[1]) };
+    for (const end of [0, 240, 241, 242, 320]) {
+      const walls: Wall[] = [
+        { id: "skin-arm-a", a: transform(u0, end), b: transform(u0, 3000) },
+        { id: "skin-arm-b", a: transform(u1, end), b: transform(u1, 3000) },
+      ];
+      const before = structuredClone(walls);
+      const target = threeWallRoomRegions(b, walls).find(r => r.x === expected.x && r.z === expected.z && r.w === expected.w && r.d === expected.d);
+      assert.equal(!!target, end <= 241, `${side} 起点距外皮${end}，只容许墙厚240加1舍入误差`);
+      if (target) assert.equal(target.openSide, true);
+      assert.deepEqual(enclosedRoomRegions(b, walls), [], "三面围合不能冒充四面闭合");
+      assert.deepEqual(walls, before, "分区识别不能修改原始墙体端点");
+    }
+  }
+});
+
+test("U形内墙墙皮接触与闭合检测口径一致，墙皮外2毫米空隙不补", () => {
+  for (const [role, half] of [["partition", 60], ["bearing", 120]] as const) {
+    for (const gap of [0, half, half + 1, half + 2, half + 80]) {
+      const walls: Wall[] = [
+        { id: "base", a: [2000, 2000], b: [8000, 2000], role },
+        { id: "left", a: [2000, 2000 + gap], b: [2000, 7000] },
+        { id: "right", a: [8000, 2000 + gap], b: [8000, 7000] },
+      ];
+      const hasU = threeWallRoomRegions(polygonBody, walls).some(r => r.x === 2000 && r.z === 2000 && r.w === 6000 && r.d === 5000 && r.openSide);
+      assert.equal(hasU, gap <= half + 1, `${role} 接点距中线${gap}`);
+      walls.push({ id: "closing", a: [2000, 7000], b: [8000, 7000] });
+      assert.equal(enclosedRoomRegions(polygonBody, walls).some(r => r.x === 2000 && r.z === 2000 && r.w === 6000 && r.d === 5000), gap <= half + 1);
+    }
+  }
+});
+
+test("共线拆段1毫米接点误差不影响闭合或U形，2毫米真实缝隙不补", () => {
+  for (const gap of [0, 1, 2]) {
+    const closed = box();
+    closed[1]!.b = [8000, 4500];
+    closed.push({ id: "split", a: [8000, 4500 + gap], b: [8000, 7000] });
+    const region = enclosedRoomRegions(polygonBody, closed).find(r => r.x === 2000 && r.z === 2000 && r.w === 6000 && r.d === 5000);
+    assert.equal(!!region, gap <= 1, `闭合墙同轴接点缝隙${gap}`);
+    if (region) assert.equal(region.geometryArea, 30);
+    const open = closed.filter(w => w.id !== "l3");
+    assert.equal(threeWallRoomRegions(polygonBody, open).some(r => r.x === 2000 && r.z === 2000 && r.w === 6000 && r.d === 5000 && r.openSide), gap <= 1, `U形基边同轴接点缝隙${gap}`);
+  }
+});
+
+test("相交接点沿墙段投影也须真实接触，不能只按墙厚跨接墙端空隙", () => {
+  const walls: Wall[] = [
+    { id: "base", a: [2000, 2000], b: [7938, 2000] },
+    { id: "left", a: [2000, 2060], b: [2000, 7000] },
+    { id: "right", a: [8000, 2060], b: [8000, 7000] },
+  ];
+  assert.equal(threeWallRoomRegions(polygonBody, walls).some(r => r.x === 2000 && r.z === 2000 && r.w === 6000 && r.d === 5000), false);
+  walls.push({ id: "closing", a: [2000, 7000], b: [8000, 7000] });
+  assert.deepEqual(enclosedRoomRegions(polygonBody, walls), []);
+});
+
 test("墙ID保持时移动同一闭合墙环，边界关联键稳定", () => {
   const walls = box();
   const before = enclosedRoomRegions(polygonBody, walls)[0]!;

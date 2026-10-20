@@ -35,6 +35,37 @@ test("四方向墙微移保持L角和房间边界，往返及撤销重做恢复�
   editor.undo(); editor.redo();
   assert.deepEqual(editor.draft.floors[0]!.partitions.map(w => [w.a, w.b]), before);
 });
+test("楼梯侧墙可独立往返微移和改长，三层楼梯框及洞口不变，撤销重做有效", () => {
+  const draft = clonePublishedLayout();
+  Object.assign(draft.stairLayout.room, { x: x(6800), z: z(5800), w: 2900, d: 4200 });
+  for (const floor of draft.floors) {
+    floor.rooms = [{ id: "stair", name: "楼梯", kind: "stair", ...draft.stairLayout.room }];
+    floor.partitions = [];
+  }
+  draft.floors[1]!.partitions = [{ a: [x(6782), z(5800)], b: [x(6782), z(10000)], role: "bearing" }];
+  const messages: string[] = [];
+  const editor = new LayoutEditor({ getFloor: () => 1, redraw: () => {}, toast: s => messages.push(s) }, draft);
+  const before = structuredClone(editor.draft);
+  editor.selection = { kind: "wall", index: 0, floor: 1 };
+  const wall = editor.draft.floors[1]!.partitions[0]!;
+  editor.nudgeSelection(-100, 0);
+  assert.equal(wall.a[0], x(6682));
+  editor.nudgeSelection(200, 0);
+  assert.equal(wall.a[0], x(6882));
+  editor.nudgeSelection(-100, 0);
+  assert.deepEqual(wall, before.floors[1]!.partitions[0]);
+  editor.updateSelectedNumber("length", 4000);
+  assert.equal(Math.abs(wall.b[1] - wall.a[1]), 4000);
+  assert.deepEqual(editor.draft.stairLayout, before.stairLayout);
+  assert.deepEqual(editor.draft.floors.map(f => f.rooms), before.floors.map(f => f.rooms));
+  assert.ok(!messages.some(s => s.includes("专用几何")));
+  editor.undo();
+  assert.deepEqual(editor.draft.floors[1]!.partitions, before.floors[1]!.partitions);
+  editor.redo();
+  const redone = editor.draft.floors[1]!.partitions[0]!;
+  assert.equal(Math.abs(redone.b[1] - redone.a[1]), 4000);
+});
+
 test("长度输入保留反向端序和洞宽，容不下洞口时拒绝", () => {
   const { editor, messages } = make([{ a: [x(6000), z(3000)], b: [x(2000), z(3000)], door: { offset: 2800, width: 900, kind: "door", hinge: "end", side: "in" } }]);
   editor.selection = { kind: "wall", index: 0, floor: 0 };
@@ -56,6 +87,27 @@ test("全局生成与手动放置不重复占用同一闭合区，生成幂等",
   assert.equal(editor.draft.floors[0]!.rooms.length, 1);
   assert.equal((editor.selection as { id: string }).id, id);
   assert.deepEqual(editor.generateAutoRooms(), { created: 0, updated: 0, issues: [] });
+});
+
+test("全局生成保留成功数量，并提示实际冲突分区，不把已有挑空当成新房报错", () => {
+  const walls: Wall[] = [
+    { a: [x(0), z(3000)], b: [x(3000), z(3000)] },
+    { a: [x(3000), z(0)], b: [x(3000), z(3000)] },
+    { a: [x(6000), z(5000)], b: [x(9000), z(5000)] },
+    { a: [x(9000), z(5000)], b: [x(9000), z(8000)] },
+    { a: [x(9000), z(8000)], b: [x(6000), z(8000)] },
+  ];
+  const { editor, messages } = make(walls, [
+    { id: "void", name: "客厅上空", kind: "void", x: x(0), z: z(0), w: 3000, d: 3000 },
+    { id: "stair", name: "楼梯", kind: "stair", x: x(4500), z: z(4000), w: 1000, d: 1000 },
+  ]);
+  const result = editor.generateAutoRooms();
+  assert.ok(result.created >= 1);
+  const message = messages.at(-1)!;
+  assert.match(message, /已自动生成|新建/);
+  assert.ok(!message.includes("覆盖客厅上空"));
+  assert.match(message, /距西墙/);
+  assert.match(message, /楼梯/);
 });
 test("开敞U区不会误选无边界关联的其他手工房", () => {
   const walls = box(); walls.splice(0, 1);

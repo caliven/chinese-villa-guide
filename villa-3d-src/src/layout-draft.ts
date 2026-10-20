@@ -720,8 +720,8 @@ export function parseLayoutDraft(raw: string): LayoutDraft {
       return {
         x: num(value.livingVoid.x, "挑空 x"),
         z: num(value.livingVoid.z, "挑空 z"),
-        w: num(value.livingVoid.w, "挑空 w", 1000, 10000),
-        d: num(value.livingVoid.d, "挑空 d", 1000, 12000),
+        w: num(value.livingVoid.w, "挑空 w", value.livingVoid.w === 0 && value.livingVoid.d === 0 ? 0 : 1000, 10000),
+        d: num(value.livingVoid.d, "挑空 d", value.livingVoid.w === 0 && value.livingVoid.d === 0 ? 0 : 1000, 12000),
       };
     })(),
     sideDoorZ: num(value.sideDoorZ ?? circulation.sideDoorZ, "辅楼门 Z"),

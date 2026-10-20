@@ -882,7 +882,8 @@ export function validateProtectedRoomOverlaps(originalRooms: Room[], rooms: Room
 
 /**
  * 所有墙编辑入口共用的手工房边界更新。用原墙、原房识别关系，同时更新贯通墙两侧及同侧房间。
- * 已关联真实轮廓的普通房由 room-sync 重算；楼梯／挑空和手工非矩形不得被隐式改写。
+ * 楼梯模型不参与墙边界联动；挑空和手工非矩形不得被隐式改写。
+ * 已关联真实轮廓的普通房由 room-sync 重算。
  * 成功才提交 rooms；失败保留调用时内容，walls 由上层墙事务负责回滚。
  */
 export function syncRoomsToMovedWalls(
@@ -895,6 +896,8 @@ export function syncRoomsToMovedWalls(
   if (originalWalls.length !== walls.length) return { ok: false, reason: "墙体快照与当前墙列表不一致" };
   const candidate = structuredClone(rooms);
   for (const originalRoom of originalRooms) {
+    // 自画侧墙独立于楼梯模型；移动墙不能隐式改写三层梯段、梯间框或洞口。
+    if (originalRoom.kind === "stair") continue;
     const target = candidate.find(room => room.id === originalRoom.id);
     if (!target) continue;
     const changes = new Map<RoomEdgeSide, number>();
@@ -906,8 +909,8 @@ export function syncRoomsToMovedWalls(
       if (Math.abs(delta) < 0.5) continue;
       for (const edge of ROOM_EDGES) {
         if (!roomEdgeMeetsWall(originalRoom, edge, original)) continue;
-        if (originalRoom.kind === "stair" || originalRoom.kind === "void") {
-          return { ok: false, reason: `${originalRoom.name}为楼梯或挑空，须通过专用几何编辑后再调整共墙` };
+        if (originalRoom.kind === "void") {
+          return { ok: false, reason: `${originalRoom.name}为挑空，须通过专用几何编辑后再调整共墙` };
         }
         if (originalRoom.boundary && !roomIsRectangular(originalRoom)) continue;
         if (originalRoom.outline && originalRoom.outline.length > 4) {

@@ -1,0 +1,111 @@
+/* 两个模型查看器共用；由各自入口 CSS 导入并随 Vite 打包。 */
+:root {
+  --app-loading-surface: rgba(245, 244, 239, 0.82);
+  --app-loading-color: #365a48;
+  --app-loading-muted: #737b72;
+  --app-loading-ring: #c5d1bd;
+  --app-loading-error: #8d493a;
+}
+
+.app-loading-overlay,
+#loading,
+.plan-loading,
+.loading-state,
+.model-message {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: var(--app-loading-surface);
+  color: var(--app-loading-color);
+  font-size: 13px;
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  text-align: center;
+  cursor: wait;
+  pointer-events: auto;
+}
+
+.app-loading-overlay[hidden],
+#loading[hidden],
+.plan-loading[hidden],
+.loading-state[hidden],
+.model-message[hidden] {
+  display: none !important;
+}
+
+.app-loading-overlay--page {
+  position: fixed;
+  z-index: 1000;
+}
+
+.app-loading-overlay strong,
+#loading strong,
+.loading-state strong,
+.model-message strong {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.app-loading-description,
+#loading > span:not(.spinner),
+.model-message > span:not(.loading-dot) {
+  color: var(--app-loading-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.app-loading-spinner,
+.spinner,
+.loading-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--app-loading-ring);
+  border-top-color: var(--app-loading-color);
+  border-radius: 50%;
+  animation: app-loading-spin 0.9s linear infinite;
+}
+
+.app-loading-overlay.is-error,
+.loading-state.is-error,
+.model-message.is-error,
+.model-message:not(:has(.loading-dot, .app-loading-spinner)) {
+  color: var(--app-loading-error);
+  cursor: default;
+}
+
+.is-error > .app-loading-spinner,
+.is-error > .spinner,
+.is-error > .loading-dot {
+  display: none;
+}
+
+@keyframes app-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-loading-spinner,
+  .spinner,
+  .loading-dot {
+    animation: none;
+  }
+}
+
+@media print {
+  .app-loading-overlay,
+  #loading,
+  .plan-loading,
+  .loading-state,
+  .model-message {
+    display: none !important;
+  }
+}

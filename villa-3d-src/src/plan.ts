@@ -163,7 +163,7 @@ function vDimChain(
  */
 function planOuterDimensions(index: number, northClear: number, source: PlanSource, building: PlanBuilding) {
   const body = building === "annex" ? site.annex : site.main;
-  const dims = collectPlanDimensions(index, source.floor, source.annexPartitions, building, source.stairPresent ? source.stair : undefined);
+  const dims = collectPlanDimensions(index, source.floor, source.annexPartitions, building);
   const { northXs, southXs, eastZs, westZs, controls, xLo, xHi, front, south } = dims;
   const northDetail = northXs.length > 2, southDetail = southXs.length > 2;
   const eastDetail = eastZs.length > 2, westDetail = westZs.length > 2;
