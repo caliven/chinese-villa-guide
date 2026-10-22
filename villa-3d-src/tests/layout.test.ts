@@ -24,12 +24,14 @@ import type { Mats } from "../src/primitives";
 import { cornerPilasterTopY, eyelidFixed, fasciaBottomY } from "../src/roof-options";
 import { frontApronEaveBase } from "../src/facade-details";
 
-test("主辅楼168平方米，21米内包含两侧过道和子孙道，辅楼内退2米", () => {
+test("首层含门厅177.2平方米，21米内包含两侧过道和子孙道，辅楼内退2米", () => {
   assert.equal(areaM2(site.main.w, site.main.d), 136);
   assert.equal(areaM2(site.annex.w, site.annex.d), 32);
   assert.equal(site.annex.d, 8000);
   assert.equal(site.annex.z - site.main.z, 2000);
   assert.equal(buildingAreas.portico, 9.2);
+  assert.equal(buildingAreas.total, 177.2);
+  assert.ok(Math.abs(buildingAreas.total - buildingAreas.main - buildingAreas.annex - buildingAreas.portico) < 1e-9);
   assert.equal(site.width, 21000);
   const eastGap = site.width - site.main.x - site.main.w;
   assert.ok(Math.abs(eastGap - 800) < 1e-6);

@@ -18,7 +18,7 @@ function axes(values: number[], lo: number, hi: number): number[] {
 
 /**
  * 外圈墙距只来自实体墙（承重／隔墙）；虚拟分界不投线、不拆段。
- * 只投到实际相交的那一侧外墙：接北标北、接南标南；贯通南北／东西时只标一侧，避免对边重复。
+ * 按实际相交侧分别投线：接北标北、接南标南；贯通墙在两端外墙均保留定位。
  * 当前编辑器的墙为正交墙，斜墙不冒充水平／竖直定位线。
  */
 function wallAxes(body: Envelope, walls: Wall[]) {
@@ -52,18 +52,14 @@ function wallAxes(body: Envelope, walls: Wall[]) {
   for (const [at, [lo, hi]] of vertical) {
     const touchesNorth = lo - z0 <= t + eps;
     const touchesSouth = z1 - hi <= t + eps;
-    // 贯通南北只标南侧，避免上下同一道墙重复；单侧相接则只标该侧。
-    if (touchesNorth && touchesSouth) south.set(at, hi);
-    else if (touchesNorth) north.set(at, lo);
-    else if (touchesSouth) south.set(at, hi);
+    if (touchesNorth) north.set(at, lo);
+    if (touchesSouth) south.set(at, hi);
   }
   for (const [at, [lo, hi]] of horizontal) {
     const touchesWest = lo - x0 <= t + eps;
     const touchesEast = x1 - hi <= t + eps;
-    // 贯通东西只标西侧，避免左右重复。
-    if (touchesWest && touchesEast) west.set(at, lo);
-    else if (touchesWest) west.set(at, lo);
-    else if (touchesEast) east.set(at, hi);
+    if (touchesWest) west.set(at, lo);
+    if (touchesEast) east.set(at, hi);
   }
   return {
     north: axes([...north.keys()], x0, x1), south: axes([...south.keys()], x0, x1),

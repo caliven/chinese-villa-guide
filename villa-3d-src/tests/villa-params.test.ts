@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { floors, site, courtyardArcAnchors, courtyardFront, annexFurniture, frontElevation, roadsideVilla } from "../src/data";
+import { floors, site, courtyardArcAnchors, courtyardFront, annexFurniture, frontElevation, roadsideVilla, buildingAreas, facts } from "../src/data";
 import {
   applyVillaParams,
   DEFAULT_VILLA_PARAMS,
@@ -19,12 +19,36 @@ import { mainRoofFootprint } from "../src/architecture";
 import { placeRoadsideVilla } from "../src/roadside-villa-layout";
 import { collectPlanSiteDimensions } from "../src/plan-dimensions";
 import { floorPlan, planSourceFromDraft } from "../src/plan";
+import { controlTable } from "../src/meeting-booklet";
+import { designBrief, designIssues } from "../src/design-data";
+
+test("门厅改宽改深后全额计入首层一次，概览数据、事实和沟通导出使用同一口径", () => {
+  resetVillaParams();
+  try {
+    applyVillaParams({ ...DEFAULT_VILLA_PARAMS, porticoWidth: 5000, porticoProjection: 2200 });
+    assert.equal(buildingAreas.main, 136);
+    assert.equal(buildingAreas.annex, 32);
+    assert.equal(buildingAreas.portico, 11);
+    assert.equal(buildingAreas.total, 179);
+    assert.match(facts.find(f => f.label === "外伸通高门厅")!.value, /计入11\.0㎡/);
+    assert.match(facts.find(f => f.label === "主楼 \/ 辅楼")!.note, /合计179\.0㎡/);
+    assert.match(designBrief[0].text, /合计179\.0㎡/);
+    assert.match(designIssues[0].current, /合计179\.0㎡/);
+    const table = controlTable();
+    assert.match(table, /5000×2200＝11\.0㎡/);
+    assert.match(table, /136\.0＋32\.0＋11\.0＝179\.0㎡/);
+    assert.match(floorPlan(0, false, false), /门厅 5000×2200 · 计入首层合计/);
+    assert.doesNotMatch(table + designBrief[0].text + floorPlan(0, false, false), /门厅[^<。]*另计/);
+  } finally { resetVillaParams(); }
+  assert.equal(buildingAreas.total, 177.2);
+});
 
 test("拆图后改宽深仍统一重算两栋坐标、草稿和各自标线", () => {
   resetVillaParams();
   const draft = clonePublishedLayout();
   try {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, mainWidth: 14000, annexWidth: 4300, lane: 1600, mainDepth: 10600, annexDepth: 7500 });
+    assert.equal(buildingAreas.total.toFixed(2), "189.85");
     const scaled = scaleLayoutDraftToEnvelope(draft, envelopeFromSite());
     const shared = collectPlanSiteDimensions();
     assert.deepEqual(shared.widthSegmentsMm, [300, 4300, 1600, 14000, 800]);

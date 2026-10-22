@@ -4,6 +4,10 @@ import { bedroomSummary, designBrief, designIssues, entranceMetrics, floorFinish
 import { designDrawings, drawingStyles, elevation, unresolvedConditions, type DrawingOptions } from "./design-drawings";
 import type { DesignSession, MeetingView } from "./design-session";
 import { courtyardSitePlan, floorPlan } from "./plan";
+import { roofPlanSvg, roofDrawingLabels, type RoofDrawingView } from "./roof-plan";
+import { elevationSvg, elevationLabels, type ElevationView } from "./elevation-plan";
+import { loadLayoutDraft } from "./layout-draft";
+import { villaLayoutFromDraft } from "./architecture";
 import { escapeHtml as e, projectMeta, meetingTabLabels, cameraViewLabels } from "./project-meta";
 import { courtyardFinishLabels } from "./courtyard-finishes";
 import { roofStyleLabels } from "./roof-options";
@@ -15,8 +19,9 @@ export function controlTable() {
   const vp = getVillaParams();
   return `<table><caption>当前控制尺寸 · 单位 mm（面积 ㎡）</caption><thead><tr><th>对象与起止口径</th><th>模型数值</th><th>状态</th></tr></thead><tbody>${[
     ["总宽：西侧＋辅楼＋子孙道＋主楼＋东侧", `${[derivedWestGap(vp), vp.annexWidth, vp.lane, vp.mainWidth, vp.eastGap].map(formatMm).join("＋")}＝${formatMm(derivedWestGap(vp) + vp.annexWidth + vp.lane + vp.mainWidth + vp.eastGap)}`, "方案控制；界址待测"],
-    ["主楼／辅楼主体首层投影", `${buildingAreas.main}／${buildingAreas.annex}㎡`, "主体按当前参数合计；报建口径待确认"],
-    ["门厅楼板投影", `${formatMm(site.portico.w)}×${formatMm(m.projection)}＝${buildingAreas.portico.toFixed(1)}㎡`, "几何投影另计；不代表全部外伸占地"],
+    ["主楼／辅楼主体首层投影", `${buildingAreas.main.toFixed(1)}／${buildingAreas.annex.toFixed(1)}㎡`, "计入首层建筑面积合计"],
+    ["外伸门厅计入面积", `${formatMm(site.portico.w)}×${formatMm(m.projection)}＝${buildingAreas.portico.toFixed(1)}㎡`, "投影全额计入首层合计一次；柱、平台和踏步控制线见下行"],
+    ["首层建筑面积合计（含门厅）", `${buildingAreas.main.toFixed(1)}＋${buildingAreas.annex.toFixed(1)}＋${buildingAreas.portico.toFixed(1)}＝${buildingAreas.total.toFixed(1)}㎡`, "当前方案口径；全楼各层总面积另行汇总，报建面积以核定为准"],
     ["自前墙北外皮→柱北外皮／平台／最外踏步", `${formatMm(m.column)}／${formatMm(m.platform)}／${formatMm(m.steps)}`, "不同控制线，勿当成同一门厅投影"],
     ["主辅楼首层完成面／两楼间连接地坪", `${elevation(floorFinish(0))}／${elevation(m.connectionY)}`, `相差${formatMm(m.connectionRise)}；通行做法待设计`],
     ["入口侧坡道：名义高差／投影长度", `${formatMm(site.entranceRise)}／${formatMm(m.rampRun)} ≈ ${m.rampGrade.toFixed(1)}%`, "几何尺度示意；适老通行待核"],
@@ -46,13 +51,18 @@ export function meetingBooklet(session: DesignSession, options: DrawingOptions, 
   const timestamp = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
   let page = 0;
   const section = (title: string, body: string) => `<section class="book-page"><header><span>安化山居 · 设计沟通资料</span><span>${e(projectMeta.revision)} · ${e(projectMeta.date)}</span></header><h1>${e(title)}</h1>${body}<footer>第 ${++page} 页组 · 院坪暂定±0.000 · 非测绘／施工图／通行认定</footer></section>`;
-  const drawings = designDrawings(options);
+  // 旧 E01 是纵横比例不同的控制示意；图册改用后面的四向等比例立面。
+  const drawings = designDrawings(options).filter(d => d.id !== "E01");
+  const roofDraft = loadLayoutDraft();
+  const roofLayout = roofDraft ? villaLayoutFromDraft(roofDraft) : null;
   const pages = [
     section("设计任务书与会议补充", `<p class="warning">${e(projectMeta.status)}。道路与最低梁底待联测，切口协商待确认；车行、人行、结构、排水均未据模型认定通过。</p><p>导出时间：${e(timestamp)}（北京时间）。当前模型${e(projectMeta.revision)}；实景复制模型基准${projectMeta.realSceneBase}，生成合成图不自动同步。</p>${designBrief.map((b) => `<article><small class="tag">${e(b.status)}</small><h3>${e(b.title)}</h3><p>${e(b.text)}</p></article>`).join("")}<h2>业主会前补充</h2><p class="note">${e(session.brief || "待补：常住与节庆人数、老人需求、卧室口径、预算范围、地库和外观优先级。")}</p>`),
     section("控制尺寸与标高", controlTable() + `<p>屋面分水${options.fenShui.toFixed(1)}；道路接入${Math.round(options.roadY)} mm、坡长${Math.round(options.rampLength)} mm均是当前探索值（单位 mm），未测。保留地坪最低梁底待测，切口协商待确认。</p>`),
     ...drawings.map((d) => section(d.title, `<p>${e(d.note)}</p>${d.svg}`)),
     section("整体院坪平面 · 自家与邻居", `<p>北向上、东向右。只画主辅楼与门厅外轮廓，不画室内布局。前院外沿取当前圆弧；邻居面宽13000、木房8800＋水泥2000、水泥外约9500院坪（mm）为口述占位。尺寸供建成后余量核对，非测绘。</p>${courtyardSitePlan()}`),
     ...floors.map((f, i) => section(`${f.name}家具与使用讨论 · ${bedroomSummary(i)}`, `<p>南向上、西向右（门头朝下）。房间标注墙线面积与净空面积（㎡示意）。家具虚线按600 mm留位，使用方向和实际要求待设计，非通行校核。</p>${floorPlan(i, true, view.balcony, { useZones: true, dining: "full" })}`)),
+    ...(["slab", "joined", "floating"] as RoofDrawingView[]).map(key => section(`屋顶设计 · ${roofDrawingLabels[key]}`, `<p>南向上、西向右。长度、模型相对标高均为mm。顶板与下层露台投影分开；屋面使用与立体相同的坡面和交线。粗绿线为屋脊、褐色虚线为谷线、蓝箭头为坡向。未设计新增屋顶房间或上屋顶楼梯；雨水口、防水与结构待深化。</p>${roofPlanSvg(key, view.roofStyle, roofLayout)}`)),
+    ...(Object.keys(elevationLabels) as ElevationView[]).map(key => section(`建筑立面 · ${elevationLabels[key]}`, `<p>当前${roofStyleLabels[view.roofStyle]}方案正投影；北侧为正门，正立面左东右西。长度、相对标高均为mm；门窗及门厅读取当前户型草稿，主辅楼按实际前后关系消隐。雕花、栏杆与檐口细部简化，非施工图。</p>${elevationSvg(key, view.roofStyle, roofLayout, view.balcony)}`)),
     section("餐厅日常示意 · 待比较", `<p>日常示意仅使用原小桌6座；圆桌及12椅暂收起，不修改3D基准。收纳位置、活动家具形式和厨房服务动线未定。本图册的一层满座图是双桌18座情景，仍偏紧。</p>${floorPlan(0, true, view.balcony, { inside: false, useZones: false, dining: "daily" })}`),
     section("房间尺寸口径", roomSchedule()),
     section("模型门窗洞口", openingSchedule()),

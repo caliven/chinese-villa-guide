@@ -686,7 +686,7 @@ function addPolylineCorbelsAndFascia(
 }
 
 // 前檐中段向前凸出一截，左右仍与原檐口齐平。inset 沿外沿向内收。
-function bayOutline(
+export function bayOutline(
   x: number, z: number, w: number, d: number,
   bayX: number, bayW: number, bayZ: number, inset: number,
 ): Point[] {
@@ -885,6 +885,15 @@ function addWallAndHatBayCorbels(
 
 // 抬高官帽只保留前檐及两侧外露段。各层后端沿正屋前坡斜切，
 // 从板顶到板底均与正屋贴合，不用一条横向后檐穿过屋面。
+export function hatEaveRim(x: number, z: number, w: number, inset: number, width: number, end: number): Point[] {
+  return [
+    [x + inset, z + inset], [x + w - inset, z + inset],
+    [x + w - inset, end], [x + w - width, end],
+    [x + w - width, z + width], [x + width, z + width],
+    [x + width, end], [x + inset, end],
+  ];
+}
+
 export function integratedHatEaves(
   parent: THREE.Object3D,
   x: number, z: number, w: number, base: number, mat: Mats,
@@ -895,12 +904,7 @@ export function integratedHatEaves(
   parent.add(g);
   const outerT = roofGutterDesign.outerTopWidth;
   const innerT = roofGutterDesign.innerWallThickness;
-  const rim = (inset: number, width: number, end: number): Point[] => [
-    [x + inset, z + inset], [x + w - inset, z + inset],
-    [x + w - inset, end], [x + w - width, end],
-    [x + w - width, z + width], [x + width, z + width],
-    [x + width, end], [x + inset, end],
-  ];
+  const rim = (inset: number, width: number, end: number) => hatEaveRim(x, z, w, inset, width, end);
   const finish = (outline: (end: number) => Point[], top: number, thick: number, material: THREE.Material, coping = false) => {
     const end = mainTileFront + (top - mainTileEave) / slope;
     const mesh = slab(g, outline(end), top, thick, material);

@@ -219,7 +219,8 @@ button svg {
 }
 .inspector {
   background: var(--paper);
-  overflow-y: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
   border: 1px solid var(--line);
   border-top: 0;
   border-radius: 0 0 5px 0;
@@ -807,10 +808,9 @@ input[type="range"] {
   z-index: 9;
   margin: 0;
   padding: 8px 14px;
-  border: 0;
-  border-bottom: 1px solid #d0d6c6;
+  border: 1px solid #d0d6c6;
   border-radius: 0;
-  background: rgba(250, 249, 243, 0.96);
+  background: #faf9f3;
   box-shadow: 0 6px 18px rgba(40, 48, 36, 0.1);
   backdrop-filter: blur(8px);
   pointer-events: auto;
@@ -834,7 +834,13 @@ input[type="range"] {
 }
 /* 模型面板紧贴编辑条下方，中间无空隙 */
 .plan-canvas-wrap:has(#layout-edit-bar:not([hidden])) .layout-palette-float {
-  top: var(--layout-edit-bar-h, 48px);
+  top: calc(var(--layout-edit-bar-h, 48px) - 1px);
+  left: 0;
+  right: 0;
+  border-radius: 0;
+}
+.plan-canvas-wrap:has(.layout-palette-float:not([hidden])) .layout-edit-bar-float {
+  box-shadow: none;
 }
 .layout-tools button,
 .layout-edit-actions button,
@@ -881,11 +887,10 @@ input[type="range"] {
   overflow: auto;
   margin: 0;
   padding: 8px 14px;
-  border: 0;
-  border-bottom: 1px solid #d0d6c6;
+  border: 1px solid #d0d6c6;
   border-radius: 0;
-  background: rgba(247, 246, 239, 0.97);
-  box-shadow: 0 8px 20px rgba(40, 48, 36, 0.1);
+  background: #faf9f3;
+  box-shadow: 0 6px 18px rgba(40, 48, 36, 0.1);
   backdrop-filter: blur(8px);
   pointer-events: auto;
 }
@@ -919,9 +924,9 @@ input[type="range"] {
   cursor: grabbing;
 }
 .layout-chip.active {
-  border-color: #a5752b;
-  background: #f3e6cf;
-  color: #5c4520;
+  border-color: #8aa07a;
+  background: #e7efe0;
+  color: #35513e;
 }
 .layout-chip.dragging {
   opacity: 0.55;
@@ -1215,7 +1220,9 @@ input[type="range"] {
 }
 .plan-scroll {
   /* 不用 flex 居中：放大后两侧溢出时 justify-content:center 会导致滚不到边。 */
-  overflow: auto;
+  /* 保留双向滚动条，工具栏显隐及图纸重绘时不反复切换占位。 */
+  overflow: scroll;
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
   flex: 1;
   min-height: 0;
@@ -1225,12 +1232,6 @@ input[type="range"] {
   width: 100%;
   box-sizing: border-box;
   --plan-zoom: 1;
-  --plan-scroll-top-gap: 28px;
-}
-/* 工具条仍悬浮固定，初始图纸内容需避开其实际高度，小屏换行后也能操作成房按钮。 */
-.plan-canvas-wrap:has(#layout-edit-bar:not([hidden])) .plan-scroll {
-  padding-top: calc(var(--layout-edit-bar-h, 48px) + var(--plan-scroll-top-gap));
-  scroll-padding-top: calc(var(--layout-edit-bar-h, 48px) + 8px);
 }
 .floor-svg {
   /* 小于视口时 margin:auto 居中；大于视口时自动边距归零，可滚到左右边缘 */
@@ -1324,6 +1325,78 @@ input[type="range"] {
 .plan-sheet .floor-svg {
   width: 100%;
   min-width: 0;
+}
+.roof-drawing-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.roof-drawing-tabs .secondary-button {
+  width: auto;
+  margin: 0;
+  white-space: nowrap;
+}
+.roof-drawing-tabs .active {
+  background: #e7efe0;
+  border-color: #8aa07a;
+  color: #35513e;
+}
+.roof-plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 12px 16px 0;
+  color: #637365;
+  font-size: 12px;
+}
+.elevation-plan-meta {
+  align-items: center;
+}
+.elevation-roof-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #d4ddcf;
+  border-radius: 8px;
+  background: #edf1e8;
+}
+.elevation-roof-switch .secondary-button {
+  width: auto;
+  min-height: 30px;
+  margin: 0;
+  padding: 5px 14px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #637365;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  transition: background 150ms ease, color 150ms ease;
+}
+.elevation-roof-switch .secondary-button:hover {
+  background: #dfe7d8;
+  color: #35513e;
+}
+.elevation-roof-switch .secondary-button.active {
+  background: #35513e;
+  color: #fff;
+  box-shadow: 0 1px 3px #263f3026;
+}
+.elevation-roof-switch .secondary-button:focus-visible {
+  outline: 2px solid #7f976e;
+  outline-offset: 2px;
+}
+.roof-plan-note {
+  margin: 0;
+  padding: 14px 18px;
+  border-top: 1px solid #e3e5db;
+  color: #657262;
+  font-size: 13px;
+  line-height: 1.7;
 }
 @media (max-width: 760px) {
   .plan-toolbar {

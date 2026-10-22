@@ -256,9 +256,12 @@ export const buildingAreas = {
   get annex() {
     return areaM2(site.annex.w, site.annex.d);
   },
-  // 几何投影，用户确认门厅另计；不冒充当地报建建筑面积口径。
+  // 按用户2026-10-21确认的方案口径，外伸通高门厅全额计入首层合计一次。
   get portico() {
     return areaM2(site.portico.w, site.portico.projection);
+  },
+  get total() {
+    return this.main + this.annex + this.portico;
   },
 };
 
@@ -820,15 +823,15 @@ export const facts: Fact[] = [
   },
   {
     label: "主楼 / 辅楼",
-    value: "136 / 32 ㎡",
+    get value() { return `${buildingAreas.main.toFixed(1)} / ${buildingAreas.annex.toFixed(1)} ㎡`; },
     source: "设计建议",
-    note: "主楼默认13.6×10米；辅楼默认4.0×8米（前墙相对主楼内退2米，后墙齐平），主体合计168㎡。外伸门厅另计，不是报建面积结论。",
+    get note() { return `主辅楼按当前尺寸参数计算；辅楼前墙内退${site.annex.z - site.main.z} mm，后墙齐平。加上门厅${buildingAreas.portico.toFixed(1)}㎡，首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡；报建面积以核定为准。`; },
   },
   {
     label: "外伸通高门厅",
-    value: "外伸2000 mm / 另计9.2㎡",
+    get value() { return `外伸${site.portico.projection} mm / 计入${buildingAreas.portico.toFixed(1)}㎡`; },
     source: "用户提供",
-    note: "本版门厅柱心距4.6米、外伸2米，柱间二楼无平台，三楼为露台；主体168㎡，门厅投影9.2㎡另计（合计几何投影约177.2㎡，非报建认定）。平面门头侧（画面下方）标左右余量4500＋柱心距4600。",
+    get note() { return `门厅柱心距${site.portico.w} mm、外伸${site.portico.projection} mm，投影${buildingAreas.portico.toFixed(1)}㎡全额计入首层合计一次。柱间二楼无平台，三楼为露台；首层合计${buildingAreas.total.toFixed(1)}㎡，不等于全楼各层建筑面积总和。`; },
   },
   {
     label: "飘檐 / 官帽 / 天沟",

@@ -211,6 +211,11 @@ test("导出图册转义会议内容，参数变化更新图纸，未知工程�
   assert.match(html, /&lt;script&gt;bad\(\)&lt;\/script&gt;/);
   assert.match(html, /最低梁底待联测/);
   assert.match(html, /切口协商待确认/);
+  assert.match(html, /首层建筑面积合计（含门厅）/);
+  assert.match(html, /136\.0＋32\.0＋9\.2＝177\.2㎡/);
+  assert.doesNotMatch(html, /门厅[^<。]*另计/);
+  assert.equal(html.match(/data-elevation="/g)?.length, 4);
+  assert.match(html, /北立面（正立面）/);
   assert.ok(!/https?:\/\//.test(html.replaceAll('xmlns="http://www.w3.org/2000/svg"', "")));
   const base = designDrawings(options), changed = designDrawings({ ...options, fenShui: 6, roadY: -2500 });
   assert.equal(base.length, 5);

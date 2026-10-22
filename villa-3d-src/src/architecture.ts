@@ -1024,7 +1024,7 @@ function buildVillaInContext(
     entranceApproach(portico, mat);
   }
   if (levels[0] !== reuse?.levels[0]) {
-    slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 15, 180, mat.paving).name = "门厅地坪投影另计";
+    slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 15, 180, mat.paving).name = "门厅地坪投影计入首层合计";
     slab(levels[0], rect(site.annex.x + site.annex.w, circulation.sideDoorZ - circulation.sideDoorWidth / 2,
       m.x - (site.annex.x + site.annex.w), circulation.sideDoorWidth), construction.connectionY, 80, mat.paving)
       .name = "横向过道至辅楼的地面连接";
@@ -1212,6 +1212,60 @@ export function floatingHatLayout(fenShui = site.roofFenShui) {
   };
 }
 
+/** 屋面图使用与立体相同的坡面及求交；门厅草稿仅在本次计算中覆盖。 */
+export function roofPlanModel(style: RoofStyle, layout?: VillaLayoutLive | null, fenShui = site.roofFenShui) {
+  return withLayoutContext(layout, () => {
+    const main = mainRoofFootprint(), annex = annexRoofFootprint(), pitch = roofPitch(fenShui);
+    const lift = roofTileEaveLift(), inset = roofTileInset;
+    const hip = (r: typeof main, rise: number) => hipRoofSurfaces(r.x + inset, r.z + inset, r.w - 2 * inset, r.d - 2 * inset, r.eave + lift, rise);
+    const mainHip = hip(main, pitch.mainRise), annexHip = hip(annex, pitch.annexRise);
+    const floating = floatingHatLayout(fenShui);
+    const hat = style === "floating" ? floating : {
+      x: site.portico.x + site.portico.w / 2 - frontElevation.hatWidth / 2,
+      z: frontElevation.hatFront, w: frontElevation.hatWidth,
+      eave: main.eave, peak: main.eave + lift + pitch.mainRise,
+      joinZ: main.z + main.d / 2,
+      ridgeFront: frontElevation.hatFront + frontElevation.hatWidth * .42,
+    };
+    const hatFaces = hatRoofSurfaces(hat.x + hat.w / 2, hat.z, hat.w, hat.joinZ, hat.eave + lift, hat.peak, 1, hat.ridgeFront);
+    return {
+      main, annex, hat: { ...hat }, pitch,
+      mainFaces: joinRoofFaces([...mainHip.faces, ...hatFaces.faces]),
+      annexFaces: annexHip.faces,
+      mainPeak: main.eave + lift + pitch.mainRise,
+      annexPeak: annex.eave + lift + pitch.annexRise,
+      portico: { ...site.portico },
+    };
+  });
+}
+
+/** 立面图只读取当前外壳；沿用立体的洞口、门厅上下文、屋面与烟囱定位。 */
+export function elevationModel(style: RoofStyle, layout?: VillaLayoutLive | null) {
+  return withLayoutContext(layout, () => ({
+    main: { ...site.main }, annex: { ...site.annex },
+    floors: floors.map((floor, index) => ({
+      y: floor.y, height: floor.height, front: floor.front,
+      facades: villaLayoutFacades(index, layout),
+    })),
+    annexFacades: villaLayoutFacades(3, layout),
+    front: structuredClone(frontElevation),
+    roof: roofPlanModel(style),
+    chimney: annexChimneyModel(),
+  }));
+}
+
+/** 烟囱外壳与盖板共用模型定位，避免图纸自行估算屋面出口高度。 */
+function annexChimneyModel(fenShui = site.roofFenShui) {
+  const annex = annexRoofFootprint(), pitch = roofPitch(fenShui);
+  const x = site.annex.x + 850, z = site.annex.z + site.annex.d - 1050;
+  const localX = x - (annex.x + roofTileInset), localZ = z - (annex.z + roofTileInset);
+  const tileW = annex.w - 2 * roofTileInset, tileD = annex.d - 2 * roofTileInset;
+  const run = Math.min(tileW, tileD) / 2;
+  const dx = Math.min(localX, tileW - localX), dz = Math.min(localZ, tileD - localZ);
+  const base = annex.eave + pitch.annexRise * Math.min(1, Math.min(dx, dz) / Math.max(50, run));
+  return { x, z, base, capY: base + 1600 };
+}
+
 function floatingHat(parent: THREE.Object3D, mainRoof: THREE.Object3D, mat: Mats, fenShui: number) {
   const h = floatingHatLayout(fenShui), center = h.x + h.w / 2;
   const m = mainRoofFootprint();
@@ -1268,18 +1322,8 @@ export function attachRoofs(
   const annexWall = { x: site.annex.x, z: site.annex.z, w: site.annex.w, d: site.annex.d };
   gutteredRoof(annexRoof, annex.x, annex.z, annex.w, annex.d, annex.eave, pitch.annexRise, mat, undefined, annexWall);
   // 烟囱相对辅楼檐口＋坡起定位，避免墙高变化后出口低于瓦面。
-  const chimneyX = site.annex.x + 850;
-  const chimneyZ = site.annex.z + site.annex.d - 1050;
-  const localX = chimneyX - (annex.x + roofTileInset);
-  const localZ = chimneyZ - (annex.z + roofTileInset);
-  const tileW = annex.w - 2 * roofTileInset;
-  const tileD = annex.d - 2 * roofTileInset;
-  const run = Math.min(tileW, tileD) / 2;
-  const dx = Math.min(localX, tileW - localX);
-  const dz = Math.min(localZ, tileD - localZ);
-  const roofYAtChimney = annex.eave + pitch.annexRise * Math.min(1, Math.min(dx, dz) / Math.max(50, run));
+  const { x: chimneyX, z: chimneyZ, base: roofYAtChimney, capY } = annexChimneyModel(fenShui);
   const stackH = 1600;
-  const capY = roofYAtChimney + stackH;
   const stackMid = roofYAtChimney + stackH / 2 - 200;
   box(annexRoof, chimneyX, stackMid, chimneyZ, 460, stackH + 400, 460, mat.stone);
   box(annexRoof, chimneyX, capY + 60, chimneyZ, 720, 120, 720, mat.dark);

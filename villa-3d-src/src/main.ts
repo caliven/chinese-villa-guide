@@ -2,6 +2,8 @@ import "./style.css";
 import { loadingOverlayHtml, withLoadingOverlay } from "./loading-overlay";
 import { DeferredSceneUpdate, FrameRedraw } from "./deferred-scene-update";
 import { patchPlanDrawing } from "./plan-dom";
+import { roofPlan, roofDrawingLabels, type RoofDrawingView } from "./roof-plan";
+import { elevationPlan, elevationLabels, type ElevationView } from "./elevation-plan";
 import { formatMm } from "./units";
 import { VillaViewer, defaultView, type CameraName } from "./viewer";
 import { site, floors, facts, photos, annexRooms, buildingAreas } from "./data";
@@ -187,7 +189,7 @@ document.querySelector("#app")!.innerHTML = `
         )
         .join("")}</div>
       <div class="compass" id="compass"><span>N</span><svg viewBox="0 0 52 52" aria-label="指北针"><circle cx="26" cy="26" r="23"/><g id="compass-arrow"><path d="m26 7 9 34-9-7-9 7Z"/></g></svg></div>
-      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills"><button data-floor="-1" type="button">院坪</button>${floors.map((f, i) => `<button data-floor="${i}" type="button" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}</div><div class="plan-toolbar-actions"><span id="plan-orient-hint">南 ↑ · 西 →</span><button type="button" id="toggle-wall-width" class="secondary-button" aria-pressed="false" title="显示或隐藏墙厚毫米标注">墙厚</button><button type="button" id="toggle-layout-edit" class="secondary-button" aria-pressed="false">编辑布局</button><label class="layout-version-label">户型版本
+      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills"><button data-floor="-1" type="button">院坪</button>${floors.map((f, i) => `<button data-floor="${i}" type="button" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}<button data-roof-plan type="button">屋顶</button><button data-elevation-plan type="button">立面图</button></div><div class="plan-toolbar-actions"><span id="plan-orient-hint">南 ↑ · 西 →</span><button type="button" id="toggle-wall-width" class="secondary-button" aria-pressed="false" title="显示或隐藏墙厚毫米标注">墙厚</button><button type="button" id="toggle-layout-edit" class="secondary-button" aria-pressed="false">编辑布局</button><label class="layout-version-label">户型版本
             <select id="layout-version-select" aria-label="选择已保存的户型版本（一二三楼一体）">
               <option value="">（当前草稿）</option>
             </select>
@@ -223,14 +225,14 @@ document.querySelector("#app")!.innerHTML = `
     <aside class="inspector" aria-label="模型设置">
       <div class="scene-heading" id="scene-heading"><h1 id="scene-title">新建方案</h1><p id="scene-subtitle">依据航拍与已知尺寸重建 · 周边为估算</p></div>
       <div id="model-controls">
-        <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number" id="area-number">171<span>m²</span></div><p class="area-caption" id="area-caption">主楼 135 m² ＋ 辅楼 36 m²</p><p class="micro" id="area-micro">主体首层投影 · 辅楼前墙内退2000 · 门厅另计 ${buildingAreas.portico.toFixed(1)} m²</p><button type="button" class="secondary-button" id="open-params-from-inspector">打开尺寸设置</button></section>
+        <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number" id="area-number">${buildingAreas.total.toFixed(1)}<span>m²</span></div><p class="area-caption" id="area-caption">主楼 ${buildingAreas.main.toFixed(1)}㎡ ＋ 辅楼 ${buildingAreas.annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡</p><p class="micro" id="area-micro">首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总</p><button type="button" class="secondary-button" id="open-params-from-inspector">打开尺寸设置</button></section>
         <section><h2>模型显示</h2>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "主楼与地库重叠")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1200 mm</option></select></label></section>
         <section><h2>屋面坡度</h2><p class="micro">分水＝水平10对应的升高。主辅楼同步调整，官帽按所选造型重画。</p><div class="range-heading"><label for="fen-shui">分水</label><output id="fen-shui-output">${site.roofFenShui.toFixed(1)}</output></div><input type="range" id="fen-shui" min="1" max="10" step="0.1" value="${site.roofFenShui}"/><label class="select-label">直接输入<input type="number" id="fen-shui-number" min="1" max="10" step="0.1" value="${site.roofFenShui}"/></label><p class="calculation" id="fen-shui-result"></p></section>
         <section><h2>关键尺寸</h2><dl class="metric-list" id="metric-list"></dl></section>
         <button class="notice notice-button" id="open-garage">${icon("info")}<span><strong>地库车辆路线待校核</strong><small>查看车身扫掠、净高待核区与柱墙潜在冲突。<br/>道路与梁底待测，切口协商待确认。</small></span><span>↗</span></button>
       </div>
       <div id="floor-controls" hidden>
-        <section><h2>分层户型</h2><div class="segmented"><button data-plan-mode="2d" class="active">平面图</button><button data-plan-mode="3d">立体剖看</button></div><fieldset id="floor-select" class="floor-choices"><legend>选择楼层</legend><div>${floors.map((f, i) => `<label><input type="radio" name="floor" value="${i}" ${i === 0 ? "checked" : ""}/><span><strong>${f.name}</strong><small>${bedroomSummary(i)}</small></span></label>`).join("")}</div></fieldset>${check("explode", "楼层分离展示")}${check("chair-clearance", "餐厅拉椅范围", true)}${check("room-clearance", "家具使用讨论留位")}<label class="select-label">辅楼前圆桌情景<select id="dining-mode"><option value="full">室外圆桌 · 6座</option><option value="daily">圆桌收起 · 日常</option></select></label><button class="secondary-button" data-design-issue="D08">记录房间深化意见 ↗</button></section>
+        <section><h2>分层户型</h2><div class="segmented"><button data-plan-mode="2d" class="active">平面图</button><button data-plan-mode="3d">立体剖看</button></div><div id="floor-room-options"><fieldset id="floor-select" class="floor-choices"><legend>选择楼层</legend><div>${floors.map((f, i) => `<label><input type="radio" name="floor" value="${i}" ${i === 0 ? "checked" : ""}/><span><strong>${f.name}</strong><small>${bedroomSummary(i)}</small></span></label>`).join("")}</div></fieldset>${check("explode", "楼层分离展示")}${check("chair-clearance", "餐厅拉椅范围", true)}${check("room-clearance", "家具使用讨论留位")}<label class="select-label">辅楼前圆桌情景<select id="dining-mode"><option value="full">室外圆桌 · 6座</option><option value="daily">圆桌收起 · 日常</option></select></label><button class="secondary-button" data-design-issue="D08">记录房间深化意见 ↗</button></div></section>
         <section><h2 id="floor-summary-title">一层 · 1间卧室＋1间用途待定</h2><p id="floor-summary" class="description"></p><div id="room-detail" class="room-detail" hidden></div></section>
         <section id="dining-check"><h2>餐厅满座</h2><p class="description">圆桌12座＋小桌6座。</p><div class="notice"><span><strong>拉椅空间偏紧</strong><small id="dining-warning"></small></span></div></section>
       </div>
@@ -304,6 +306,9 @@ let camera: CameraName = "aerial",
   isExisting = false,
   balcony = false;
 let roofStyle: RoofStyle = "joined";
+let drawingView: "floor" | "roof" | "elevation" = "floor";
+let elevationView: ElevationView = "north";
+let roofDrawingView: RoofDrawingView = "joined";
 let toastTimer: ReturnType<typeof setTimeout>;
 let layoutEditing = false;
 let layoutEditor: LayoutEditor | null = null;
@@ -792,15 +797,16 @@ function refreshAreaMetrics() {
   const p = getVillaParams();
   const main = buildingAreas.main;
   const annex = buildingAreas.annex;
-  const total = main + annex;
+  const total = buildingAreas.total;
   const areaNumber = document.getElementById("area-number");
   if (areaNumber) areaNumber.innerHTML = `${total.toFixed(1)}<span>m²</span>`;
   const caption = document.getElementById("area-caption");
-  if (caption) caption.textContent = `主楼 ${main.toFixed(1)} m² ＋ 辅楼 ${annex.toFixed(1)} m²`;
+  if (caption) caption.textContent = `主楼 ${main.toFixed(1)}㎡ ＋ 辅楼 ${annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡`;
   const micro = document.getElementById("area-micro");
   if (micro) {
-    micro.textContent = `主体首层投影 · 辅楼前墙内退${formatMm(p.annexSetback)} · 门厅另计 ${buildingAreas.portico.toFixed(1)} m²`;
+    micro.textContent = "首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总";
   }
+  renderFacts();
   const metrics = document.getElementById("metric-list");
   if (metrics) {
     metrics.innerHTML = [
@@ -1148,6 +1154,34 @@ function drawPlan() {
   const sharedDimensionsOpen = $("plan-drawing").querySelector<HTMLDetailsElement>(".plan-shared-dimensions")?.open ?? false;
   unbindCourtyardDims?.();
   unbindCourtyardDims = null;
+  $("floor-room-options").hidden = drawingView !== "floor";
+  if (drawingView !== "floor") {
+    layoutEditing = false;
+    unbindLayoutEditor?.();
+    unbindLayoutEditor = null;
+    boundPlanSvgs = [];
+    const draft = loadLayoutDraft();
+    const layout = draft ? villaLayoutFromDraft(draft) : null;
+    const elevation = drawingView === "elevation";
+    patchPlanDrawing($("plan-drawing"), elevation ? elevationPlan(elevationView, roofStyle, layout, balcony) : roofPlan(roofDrawingView, roofStyle, layout));
+    active("[data-floor]", () => false);
+    active("[data-roof-plan]", () => !elevation);
+    active("[data-elevation-plan]", () => elevation);
+    document.querySelectorAll<HTMLInputElement>('input[name="floor"]').forEach(input => { input.checked = false; });
+    for (const id of ["layout-edit-bar", "layout-palette", "layout-inspector", "toggle-layout-edit", "toggle-wall-width", "room-detail", "dining-check"]) $(id).hidden = true;
+    $("toggle-layout-edit").setAttribute("aria-pressed", "false");
+    document.querySelector<HTMLElement>(".layout-version-label")!.hidden = false;
+    $("floor-summary-title").textContent = elevation ? elevationLabels[elevationView] : roofDrawingLabels[roofDrawingView];
+    $("floor-summary").textContent = elevation
+      ? "四向立面采用正投影，北侧为正门。展示当前主辅楼、外部门窗、门厅、三层北退、露台、屋面与烟囱，标注层高、控制尺寸及相对标高。图纸与当前尺寸及户型草稿联动，细部简化，非施工图。"
+      : "三层为现有顶层；屋顶层图补充三层顶板与下层露台的关系，两种官帽图显示外露坡面和真实交线。图纸随当前尺寸与门厅草稿联动，可下载 SVG。屋面排水、防水及结构仍需专业深化。";
+    $("plan-orient-hint").textContent = elevation ? "正投影 · 单位 mm" : "南 ↑ · 西 →";
+    $("plan-orient-hint").title = elevation ? "四向建筑立面 · 当前方案" : "屋面设计图 · 单位 mm · 门头朝下";
+    applyPlanZoom();
+    return;
+  }
+  active("[data-roof-plan]", () => false);
+  active("[data-elevation-plan]", () => false);
   const sitePlan = level < 0;
   if (sitePlan && layoutEditing) layoutEditing = false;
 
@@ -1378,6 +1412,7 @@ function setLayoutSaveStatus(updatedAt: string, manual: boolean) {
 }
 
 function setLayoutEditing(on: boolean) {
+  if (on && drawingView !== "floor") return;
   if (on && level < 0) {
     toast("院坪总图不支持编辑布局，请先切换到一层／二层／三楼");
     return;
@@ -1385,6 +1420,11 @@ function setLayoutEditing(on: boolean) {
   if (on && planMode !== "2d") {
     planMode = "2d";
     active("[data-plan-mode]", (b) => b.dataset.planMode === "2d");
+  }
+  // 保留进入编辑前的侧栏高度，隐藏说明卡片后仍保持原有滚动范围。
+  if (on && !layoutEditing) {
+    const controls = $("floor-controls");
+    controls.style.minHeight = `${controls.getBoundingClientRect().height}px`;
   }
   layoutEditing = on;
   if (on && !layoutEditor) {
@@ -1404,6 +1444,14 @@ function setLayoutEditing(on: boolean) {
   updateScene();
 }
 function updateScene() {
+  if (!layoutEditing) $("floor-controls").style.removeProperty("min-height");
+  $("floor-room-options").hidden = drawingView !== "floor" && planMode === "2d";
+  active("[data-roof-plan]", () => drawingView === "roof" && planMode === "2d");
+  active("[data-elevation-plan]", () => drawingView === "elevation" && planMode === "2d");
+  active("[data-floor]", b => drawingView === "floor" && Number(b.dataset.floor) === level);
+  document.querySelectorAll<HTMLInputElement>('input[name="floor"]').forEach(input => {
+    input.checked = drawingView === "floor" && Number(input.value) === level;
+  });
   const design = tab === "design";
   const originals = tab === "originals";
   const realScene = tab === "real";
@@ -1507,7 +1555,7 @@ function updateScene() {
         : "显示本层与真实门窗 · 其他楼层隐藏"
       : "依据航拍与已知尺寸重建 · 周边为估算";
   $("interaction-hint").textContent = plan
-    ? "点击房间查看说明 · 小屏可横向滚动图纸"
+    ? drawingView !== "floor" ? "切换图纸 · 可缩放、下载 SVG · 尺寸设置联动" : "点击房间查看说明 · 滚轮或右下角按钮缩放图纸"
     : "拖动旋转 · 滚轮缩放 · 右键平移";
   if (plan) drawPlan();
   if (isSceneVisible()) void syncLayoutTo3d();
@@ -1665,17 +1713,22 @@ function captureMeetingView(): MeetingView {
     progress: Number($<HTMLInputElement>("route-progress").value),
     sunDate: $<HTMLInputElement>("sun-date").value, sunTime: Number($<HTMLInputElement>("sun-time").value),
     dining: $<HTMLSelectElement>("dining-mode").value as "full" | "daily",
-    flags: Object.fromEntries(viewFlags.map((id) => [id, checked(id)])),
+    // 旧快照字段可能对应已移除的开关，仍输出布尔值以兼容资料格式。
+    flags: Object.fromEntries(viewFlags.map((id) => [id, document.querySelector<HTMLInputElement>(`#${id}`)?.checked ?? false])),
     pose: viewer?.cameraPose() ?? null,
     villaParams: getVillaParams(),
   };
 }
 function restoreMeetingView(view: MeetingView) {
+  drawingView = "floor";
   level = view.level; planMode = view.planMode; isExisting = view.existing; balcony = view.balcony; camera = view.camera;
   roofStyle = view.roofStyle;
   $<HTMLInputElement>(`courtyard-finish-${view.courtyardFinish}`).checked = true;
   $<HTMLInputElement>(`neighbor-courtyard-finish-${view.neighborCourtyardFinish}`).checked = true;
-  for (const id of viewFlags) $<HTMLInputElement>(id).checked = view.flags[id];
+  for (const id of viewFlags) {
+    const input = document.querySelector<HTMLInputElement>(`#${id}`);
+    if (input) input.checked = view.flags[id];
+  }
   const params = { ...DEFAULT_VILLA_PARAMS, ...view.villaParams, roofFenShui: view.fenShui };
   void commitVillaParams(params, { persist: true, toastMsg: "已恢复会议快照中的方案尺寸" });
   $<HTMLInputElement>("road-level").value = String(view.roadY);
@@ -1696,6 +1749,7 @@ function restoreMeetingView(view: MeetingView) {
   active("[data-camera]", (b) => b.dataset.camera === camera);
 }
 function locateDesignIssue(issue: DesignIssue) {
+  drawingView = "floor";
   if (issue.target === "real" || issue.target === "sources" || issue.target === "sun") {
     switchTab(issue.target);
   } else if (["floor", "stair", "roof"].includes(issue.target)) {
@@ -1750,9 +1804,47 @@ document.addEventListener("click", (event) => {
   }
   if (el.dataset.roofStyle) {
     roofStyle = parseRoofStyle(el.dataset.roofStyle);
+    if (roofDrawingView !== "slab") roofDrawingView = roofStyle;
     updateScene();
   }
+  if (el.hasAttribute("data-roof-plan")) {
+    drawingView = "roof";
+    layoutEditing = false;
+    level = 2;
+    planMode = "2d";
+    active("[data-plan-mode]", b => b.dataset.planMode === "2d");
+    updateScene();
+  }
+  if (el.hasAttribute("data-elevation-plan")) {
+    drawingView = "elevation";
+    layoutEditing = false;
+    planMode = "2d";
+    active("[data-plan-mode]", b => b.dataset.planMode === "2d");
+    updateScene();
+  }
+  if (el.dataset.elevationView && el.dataset.elevationView in elevationLabels) {
+    elevationView = el.dataset.elevationView as ElevationView;
+    updateScene();
+  }
+  if (el.dataset.roofDrawingView) {
+    roofDrawingView = el.dataset.roofDrawingView as RoofDrawingView;
+    if (roofDrawingView !== "slab") roofStyle = roofDrawingView;
+    updateScene();
+  }
+  if (el.id === "download-roof-svg" || el.id === "download-elevation-svg") {
+    const elevation = el.id === "download-elevation-svg";
+    const svg = $("plan-drawing").querySelector<SVGSVGElement>(elevation ? "svg.elevation-svg" : "svg.roof-svg");
+    if (svg) {
+      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `安化山居-${elevation ? elevationLabels[elevationView] : roofDrawingLabels[roofDrawingView]}.svg`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  }
   if (el.dataset.floor) {
+    drawingView = "floor";
     level = Number(el.dataset.floor);
     if (level < 0) {
       planMode = "2d";
@@ -1764,6 +1856,7 @@ document.addEventListener("click", (event) => {
     if (planMode === "3d" && level >= 0 && !checked("explode")) viewer?.setCamera("top");
   }
   if (el.dataset.planMode) {
+    drawingView = "floor";
     planMode = el.dataset.planMode;
     if (planMode === "3d" && layoutEditing) layoutEditing = false;
     if (planMode === "3d" && level < 0) level = 0;
@@ -1904,12 +1997,14 @@ for (const id of ["balcony", "sun-balcony"])
 $("floor-select").addEventListener("change", (event) => {
   const input = event.target as HTMLInputElement;
   if (!input.matches('input[name="floor"]') || !input.checked) return;
+  drawingView = "floor";
   level = Number(input.value);
   layoutEditor?.clearSelectionOnFloorChange();
   updateScene();
   if (planMode === "3d" && !checked("explode")) viewer?.setCamera("top");
 });
 $("explode").addEventListener("change", () => {
+  drawingView = "floor";
   if (checked("explode")) {
     planMode = "3d";
     active("[data-plan-mode]", (b) => b.dataset.planMode === "3d");

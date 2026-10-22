@@ -1192,7 +1192,7 @@ export function buildSite(mat: Mats) {
   span(scheme, p(10, main.z, 8.4), p(10, main.z + site.setback, 8.4));
   dim(scheme, `三楼北退 ${site.setback} m`, 8.6, 7.6, -2.6, 0.68);
   dim(scheme, `屋后留 ${site.rearGap} m`, 17.4, 3.6, 9.2, 0.68);
-  dim(scheme, `门厅 ${site.portico.w}×${site.portico.projection} m · 另计`, 13.7, 3.4, -5.4, 0.72);
+  dim(scheme, `门厅 ${site.portico.w}×${site.portico.projection} m · 计入首层合计`, 13.7, 3.4, -5.4, 0.72);
   dim(scheme, `栏杆下瓦檐约 ${site.secondFrontEave} m · 三楼顶檐 ${site.thirdEave} m`, 17.6, 4.2, -4.6, 0.68);
   dim(scheme, "前通道约 2 m", 2.8, 1.6, -2.5, 0.66);
   dim(scheme, `侧道 ${site.sideGap} m`, 0.45, 1.8, 6.4, 0.64);

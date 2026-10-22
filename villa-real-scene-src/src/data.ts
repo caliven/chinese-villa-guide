@@ -168,8 +168,11 @@ export const site = {
 export const buildingAreas = {
   main: site.main.w * site.main.d,
   annex: site.annex.w * site.annex.d,
-  // 几何投影，用户确认门厅另计；不冒充当地报建建筑面积口径。
+  // 历史复制模型的门厅投影，按当前方案口径计入首层合计一次；几何不随主模型同步。
   portico: site.portico.w * site.portico.projection,
+  get total() {
+    return this.main + this.annex + this.portico;
+  },
 };
 
 // 主马路蓝顶邻房：首层与前方砖房首层同高，地下室按用户要求不建。
@@ -512,13 +515,13 @@ export const facts: Fact[] = [
     label: "主楼 / 辅楼",
     value: "135 / 45 ㎡",
     source: "设计建议",
-    note: "用户已选：13.5×10和4.5×10米。用户确认180㎡只控制主辅楼主体，外伸门厅另计，不是报建面积结论。",
+    note: "历史复制模型为13.5×10和4.5×10米，主辅楼小计180㎡；门厅9.6㎡计入后首层合计189.6㎡。本页几何未同步当前方案，不作为现行面积依据。",
   },
   {
     label: "外伸通高门厅",
-    value: "外伸2m / 另计9.6㎡",
+    value: "外伸2m / 计入9.6㎡（历史模型）",
     source: "用户提供",
-    note: "本版门厅4.8×2米，柱间二楼无平台，三楼为露台；主体与门厅几何投影合计189.6㎡。门厅宽度为设计参数。",
+    note: "历史模型门厅4.8×2米，投影全额计入首层合计一次；柱间二楼无平台，三楼为露台。含门厅首层合计189.6㎡，不等于当前参数模型的177.2㎡或全楼各层建筑面积总和。",
   },
   {
     label: "飘檐 / 官帽 / 天沟",

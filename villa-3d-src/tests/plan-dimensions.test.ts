@@ -107,23 +107,52 @@ test("接外墙内墙仍标墙距，换到另一控制线也更新；门厅柱�
   assert.deepEqual(renderedChain(render(), "north", "control"), [4500, 4600, 4500]);
 });
 
-test("贯通南北／东西的实体墙只标一侧，不对边重复", () => {
+test("贯通实体墙在相交两侧均保留定位及闭合尺寸链", () => {
   const draft = clonePublishedLayout();
   removeStairFromDraft(draft);
   draft.floors[0]!.partitions = [
-    { a: [x(4500), z(0)], b: [x(4500), z(10000)] }, // 贯通南北 → 只标南
-    { a: [x(0), z(4000)], b: [x(13600), z(4000)] }, // 贯通东西 → 只标西
+    { a: [x(4500), z(0)], b: [x(4500), z(10000)] }, // 贯通南北 → 南北均标
+    { a: [x(0), z(4000)], b: [x(13600), z(4000)] }, // 贯通东西 → 东西均标
   ];
   const result = dims(draft);
   assert.ok(result.southXs.includes(x(4500)));
-  assert.ok(!result.northXs.includes(x(4500)));
+  assert.ok(result.northXs.includes(x(4500)));
   assert.ok(result.westZs.includes(z(4000)));
-  assert.ok(!result.eastZs.includes(z(4000)));
+  assert.ok(result.eastZs.includes(z(4000)));
   const svg = buildingSvg(floorPlan(0, false, false, {}, planSourceFromDraft(draft, 0)), "main");
   assert.ok(svg.includes('data-dim-side="south" data-dim-kind="walls"'));
-  assert.ok(!svg.includes('data-dim-side="north" data-dim-kind="walls"'));
+  assert.deepEqual(renderedChain(svg, "north", "walls"), [4500, 9100]);
   assert.ok(svg.includes('data-dim-side="west" data-dim-kind="walls"'));
-  assert.ok(!svg.includes('data-dim-side="east" data-dim-kind="walls"'));
+  assert.deepEqual(renderedChain(svg, "east", "walls"), [4000, 6000]);
+  assert.deepEqual(renderedChain(svg, "west", "walls"), [4000, 6000]);
+  assert.equal(result.horizontalFrom("north", x(4500)), z(0));
+  assert.equal(result.horizontalFrom("south", x(4500)), z(10000));
+  assert.equal(result.verticalFrom("east", z(4000)), x(13600));
+  assert.equal(result.verticalFrom("west", z(4000)), x(0));
+});
+
+test("4700贯通横墙在三层主楼及辅楼两侧均输出定位尺寸", () => {
+  const draft = clonePublishedLayout();
+  removeStairFromDraft(draft);
+  for (const floor of draft.floors) {
+    floor.partitions = [{ a: [x(240), z(5300)], b: [x(13360), z(5300)], role: "bearing" }];
+  }
+  draft.annexPartitions = [{
+    a: [site.annex.x + 240, site.annex.z + 4800],
+    b: [site.annex.x + site.annex.w - 240, site.annex.z + 4800],
+  }];
+  for (let i = 0; i < 3; i++) {
+    const html = floorPlan(i, false, false, {}, planSourceFromDraft(draft, i));
+    const main = buildingSvg(html, "main");
+    const expected = [5300 - (draft.floors[i]!.front - site.main.z), 4700];
+    assert.deepEqual(renderedChain(main, "east", "walls"), expected);
+    assert.deepEqual(renderedChain(main, "west", "walls"), expected);
+    if (i === 0) {
+      const annex = buildingSvg(html, "annex");
+      assert.deepEqual(renderedChain(annex, "east", "walls"), [4800, 3200]);
+      assert.deepEqual(renderedChain(annex, "west", "walls"), [4800, 3200]);
+    }
+  }
 });
 
 test("虚拟墙即使接到外墙也不拆外圈墙距；实体墙之间的墙距仍保留", () => {

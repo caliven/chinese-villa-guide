@@ -1,5 +1,6 @@
 import {
   annexPartitions,
+  buildingAreas,
   construction,
   floors,
   frontElevation,
@@ -186,7 +187,7 @@ export interface DesignIssue {
   floor?: number; room?: string;
 }
 export const designIssues: DesignIssue[] = [
-  { id: "D01", title: "联合测绘、界址与面积口径", phase: "先核实", current: "院坪是相对高程基准；红线含田埂，168㎡为主辅楼主体控制意图（主136＋辅32）。", action: "联测道路、邻院、建筑角点、田坎及保留构件；请设计公司核实当地建设条件和面积口径。", owner: "业主／测绘／建筑师", output: "实测总平面、标高表、界址及面积口径表", target: "site" },
+  { id: "D01", title: "联合测绘、界址与面积口径", phase: "先核实", get current() { return `院坪是相对高程基准；红线含田埂。首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡（主楼${buildingAreas.main.toFixed(1)}＋辅楼${buildingAreas.annex.toFixed(1)}＋门厅${buildingAreas.portico.toFixed(1)}），已含外伸门厅。`; }, action: "联测道路、邻院、建筑角点、田坎及保留构件；请设计公司核实当地建设条件，按包含门厅的口径复核首层及全楼建筑面积。", owner: "业主／测绘／建筑师", output: "实测总平面、标高表、界址及面积口径表", target: "site" },
   { id: "D02", title: "入口与主辅楼连续通行", phase: "先核实", current: "室内+450；侧向连接+15，相差435 mm。侧坡道投影2000 mm、示意坡度22.5%。", action: "比较抬高连接平台、踏步和坡道布置，标明门槛、防滑、扶手、雨棚和排水。适老条件待核。", owner: "建筑／景观／给排水", output: "入口和主辅楼连接放大平剖面", target: "entrance" },
   { id: "D03", title: "楼梯踏步、净宽与连续净高", phase: "先核实", current: "两段完成面高差3150／3600 mm；每段20个示意高差分段，梯段宽1050 mm、踏面250 mm。", action: "核定起终点、踏步、平台、洞口、梁下净高、扶手后净宽及家具搬运。", owner: "建筑／结构", output: "逐层踏步表、连续楼梯剖面及最低净高", target: "stair", floor: 0, room: "stair" },
   { id: "D04", title: "地库完整车辆进出校核", phase: "先核实", current: "已有L9平面扫掠及C5柱潜在冲突；道路与最低梁底待测，切口待协商。", action: "测量后校核含镜宽、转弯、纵坡俯仰、底盘、驶出倒车、开门与两车独立进出；比较切口未获确认时的备选。", owner: "建筑／结构／测量；业主协调", output: "实测轨迹与纵断面、限制条件和备选方案", target: "garage" },
@@ -209,7 +210,7 @@ export const designIssues: DesignIssue[] = [
 ];
 
 export const designBrief = [
-  { status: "保留意图", title: "主辅楼及生活分区", text: "主楼13600×10000 mm、辅楼4000×8000 mm（前墙相对主楼内退2000 mm）；主体168㎡，外伸门厅另计。主楼三层、厨房在辅楼；西侧挑空客厅、堂屋后留空，东侧茶室—楼梯—尊亲房。" },
+  { status: "保留意图", title: "主辅楼及生活分区", get text() { return `主楼${formatMm(site.main.w)}×${formatMm(site.main.d)} mm、辅楼${formatMm(site.annex.w)}×${formatMm(site.annex.d)} mm（前墙相对主楼内退${formatMm(site.annex.z - site.main.z)} mm）；首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡（主楼${buildingAreas.main.toFixed(1)}＋辅楼${buildingAreas.annex.toFixed(1)}＋门厅${buildingAreas.portico.toFixed(1)}），外伸门厅全额计入一次。主楼三层、厨房在辅楼；西侧挑空客厅、堂屋后留空，东侧茶室—楼梯—尊亲房。`; } },
   { status: "保留意图", title: "立面与院坪", text: "新中式四坡五脊；保留与正屋同脊高的原有官帽，可切换抬高的悬浮官帽比较。保留通高门厅和分开的三块露台。辅楼前约2000 mm人行通道、原院坪中部不新增楼梯。造型须结合结构排水深化。" },
   { status: "可协商深化", title: "舒适与使用优先", text: "希望保留地库少柱、2500 mm净高目标、双桌餐厅和老人房内卫。实际柱梁、家具、步行出口、坡道与设备位置由设计公司出备选比较；模型未指定可行结论。" },
   { status: "待业主确认", title: "人数、房间与预算", text: "常住／节庆人数、老人行动需求、七间卧室的刚性程度、待定房用途、餐厅日常方式、投资范围和地库优先级，需在会前补充。" },

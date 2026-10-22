@@ -650,7 +650,7 @@ export function buildVilla(mat: Mats, withLabels = true, fenShui = site.roofFenS
     box(portico, 13.7 + sign * 1.76, band - 0.61, columnNorth + 0.4, 0.3, 0.27, 0.46, mat.trim);
     box(portico, 13.7 + sign * 1.62, band - 0.55, columnNorth + 0.4, 0.28, 0.16, 0.46, mat.trim);
   }
-  slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 0.015, 0.18, mat.paving).name = "门厅地坪投影另计";
+  slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 0.015, 0.18, mat.paving).name = "门厅地坪投影计入首层合计";
   entranceApproach(portico, mat);
   slab(levels[0], rect(site.annex.x + site.annex.w, circulation.sideDoorZ - circulation.sideDoorWidth / 2,
     m.x - (site.annex.x + site.annex.w), circulation.sideDoorWidth), 0.015, 0.08, mat.paving)

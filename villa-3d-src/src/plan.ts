@@ -159,7 +159,7 @@ function vDimChain(
 
 /**
  * 外圈：接外墙的墙线定位（只标相交侧）＋主楼门厅柱心控制＋外皮总尺寸。
- * 总宽只标北侧、总进深只标东侧，避免对边重复；贯通墙的墙距亦不对边各画一遍。
+ * 总宽只标北侧、总进深只标东侧，避免对边重复；贯通墙的定位尺寸在相交两侧均保留。
  */
 function planOuterDimensions(index: number, northClear: number, source: PlanSource, building: PlanBuilding) {
   const body = building === "annex" ? site.annex : site.main;
@@ -187,7 +187,7 @@ function planOuterDimensions(index: number, northClear: number, source: PlanSour
   const group = (side: string, kind: string, title: string, svg: string) =>
     `<g data-dim-side="${side}" data-dim-kind="${kind}"><title>${title}</title>${svg}</g>`;
   const horizontal = (side: "north" | "south", breaks: number[], z: number) =>
-    group(side, "walls", "墙线定位：只标与该侧外墙相交的实体内墙（贯通墙不对边重复）",
+    group(side, "walls", "墙线定位：只标与该侧外墙相交的实体内墙（贯通墙两侧均标）",
       hDimChain(breaks, z, { labelSide: side, fromZ: (x) => dims.horizontalFrom(side, x) }));
   const parts = [
     northDetail ? horizontal("north", northXs, nWall) : "",
@@ -216,7 +216,7 @@ function planOuterDimensions(index: number, northClear: number, source: PlanSour
     // 总宽只保留北侧；南侧仅保留接南墙的墙线定位。
     eastDetail ? group("east", "walls", "东侧墙线定位（仅接东外墙的实体墙）", vDimChain(eastZs, eWall, { side: "east", fromX: (z) => dims.verticalFrom("east", z) })) : "",
     group("east", "overall", "外皮总进深", vDimChain([front, south], eOuter, { side: "east", fromX: eastDetail ? eWall : eastFace })),
-    westDetail ? group("west", "walls", "西侧墙线定位（仅接西外墙的实体墙；贯通墙不对边重复）", vDimChain(westZs, wWall, { side: "west", fromX: (z) => dims.verticalFrom("west", z) })) : "",
+    westDetail ? group("west", "walls", "西侧墙线定位（仅接西外墙的实体墙；贯通墙两侧均标）", vDimChain(westZs, wWall, { side: "west", fromX: (z) => dims.verticalFrom("west", z) })) : "",
     // 总进深只保留东侧；西侧仅保留接西墙的墙线定位。
   ];
   return { svg: parts.join(""), northOuter: nOuter, southOuter: sOuter };
@@ -872,16 +872,13 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
   const labels = allRooms.filter(r => r.kind !== "stair")
     .map((r) => {
       const [x, z] = r.outline?.length || r.boundary ? roomLabelPosition(r, index, partitionsFor(r)) : r.label ?? [r.x + r.w / 2, r.z + r.d / 2];
-      if (r.kind === "void") {
-        return `<g class="room-label" pointer-events="none">${text(x, z + labelStack.name, r.name)}${text(x, z + labelStack.mid, "两层通高 · 无楼板", "room-size")}</g>`;
-      }
-      // 凹形按实际轮廓算面积，禁止把包络 W×D 冒充面积或净空尺寸。
+      // 所有区域保留两组尺寸及面积；凹形尺寸是包络，面积仍按实际轮廓。
       const fill = roomFillBounds(r, index, partitionsFor(r));
       const irregular = !roomIsRectangular(r);
       const areas = roomAreas(r, index, partitionsFor(r));
-      const buildingMm = irregular ? `墙线 ${areas.building.toFixed(2)}㎡` : `${Math.round(r.w)}×${Math.round(r.d)}`;
-      const netMm = irregular || r.boundary ? `净空 ${areas.interior.toFixed(2)}㎡` : `${Math.round(fill.w)}×${Math.round(fill.d)}`;
-      const status = r.boundary?.status === "unbounded" ? "失去围合 · 面积待核" : r.boundary?.status === "open" ? "开敞分区" : "";
+      const buildingMm = `${Math.round(r.w)}×${Math.round(r.d)}=${areas.building.toFixed(2)}㎡`;
+      const netMm = `${Math.round(fill.w)}×${Math.round(fill.d)}=${areas.interior.toFixed(2)}㎡`;
+      const status = [r.kind === "void" ? "两层通高 · 无楼板" : "", irregular ? "凹形：包络尺寸／轮廓面积" : "", r.boundary?.status === "unbounded" ? "失去围合 · 面积待核" : r.boundary?.status === "open" ? "开敞分区" : ""].filter(Boolean).join(" · ");
       return `<g class="room-label" pointer-events="none">${text(x, z + labelStack.name, r.name)}${text(x, z + labelStack.mid, buildingMm, "room-size")}${text(x, z + labelStack.net, netMm, "room-area-net")}${status ? text(x, z + (PLAN_ENTRANCE_DOWN ? -300 : 740), status, "room-area-net") : ""}</g>`;
     })
     .join("");
@@ -1027,7 +1024,7 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     ${dimensions.svg}
     ${!isAnnex && index === 2 ? `${elevation.sideTerraces.map(t => rect(t.x, elevation.terraceFront, t.w, elevation.terraceBack - elevation.terraceFront, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width="60"')).join("")}${text(8850, -200, "西侧露台", "dim-label")}${text(18400, -200, "东侧露台", "dim-label")}` : ""}
     ${porticoHit}${!isAnnex ? rect(porch.x, porchY, porch.w, porchH, `fill="${index === 1 ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width="60"`) : ""}
-    ${!isAnnex ? text(porch.x + porch.w / 2, -1950, index === 2 ? "中央露台 · 前方敞开" : index === 1 ? "门厅上空 · 无楼板" : `门厅 ${formatMm(porch.w)}×${formatMm(porch.projection)} · 另计`, "dim-label") : ""}
+    ${!isAnnex ? text(porch.x + porch.w / 2, -1950, index === 2 ? "中央露台 · 前方敞开" : index === 1 ? "门厅上空 · 无楼板" : `门厅 ${formatMm(porch.w)}×${formatMm(porch.projection)} · 计入首层合计`, "dim-label") : ""}
     ${!isAnnex ? `${index < 2 ? `${posts.map(p => rect(p.x - p.w / 2, elevation.porticoColumnZ - elevation.porticoColumnDepth / 2, p.w, elevation.porticoColumnDepth, 'fill="#879183"')).join("")}${cornerColumn(site.main.x + 120, f.front + 120, -1)}${cornerColumn(site.main.x + site.main.w - 120, f.front + 120, 1)}` : `${terraceRails}${elevation.balustradePosts.map(p => rect(p.x - p.w / 2, p.z - p.w / 2, p.w, p.w, 'fill="#c3bba9" stroke="#777872" stroke-width="40"')).join("")}${posts.map(p => rect(p.x - elevation.dividerWidth / 2, elevation.postZ - 250, elevation.dividerWidth, 500, 'fill="#879183"')).join("")}${text(13700, -480, "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱", "room-size")}`}${cornerColumn(site.main.x + 120, site.main.z + site.main.d - 120, -1, 1)}${cornerColumn(site.main.x + site.main.w - 120, site.main.z + site.main.d - 120, 1, 1)}` : ""}
     ${!isAnnex ? f.rooms.filter(r => r.kind !== "stair").map((r) => room(r, index, editable, false, mainPartitions)).join("") : ""}
     ${isAnnex ? src.annexRooms.map((r) => room(r, index, editable, true, annexParts)).join("") : ""}
