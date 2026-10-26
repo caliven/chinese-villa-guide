@@ -40,7 +40,7 @@ test("门厅改宽改深后全额计入首层一次，概览数据、事实和�
     assert.match(floorPlan(0, false, false), /门厅 5000×2200 · 计入首层合计/);
     assert.doesNotMatch(table + designBrief[0].text + floorPlan(0, false, false), /门厅[^<。]*另计/);
   } finally { resetVillaParams(); }
-  assert.equal(buildingAreas.total, 177.2);
+  assert.equal(buildingAreas.total, 177);
 });
 
 test("拆图后改宽深仍统一重算两栋坐标、草稿和各自标线", () => {
@@ -48,7 +48,7 @@ test("拆图后改宽深仍统一重算两栋坐标、草稿和各自标线", ()
   const draft = clonePublishedLayout();
   try {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, mainWidth: 14000, annexWidth: 4300, lane: 1600, mainDepth: 10600, annexDepth: 7500 });
-    assert.equal(buildingAreas.total.toFixed(2), "189.85");
+    assert.equal(buildingAreas.total.toFixed(2), "189.65");
     const scaled = scaleLayoutDraftToEnvelope(draft, envelopeFromSite());
     const shared = collectPlanSiteDimensions();
     assert.deepEqual(shared.widthSegmentsMm, [300, 4300, 1600, 14000, 800]);
@@ -95,6 +95,10 @@ test("进深按主辅楼和门厅实际位置统一校验，改面宽与子孙�
 test("东墙锚定：西侧由其余面宽反推；过宽时校验失败", () => {
   const ok = validateVillaParams(DEFAULT_VILLA_PARAMS);
   assert.equal(ok.length, 0);
+  assert.equal(validateVillaParams({ ...DEFAULT_VILLA_PARAMS, secondFrontEave: 600 }).length, 0,
+    "无天沟挑檐不扣除三眼皮200级差，600挑出可容纳500梁托");
+  assert.ok(validateVillaParams({ ...DEFAULT_VILLA_PARAMS, secondFrontEave: 450 })
+    .some(i => i.field === "corbelLength"), "梁托仍不能超出实际挑檐");
   // 主楼略增宽仍可由西侧吸收
   assert.equal(validateVillaParams({ ...DEFAULT_VILLA_PARAMS, mainWidth: 14000 }).length, 0);
   // 主楼过宽导致西侧≤0
@@ -230,11 +234,11 @@ test("屋后预留变化后通高玻璃与辅楼屋顶随楼体 Z 平移", async
   assert.ok(curtain);
   let glassZ = Number.NaN;
   curtain!.traverse((o) => {
-    if (o instanceof THREE.Mesh && Number.isNaN(glassZ)) glassZ = o.position.z;
+    if (o instanceof THREE.Mesh && o.name === "通高玻璃分格板块" && Number.isNaN(glassZ)) glassZ = o.getWorldPosition(new THREE.Vector3()).z;
   });
   assert.ok(Number.isFinite(glassZ));
-  // 默认玻璃约 −835 → site.main.z + 165
-  assert.ok(Math.abs(glassZ - (site.main.z + 165)) < 1e-6);
+  // 使用分格玻璃本身，而不是依赖子节点顺序；77深框内玻璃中心内收8。
+  assert.ok(Math.abs(glassZ - (site.main.z + 128)) < 1e-6);
   resetVillaParams();
 });
 

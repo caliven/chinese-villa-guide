@@ -1,3 +1,4 @@
+import { recessedPortico, porticoWallZ, mirroredBuildings } from "./building-variants";
 import { construction, courtyardFront, floors, frontElevation, site, stairLayout } from "./data";
 import { formatMm, toM } from "./units";
 import { contourAt } from "./contours";
@@ -36,7 +37,7 @@ function siteSection(options: DrawingOptions) {
   const scaleY = Math.min(18, 210 / toM(ridge));
   const x = (z: number) => 60 + (toM(z) + 13) * 24, y = (h: number) => 310 - toM(h) * scaleY;
   const front = contourAt(courtyardFront, site.main.x + site.main.w / 2);
-  const wallFront = site.main.z;
+  const wallFront = porticoWallZ();
   const wallRear = site.main.z + site.main.d;
   const thirdFront = wallFront + site.setback;
   let content = text(60, 60, "北 N ←  ·  示意位置：主楼中跨  ·  → 南 S", "small muted");
@@ -44,7 +45,7 @@ function siteSection(options: DrawingOptions) {
   content += path(`M${x(-13000)} ${y(site.garageFloor - site.frontFieldDrop)} H${x(front)} V${y(0)} H${x(wallFront)} M${x(wallRear)} ${y(0)} H${x(site.oldDepth)} V${y(site.rearField)} H${x(16000)}`, "line");
   content += rect(x(wallFront), y(7200), x(wallRear) - x(wallFront), y(0) - y(7200), "wall");
   content += rect(x(thirdFront), y(10500), x(wallRear) - x(thirdFront), y(7200) - y(10500), "wall");
-  content += path(`M${x(wallFront)} ${y(10500)} H${x(thirdFront)} V${y(7200)} H${x(wallFront)}`, "guide");
+  if (site.setback > 0) content += path(`M${x(wallFront)} ${y(10500)} H${x(thirdFront)} V${y(7200)} H${x(wallFront)}`, "guide");
   for (let i = 0; i < 3; i++) {
     const h = floorFinish(i), left = i === 2 ? thirdFront : wallFront;
     content += rect(x(left), y(h), x(wallRear) - x(left), toM(construction.floorSlab) * scaleY, "wall");
@@ -125,12 +126,12 @@ function entranceSection() {
   content += rect(335, y(m.connectionY), 150, 14, "wall");
   content += rect(485, y(floorFinish(0)), 330, 22, "wall");
   content += path(`M335 ${y(floorFinish(0))} V${y(m.connectionY)} M485 ${y(floorFinish(0))} V${y(m.connectionY)}`, "risk");
-  content += text(115, 124, `辅楼完成面 ${elevation(floorFinish(0))}`, "small");
-  content += text(530, 124, `主楼完成面 ${elevation(floorFinish(0))}`, "small");
+  content += text(115, 124, `${mirroredBuildings() ? "主楼" : "辅楼"}完成面 ${elevation(floorFinish(0))}`, "small");
+  content += text(530, 124, `${mirroredBuildings() ? "辅楼" : "主楼"}完成面 ${elevation(floorFinish(0))}`, "small");
   content += text(330, 249, `连接地坪 ${elevation(m.connectionY)} · 两端各差${formatMm(m.connectionRise)}`, "small warn-text");
-  content += dimension(335, 485, 280, "墙间1500");
+  content += dimension(335, 485, 280, `墙间${formatMm(site.lane)}`);
   content += text(100, 310, "此处尚未表达连续抬高平台、踏步或合适坡道；门洞画通不等于实际平顺通行。", "small warn-text");
-  content += text(50, 344, "B · 门厅向北外伸控制线（从主楼前墙北外皮起算，非面积认定）", "small muted");
+  content += text(50, 344, recessedPortico() ? "B · 凹入门厅控制线（向北为正、向南内退为负，非面积认定）" : "B · 门厅向北外伸控制线（从主楼前墙北外皮起算，非面积认定）", "small muted");
   const z = (d: number) => 165 + toM(d) * 170;
   content += path(`M${z(0)} 367 H${z(m.steps)} M${z(0)} 355 V400`, "line");
   for (const [d, label] of [[m.projection, `楼板${formatMm(m.projection)}`], [m.column, `柱${formatMm(m.column)}`], [m.platform, `平台${formatMm(m.platform)}`], [m.steps, `踏步${formatMm(m.steps)}`]] as [number, string][]) {
@@ -138,9 +139,15 @@ function entranceSection() {
     content += text(z(d), d === m.platform ? 416 : 399, label, "small", "middle");
   }
   content += text(100, 393, "前墙0", "small");
-  content += text(845, 145, "侧坡道", "warn-text");
-  content += text(845, 172, `名义${formatMm(site.entranceRise)}／${formatMm(m.rampRun)}`, "small");
-  content += text(845, 197, `约${m.rampGrade.toFixed(1)}% · 待核`, "small warn-text");
+  if (recessedPortico()) {
+    content += text(845, 145, "凹入式门厅", "small");
+    content += text(845, 172, "左右侧坡道已取消", "small");
+    content += text(845, 197, "保留正面三步台阶", "small");
+  } else {
+    content += text(845, 145, "侧坡道", "warn-text");
+    content += text(845, 172, `名义${formatMm(site.entranceRise)}／${formatMm(m.rampRun)}`, "small");
+    content += text(845, 197, `约${m.rampGrade.toFixed(1)}% · 待核`, "small warn-text");
+  }
   content += text(845, 224, "防滑、门槛、排水", "small");
   content += text(845, 248, "扶手及雨棚待设计", "small");
   return sheet("S04", "入口与主辅楼连接高差", "沿用当前几何暴露高差问题，不新增未经确定的平台、坡道或无障碍通行结论。", content);
@@ -156,7 +163,7 @@ function northElevation(options: DrawingOptions) {
   for (const [index, base] of [0, 1, 2, 3].map((index) => [index, index === 3 ? 0 : floors[index].y])) {
     const north = facades(index).find((wall) => Math.abs(wall.a[1] - wall.b[1]) < 10)!;
     north.openings.filter((o) => !o.open).forEach((o) => {
-      const cx = north.a[0] + o.at;
+      const cx = north.a[0] + Math.sign(north.b[0] - north.a[0]) * o.at;
       content += rect(x(cx + o.w / 2), y(base + o.sill + o.h), toM(o.w) * 35, toM(o.h) * scaleY, "glass");
     });
   }
@@ -170,7 +177,7 @@ function northElevation(options: DrawingOptions) {
     content += path(`M55 ${y(h)} H950`, "guide");
   [[3600, `二层 ${elevation(3600)}`], [7200, `三层 ${elevation(7200)}`], [10500, `檐口 ${elevation(10500)}`]].forEach(([h, label]) => { content += text(785, y(Number(h)) - 6, String(label), "small"); });
   content += text(785, 334, `首层 ${elevation(site.entranceRise)}`, "small") + text(785, 365, "院坪 ±0", "small");
-  content += dimension(x(21000), x(0), 400, "800 ＋ 主楼13600 ＋ 子孙道1800 ＋ 辅楼4000 ＋ 800 ＝ 21000");
+  content += dimension(x(21000), x(0), 400, `主楼${site.main.w} ＋ 子孙道${site.lane} ＋ 辅楼${site.annex.w} ＋ 两侧余量 ＝ ${site.width}`);
   const m = entranceMetrics();
   content += text(50, 420, `前墙向北控制线：门厅楼板${formatMm(m.projection)}／柱北外皮${formatMm(m.column)}／平台${formatMm(m.platform)}／最外踏步${formatMm(m.steps)}。`, "small");
   return sheet("E01", "北立面与控制尺寸", "正投影尺寸关系示意，纵横比例不同；省略官帽、栏杆、装饰与遮挡。待设计师回交完整四向立面。", content);

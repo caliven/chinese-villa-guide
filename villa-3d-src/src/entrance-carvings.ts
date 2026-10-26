@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { frontElevation } from "./data";
 import { box, type Mats } from "./primitives";
+import { PORTICO_COLUMN_MAX_TRIM } from "./frontage-geometry";
 
 type XY = [number, number];
 
@@ -175,8 +176,9 @@ function pendant(parent: THREE.Object3D, top: number, w: number, h: number, mat:
   outline.moveTo(-.42, .02); outline.lineTo(.42, .02); outline.lineTo(.35,-.23);
   outline.bezierCurveTo(.34,-.61,.14,-.79,0,-.94);
   outline.bezierCurveTo(-.14,-.79,-.34,-.61,-.35,-.23); outline.closePath();
-  const body = carvedShape(g, outline, -25, 23, mat.carvedStone);
-  body.scale.set(w, h, 1); body.position.y = top;
+  // 先把轮廓换成毫米再倒角，避免归一化轮廓的1.5被放大成数百毫米。
+  const body = carvedShape(g, polygon(outline.getPoints(32).map(p => [p.x * w, p.y * h])), -25, 23, mat.carvedStone);
+  body.position.y = top;
   const edge = outline.getPoints(24).slice(0, -1).map(p => [p.x * w, top + p.y * h] as XY);
   strokes(g, [edge], 6, -51, mat.carvingInset, true);
   box(g, 0, top + h*.025, -39, w*1.03, h*.06, 24, mat.carvedStone);
@@ -279,7 +281,7 @@ function octagonalCourse(parent: THREE.Object3D, y0: number, y1: number, w: numb
 type Course = [number, number, number, "stone" | "dark" | "brown", number?];
 function courses(height: number, s: number): Course[] {
   return [
-    [0,90*s,50,"stone"],[90*s,160*s,25,"stone"],
+    [0,90*s,PORTICO_COLUMN_MAX_TRIM,"stone"],[90*s,160*s,25,"stone"],
     [160*s,700*s,27,"stone"],[700*s,760*s,47,"stone"],
     [760*s,810*s,35,"stone"],[810*s,880*s,14,"stone",38],
     [880*s,920*s,38,"stone"],[1160*s,1210*s,25,"stone"],
@@ -293,7 +295,7 @@ function courses(height: number, s: number): Course[] {
     [height-200*s,height-150*s,25,"brown"],
     [height-150*s,height-90*s,39,"brown"],
     [height-90*s,height-35*s,46,"brown"],
-    [height-35*s,height,50,"brown"],
+    [height-35*s,height,PORTICO_COLUMN_MAX_TRIM,"brown"],
   ];
 }
 
@@ -326,18 +328,23 @@ export function referencePorticoColumn(parent: THREE.Object3D, x: number, z: num
 }
 
 export function referenceCornerPilaster(parent: THREE.Object3D, cornerX: number, cornerZ: number,
-  base: number, height: number, outward: number, mat: Mats) {
+  base: number, height: number, outward: number, mat: Mats, bearingTop = base + height) {
   const g = group(parent,"包角柱");
   g.userData.ornamentReference = "corner-carving-2026-10-15";
   g.position.set(cornerX,base,cornerZ);
   const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg, s = .82;
   const outer = outward*project, inner = -outward*leg;
+  const outline = (v: number): XY[] => [[inner-outward*v,-project-v],[outer+outward*v,-project-v],
+    [outer+outward*v,leg+v],[-outward*20,leg+v],[-outward*20,20],[inner-outward*v,20]];
   const placeL = (y0: number,y1: number,lip: number,material: THREE.Material,topLip=lip) => {
     // 两段轮廓合成一块L形柱箍，转角不留对穿或重叠的接缝。
-    const outline = (v: number): XY[] => [[inner-outward*v,-project-v],[outer+outward*v,-project-v],
-      [outer+outward*v,leg+v],[-outward*20,leg+v],[-outward*20,20],[inner-outward*v,20]];
     solidCourse(g,y0,y1,outline(lip),outline(topLip),material);
   };
+  if (bearingTop > base + height) {
+    const neck = group(parent, "包角柱退进承托柱颈");
+    neck.position.copy(g.position);
+    solidCourse(neck, height, bearingTop - base, outline(-20), outline(-20), mat.sand);
+  }
   placeL(0,height,0,mat.carvedStone);
   for (const [lo,hi,lip,tone,topLip=lip] of courses(height,s))
     placeL(lo,hi,Math.min(40,lip),tone==="brown"?mat.british:tone==="dark"?mat.carvingDark:mat.carvedStone,Math.min(40,topLip));
@@ -370,10 +377,9 @@ function rosette(parent: THREE.Object3D, y: number, r: number, mat: Mats) {
   petal.bezierCurveTo(.25,.7,.25,.37,0,.16);
   for(let i=0;i<8;i++) {
     const petalGroup=group(g,"团花花瓣"); petalGroup.position.y=y; petalGroup.rotation.z=i*Math.PI/4;
-    const mesh=carvedShape(petalGroup,petal,-72,19,mat.carvingInset,3);
-    mesh.scale.set(r,r,1);
-    const raised=carvedShape(petalGroup,petal,-80,14,mat.carvedStone,3);
-    raised.scale.set(r*.8,r*.92,1);
+    const points=petal.getPoints(32);
+    carvedShape(petalGroup,polygon(points.map(p=>[p.x*r,p.y*r])),-72,19,mat.carvingInset,3);
+    carvedShape(petalGroup,polygon(points.map(p=>[p.x*r*.8,p.y*r*.92])),-80,14,mat.carvedStone,3);
   }
   circle(g,0,y,r*.17,-85,mat.carvingInset,9);
 }
@@ -383,9 +389,10 @@ export function referencePorticoBeam(parent: THREE.Object3D, center: number, fro
   const g=group(parent,"参考图门厅雕花横梁");
   g.position.set(center,top,front);
   // 横梁留在既有柱头净空内：上方方块饰、中央花板、下沿连续回纹。
-  const w=span+140, h=670, clear=span-columnWidth;
-  box(g,0,-h/2,250,w,h,500,mat.carvedStone);
-  box(g,0,-35,245,w+50,70,510,mat.carvedStone);
+  // 梁体止于柱内皮并少量嵌接，不再横穿整块柱头；饰面只布置在柱间净跨内。
+  const clear=span-columnWidth-120, w=span-columnWidth+16, h=670;
+  box(g,0,-h/2,250,w,h,500,mat.carvedStone).name="门厅柱间横梁实体";
+  box(g,0,-35,245,w,70,510,mat.carvedStone).name="门厅横梁上沿线";
   const squares=Math.max(5,Math.round((clear-120)/310)), pitch=(clear-120)/squares;
   for(let i=0;i<squares;i++) {
     const x=-clear/2+60+(i+.5)*pitch;

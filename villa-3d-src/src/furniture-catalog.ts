@@ -1,4 +1,5 @@
 import type { Furniture } from "./data";
+import { floorplanFurniture, getFloorplanFurniture, type FloorplanFurnitureType } from "./floorplan-catalog";
 
 /**
  * 家具局部坐标（rotation = 0）统一约定——按日常用法，不是随意画的：
@@ -16,8 +17,8 @@ import type { Furniture } from "./data";
 export const FURNITURE_LOCAL_FRAME =
   "局部：+Z 后方（靠背／床头／贴墙），−Z 前方（坐人／使用）；+X 右，−X 左；w＝左右，d＝前后";
 
-/** 平面／编辑器用的家具种类（含厨房既有件）。 */
-export const FURNITURE_KINDS = [
+/** 仅为旧户型兼容保留的家具类型，不出现在新库中。 */
+export const LEGACY_FURNITURE_KINDS = [
   "bed",
   "tv",
   "sofa",
@@ -41,9 +42,11 @@ export const FURNITURE_KINDS = [
   "railing",
 ] as const satisfies readonly Furniture["kind"][];
 
-export type FurnitureKind = (typeof FURNITURE_KINDS)[number];
+export const FURNITURE_KINDS = [...LEGACY_FURNITURE_KINDS, ...floorplanFurniture.map(item => item.id)] as const;
+export type FurnitureKind = Furniture["kind"];
+type LegacyFurnitureKind = (typeof LEGACY_FURNITURE_KINDS)[number];
 
-export const furnitureLabels: Record<FurnitureKind, string> = {
+const legacyFurnitureLabels: Record<LegacyFurnitureKind, string> = {
   bed: "床（含两侧床头柜）",
   tv: "电视机",
   sofa: "沙发",
@@ -68,7 +71,7 @@ export const furnitureLabels: Record<FurnitureKind, string> = {
 };
 
 /** 各件在局部坐标下的方位说明（编辑器与协作口述用）。 */
-export const furnitureOrientationHints: Record<FurnitureKind, string> = {
+const legacyFurnitureOrientationHints: Record<LegacyFurnitureKind, string> = {
   bed: "后方＝床头（枕头／床头柜）；前方＝床尾；左右＝两侧床头柜",
   tv: "后方＝机背贴墙；前方＝屏幕朝向观看区",
   sofa: "后方＝靠背；前方＝落座；左右＝双侧扶手",
@@ -92,39 +95,83 @@ export const furnitureOrientationHints: Record<FurnitureKind, string> = {
   railing: "宽＝栏杆长度；深＝栏杆厚度；后方＝楼板／安全侧，前方＝临空侧",
 };
 
+export const furnitureLabels = {
+  ...legacyFurnitureLabels,
+  ...Object.fromEntries(floorplanFurniture.map(item => [item.id, item.name])),
+} as Record<FurnitureKind, string>;
+
+const floorplanOrientationHints: Record<FloorplanFurnitureType, string> = {
+  bed: "后方＝床头与枕头；前方＝床尾；床头柜为独立模型",
+  crib: "后方＝床头；前方＝床尾",
+  nightstand: "后方＝贴墙；前方＝抽屉",
+  wardrobe: "后方＝贴墙；前方＝柜门",
+  dresser: "后方＝镜面与贴墙；前方＝使用位；座椅需另行放置",
+  desk: "后方＝贴墙；前方＝坐人",
+  chair: "后方＝靠背；前方＝落座",
+  bookshelf: "后方＝贴墙；前方＝取书",
+  baycushion: "长边沿飘窗，按现场方向旋转",
+  sofa: "后方＝靠背；前方＝落座",
+  cornersofa: "后方＝长靠背；前方＝落座与贵妃位",
+  armchair: "后方＝靠背；前方＝落座",
+  beanbag: "后方＝靠背；前方＝落座",
+  coffeetable: "无固定朝向；长边为宽",
+  sidetable: "无固定朝向；四周可用",
+  tvstand: "后方＝贴墙；前方＝柜门",
+  rug: "无固定前后；宽深为地毯边长",
+  shoecab: "后方＝贴墙；前方＝柜门",
+  floorlamp: "无固定朝向",
+  plant: "无固定朝向",
+  table: "无固定朝向；长边为宽",
+  roundtable: "无朝向；宽深均为直径",
+  island: "前方＝操作与收纳面",
+  barstool: "前方＝落座",
+  counter: "后方＝挡水与贴墙；前方＝操作边",
+  stove: "后方＝贴墙；前方＝旋钮与灶眼操作边",
+  ksink: "后方＝水龙头；前方＝洗碗站人",
+  fridge: "后方＝机背贴墙；前方＝冰箱门",
+  cabinet: "后方＝贴墙；前方＝柜门",
+  toilet: "后方＝水箱；前方＝坐盆",
+  vanity: "后方＝镜面与水龙头；前方＝洗漱",
+  shower: "后方＝贴墙；前方＝玻璃门",
+  bathtub: "后方＝水龙头；按现场方向旋转",
+  washer: "后方＝机背贴墙；前方＝滚筒门",
+  waterheater: "后方＝贴墙；前方＝检修面",
+  tv: "后方＝机背贴墙；前方＝屏幕",
+  aircon: "后方＝机背贴墙；前方＝出风口",
+  acwall: "后方＝贴墙；前方＝出风方向",
+  dishwasher: "后方＝机背贴墙；前方＝柜门",
+  ovencol: "后方＝贴墙；前方＝蒸烤箱门",
+  dryer: "后方＝机背贴墙；前方＝滚筒门",
+  purifier: "前方＝操作面",
+  officechair: "后方＝靠背；前方＝落座",
+  piano: "后方＝贴墙；前方＝琴键",
+  treadmill: "后方＝仪表台；前方＝跑带进入侧",
+};
+export const furnitureOrientationHints = {
+  ...legacyFurnitureOrientationHints,
+  ...Object.fromEntries(floorplanFurniture.map(item => [item.id, floorplanOrientationHints[item.type]])),
+} as Record<FurnitureKind, string>;
+
 export function furnitureOrientationHint(kind: Furniture["kind"]): string {
   return furnitureOrientationHints[kind as FurnitureKind] ?? FURNITURE_LOCAL_FRAME;
 }
 
 /** 该件是否有明确前后（旋转会影响用法）。 */
 export function furnitureHasFacing(kind: Furniture["kind"]): boolean {
+  const model = getFloorplanFurniture(kind);
+  if (model) return !["coffeetable", "sidetable", "table", "roundtable", "rug", "plant", "floorlamp", "barstool"].includes(model.type);
   return !["coffeeTable", "table", "roundTable"].includes(kind);
 }
 
-/** 编辑器下拉：常用项在前。 */
-export const furniturePickerOrder: FurnitureKind[] = [
-  "bed",
-  "tv",
-  "sofa",
-  "coffeeTable",
-  "table",
-  "roundTable",
-  "chair",
-  "dressingTable",
-  "cabinet",
-  "wardrobe",
-  "basin",
-  "toilet",
-  "squatToilet",
-  "shower",
-  "counter",
-  "stove",
-  "hob",
-  "sink",
-  "altar",
-  "shrine",
-  "railing",
-];
+/** 沿用床、柜体与厨卫操作件的600毫米讨论留位，型号和旧类型共用用途判断。 */
+export function furnitureHasUseZone(kind: FurnitureKind): boolean {
+  const model = getFloorplanFurniture(kind);
+  if (model) return ["bed", "wardrobe", "cabinet", "toilet", "vanity", "ksink", "stove", "dresser"].includes(model.type);
+  return ["bed", "wardrobe", "cabinet", "toilet", "squatToilet", "basin", "sink", "stove", "hob", "dressingTable"].includes(kind);
+}
+
+/** 编辑器只展示上游完整目录；旧类型仅用于读取已存户型。 */
+export const furniturePickerOrder: FurnitureKind[] = floorplanFurniture.map(item => item.id);
 
 export const bedNightstand = { w: 450, d: 400, gap: 20 };
 
@@ -163,9 +210,11 @@ export function bedLayout(f: Pick<Furniture, "w" | "d">) {
 }
 
 export function defaultFurnitureSize(kind: FurnitureKind): { w: number; d: number } {
+  const model = getFloorplanFurniture(kind);
+  if (model) return { w: model.w, d: model.d };
   switch (kind) {
     case "bed":
-      // 外轮廓 2960×2220（含两侧床头柜），新拖入默认；已放床不改。
+      // 历史床的外轮廓含两侧床头柜；新库床和床头柜分别放置。
       return { w: 2960, d: 2220 };
     case "tv":
       return { w: 1200, d: 350 };
@@ -210,6 +259,8 @@ export function defaultFurnitureSize(kind: FurnitureKind): { w: number; d: numbe
     case "railing":
       // 默认一段约 3.6 m；拉角改长度，厚度保持窄条。
       return { w: 3600, d: 100 };
+    default:
+      throw new Error(`未知家具类型：${kind}`);
   }
 }
 
@@ -230,7 +281,7 @@ export function createFurniture(kind: FurnitureKind, x: number, z: number): Furn
  * 床的床头柜含在宽以内；圆桌按直径 w。
  */
 export function furnitureLocalBounds(f: Furniture): { x0: number; z0: number; x1: number; z1: number } {
-  if (f.kind === "roundTable") {
+  if (isRoundFurniture(f.kind)) {
     const r = f.w / 2;
     return { x0: -r, z0: -r, x1: r, z1: r };
   }
@@ -287,9 +338,10 @@ export function resizeFurnitureFromCorner(
   const local = worldToFurnitureLocal(worldX, worldZ, orig);
   const lx = local.lx - (grabOffset?.dlx ?? 0);
   const lz = local.lz - (grabOffset?.dlz ?? 0);
-  let w = Math.max(minSize, Math.abs(lx - fixedLx));
-  let d = Math.max(minSize, Math.abs(lz - fixedLz));
-  if (orig.kind === "roundTable") {
+  const minimum = minimumFurnitureSize(orig.kind, minSize);
+  let w = Math.max(minimum.w, Math.abs(lx - fixedLx));
+  let d = Math.max(minimum.d, Math.abs(lz - fixedLz));
+  if (isRoundFurniture(orig.kind)) {
     const size = Math.max(w, d);
     w = size;
     d = size;
@@ -325,4 +377,15 @@ export function rotationToDeg(radians: number) {
 
 export function degToRotation(deg: number) {
   return normalizeRotation(((deg % 360) * Math.PI) / 180);
+}
+
+/** 上游圆桌始终保持直径一致。 */
+export function isRoundFurniture(kind: FurnitureKind): boolean {
+  return kind === "roundTable" || getFloorplanFurniture(kind)?.type === "roundtable";
+}
+
+/** 薄电视、挂机等保留上游尺寸，编辑时不被旧的 300 下限拉厚。 */
+export function minimumFurnitureSize(kind: FurnitureKind, minimum = 300) {
+  const model = getFloorplanFurniture(kind);
+  return model ? { w: Math.min(minimum, model.w), d: Math.min(minimum, model.d) } : { w: minimum, d: minimum };
 }

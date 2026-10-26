@@ -55,8 +55,12 @@ test("外部门窗和门厅草稿随立体共用数据，出图不污染草稿�
   assert.deepEqual(model.front.postXs, [draft.portico.x, draft.portico.x + draft.portico.w]);
   assert.equal(model.floors[0].facades[0].openings.length, 1);
   assert.equal(model.floors[0].facades[0].openings[0].w, 1250);
-  assert.ok(model.floors[1].facades.every(f => f.openings.length === 0));
-  assert.match(elevationSvg("north", "floating", layout), /4300/);
+  const upperOpenings = model.floors[1].facades.flatMap(f => f.openings);
+  assert.equal(upperOpenings.length, 1, "挑空外窗应在上层派生同宽通高洞口");
+  assert.ok(upperOpenings[0].continuous);
+  assert.equal(upperOpenings[0].w, 1250);
+  assert.equal(model.roof.portico.w, 4200);
+  assert.match(elevationSvg("north", "floating", layout), /class="el-dim-label"[^>]*>4200<\/text>/);
   assert.equal(JSON.stringify([draft, site, floors, frontElevation]), before);
 });
 

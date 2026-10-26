@@ -1,3 +1,4 @@
+import { porticoStyleLabels, buildingPlacementLabels, thirdFloorModeLabels } from "./building-variants";
 import {
   DEFAULT_VILLA_PARAMS,
   LOCKED_SITE_WIDTH,
@@ -45,7 +46,7 @@ const groups: ParamGroup[] = [
   {
     id: "site",
     title: "总图分配",
-    note: `宅基地总面宽锁定 ${LOCKED_SITE_WIDTH}。改主辅楼面宽／进深时南墙、东墙不动，只动北墙与西墙；西侧间距由东侧＋主楼＋过道＋辅楼反推。主辅楼后墙齐平，屋后预留共用一个数。`,
+    note: `宅基地总面宽锁定 ${LOCKED_SITE_WIDTH}。整体东缘与南墙锚定，西侧余量自动反推；主辅楼可互换，户型及门窗随之镜像。道路、邻房与梯田不换位，主辅楼后墙仍齐平。`,
     fields: [
       { key: "eastGap", label: "东侧间距（东墙锚定）" },
       { key: "westGap", label: "西侧间距（自动）", readonly: true },
@@ -56,7 +57,7 @@ const groups: ParamGroup[] = [
   {
     id: "main",
     title: "主楼",
-    note: "面宽加大只向西扩，进深加大只向北扩；东南角不动。包角柱突出＝柱身比墙面外凸的距离（正面与侧面同值），默认 150。",
+    note: "进深加大向北扩；面宽分配按当前主辅楼位置重算。包角柱突出＝柱身比墙面外凸的距离（正面与侧面同值），默认 150。",
     fields: [
       { key: "mainWidth", label: "主楼面宽" },
       { key: "mainDepth", label: "主楼进深" },
@@ -70,17 +71,17 @@ const groups: ParamGroup[] = [
   {
     id: "portico",
     title: "门厅",
-    note: "两根门厅柱心落在外伸投影北沿左右两角的直角处；柱内侧至前墙由外伸与柱截面自动算出。",
+    note: "凸出式门厅伸出主楼前墙；凹入式门厅柱收至主楼前沿，中央墙面内退。官帽、露台、台阶与图纸联动；凹口占用的室内空间按当前造型显示，切回凸出式恢复原稿。",
     fields: [
-      { key: "porticoWidth", label: "门厅面宽（柱心距）" },
-      { key: "porticoProjection", label: "门厅外伸" },
+      { key: "porticoWidth", label: "堂屋／门厅面宽（柱心距）" },
+      { key: "porticoProjection", label: "门厅外伸／凹入深度" },
       { key: "porticoColumnSize", label: "门厅柱截面" },
     ],
   },
   {
     id: "annex",
     title: "辅楼",
-    note: "后墙与主楼齐平；改进深只动前墙，内退＝主楼进深−辅楼进深（自动）。面宽加大只向西扩。",
+    note: "后墙与主楼齐平；改进深只动前墙，内退＝主楼进深−辅楼进深（自动）。面宽按当前主辅楼位置分配。",
     fields: [
       { key: "annexWidth", label: "辅楼面宽" },
       { key: "annexDepth", label: "辅楼进深" },
@@ -91,8 +92,7 @@ const groups: ParamGroup[] = [
   {
     id: "roof",
     title: "屋面",
-    note: "主辅楼四面顶檐与二楼前檐共用天沟／三眼皮／梁托／下沿线造型与参数。外边反坎立面与压顶、三眼皮同为英国棕；梁托／下沿线水包砂。悬浮官帽落脊只在「悬浮接入」造型下生效。",
-    extras: "roof-style",
+    note: "主辅楼屋顶采用天沟与三眼皮。二楼顶部（三楼栏杆下）是无天沟瓦挑檐：瓦铺至檐边，下方薄檐板与梁托承托，独立收口。",
     sections: [
       {
         heading: "坡度与官帽",
@@ -103,7 +103,7 @@ const groups: ParamGroup[] = [
       },
       {
         heading: "飘檐与三眼皮",
-        note: "顶檐「飘檐挑出」＝最上层出檐（默认 800）；中层＝挑出−100、最下层＝挑出−200；级差 100 固定。「二楼前檐」为三楼栏杆下飘檐，构造与顶檐相同，挑出单独可调（默认 800）。",
+        note: "顶檐「飘檐挑出」＝最上层出檐（默认 800）；中层＝挑出−100、最下层＝挑出−200；级差 100 固定。「二楼前檐」为三楼栏杆下无天沟瓦挑檐，挑出单独可调（默认 800），不套用屋顶三眼皮。",
         fields: [
           { key: "thirdEave", label: "顶檐挑出（最上层）" },
           { key: "secondFrontEave", label: "二楼前檐挑出" },
@@ -111,7 +111,7 @@ const groups: ParamGroup[] = [
       },
       {
         heading: "天沟",
-        note: "顶檐与二楼前檐共用。",
+        note: "以下参数仅用于主辅楼屋顶及官帽的天沟，不影响二楼无天沟瓦挑檐。",
         fields: [
           { key: "gutterClearWidth", label: "天沟净宽" },
           { key: "gutterClearDepth", label: "外边反坎高" },
@@ -125,7 +125,7 @@ const groups: ParamGroup[] = [
       },
       {
         heading: "梁托与下沿线",
-        note: "顶檐与二楼前檐共用。梁托成品 500×200×160；下沿线凸出／高度、压顶外飘为固定造型。",
+        note: "梁托长度、间距由顶檐与二楼挑檐共用，默认500×200×160；「三眼皮至下沿线」仅作用于屋顶，二楼挑檐按独立薄檐板收口。",
         fields: [
           { key: "corbelLength", label: "梁托长度" },
           { key: "corbelSpacing", label: "梁托中心间距" },
@@ -190,18 +190,18 @@ function formatParamValue(value: number, key?: string) {
   return formatMm(value);
 }
 
-function numInput(f: Field, value: number) {
+function numInput(f: Field, value: number, disabled = false) {
   const min = f.min ?? 1;
   const max = f.max ?? 80000;
   const suffix = f.unit ? `（${f.unit}）` : "";
   const ro = f.readonly || DERIVED_PARAM_KEYS.has(f.key);
   return `<label class="select-label params-field${ro ? " is-derived" : ""}">${f.label}${suffix}
-    <input type="text" inputmode="decimal" data-villa-param="${f.key}" data-param-min="${min}" data-param-max="${max}" value="${formatParamValue(value, f.key)}" autocomplete="off" spellcheck="false"${ro ? " readonly tabindex=\"-1\"" : ""}/>
+    <input type="text" inputmode="decimal" data-villa-param="${f.key}" data-param-min="${min}" data-param-max="${max}" value="${formatParamValue(value, f.key)}" autocomplete="off" spellcheck="false"${ro ? " readonly tabindex=\"-1\"" : ""}${disabled ? " disabled" : ""}/>
   </label>`;
 }
 
 function fieldsGridHtml(fields: Field[], params: VillaParams) {
-  return `<div class="params-grid">${fields.map((f) => numInput(f, params[f.key] as number)).join("")}</div>`;
+  return `<div class="params-grid">${fields.map((f) => numInput(f, params[f.key] as number, f.key === "thirdSetback" && params.thirdFloorMode === "flush")).join("")}</div>`;
 }
 
 function courtyardChoices(id: string, label: string, name: string) {
@@ -238,6 +238,10 @@ function courtyardFinishGroupHtml() {
   </div>`;
 }
 
+function variantChoices(key: "porticoStyle" | "buildingPlacement" | "thirdFloorMode", label: string, labels: Record<string, string>, params: VillaParams) {
+  return `<div class="params-choice-block"><h3 class="params-subhead">${label}</h3><p class="micro">即时切换并重算；包含面板中已输入的尺寸。</p><div class="segmented" role="group" aria-label="${label}">${Object.entries(labels).map(([value, text]) => `<button type="button" data-building-variant="${key}" data-variant-value="${value}" aria-pressed="${params[key] === value}" class="${params[key] === value ? "active" : ""}">${text}</button>`).join("")}</div></div>`;
+}
+
 function paneBodyHtml(g: ParamGroup, params: VillaParams) {
   const body = g.sections?.length
     ? g.sections
@@ -256,7 +260,11 @@ function paneBodyHtml(g: ParamGroup, params: VillaParams) {
       : g.extras === "courtyard-finish"
         ? courtyardFinishGroupHtml()
         : "";
-  return `${g.note ? `<p class="micro">${g.note}</p>` : ""}${body}${extras}`;
+  const choices = g.id === "site" ? variantChoices("buildingPlacement", "主辅楼位置", buildingPlacementLabels, params)
+    : g.id === "portico" ? variantChoices("porticoStyle", "门厅造型", porticoStyleLabels, params)
+    : g.id === "main" ? variantChoices("thirdFloorMode", "三楼模式", thirdFloorModeLabels, params)
+      + '<p class="micro">不内退：三楼两翼与二楼前墙齐平，取消两侧露台、栏杆和短柱，保留中央门厅露台。退台尺寸暂存，切回北向内退时恢复。</p>' : "";
+  return `${g.note ? `<p class="micro">${g.note}</p>` : ""}${g.id === "roof" ? roofStyleGroupHtml() : ""}${choices}${body}${extras}`;
 }
 
 /**
@@ -300,7 +308,7 @@ export function villaParamsPanelHtml(params: VillaParams = getVillaParams()) {
             </div>
             <div class="params-meta-item">
               <dt>门厅柱心距</dt>
-              <dd><strong id="villa-params-portico-span">${formatMm(porticoColumnSpacing(params))}</strong><span>· 角心＝面宽</span></dd>
+              <dd><strong id="villa-params-portico-span">${formatMm(porticoColumnSpacing(params))}</strong><span>· 柱心对齐门厅前沿两角</span></dd>
             </div>
             <div class="params-meta-item">
               <dt>柱内侧至前墙</dt>
@@ -367,7 +375,7 @@ export function readVillaParamsFromDom(root: ParentNode = document, options?: { 
   root.querySelectorAll<HTMLInputElement>("[data-villa-param]").forEach((input) => {
     const key = input.dataset.villaParam as keyof VillaParams;
     if (!(key in next)) return;
-    if (DERIVED_PARAM_KEYS.has(key) || input.readOnly) return;
+    if (DERIVED_PARAM_KEYS.has(key) || input.readOnly || input.disabled) return;
     if (options?.finalize) sanitizeVillaParamInput(input, true);
     const value = parseVillaParamNumber(input.value);
     if (value == null) return;
@@ -376,7 +384,7 @@ export function readVillaParamsFromDom(root: ParentNode = document, options?: { 
     const max = field?.max ?? 80000;
     const clamped = Math.min(max, Math.max(min, value));
     // 长度字段取整 mm；分水／角度类保留小数。
-    (next as Record<string, number>)[key] = VILLA_PARAM_NON_LENGTH.has(key) ? clamped : Math.round(clamped);
+    (next as unknown as Record<string, number>)[key] = VILLA_PARAM_NON_LENGTH.has(key) ? clamped : Math.round(clamped);
   });
   return next;
 }
@@ -439,6 +447,13 @@ export function fillVillaParamsDom(
     const key = input.dataset.villaParam as keyof VillaParams;
     const value = params[key];
     if (typeof value === "number") input.value = formatParamValue(value, key);
+    if (key === "thirdSetback") input.disabled = params.thirdFloorMode === "flush";
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-building-variant]").forEach(button => {
+    const key = button.dataset.buildingVariant as "porticoStyle" | "buildingPlacement" | "thirdFloorMode";
+    const on = params[key] === button.dataset.variantValue;
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-pressed", String(on));
   });
   updateVillaParamsMeta(params, root);
 }

@@ -1,3 +1,4 @@
+import { mirrorRoom, mirrorWall, mirrorFurniture, resizeThirdFloorFront } from "./building-variants";
 import {
   floors,
   site,
@@ -16,6 +17,7 @@ import {
   type Point,
 } from "./data";
 import { FURNITURE_KINDS, normalizeRotation } from "./furniture-catalog";
+import { getFloorplanFurniture } from "./floorplan-catalog";
 import { OPENING_KINDS, normalizeOpening, createOpening, type WallOpening, type OpeningKind } from "./openings";
 import {
   facades,
@@ -30,6 +32,8 @@ export const layoutDraftKey = "anhua-villa-layout-draft-v1";
 export const layoutDraftSchema = 1 as const;
 
 export type StairDraft = {
+  /** 旧稿缺省仍为双跑。 */
+  model?: "double" | "triple";
   room: { x: number; z: number; w: number; d: number };
   x: number;
   z: number;
@@ -37,15 +41,24 @@ export type StairDraft = {
   gap: number;
   risers: number;
   tread: number;
+  /** 三跑中间横跑的踏面进深；旧稿缺省与两侧相同。 */
+  middleTread?: number;
   landing: number;
   axis: "x" | "z";
+  /** 下跑沿轴的上行方向；旧稿缺省沿坐标正向。 */
+  direction?: "positive" | "negative";
   /** 跨向起步侧；缺省：南北向图左／东侧，东西向北侧。 */
   lowerSide?: "min" | "max";
   hole: { x: number; z: number; w: number; d: number };
 };
 
 export type PorticoDraft = { x: number; w: number; projection: number };
-export type VoidDraft = { x: number; z: number; w: number; d: number };
+export type VoidDraft = {
+  x: number; z: number; w: number; d: number;
+  /** 缺省为旧稿；接管时按一楼客厅匹配，旧自定义范围保持原位。 */
+  mode?: "follow" | "custom";
+  sourceRoomId?: string;
+};
 
 /** 外墙上的门窗草稿（floor 3 = 辅楼立面）。managed 后即完整列表，含原方案洞口。 */
 export type ExteriorOpeningDraft = {
@@ -89,8 +102,8 @@ export interface LayoutDraft {
 
 /** 把立面 Opening（中心定位）转成平面 WallOpening（起点＋宽）。 */
 export function facadeOpeningToWallOpening(o: FacadeOpening): WallOpening {
-  let kind: OpeningKind = "window";
-  if (o.door) {
+  let kind: OpeningKind = o.kind ?? "window";
+  if (!o.kind && o.door) {
     if (o.pattern === "sliding" || o.glazed) kind = "slidingDoor";
     else if (o.double) kind = "doubleDoor";
     else if (o.open) kind = "door";
@@ -259,6 +272,8 @@ function parseOpening(value: unknown, label: string): WallOpening {
     // 与编辑器最小门宽 300 mm 一致，避免历史回放时解析失败导致撤销／重做中断。
     width: num(value.width, `${label} 宽`, 300, 6000),
     kind,
+    ...(value.height !== undefined ? { height: num(value.height, `${label} 窗高`, 200, 20000) } : {}),
+    ...(value.sill !== undefined ? { sill: num(value.sill, `${label} 窗台高度`, 0, 20000) } : {}),
     hinge: value.hinge === "end" ? "end" : "start",
     side: value.side === "in" ? "in" : "out",
   });
@@ -287,12 +302,14 @@ function parseFurniture(value: unknown, i: number): Furniture {
   if (!isRecord(value)) throw new Error(`家具 ${i} 格式不对`);
   const kind = str(value.kind, `家具 ${i} 类型`) as Furniture["kind"];
   if (!furnitureKinds.includes(kind)) throw new Error(`家具 ${i} 类型无效`);
+  // 上游电视厚度为 80；旧库统一 100 的导入下限会丢掉已保存的新款电视。
+  const minimum = getFloorplanFurniture(kind) ? 20 : 100;
   const item: Furniture = {
     kind,
     x: num(value.x, `家具 ${i} x`),
     z: num(value.z, `家具 ${i} z`),
-    w: num(value.w, `家具 ${i} w`, 100, 8000),
-    d: num(value.d, `家具 ${i} d`, 100, 8000),
+    w: num(value.w, `家具 ${i} w`, minimum, 8000),
+    d: num(value.d, `家具 ${i} d`, minimum, 8000),
   };
   if (value.rotation !== undefined) {
     // 允许历史草稿里累加过大的角，读入后归一化。
@@ -344,18 +361,21 @@ function parseStair(value: unknown): StairDraft {
     },
     x: num(value.x, "楼梯起点 x"),
     z: num(value.z, "楼梯起点 z"),
+    model: value.model === "triple" ? "triple" : value.model === "double" ? "double" : undefined,
     flight: num(value.flight, "梯段宽", 600, 2000),
     gap: num(value.gap, "梯井缝", 0, 1000),
     risers: Math.round(num(value.risers, "踢面数", 10, 40)),
     tread: num(value.tread, "踏步深", 150, 400),
+    middleTread: value.middleTread === undefined ? undefined : num(value.middleTread, "中跑踏步深", 150, 400),
     landing: num(value.landing, "休息平台", 400, 2000),
     axis,
+    direction: value.direction === "negative" ? "negative" : value.direction === "positive" ? "positive" : undefined,
     lowerSide: value.lowerSide === "min" || value.lowerSide === "max" ? value.lowerSide : undefined,
     hole: {
       x: num(value.hole.x, "楼梯洞 x"),
       z: num(value.hole.z, "楼梯洞 z"),
-      w: num(value.hole.w, "楼梯洞 w", 1000, 8000),
-      d: num(value.hole.d, "楼梯洞 d", 1000, 8000),
+      w: num(value.hole.w, "楼梯洞 w", 1000, 10000),
+      d: num(value.hole.d, "楼梯洞 d", 1000, 10000),
     },
   };
 }
@@ -529,7 +549,7 @@ const FIXED_FURNITURE_KINDS = new Set<Furniture["kind"]>([
 ]);
 
 function scaleFurnitureDraft(f: Furniture, oE: number, oS: number, nE: number, nS: number, sx: number, sz: number): Furniture {
-  const fixed = FIXED_FURNITURE_KINDS.has(f.kind);
+  const fixed = FIXED_FURNITURE_KINDS.has(f.kind) || !!getFloorplanFurniture(f.kind);
   return {
     ...f,
     x: nE - (oE - f.x) * sx,
@@ -547,7 +567,7 @@ export function alignLayoutDraftToSite(draft: LayoutDraft): LayoutDraft {
       const live = floors[i];
       if (!live) return floor;
       return {
-        ...floor,
+        ...(i === 2 ? resizeThirdFloorFront(floor, live.front) : floor),
         y: live.y,
         height: live.height,
         front: live.front,
@@ -633,6 +653,7 @@ export function scaleLayoutDraftToEnvelope(draft: LayoutDraft, target: LayoutEnv
       : `${draft.note}${draft.note ? " · " : ""}已随方案参数重算`,
     floors: draft.floors.map((floor) => ({
       ...floor,
+      front: nS - (oS - floor.front) * sz,
       rooms: floor.rooms.map((r) => scaleRoomDraft(r, oE, oS, nE, nS, sx, sz)),
       partitions: floor.partitions.map((w) => scaleWallDraft(w, oE, oS, nE, nS, sx, sz)),
       furniture: floor.furniture.map((f) => scaleFurnitureDraft(f, oE, oS, nE, nS, sx, sz)),
@@ -668,6 +689,7 @@ export function scaleLayoutDraftToEnvelope(draft: LayoutDraft, target: LayoutEnv
       projection: site.portico.projection,
     },
     livingVoid: {
+      ...draft.livingVoid,
       x: nE - (oE - draft.livingVoid.x) * sx,
       z: nS - (oS - draft.livingVoid.z) * sz,
       w: draft.livingVoid.w * sx,
@@ -688,6 +710,27 @@ export function scaleLayoutDraftToEnvelope(draft: LayoutDraft, target: LayoutEnv
     }),
     envelope: target,
   };
+  if ((from.mainX < from.annexX) !== (target.mainX < target.annexX)) {
+    const sum = target.mainX * 2 + target.mainW, asum = target.annexX * 2 + target.annexW;
+    for (const floor of scaled.floors) {
+      floor.rooms = floor.rooms.map(r => mirrorRoom(r, sum));
+      floor.partitions = floor.partitions.map(w => mirrorWall(w, sum));
+      floor.furniture = floor.furniture.map(f => mirrorFurniture(f, sum));
+    }
+    scaled.annexRooms = scaled.annexRooms.map(r => mirrorRoom(r, asum));
+    scaled.annexPartitions = scaled.annexPartitions.map(w => mirrorWall(w, asum));
+    scaled.annexFurniture = scaled.annexFurniture.map(f => mirrorFurniture(f, asum));
+    const stair = scaled.stairLayout;
+    const xOffset = stair.x - stair.room.x;
+    stair.room.x = sum - stair.room.x - stair.room.w;
+    stair.x = stair.room.x + xOffset;
+    stair.hole.x = sum - stair.hole.x - stair.hole.w;
+    if (stair.axis === "x") stair.direction = stair.direction === "negative" ? "positive" : "negative";
+    else stair.lowerSide = (stair.lowerSide ?? "max") === "max" ? "min" : "max";
+    scaled.livingVoid.x = sum - scaled.livingVoid.x - scaled.livingVoid.w;
+    scaled.exteriorOpenings = scaled.exteriorOpenings.map(item => ({ ...item, opening: { ...item.opening,
+      side: item.opening.side === "out" ? "in" : "out" } }));
+  }
   return alignLayoutDraftToSite(scaled);
 }
 
@@ -717,11 +760,15 @@ export function parseLayoutDraft(raw: string): LayoutDraft {
     })(),
     livingVoid: (() => {
       if (!isRecord(value.livingVoid)) throw new Error("挑空数据格式不对");
+      const mode = value.livingVoid.mode;
+      if (mode != null && mode !== "follow" && mode !== "custom") throw new Error("挑空跟随方式无效");
       return {
         x: num(value.livingVoid.x, "挑空 x"),
         z: num(value.livingVoid.z, "挑空 z"),
-        w: num(value.livingVoid.w, "挑空 w", value.livingVoid.w === 0 && value.livingVoid.d === 0 ? 0 : 1000, 10000),
+        w: num(value.livingVoid.w, "挑空 w", value.livingVoid.w === 0 && value.livingVoid.d === 0 ? 0 : 1000, 40000),
         d: num(value.livingVoid.d, "挑空 d", value.livingVoid.w === 0 && value.livingVoid.d === 0 ? 0 : 1000, 12000),
+        ...(mode != null ? { mode } : {}),
+        ...(value.livingVoid.sourceRoomId != null ? { sourceRoomId: str(value.livingVoid.sourceRoomId, "挑空来源房间", 100) } : {}),
       };
     })(),
     sideDoorZ: num(value.sideDoorZ ?? circulation.sideDoorZ, "辅楼门 Z"),

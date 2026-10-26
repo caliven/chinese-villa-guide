@@ -1,5 +1,5 @@
 /** 隔墙／外墙上的洞口（门、窗）。offset 为沿墙从 a 点起的起点。 */
-export type OpeningKind = "door" | "doubleDoor" | "slidingDoor" | "window";
+export type OpeningKind = "door" | "doubleDoor" | "slidingDoor" | "passage" | "window";
 export type DoorHinge = "start" | "end";
 export type DoorSide = "in" | "out";
 
@@ -91,6 +91,10 @@ export interface WallOpening {
   offset: number;
   width: number;
   kind?: OpeningKind;
+  /** 窗洞高度；缺省沿用原规格。通高窗在下层洞口保存整窗高度。 */
+  height?: number;
+  /** 窗台距所属层完成地面的高度；缺省沿用原规格。 */
+  sill?: number;
   /** 铰链在门洞起点或终点；双开／推拉／窗忽略 */
   hinge?: DoorHinge;
   /**
@@ -100,12 +104,13 @@ export interface WallOpening {
   side?: DoorSide;
 }
 
-export const OPENING_KINDS: OpeningKind[] = ["door", "doubleDoor", "slidingDoor", "window"];
+export const OPENING_KINDS: OpeningKind[] = ["door", "doubleDoor", "slidingDoor", "passage", "window"];
 
 export const openingLabels: Record<OpeningKind, string> = {
   door: "单开门",
   doubleDoor: "双开门",
   slidingDoor: "推拉门",
+  passage: "门洞（无门）",
   window: "窗",
 };
 
@@ -117,6 +122,8 @@ export function defaultOpeningWidth(kind: OpeningKind): number {
       return 1800;
     case "slidingDoor":
       return 2000;
+    case "passage":
+      return 1200;
     case "window":
       return 1500;
   }
@@ -128,6 +135,8 @@ export function normalizeOpening(raw: Partial<WallOpening> & Pick<WallOpening, "
     offset: raw.offset,
     width: raw.width,
     kind,
+    ...(kind === "window" && Number.isFinite(raw.height) && raw.height! >= 200 ? { height: Math.round(raw.height!) } : {}),
+    ...(kind === "window" && Number.isFinite(raw.sill) && raw.sill! >= 0 ? { sill: Math.round(raw.sill!) } : {}),
     hinge: raw.hinge === "end" ? "end" : "start",
     side: raw.side === "in" ? "in" : "out",
   };
@@ -143,6 +152,14 @@ export function createOpening(kind: OpeningKind, offset: number, width?: number)
   });
 }
 
+/** 室内洞口相对本层完成面的统一标高；剖切只改变显示，不改变这份实体规格。 */
+export function interiorOpeningProfile(raw: WallOpening, wallHeight: number) {
+  const opening = normalizeOpening(raw), window = opening.kind === "window";
+  const defaultSill = window ? 900 : 0;
+  const sill = window && opening.sill != null ? Math.min(opening.sill, Math.max(0, wallHeight - 280)) : defaultSill;
+  return { ...opening, sill, height: Math.max(0, Math.min(window ? opening.height ?? 1500 : 2200, wallHeight - sill - 80)), door: !window };
+}
+
 /** 平面门窗符号（墙局部坐标：X 沿墙，Y 垂直墙面向外/左）。 */
 export function openingSymbolSvg(raw: WallOpening, wallThick = 240): string {
   const o = normalizeOpening(raw);
@@ -152,20 +169,25 @@ export function openingSymbolSvg(raw: WallOpening, wallThick = 240): string {
   // gap 须略宽于墙线，才能盖住线端圆头；墙线已按洞口断开时仍保留底板色。
   const gap = `<path d="M${x0} 0 h${w}" class="door-gap" stroke-width="${wallThick + 40}"/>`;
 
+  if (o.kind === "passage") return gap;
+
   if (o.kind === "window") {
     const mid = (x0 + x1) / 2;
+    const half = wallThick / 2, stroke = Math.min(40, wallThick / 4);
     return `${gap}
-      <path d="M${x0} -80 H${x1} M${x0} 80 H${x1}" class="window"/>
-      <path d="M${mid} -120 V120" class="window"/>
-      <path d="M${x0} -140 V140 M${x1} -140 V140" class="window"/>`;
+      <g stroke-width="${stroke}" class="window-symbol">
+      <path d="M${x0 + stroke / 2} ${-half + stroke / 2} H${x1 - stroke / 2} M${x0 + stroke / 2} ${half - stroke / 2} H${x1 - stroke / 2}" class="window" style="stroke-width:inherit"/>
+      <path d="M${mid} ${-half + stroke / 2} V${half - stroke / 2}" class="window" style="stroke-width:inherit"/>
+      <path d="M${x0 + stroke / 2} ${-half + stroke / 2} V${half - stroke / 2} M${x1 - stroke / 2} ${-half + stroke / 2} V${half - stroke / 2}" class="window" style="stroke-width:inherit"/></g>`;
   }
 
   if (o.kind === "slidingDoor") {
     const half = w / 2;
     const panel = half * 0.92;
+    const depth = Math.min(60, wallThick - 30);
     return `${gap}
-      <rect x="${x0 + 40}" y="-100" width="${panel}" height="200" class="sliding-panel"/>
-      <rect x="${x1 - panel - 40}" y="-100" width="${panel}" height="200" class="sliding-panel"/>
+      <rect x="${x0 + 40}" y="${-depth / 2}" width="${panel}" height="${depth}" class="sliding-panel"/>
+      <rect x="${x1 - panel - 40}" y="${-depth / 2}" width="${panel}" height="${depth}" class="sliding-panel"/>
       <path d="M${x0 + half * 0.35} 0 h${half * 0.25} m0 0 l-80 -60 m80 60 l-80 60" class="sliding-arrow"/>
       <path d="M${x1 - half * 0.35} 0 h${-half * 0.25} m0 0 l80 -60 m-80 60 l80 60" class="sliding-arrow"/>`;
   }

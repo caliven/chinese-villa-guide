@@ -173,6 +173,15 @@ export function removeCoplanarOverlap(root: THREE.Object3D, skip = new Set<THREE
 }
 
 export function batchStatic(root: THREE.Object3D, skip = new Set<THREE.Object3D>()) {
+  // 家具各自在内部合批，保留模型根节点，供 2D / 3D 共用选择和摆放。
+  const selectable = new Set(skip);
+  root.traverse(obj => {
+    if (obj !== root && obj.userData.layoutSelection && !skip.has(obj)) {
+      selectable.add(obj);
+      batchStatic(obj);
+    }
+  });
+  skip = selectable;
   removeCoplanarOverlap(root, skip);
   const inverse = root.matrixWorld.clone().invert();
   const groups = new Map<string, { material: THREE.Material; meshes: THREE.Mesh[]; geometry: THREE.BufferGeometry[] }>();

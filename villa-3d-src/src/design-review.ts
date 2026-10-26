@@ -9,7 +9,7 @@ import { roofStyleLabels } from "./roof-options";
 
 interface ReviewAPI {
   getView: () => MeetingView;
-  restore: (view: MeetingView) => void;
+  restore: (view: MeetingView) => void | Promise<void>;
   options: () => DrawingOptions;
   navigate: (issue: DesignIssue) => void;
   image: () => string | undefined;
@@ -46,7 +46,7 @@ export function mountDesignReview(root: HTMLElement, api: ReviewAPI) {
     root.querySelector<HTMLElement>("#review-issues")!.innerHTML = issueCards();
   }
   function snapshots() {
-    return `<p>保存当前视图与参数；恢复快照时沿用当前版本几何。</p><form id="review-snapshot-form" class="review-save-row"><label>快照名称<input id="review-snapshot-name" maxlength="100" placeholder="例如：方案A·地库入口" required/></label><button type="submit" class="primary-button">保存当前快照</button></form><div class="review-snapshot-list">${session.snapshots.map((s) => `<article><h3>${e(s.title)}</h3><label>快照名称<input data-snapshot-name="${e(s.id)}" maxlength="100" value="${e(s.title)}"/></label><p>${e(s.revision)} · ${e(new Date(s.createdAt).toLocaleString("zh-CN"))}</p><small>${e(meetingTabLabels[s.view.tab])}／${e(cameraViewLabels[s.view.camera])} · ${floors[s.view.level].name} · 分水${s.view.fenShui.toFixed(1)} · 道路${s.view.roadY.toFixed(2)}m（未测）</small><div><button class="secondary-button" data-restore-snapshot="${e(s.id)}">恢复此快照</button><button class="text-button" data-delete-snapshot="${e(s.id)}">删除本地快照</button></div></article>`).join("") || "<p class=\"review-empty\">暂无快照，可在场地、户型或日照页调整后保存。</p>"}</div>${session.snapshots.length > 1 ? `<h3>参数对比</h3><div class="review-compare-selects"><label>快照A<select id="review-compare-a">${session.snapshots.map((s) => `<option value="${e(s.id)}">${e(s.title)}</option>`).join("")}</select></label><label>快照B<select id="review-compare-b">${session.snapshots.map((s, i) => `<option value="${e(s.id)}" ${i === 1 ? "selected" : ""}>${e(s.title)}</option>`).join("")}</select></label></div><div id="review-comparison" class="review-table-scroll"></div>` : ""}`;
+    return `<p>保存当前视图与参数；恢复快照时沿用当前版本几何。</p><form id="review-snapshot-form" class="review-save-row"><label>快照名称<input id="review-snapshot-name" maxlength="100" placeholder="例如：方案A·地库入口" required/></label><button type="submit" class="primary-button">保存当前快照</button></form><div class="review-snapshot-list">${session.snapshots.map((s) => `<article><h3>${e(s.title)}</h3><label>快照名称<input data-snapshot-name="${e(s.id)}" maxlength="100" value="${e(s.title)}"/></label><p>${e(s.revision)} · ${e(new Date(s.createdAt).toLocaleString("zh-CN"))}</p><small>${e(meetingTabLabels[s.view.tab])}／${e(cameraViewLabels[s.view.camera])} · ${s.view.level < 0 ? "院坪总图" : floors[s.view.level].name} · 分水${s.view.fenShui.toFixed(1)} · 道路${Math.round(s.view.roadY)} mm（未测）</small><div><button class="secondary-button" data-restore-snapshot="${e(s.id)}">恢复此快照</button><button class="text-button" data-delete-snapshot="${e(s.id)}">删除本地快照</button></div></article>`).join("") || "<p class=\"review-empty\">暂无快照，可在场地、户型或日照页调整后保存。</p>"}</div>${session.snapshots.length > 1 ? `<h3>参数对比</h3><div class="review-compare-selects"><label>快照A<select id="review-compare-a">${session.snapshots.map((s) => `<option value="${e(s.id)}">${e(s.title)}</option>`).join("")}</select></label><label>快照B<select id="review-compare-b">${session.snapshots.map((s, i) => `<option value="${e(s.id)}" ${i === 1 ? "selected" : ""}>${e(s.title)}</option>`).join("")}</select></label></div><div id="review-comparison" class="review-table-scroll"></div>` : ""}`;
   }
   function compare() {
     const target = root.querySelector<HTMLElement>("#review-comparison");
@@ -54,12 +54,12 @@ export function mountDesignReview(root: HTMLElement, api: ReviewAPI) {
     const find = (id: string) => session.snapshots.find((s) => s.id === root.querySelector<HTMLSelectElement>(id)!.value)!;
     const a = find("#review-compare-a"), b = find("#review-compare-b");
     const v = (view: MeetingView) => ({
-      "查看模式／机位": `${meetingTabLabels[view.tab]}／${cameraViewLabels[view.camera]}`, "楼层／平面模式": `${floors[view.level].name}／${view.planMode === "2d" ? "平面" : "立体"}`,
+      "查看模式／机位": `${meetingTabLabels[view.tab]}／${cameraViewLabels[view.camera]}`, "楼层／平面模式": `${view.level < 0 ? "院坪总图" : floors[view.level].name}／${view.planMode === "2d" ? "平面" : "立体"}`,
       "新建／现状": view.existing ? "现状" : "新建", "屋面分水": view.fenShui.toFixed(1),
       "官帽造型": roofStyleLabels[view.roofStyle],
       "自家院坪": courtyardFinishLabels[view.courtyardFinish], "邻居院坪": courtyardFinishLabels[view.neighborCourtyardFinish],
       "道路标高（待测）": `${Math.round(view.roadY)} mm`, "坡长（待测）": `${Math.round(view.rampLength)} mm`,
-      "车辆进度": `${view.progress}%`, "南侧浅阳台": view.balcony ? "有" : "无", "餐厅平面情景": view.dining === "daily" ? "日常6座（示意）" : "双桌满座18座",
+      "车辆进度": `${view.progress}%`, "南侧浅阳台": view.balcony ? "有" : "无", "餐厅平面情景": view.dining === "daily" ? "圆桌收起 · 日常" : "当前圆桌布置",
       "日照时间": `${view.sunDate} ${formatHour(view.sunTime)}`,
       "机位XYZ": view.pose?.position.map((n) => n.toFixed(2)).join("／") ?? "3D不可用",
       "观察点XYZ": view.pose?.target.map((n) => n.toFixed(2)).join("／") ?? "3D不可用",
@@ -82,15 +82,22 @@ export function mountDesignReview(root: HTMLElement, api: ReviewAPI) {
       if (!root.hidden) render();
     } catch (error) { api.toast(`未能记录快照：${(error as Error).message}`); }
   }
-  root.addEventListener("click", (event) => {
+  let restoring = false;
+  root.addEventListener("click", async (event) => {
     const button = (event.target as Element).closest<HTMLElement>("button");
     if (!button) return;
     if (button.dataset.reviewPage) { page = button.dataset.reviewPage; render(); }
     if (button.dataset.locateIssue) api.navigate(designIssues.find((i) => i.id === button.dataset.locateIssue)!);
     if (button.dataset.restoreSnapshot) {
+      if (restoring) return;
       const s = session.snapshots.find((s) => s.id === button.dataset.restoreSnapshot)!;
-      api.restore(validateMeetingView(s.view));
-      api.toast(s.revision === projectMeta.revision ? `已恢复：${s.title}` : `已恢复${s.revision}的参数；当前几何仍为${projectMeta.revision}。`);
+      restoring = true;
+      try {
+        await api.restore(validateMeetingView(s.view));
+        api.toast(s.revision === projectMeta.revision ? `已恢复：${s.title}` : `已恢复${s.revision}的参数；当前几何仍为${projectMeta.revision}。`);
+      } catch (error) {
+        api.toast(`恢复快照失败：${error instanceof Error ? error.message : "请重试"}`);
+      } finally { restoring = false; }
     }
     if (button.dataset.deleteSnapshot) {
       session.snapshots = session.snapshots.filter((s) => s.id !== button.dataset.deleteSnapshot);

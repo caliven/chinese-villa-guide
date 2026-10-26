@@ -2,6 +2,7 @@ import type { Furniture, Point, Room, Wall } from "./data";
 import { annexFurniture, annexRooms, construction, floors, isPhysicalWall, site, wallRoleOf } from "./data";
 import { roomFillBounds } from "./design-data";
 import { furnitureLocalBounds, furnitureLocalToWorld } from "./furniture-catalog";
+import { getFloorplanFurniture } from "./floorplan-catalog";
 import { normalizeOpening, type WallOpening } from "./openings";
 import {
   forceOrthoWall,
@@ -12,9 +13,10 @@ import {
 import { constrainWallEdits, type WallConstraintResult } from "./wall-constraints";
 import { polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomOutline } from "./room-geometry";
 import { polygonIntersectionAreaMm2 } from "./plan-regions";
+import { FURNITURE_WALL_FINISH, physicalFurnitureAnchors, resolveFurnitureCollisions } from "./furniture-placement";
 
 /** 家具贴墙内皮后再留的示意缝（mm），避免色块压进墙线。 */
-export const FURNITURE_WALL_FINISH = 20;
+export { FURNITURE_WALL_FINISH } from "./furniture-placement";
 
 export type OpeningBay = {
   bayStart: number;
@@ -268,6 +270,8 @@ const FREE_PLACE_FURNITURE = new Set([
 ]);
 
 export function furnitureUsesWallCenter(kind: string) {
+  const model = getFloorplanFurniture(kind);
+  if (model) return !["table", "roundtable", "chair", "officechair", "coffeetable", "sidetable", "island", "barstool", "rug", "beanbag", "floorlamp", "plant"].includes(model.type);
   return !FREE_PLACE_FURNITURE.has(kind);
 }
 
@@ -1182,6 +1186,35 @@ export const MAGNET_CENTER_GAP = 180;
 /** 接近锚线时先画引导线（可大于吸附阈值，便于找墙内皮／居中）。 */
 export const MAGNET_GUIDE_PREVIEW_GAP = 450;
 
+/** 墙线定位按准确毫米去重，不能将相邻分段的 7／13 mm 误差吞成同一轴。 */
+function exactWallAxes(values: number[]) {
+  return [...new Set(values.filter(Number.isFinite).map(Math.round))].sort((a, b) => a - b);
+}
+
+export function wallLinePosition(wall: Pick<Wall, "a" | "b">) {
+  const normal = wallAxis(wall) === "h" ? 1 : 0;
+  return Math.round((wall.a[normal] + wall.b[normal]) / 2);
+}
+
+/** 就近参考平行墙。近乎共线的分段不当作另一侧墙距；尺寸为墙线距，不是净宽。 */
+export function parallelWallDistances(wall: Wall, candidates: Pick<Wall, "a" | "b">[]) {
+  const axis = wallAxis(wall), along = axis === "h" ? 0 : 1;
+  const at = wallLinePosition(wall);
+  const lo = Math.min(wall.a[along], wall.b[along]), hi = Math.max(wall.a[along], wall.b[along]);
+  const result: { low?: { at: number; distance: number }; high?: { at: number; distance: number } } = {};
+  for (const candidate of candidates) {
+    if (wallAxis(candidate) !== axis) continue;
+    const overlap = Math.min(hi, Math.max(candidate.a[along], candidate.b[along])) -
+      Math.max(lo, Math.min(candidate.a[along], candidate.b[along]));
+    if (overlap <= 1) continue;
+    const target = wallLinePosition(candidate), distance = Math.abs(target - at);
+    if (distance <= MAGNET_SNAP_GAP) continue;
+    const side = target < at ? "low" : "high";
+    if (!result[side] || distance < result[side]!.distance) result[side] = { at: target, distance };
+  }
+  return result;
+}
+
 /**
  * 房内家具吸附锚点：墙内皮（套内净空＋finish），不是墙中线／外轮廓。
  * 另含净空中线、同房其它家具边／中线，供对齐与居中。
@@ -1282,7 +1315,7 @@ export function collectWallMagnetAnchors(
       if (ca === "h") zs.push((c.a[1] + c.b[1]) / 2);
     }
   }
-  return { xs: uniqueSorted(xs, 30), zs: uniqueSorted(zs, 30) };
+  return { xs: exactWallAxes(xs), zs: exactWallAxes(zs) };
 }
 
 /**
@@ -1304,9 +1337,11 @@ export function snapWallDuringDrag(
   const guideZs: number[] = [];
 
   if (mode === "move") {
+    // 真实平行墙先于辅助轴；辅助轴不能把准确墙线拉回自己的旧位置。
+    const parallel = candidates.filter(candidate => wallAxis(candidate) === axis).map(wallLinePosition);
     if (axis === "h") {
       const z = (wall.a[1] + wall.b[1]) / 2;
-      const target = nearestAnchor(z, zs, maxGap);
+      const target = nearestAnchor(z, parallel, maxGap) ?? nearestAnchor(z, zs, maxGap);
       if (target != null) {
         const dz = target - z;
         wall.a = [snapMeter(wall.a[0]), snapMeter(wall.a[1] + dz)];
@@ -1315,7 +1350,7 @@ export function snapWallDuringDrag(
       }
     } else {
       const x = (wall.a[0] + wall.b[0]) / 2;
-      const target = nearestAnchor(x, xs, maxGap);
+      const target = nearestAnchor(x, parallel, maxGap) ?? nearestAnchor(x, xs, maxGap);
       if (target != null) {
         const dx = target - x;
         wall.a = [snapMeter(wall.a[0] + dx), snapMeter(wall.a[1])];
@@ -1417,6 +1452,9 @@ export function snapFurnitureDuringDrag(
     furniture?: Furniture[];
     excludeFurnitureIndex?: number;
     allowCenter?: boolean;
+    /** 含外墙的实体碰撞列表；房间净空计算仍沿用 partitions。 */
+    collisionWalls?: Wall[];
+    previous?: { x: number; z: number };
   },
 ): { guideXs: number[]; guideZs: number[] } {
   const maxGap = options?.maxGap ?? MAGNET_SNAP_GAP;
@@ -1424,9 +1462,13 @@ export function snapFurnitureDuringDrag(
   const previewGap = options?.previewGap ?? MAGNET_GUIDE_PREVIEW_GAP;
   const floorIndex = options?.floorIndex ?? 0;
   const partitions = options?.partitions;
-  const room = options?.room ?? null;
+  const physicalWalls = options?.collisionWalls ?? partitions ?? [];
+  // 先退出实际墙带，再判断房间归属，避免指针刚越过墙中线便被邻房净空拉到墙另一侧。
+  resolveFurnitureCollisions(f, { walls: physicalWalls, furniture: [], previous: options?.previous });
+  const suggestedRoom = options?.room;
+  const room = suggestedRoom && roomContainsPoint(suggestedRoom, [f.x, f.z]) ? suggestedRoom : null;
   // 凹形净空不能以包络矩形吸附／钳位，待真实轮廓家具约束实现后再启用。
-  if (room && !roomIsRectangular(room)) return { guideXs: [], guideZs: [] };
+  if (room && !roomIsRectangular(room) && !options?.collisionWalls?.length && !options?.furniture?.length) return { guideXs: [], guideZs: [] };
   const allowCenter = options?.allowCenter !== false;
 
   let edgeXs = xs;
@@ -1435,7 +1477,7 @@ export function snapFurnitureDuringDrag(
   let centerZs: number[] = [];
   let corners = options?.corners ?? [];
 
-  if (room) {
+  if (room && roomIsRectangular(room)) {
     const anchors = collectFurnitureRoomAnchors(room, floorIndex, {
       partitions,
       furniture: options?.furniture,
@@ -1447,6 +1489,16 @@ export function snapFurnitureDuringDrag(
     centerXs = anchors.centerXs;
     centerZs = anchors.centerZs;
     corners = anchors.corners;
+  }
+  const physical = physicalFurnitureAnchors(f, physicalWalls, options?.furniture ?? [], options?.excludeFurnitureIndex, previewGap);
+  if (!room || !roomIsRectangular(room)) {
+    // 无房间也不能退回墙中线、房间虚框或墙尖吸附。
+    edgeXs = physical.xs;
+    edgeZs = physical.zs;
+    corners = [];
+  } else {
+    edgeXs = [...edgeXs, ...physical.xs];
+    edgeZs = [...edgeZs, ...physical.zs];
   }
 
   const guideXs: number[] = [];
@@ -1562,8 +1614,8 @@ export function snapFurnitureDuringDrag(
   // 3) 居中：自由件可吸净空中线；靠墙件贴墙后沿墙居中，避免被拉到房间正中离墙。
   if (allowCenter) {
     const nearWall =
-      room != null && nearestRoomWall(f, room, floorIndex, partitions).gap <= maxGap + 60;
-    if (room && furnitureUsesWallCenter(f.kind) && nearWall) {
+      room != null && roomIsRectangular(room) && nearestRoomWall(f, room, floorIndex, partitions).gap <= maxGap + 60;
+    if (room && roomIsRectangular(room) && furnitureUsesWallCenter(f.kind) && nearWall) {
       const wall = nearestRoomWall(f, room, floorIndex, partitions);
       if (Math.abs(wall.alongDelta) <= centerGap) {
         const before = { x: f.x, z: f.z };
@@ -1598,6 +1650,19 @@ export function snapFurnitureDuringDrag(
 
   // 松手前再钳出墙厚，避免吸附抖动后仍压线。
   if (room) pullFurnitureClearOfWalls(f, room, floorIndex, FURNITURE_WALL_FINISH, partitions);
+
+  resolveFurnitureCollisions(f, {
+    walls: physicalWalls, furniture: options?.furniture ?? [], exclude: options?.excludeFurnitureIndex,
+    clear: room && roomIsRectangular(room) ? roomFurnitureClearRect(room, floorIndex, FURNITURE_WALL_FINISH, partitions) : undefined,
+    previous: options?.previous,
+  });
+  // 碰撞避让可能取消一次贴边吸附，只保留最终位置实际命中的引导线。
+  const final = furnitureWorldBounds(f);
+  const matches = (v: number, lo: number, hi: number) => Math.min(Math.abs(v - lo), Math.abs(v - hi), Math.abs(v - (lo + hi) / 2)) <= 2;
+  if (physicalWalls.length || options?.furniture?.length) {
+    return { guideXs: uniqueSorted(guideXs.filter(v => matches(v, final.x0, final.x1)), 20),
+      guideZs: uniqueSorted(guideZs.filter(v => matches(v, final.z0, final.z1)), 20) };
+  }
 
   return { guideXs: uniqueSorted(guideXs, 20), guideZs: uniqueSorted(guideZs, 20) };
 }

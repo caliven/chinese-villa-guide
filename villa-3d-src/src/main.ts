@@ -1,4 +1,6 @@
 import "./style.css";
+import "./plan-designer.css";
+import { planDesignerHtml, libraryCardsHtml, designerRoomListHtml, type LibraryCategory } from "./plan-designer";
 import { loadingOverlayHtml, withLoadingOverlay } from "./loading-overlay";
 import { DeferredSceneUpdate, FrameRedraw } from "./deferred-scene-update";
 import { patchPlanDrawing } from "./plan-dom";
@@ -16,6 +18,8 @@ import {
   PLAN_ENTRANCE_DOWN,
 } from "./plan";
 import { LayoutEditor } from "./layout-editor";
+import { LayoutScene, selectionKey } from "./layout-scene";
+import { PlanCanvas } from "./plan-canvas";
 import { furniturePickerOrder, furnitureLabels } from "./furniture-catalog";
 import { OPENING_KINDS, openingLabels } from "./openings";
 
@@ -25,7 +29,8 @@ const roomKindOptions = [
   ["hall", "堂屋／过道"],
   ["bath", "卫生间"],
   ["store", "储物"],
-  ["stair", "楼梯"],
+  ["stair", "双跑楼梯"],
+  ["stair-triple", "三跑楼梯"],
 ] as const;
 import { roofPitch, villaLayoutFromDraft } from "./architecture";
 import { surroundings } from "./surroundings";
@@ -189,31 +194,7 @@ document.querySelector("#app")!.innerHTML = `
         )
         .join("")}</div>
       <div class="compass" id="compass"><span>N</span><svg viewBox="0 0 52 52" aria-label="指北针"><circle cx="26" cy="26" r="23"/><g id="compass-arrow"><path d="m26 7 9 34-9-7-9 7Z"/></g></svg></div>
-      <div id="plan-panel" class="plan-panel" hidden><div class="plan-toolbar"><div class="floor-pills"><button data-floor="-1" type="button">院坪</button>${floors.map((f, i) => `<button data-floor="${i}" type="button" class="${i === 0 ? "active" : ""}">${f.name}</button>`).join("")}<button data-roof-plan type="button">屋顶</button><button data-elevation-plan type="button">立面图</button></div><div class="plan-toolbar-actions"><span id="plan-orient-hint">南 ↑ · 西 →</span><button type="button" id="toggle-wall-width" class="secondary-button" aria-pressed="false" title="显示或隐藏墙厚毫米标注">墙厚</button><button type="button" id="toggle-layout-edit" class="secondary-button" aria-pressed="false">编辑布局</button><label class="layout-version-label">户型版本
-            <select id="layout-version-select" aria-label="选择已保存的户型版本（一二三楼一体）">
-              <option value="">（当前草稿）</option>
-            </select>
-          </label><button type="button" id="layout-new-version" class="secondary-button">新增</button><button type="button" id="layout-copy-version" class="secondary-button" title="复制当前三层户型，包含未保存的编辑">复制</button><button type="button" id="layout-rename-version" class="secondary-button">重命名</button><button type="button" id="layout-delete-version" class="secondary-button" title="删除所选户型版本">删除版本</button></div></div>${loadingOverlayHtml({ id: "plan-loading", text: "正在载入户型…", className: "plan-loading" })}<div class="plan-canvas-wrap"><div id="layout-edit-bar" class="layout-edit-bar layout-edit-bar-float" hidden>
-        <div class="layout-edit-row">
-          <div class="layout-tools" role="toolbar" aria-label="布局编辑类别">
-            <button type="button" data-edit-tool="select" class="active">选择</button>
-            <button type="button" id="tool-wall" data-edit-tool="wall" aria-expanded="false">隔墙</button>
-            <button type="button" data-edit-tool="room" id="tool-room" aria-expanded="false">房间</button>
-            <button type="button" data-edit-tool="door" id="tool-door" aria-expanded="false">门窗</button>
-            <button type="button" data-edit-tool="furniture" id="tool-furniture" aria-expanded="false">家具</button>
-            <button type="button" id="layout-magnet-snap" class="active" aria-pressed="true" title="拖墙／家具时自动对齐附近墙线与墙尖；接近居中时吸居中。按住 Shift 拖可暂时关闭">吸附对齐</button>
-          </div>
-          <div class="layout-edit-actions">
-            <span id="layout-save-status" class="layout-save-status" aria-live="polite"></span>
-            <button type="button" id="layout-save" class="layout-save-btn">保存</button>
-            <button type="button" id="layout-undo">撤销</button>
-            <button type="button" id="layout-redo">重做</button>
-            <button type="button" id="layout-export">导出定稿 JSON</button>
-            <label class="layout-file-button">导入 JSON<input type="file" id="layout-import" accept="application/json,.json"/></label>
-            <button type="button" id="layout-reset">恢复正式数据</button>
-          </div>
-        </div>
-      </div><div id="layout-palette" class="layout-palette layout-palette-float" hidden><div class="layout-palette-head"><strong id="layout-palette-label">模型</strong><span class="layout-palette-hint" id="layout-palette-hint">拖到平面图放置；放下后可在图上调方位与大小</span></div><div class="layout-palette-chips" id="layout-palette-chips" role="listbox"></div></div><div class="plan-scroll" id="plan-drawing"></div><div class="plan-zoom-controls" role="group" aria-label="平面图缩放"><button type="button" id="plan-zoom-in" title="放大" aria-label="放大">+</button><button type="button" id="plan-zoom-out" title="缩小" aria-label="缩小">−</button><button type="button" id="plan-zoom-reset" title="复位 100%" aria-label="复位缩放">1×</button><button type="button" id="plan-focus-toggle" title="撑满编辑区域" aria-label="撑满编辑区域" aria-pressed="false">${icon("expand")}</button></div><div id="layout-inspector" class="layout-inspector layout-inspector-float" hidden></div></div></div>
+      ${planDesignerHtml(floors.map(f => f.name))}
       <article id="sources-panel" class="sources-panel" hidden><h1>设计依据与待核对事项</h1><p class="lead">把已经知道的、照片估算的和设计提出的分开记录，方便家人与现场一起核对。</p><div class="source-gallery">${photos.map((p, i) => `<button data-photo-modal="${i}"><img src="./photos/${p.file}" alt="${p.title}" loading="lazy"/><strong>${p.title}</strong><span>${p.note}</span></button>`).join("")}</div><h2>尺寸与证据</h2><div class="fact-list" id="fact-list"></div><h2>使用范围</h2><p>这是按现有照片与尺寸制作的方案模型。围护墙、楼梯、柱梁、挡土、排水、柴火烟道和邻居平台切除均需结合现场深化；模型没有代替结构施工图，也未认定宅基地审批范围。</p><p>太阳位置采用安化地区坐标和北京时间。周边树高、远山天际线与邻房标高未经测绘，日照结果只用于当前模型内的方案比较。</p><p class="source-links"><a href="https://manuals.lixiang.com/zh-cn/X012022MAX/20250916140616/topic-2022-702D4999-001.html" target="_blank" rel="noreferrer">2022款理想L9官方整车参数 ↗</a><a href="https://bsesc.energy.gov/energy-basics/natural-light-and-daylighting" target="_blank" rel="noreferrer">自然采光与遮阳原理 ↗</a><a href="../sunlight-3d/">原四季日照模拟器 ↗</a></p></article>
       <div class="sun-stamp" id="sun-stamp" hidden>${icon("sun")}<span id="sun-stamp-text"></span></div>
     </section>
@@ -295,6 +276,13 @@ document.querySelector("#app")!.innerHTML = `
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 let viewer: VillaViewer | null = null;
+let layoutScene: LayoutScene | null = null;
+let planCanvas: PlanCanvas | null = null;
+let designerSceneCamera: "orbit" | "top" = "orbit";
+const designerScenePoses = new Map<number, CameraPose>();
+let designerSceneLevel = 0;
+let designerSceneActive = false;
+let designerCameraRevision = 0;
 let review: ReturnType<typeof mountDesignReview> | null = null;
 let lastViewingTab: MeetingView["tab"] = "model";
 let reviewPose: CameraPose | null = null;
@@ -330,7 +318,14 @@ let courtyardDimLayout: CourtyardDimLayout = loadCourtyardDimLayout();
  * click 会在清之前被拦掉，表现为切几次模型后芯片再也点不动。
  */
 let suppressPaletteClickUntil = 0;
+let libraryCategory: LibraryCategory = "furniture";
+let libraryGroup = "全部";
+let libraryHtml = "";
+let inspectorHtml = "";
+let inspectorSelectionKey = "";
+let inspectorFloating = false;
 let planZoom = 1;
+let initialPlanFit = true;
 const planZoomMin = 0.5;
 const planZoomMax = 3;
 const planZoomStep = 0.25;
@@ -342,13 +337,18 @@ const LAYOUT_DOUBLE_ESC_MS = 450;
 
 function applyPlanZoom() {
   const scroll = $("plan-drawing");
+  if (planMode === "2d" && scroll.querySelector(".editor-floor-svg")) {
+    $<HTMLButtonElement>("plan-zoom-out").disabled = $<HTMLButtonElement>("plan-zoom-in").disabled = false;
+    positionLayoutInspector();
+    return;
+  }
   scroll.style.setProperty("--plan-zoom", String(planZoom));
   const reset = document.getElementById("plan-zoom-reset");
-  if (reset) reset.textContent = `${Math.round(planZoom * 100)}%`;
+  if (reset) reset.textContent = planMode === "3d" ? "适应" : `${Math.round(planZoom * 100)}%`;
   const out = document.getElementById("plan-zoom-out") as HTMLButtonElement | null;
   const inn = document.getElementById("plan-zoom-in") as HTMLButtonElement | null;
-  if (out) out.disabled = planZoom <= planZoomMin + 1e-6;
-  if (inn) inn.disabled = planZoom >= planZoomMax - 1e-6;
+  if (out) out.disabled = planMode === "2d" && planZoom <= planZoomMin + 1e-6;
+  if (inn) inn.disabled = planMode === "2d" && planZoom >= planZoomMax - 1e-6;
   positionLayoutInspector();
 }
 
@@ -370,15 +370,14 @@ function setPlanEditorFocus(on: boolean) {
     btn.innerHTML = icon(on ? "close" : "expand");
   }
   if (on && tab !== "floor") switchTab("floor");
-  if (on && planMode !== "2d") {
-    planMode = "2d";
-    active("[data-plan-mode]", (b) => b.dataset.planMode === "2d");
-    updateScene();
-  }
 }
 
 function setPlanZoom(next: number, anchor?: { clientX: number; clientY: number }) {
   const scroll = $("plan-drawing");
+  if (planMode === "2d" && scroll.querySelector(".editor-floor-svg")) {
+    planCanvas?.zoom(next > planZoom ? 1 / 1.2 : 1.2, anchor?.clientX, anchor?.clientY);
+    return;
+  }
   const clamped = Math.min(planZoomMax, Math.max(planZoomMin, Math.round(next / planZoomStep) * planZoomStep));
   if (Math.abs(clamped - planZoom) < 1e-6) {
     applyPlanZoom();
@@ -402,7 +401,29 @@ function setPlanZoom(next: number, anchor?: { clientX: number; clientY: number }
   // 等宽度按 --plan-zoom 重算后再夹紧滚动，避免滚不到左右边缘。
   requestAnimationFrame(applyScroll);
 }
+
+/** 适应当前画布的宽、高；缩放只改变显示，不改变图纸尺寸。 */
+function fitPlanToWindow() {
+  const scroll = $("plan-drawing");
+  if (scroll.querySelector(".editor-floor-svg")) { planCanvas?.fit(); return; }
+  const sheets = scroll.querySelector<HTMLElement>(".plan-sheets");
+  if (!sheets || scroll.clientHeight < 1) {
+    setPlanZoom(1);
+    scroll.scrollTo(0, 0);
+    return;
+  }
+  const padding = getComputedStyle(scroll);
+  const summary = scroll.querySelector<HTMLElement>(".plan-shared-dimensions");
+  const summaryHeight = summary ? summary.offsetHeight + parseFloat(getComputedStyle(summary).marginBottom) : 0;
+  const svgHeight = Math.max(...Array.from(sheets.querySelectorAll("svg.floor-svg"), svg => svg.getBoundingClientRect().height / planZoom));
+  const headingHeight = Math.max(...Array.from(sheets.querySelectorAll<HTMLElement>(".plan-sheet-head"), heading => heading.offsetHeight));
+  const available = scroll.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom) - summaryHeight - headingHeight;
+  planZoom = Math.max(planZoomMin, Math.min(1, Math.floor(available / svgHeight * 100) / 100));
+  applyPlanZoom();
+  scroll.scrollTo(0, 0);
+}
 function toast(message: string) {
+  if (!message.trim()) return;
   $("toast").textContent = message;
   $("toast").hidden = false;
   clearTimeout(toastTimer);
@@ -621,7 +642,7 @@ async function applySchemeDocument(doc: SchemeDocument, options?: { toastMsg?: s
     btn.classList.toggle("active", on);
     btn.setAttribute("aria-pressed", String(on));
   });
-  await commitVillaParams(doc.villaParams, { persist: false, toastMsg: options?.toastMsg });
+  await commitVillaParams(doc.villaParams, { persist: false, toastMsg: options?.toastMsg || "" });
   viewer?.setState({
     roofStyle: doc.roofStyle,
     courtyardFinish: doc.courtyardFinish,
@@ -669,10 +690,16 @@ async function saveSchemeCurrent() {
     toast("尺寸设置有未应用的修改，请先点「应用」再保存");
     return;
   }
-  const doc = collectSchemeDocument("当前方案", "current");
-  const result = await persistSchemeFile("current", doc);
-  setSchemeStatus(result.message);
-  toast(result.message);
+  try {
+    const doc = collectSchemeDocument("当前方案", "current");
+    const result = await persistSchemeFile("current", doc);
+    setSchemeStatus(result.message);
+    toast(result.message);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "当前方案保存失败";
+    setSchemeStatus(message);
+    toast(message);
+  }
 }
 
 /** 尺寸设置「保存版本」→ data/尺寸/，自动中文前缀＋日期编号。 */
@@ -751,7 +778,12 @@ async function deleteLayoutVersion() {
 
 /** 保存当前三层户型；新增与复制通过独立入口创建，避免误覆盖。 */
 async function saveLayoutVersion() {
-  await runLayoutVersionTask("正在保存户型版本…", async () => {
+  if (planLoadingTasks) return;
+  const button = $("layout-save") as HTMLButtonElement;
+  button.disabled = true;
+  const status = $("layout-save-status");
+  status.textContent = "正在保存户型版本…";
+  try {
     layoutEditor?.saveNow({ silent: true });
     const draft = currentLayoutDraft();
     const index = await loadDataVersionsIndex("户型");
@@ -767,9 +799,15 @@ async function saveLayoutVersion() {
     activeLayoutVersionFile = file;
     await refreshLayoutVersionSelect(nextIndex);
     const message = result.via === "api" ? `已保存户型版本「${doc.title}」` : result.message;
-    $("layout-save-status").textContent = message;
+    status.textContent = message;
     toast(message);
-  });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "户型版本保存失败";
+    status.textContent = message;
+    toast(message);
+  } finally {
+    button.disabled = !layoutEditing;
+  }
 }
 
 async function resetSchemeToInitial() {
@@ -804,7 +842,7 @@ function refreshAreaMetrics() {
   if (caption) caption.textContent = `主楼 ${main.toFixed(1)}㎡ ＋ 辅楼 ${annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡`;
   const micro = document.getElementById("area-micro");
   if (micro) {
-    micro.textContent = "首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总";
+    micro.textContent = site.porticoStyle === "recessed" ? "首层建筑面积合计 · 主楼扣凹口后门厅计入一次 · 全楼各层总面积另行汇总" : "首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总";
   }
   renderFacts();
   const metrics = document.getElementById("metric-list");
@@ -814,8 +852,8 @@ function refreshAreaMetrics() {
       ["主楼", `${formatMm(p.mainWidth)} × ${formatMm(p.mainDepth)}`],
       ["辅楼", `${formatMm(p.annexWidth)} × ${formatMm(p.annexDepth)} · 内退${formatMm(p.annexSetback)}`],
       ["子孙道", formatMm(p.lane)],
-      ["三楼北退", formatMm(p.thirdSetback)],
-      ["门厅外伸", formatMm(p.porticoProjection)],
+      ["三楼模式", p.thirdFloorMode === "flush" ? "不内退" : `北向内退 ${formatMm(p.thirdSetback)}`],
+      [p.porticoStyle === "recessed" ? "门厅凹入" : "门厅外伸", formatMm(p.porticoProjection)],
       ["二楼前檐", formatMm(p.secondFrontEave)],
       ["三楼四面檐", formatMm(p.thirdEave)],
       ["右端人行通道", "约 2000"],
@@ -880,6 +918,7 @@ async function withVillaParamsBusy(message: string, work: () => void | Promise<v
   const applyBtn = document.getElementById("villa-params-apply") as HTMLButtonElement | null;
   const actionBtns = [
     applyBtn,
+    ...document.querySelectorAll<HTMLButtonElement>("[data-building-variant]"),
     document.getElementById("villa-params-reset"),
     document.getElementById("scheme-save-current"),
     document.getElementById("scheme-save-version"),
@@ -939,11 +978,13 @@ async function commitVillaParams(params: VillaParams, options?: { persist?: bool
     drawPlan();
     syncVillaParamsWidthSum();
   });
-  await syncLayoutTo3d();
-  toast(
-    options?.toastMsg ??
-      (draftRescaled ? "已应用方案尺寸；布局草稿已随方案参数重算" : "已应用方案尺寸"),
-  );
+  if (!await syncLayoutTo3d()) return false;
+  if (options?.toastMsg !== "") {
+    toast(
+      options?.toastMsg ??
+        (draftRescaled ? "已应用方案尺寸；布局草稿已随方案参数重算" : "已应用方案尺寸"),
+    );
+  }
   return true;
 }
 function parseLayoutNumber(raw: string): number | null {
@@ -955,15 +996,31 @@ function parseLayoutNumber(raw: string): number | null {
 
 function refreshLayoutInspector(force = false) {
   const panel = $("layout-inspector");
+  const hasSelection = !!(layoutEditor && layoutEditing && layoutEditor.selection);
+  const nextSelectionKey = selectionKey(layoutEditing ? layoutEditor?.selection ?? null : null);
+  if (nextSelectionKey && nextSelectionKey !== inspectorSelectionKey && !inspectorFloating) $("designer-properties").scrollTop = 0;
+  inspectorSelectionKey = nextSelectionKey;
+  $("designer-inspector-empty").hidden = hasSelection && !inspectorFloating;
+  $("designer-inspector-empty").querySelector("span")!.textContent = hasSelection && inspectorFloating
+    ? "属性已浮动，可拖动标题栏"
+    : "选择画布中的对象以编辑属性";
   if (!layoutEditor || !layoutEditing || !layoutEditor.selection) {
     stopLayoutInspectorDrag();
     panel.innerHTML = "";
+    inspectorHtml = "";
     panel.hidden = true;
     return;
   }
   // 仅在有选中对象时展示属性条，避免空提示占高度
-  const html = layoutEditor.inspectorHtml();
-  if (force || panel.innerHTML !== html) panel.innerHTML = html;
+  const html = layoutEditor.inspectorHtml().replace(
+    'title="拖动标题栏以移动属性面板"',
+    `title="${inspectorFloating ? "拖动标题栏以移动属性面板" : "对象属性"}"`,
+  );
+  // 比较模板缓存，保留正在输入的 DOM；浏览器会规范化 input 等标签。
+  if (force || inspectorHtml !== html) {
+    panel.innerHTML = html;
+    inspectorHtml = html;
+  }
   panel.hidden = false;
   positionLayoutInspector();
 }
@@ -971,12 +1028,7 @@ function refreshLayoutInspector(force = false) {
 /** 为长属性面板预留滚动空间，并避开顶部操作条／模型面板。 */
 function layoutInspectorBounds(panel: HTMLElement, wrap: HTMLElement) {
   const rect = wrap.getBoundingClientRect();
-  let minTop = 8;
-  for (const id of ["layout-edit-bar", "layout-palette"] as const) {
-    const el = document.getElementById(id);
-    if (!el || el.hidden) continue;
-    minTop = Math.max(minTop, el.getBoundingClientRect().bottom - rect.top + 8);
-  }
+  const minTop = 8;
   panel.style.maxHeight = `${Math.max(0, rect.height - minTop - 8)}px`;
   return {
     minTop,
@@ -1011,8 +1063,8 @@ function stopLayoutInspectorDrag() {
 /** 初次贴着选中模型定位；手动拖动后，重绘、缩放与切换模型均保留位置。 */
 function positionLayoutInspector() {
   const panel = $("layout-inspector");
-  if (panel.hidden) return;
-  const wrap = document.querySelector<HTMLElement>(".plan-canvas-wrap");
+  if (panel.hidden || !inspectorFloating) return;
+  const wrap = document.querySelector<HTMLElement>(".designer-canvas");
   if (!wrap) return;
   const place = () => {
     if (panel.hidden || wrap.offsetWidth < 8) return;
@@ -1080,77 +1132,153 @@ function syncLayoutPalette() {
   setExpanded("tool-door", false);
   setExpanded("tool-furniture", false);
   setExpanded("tool-wall", false);
-  if (!layoutEditing || !layoutEditor) {
+  if (drawingView !== "floor" || level < 0) {
     palette.hidden = true;
     syncLayoutChromeHeight();
     return;
   }
-  const tool = layoutEditor.tool;
-  const show = tool === "room" || tool === "door" || tool === "furniture" || tool === "wall";
-  palette.hidden = !show;
+  const tool = layoutEditing ? layoutEditor?.tool ?? "select" : "select";
+  if (tool !== "select") libraryCategory = tool;
+  palette.hidden = false;
   active("[data-edit-tool]", (b) => b.dataset.editTool === tool);
-  if (!show) {
-    chips.replaceChildren();
-    requestAnimationFrame(syncLayoutChromeHeight);
-    return;
-  }
-  let category = "room";
+  const category = libraryCategory;
   let items: { value: string; text: string; active: boolean }[] = [];
-  if (tool === "room") {
-    category = "room";
-    label.textContent = "房间";
-    hint.textContent = "拖到平面图放置；楼梯为整套模型（一二三层同步），其它为房间框";
+  if (category === "room") {
+    label.textContent = "房间库";
+    hint.textContent = "选择后点击画布或拖入放置；楼梯为整套模型（一二三层同步），其它为房间框";
     setExpanded("tool-room", true);
     items = roomKindOptions.map(([value, text]) => ({
       value,
       text,
-      active: layoutEditor!.roomKind === value,
+      active: tool === "room" && layoutEditor?.roomKind === (value === "stair-triple" ? "stair" : value) && (!value.startsWith("stair") || layoutEditor?.stairModel === (value === "stair-triple" ? "triple" : "double")),
     }));
-  } else if (tool === "wall") {
-    category = "wall";
-    label.textContent = "墙体";
-    hint.textContent = "拖放后拉端点，或在图上点两点绘制；虚拟墙用细灰虚线划分开放区域并标尺寸";
+  } else if (category === "wall") {
+    label.textContent = "墙体库";
+    hint.textContent = planMode === "3d"
+      ? "选择后点击或拖入场景放置；墙端点与虚拟分界在 2D 中调整"
+      : "拖放后拉端点，或在图上点两点绘制；虚拟墙用细灰虚线划分开放区域并标尺寸";
     setExpanded("tool-wall", true);
     items = [
-      { value: "partition", text: "隔墙", active: layoutEditor.wallRole === "partition" },
-      { value: "bearing", text: "承重墙", active: layoutEditor.wallRole === "bearing" },
-      { value: "virtual", text: "虚拟墙", active: layoutEditor.wallRole === "virtual" },
+      { value: "partition", text: "隔墙", active: tool === "wall" && layoutEditor?.wallRole === "partition" },
+      { value: "bearing", text: "承重墙", active: tool === "wall" && layoutEditor?.wallRole === "bearing" },
+      { value: "virtual", text: "虚拟墙", active: tool === "wall" && layoutEditor?.wallRole === "virtual" },
     ];
-  } else if (tool === "door") {
-    category = "door";
-    label.textContent = "门窗";
-    hint.textContent = "拖到隔墙或外墙附近；放下后可改开向、宽度";
+  } else if (category === "door") {
+    label.textContent = "门窗库";
+    hint.textContent = "选择后点击或拖到隔墙、外墙附近；放下后可改开向、宽度";
     setExpanded("tool-door", true);
     items = OPENING_KINDS.map((value) => ({
       value,
       text: openingLabels[value],
-      active: layoutEditor!.openingKind === value,
+      active: tool === "door" && layoutEditor?.openingKind === value,
     }));
   } else {
-    category = "furniture";
-    label.textContent = "家具";
-    hint.textContent = "拖到平面图放置；放下后拖四角缩放、拖蓝点旋转";
+    label.textContent = "家具库";
+    hint.textContent = planMode === "3d"
+      ? "选择后点击或拖入场景放置；选中家具后拖动摆放，在右侧调整尺寸与旋转"
+      : "拖到平面图放置；放下后拖四角缩放、拖蓝点旋转";
     setExpanded("tool-furniture", true);
     items = furniturePickerOrder.map((value) => ({
       value,
       text: furnitureLabels[value],
-      active: layoutEditor!.furnitureKind === value,
+      active: tool === "furniture" && layoutEditor?.furnitureKind === value,
     }));
   }
-  chips.innerHTML = items
-    .map(
-      (item) =>
-        `<button type="button" role="option" class="layout-chip${item.active ? " active" : ""}" draggable="true" data-palette-category="${category}" data-palette-kind="${item.value}" aria-selected="${item.active}" title="拖到平面图放置">${item.text}</button>`,
-    )
-    .join("");
+  const html = libraryCardsHtml(category, items);
+  // SVG 在 DOM 序列化时会改写自闭合标签；比较原始模板，避免每帧替换素材节点。
+  if (libraryHtml !== html) {
+    chips.innerHTML = html;
+    libraryHtml = html;
+  }
+  $("designer-library-filters").hidden = category !== "furniture";
+  filterDesignerLibrary();
   requestAnimationFrame(syncLayoutChromeHeight);
 }
+function filterDesignerLibrary() {
+  const query = $<HTMLInputElement>("designer-library-search").value.trim().toLowerCase();
+  let visible = 0;
+  $("layout-palette-chips").querySelectorAll<HTMLElement>("[data-palette-kind]").forEach(chip => {
+    chip.hidden = !(chip.dataset.librarySearch?.toLowerCase().includes(query) &&
+      (libraryCategory !== "furniture" || libraryGroup === "全部" || chip.dataset.libraryGroupName === libraryGroup));
+    if (!chip.hidden) visible++;
+  });
+  $("designer-library-count").textContent = `${visible} 项`;
+  $("designer-library-empty").hidden = visible > 0;
+}
+
+function selectDesignerRoom(id: string, annex: boolean) {
+  if (!layoutEditing) setLayoutEditing(true);
+  if (!layoutEditor) return;
+  const rooms = annex ? layoutEditor.draft.annexRooms : layoutEditor.draft.floors[level].rooms;
+  const room = rooms.find(room => room.id === id);
+  if (!room) return;
+  layoutEditor.setTool("select");
+  layoutEditor.selection = room.kind === "stair" && !annex
+    ? { kind: "stair" }
+    : { kind: "room", id, floor: level, annex };
+  drawPlan();
+}
+
+function syncEditorSelection() {
+  const bar = $("editor-selection-bar");
+  const selection = layoutEditing ? layoutEditor?.selection : null;
+  bar.hidden = !selection || drawingView !== "floor" || level < 0;
+  if (!selection || !layoutEditor) return;
+  const draft = layoutEditor.draft;
+  const selectedRoom = selection.kind === "room" ? (selection.annex ? draft.annexRooms : draft.floors[selection.floor].rooms).find(room => room.id === selection.id) : undefined;
+  let name = "", detail = "";
+  if (selection.kind === "furniture") {
+    const item = (selection.annex ? draft.annexFurniture : draft.floors[selection.floor].furniture)[selection.index];
+    if (item) { name = item.label || furnitureLabels[item.kind]; detail = `${Math.round(item.w)} × ${Math.round(item.d)}`; }
+  } else if (selection.kind === "room") {
+    name = selectedRoom?.name ?? "房间";
+  } else if (selection.kind === "wall") {
+    const wall = (selection.annex ? draft.annexPartitions : draft.floors[selection.floor].partitions)[selection.index];
+    name = wall?.role === "virtual" ? "虚拟墙" : wall?.role === "bearing" ? "承重墙" : "隔墙";
+    if (wall) detail = `${Math.round(Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]))}`;
+  } else name = selection.kind === "stair" ? "楼梯" : selection.kind === "portico" ? "门厅" : "门窗";
+  $("editor-selection-title").textContent = layoutEditor.selections.length > 1
+    ? `已选 ${layoutEditor.selections.length} 项` : [name, detail].filter(Boolean).join(" · ");
+  for (const button of bar.querySelectorAll<HTMLButtonElement>("[data-editor-action]")) {
+    const action = button.dataset.editorAction;
+    button.hidden = (action === "rotate-left" || action === "rotate-right") ? selection.kind !== "furniture" || layoutEditor.selections.length !== 1
+      : action === "duplicate" ? selection.kind === "stair" || selection.kind === "portico" || selection.kind === "door" || selectedRoom?.kind === "void"
+      : action === "delete" && selection.kind === "portico";
+  }
+}
+
+function syncDesignerOverview(source: ReturnType<typeof planSourceFromPublished>) {
+  const selection = layoutEditing ? layoutEditor?.selection : null;
+  const selectedRoomId = selection?.kind === "stair"
+    ? source.floor.rooms.find(room => room.kind === "stair")?.id
+    : selection?.kind === "room" ? selection.id : undefined;
+  const html = designerRoomListHtml(source, level, selectedRoomId, selection?.kind === "room" && !!selection.annex);
+  if ($("designer-room-list").innerHTML !== html) $("designer-room-list").innerHTML = html;
+  const furnitureCount = source.floor.furniture.length + (level === 0 ? source.annexFurniture.length : 0);
+  const wallCount = source.floor.partitions.length + (level === 0 ? source.annexPartitions.length : 0);
+  $("designer-plan-stats").innerHTML = `<div><small>本层家具</small><b>${furnitureCount}</b></div><div><small>本层内墙／分界</small><b>${wallCount}</b></div>`;
+  $("designer-building-area").textContent = level === 0 ? `首层建筑面积（含门厅）${buildingAreas.total.toFixed(1)}㎡，报建面积以核定为准。` : "房间面积按当前楼层统计，挑空不计入房间清单。";
+  for (const button of document.querySelectorAll<HTMLElement>("[data-designer-display]")) {
+    button.setAttribute("aria-pressed", String(checked(button.dataset.designerDisplay!)));
+  }
+  $<HTMLSelectElement>("designer-dining-mode").value = $<HTMLSelectElement>("dining-mode").value;
+  $<HTMLSelectElement>("designer-dining-mode").disabled = level !== 0 || planMode === "3d";
+  $<HTMLButtonElement>("layout-save").disabled = !layoutEditing;
+}
 const planRedraw = new FrameRedraw(() => {
-  if (tab === "floor" && planMode === "2d") drawPlan();
+  if (tab === "floor") drawPlan();
 });
 let boundPlanSvgs: SVGSVGElement[] = [];
 function drawPlan() {
   planRedraw.clear();
+  const specialDrawing = drawingView !== "floor" || level < 0;
+  $("plan-panel").dataset.editorCanvas = String(!specialDrawing);
+  $("editor-plan-tools").hidden = specialDrawing || planMode === "3d";
+  $("editor-plan-scale").hidden = specialDrawing || planMode === "3d";
+  $("editor-auto-annex").hidden = level !== 0;
+  $("plan-panel").classList.toggle("is-special-drawing", specialDrawing);
+  for (const id of ["layout-export", "layout-reset", "layout-import"]) $<HTMLButtonElement | HTMLInputElement>(id).disabled = specialDrawing;
+  $("plan-panel").classList.toggle("is-editing", layoutEditing);
   const sharedDimensionsOpen = $("plan-drawing").querySelector<HTMLDetailsElement>(".plan-shared-dimensions")?.open ?? false;
   unbindCourtyardDims?.();
   unbindCourtyardDims = null;
@@ -1173,7 +1301,7 @@ function drawPlan() {
     document.querySelector<HTMLElement>(".layout-version-label")!.hidden = false;
     $("floor-summary-title").textContent = elevation ? elevationLabels[elevationView] : roofDrawingLabels[roofDrawingView];
     $("floor-summary").textContent = elevation
-      ? "四向立面采用正投影，北侧为正门。展示当前主辅楼、外部门窗、门厅、三层北退、露台、屋面与烟囱，标注层高、控制尺寸及相对标高。图纸与当前尺寸及户型草稿联动，细部简化，非施工图。"
+      ? "四向立面采用正投影，北侧为正门。展示当前主辅楼、外部门窗、门厅、三楼退台模式、露台、屋面与烟囱，标注层高、控制尺寸及相对标高。图纸与当前尺寸及户型草稿联动，细部简化，非施工图。"
       : "三层为现有顶层；屋顶层图补充三层顶板与下层露台的关系，两种官帽图显示外露坡面和真实交线。图纸随当前尺寸与门厅草稿联动，可下载 SVG。屋面排水、防水及结构仍需专业深化。";
     $("plan-orient-hint").textContent = elevation ? "正投影 · 单位 mm" : "南 ↑ · 西 →";
     $("plan-orient-hint").title = elevation ? "四向建筑立面 · 当前方案" : "屋面设计图 · 单位 mm · 门头朝下";
@@ -1197,7 +1325,7 @@ function drawPlan() {
     });
     $("floor-summary-title").textContent = "院坪 · 自家与邻居总图";
     $("floor-summary").textContent =
-      "只画主楼、辅楼、过道与门厅外轮廓，不画室内布局。尺寸线可拖：黄点固定在被量边上，虚线可拉长或翻到另一侧，文字紧贴尺寸线；位置记在本浏览器。外沿按口述三点过圆：东界总进深19400、中约15800、西端11000（均含屋后到水泥边10800；单位 mm）。辅楼前墙内退1000。邻居占位面宽13000、进深10800，水泥外院坪北缘与自家东界外沿齐平、不再北伸。待现场复核。";
+      "只画主楼、辅楼、过道与门厅外轮廓，不画室内布局。尺寸线可拖：黄点固定在被量边上，虚线可拉长或翻到另一侧，文字紧贴尺寸线；位置记在本浏览器。外沿按口述三点过圆：东界总进深19400、中约15800、西端11000（均含屋后到水泥边10800；单位 mm）。主辅楼位置、门厅造型及内退取当前参数。邻居占位面宽13000、进深10800，水泥外院坪北缘与自家东界外沿齐平、不再北伸。待现场复核。";
     $("room-detail").hidden = true;
     $("room-detail").replaceChildren();
     $("dining-check").hidden = true;
@@ -1286,6 +1414,7 @@ function drawPlan() {
     checked("chair-clearance"),
     balcony,
     {
+      editorCanvas: true,
       useZones: checked("room-clearance"),
       dining: $<HTMLSelectElement>("dining-mode").value as "full" | "daily",
       editable: layoutEditing,
@@ -1298,6 +1427,8 @@ function drawPlan() {
     },
     source,
   ));
+  const editorSvg = $("plan-drawing").querySelector<SVGSVGElement>(".editor-floor-svg");
+  if (editorSvg && planMode === "2d") planCanvas?.sync(editorSvg, level);
   const sharedDimensions = $("plan-drawing").querySelector<HTMLDetailsElement>(".plan-shared-dimensions");
   if (sharedDimensions) sharedDimensions.open = sharedDimensionsOpen;
   syncWallWidthToggle();
@@ -1312,27 +1443,28 @@ function drawPlan() {
   $("floor-summary-title").textContent =
     `${source.floor.name} · ${bedroomSummary(level, source.floor.rooms)}`;
   $("floor-summary").textContent = layoutEditing
-    ? "编辑草稿中。外墙锁定；房间、隔墙、门洞、家具、楼梯和门厅可拖。切换立体时按最新草稿更新（示意）；导出 JSON 仍可回写源码定稿。"
+    ? "编辑草稿中。外墙锁定；2D 与 3D 共用选中属性和撤销记录，三维可点选、摆放与拖动家具；导出 JSON 可回写源码定稿。"
     : activeLayoutVersionFile
       ? `当前户型：${layoutVersionsIndex.versions.find(v => v.file === activeLayoutVersionFile)?.title ?? "已保存版本"}。切换楼层查看，点「编辑布局」修改，点「保存」写入当前版本。`
       : "当前草稿。切换楼层查看，点「编辑布局」修改，点「新增」建立空白户型，或点「复制」另存当前布局。";
   $("room-detail").hidden = true;
   $("room-detail").replaceChildren();
   $("dining-check").hidden = level !== 0 || layoutEditing || !source.annexFurniture.some(item => item.kind === "roundTable");
-  $("layout-edit-bar").hidden = !layoutEditing;
+  $("layout-edit-bar").hidden = false;
   $("toggle-layout-edit").setAttribute("aria-pressed", String(layoutEditing));
   $("toggle-layout-edit").classList.toggle("active", layoutEditing);
   $("toggle-layout-edit").textContent = layoutEditing ? "退出编辑" : "编辑布局";
   const undoBtn = document.getElementById("layout-undo") as HTMLButtonElement | null;
   const redoBtn = document.getElementById("layout-redo") as HTMLButtonElement | null;
-  if (undoBtn) undoBtn.disabled = !layoutEditor || !layoutEditor.canUndo;
-  if (redoBtn) redoBtn.disabled = !layoutEditor || !layoutEditor.canRedo;
+  if (undoBtn) undoBtn.disabled = !layoutEditing || !layoutEditor || !layoutEditor.canUndo;
+  if (redoBtn) redoBtn.disabled = !layoutEditing || !layoutEditor || !layoutEditor.canRedo;
   const magnetBtn = document.getElementById("layout-magnet-snap");
   if (magnetBtn && layoutEditor) {
     magnetBtn.classList.toggle("active", layoutEditor.magnetSnap);
     magnetBtn.setAttribute("aria-pressed", String(layoutEditor.magnetSnap));
   }
   syncLayoutPalette();
+  syncDesignerOverview(source);
   requestAnimationFrame(() => {
     syncLayoutChromeHeight();
     positionLayoutInspector();
@@ -1347,6 +1479,12 @@ function drawPlan() {
         : "外轮廓／内侧参考未扣装修；南向上、西向右（门头朝下）";
   }
   refreshLayoutInspector();
+  layoutScene?.sync();
+  syncEditorSelection();
+  $("designer-status-hint").textContent = planMode === "3d"
+    ? "点选模型编辑属性 · 选中家具后可拖动 · 与 2D 共用草稿"
+    : "滚轮缩放 · 空格 / 中键平移 · 墙体修改后房间自动联动";
+  if (planMode === "3d") $("plan-orient-hint").textContent = `${source.floor.name} · 3D 场景`;
   const svgs = [...$("plan-drawing").querySelectorAll<SVGSVGElement>("svg.floor-svg")];
   if (!layoutEditing || !layoutEditor || svgs.length !== boundPlanSvgs.length || svgs.some((svg, i) => svg !== boundPlanSvgs[i])) {
     unbindLayoutEditor?.();
@@ -1364,6 +1502,12 @@ function drawPlan() {
     }
   }
   applyPlanZoom();
+  if (initialPlanFit && planMode === "2d") requestAnimationFrame(() => {
+    if (!$("plan-panel").hidden && planMode === "2d") {
+      initialPlanFit = false;
+      fitPlanToWindow();
+    }
+  });
 }
 function formatSaveStatus(updatedAt: string, manual: boolean) {
   const t = new Date(updatedAt);
@@ -1391,14 +1535,16 @@ const sceneUpdates = new DeferredSceneUpdate({
     if (paramsKey !== sceneParamsKey) viewer!.rebuildAfterParams(params.roofFenShui, layout);
     else viewer!.rebuildLayout(layout);
     sceneParamsKey = paramsKey;
+    layoutScene?.sync();
   },
   loading: work => withLoadingOverlay($("scene-loading"), "正在更新立体模型…", work),
 });
 async function syncLayoutTo3d() {
-  try { await sceneUpdates.flush(); }
+  try { await sceneUpdates.flush(); return true; }
   catch (error) {
     console.error("立体模型更新失败", error);
     toast("立体更新失败，请重新切换立体重试；户型草稿已保留");
+    return false;
   }
 }
 function applyLayoutDraftTo3d() {
@@ -1416,10 +1562,6 @@ function setLayoutEditing(on: boolean) {
   if (on && level < 0) {
     toast("院坪总图不支持编辑布局，请先切换到一层／二层／三楼");
     return;
-  }
-  if (on && planMode !== "2d") {
-    planMode = "2d";
-    active("[data-plan-mode]", (b) => b.dataset.planMode === "2d");
   }
   // 保留进入编辑前的侧栏高度，隐藏说明卡片后仍保持原有滚动范围。
   if (on && !layoutEditing) {
@@ -1444,6 +1586,30 @@ function setLayoutEditing(on: boolean) {
   updateScene();
 }
 function updateScene() {
+  document.body.classList.toggle("plan-designer", tab === "floor");
+  const floor3d = tab === "floor" && planMode === "3d";
+  if (floor3d && level < 0) level = 0;
+  if (designerSceneActive && viewer && !viewer.state.exploded) designerScenePoses.set(designerSceneLevel, viewer.cameraPose());
+  const frameChanged = floor3d && (!designerSceneActive || designerSceneLevel !== level || viewer?.state.exploded !== checked("explode"));
+  designerSceneActive = floor3d;
+  designerSceneLevel = level;
+  const viewportParent = floor3d ? $("designer-scene-host") : document.querySelector<HTMLElement>(".stage")!;
+  for (const id of ["viewport", "scene-loading"]) {
+    const element = $(id);
+    if (element.parentElement !== viewportParent) viewportParent.prepend(element);
+  }
+  $("designer-scene").hidden = !floor3d;
+  $("plan-drawing").hidden = floor3d;
+  $("plan-panel").hidden = tab !== "floor";
+  $("designer-explode").setAttribute("aria-pressed", String(checked("explode")));
+  document.querySelector<HTMLElement>(".designer-scene-hint")!.textContent = checked("explode")
+    ? "楼层分离展示 · 关闭分离后可在场景中点选和摆放模型"
+    : "拖动空白处旋转 · 右键平移 · 滚轮缩放 · 点选家具后可拖动摆放";
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-designer-layer="dims"], #toggle-wall-width, [data-designer-display="chair-clearance"], [data-designer-display="room-clearance"]')) {
+    button.disabled = floor3d;
+    button.title = floor3d ? "此项用于二维图纸" : "";
+  }
+  layoutScene?.sync();
   if (!layoutEditing) $("floor-controls").style.removeProperty("min-height");
   $("floor-room-options").hidden = drawingView !== "floor" && planMode === "2d";
   active("[data-roof-plan]", () => drawingView === "roof" && planMode === "2d");
@@ -1485,16 +1651,13 @@ function updateScene() {
     return;
   }
   const garage = tab === "model" && camera === "garage";
-  if (tab === "floor" && planMode === "3d" && level < 0) level = 0;
-  const floor3d = tab === "floor" && planMode === "3d";
   const plan = tab === "floor" && planMode === "2d";
   if (plan || tab === "sources") $("loading").hidden = true;
   $("viewport").hidden = plan || tab === "sources";
-  $("plan-panel").hidden = !plan;
   $("sources-panel").hidden = tab !== "sources";
   $("scene-heading").hidden = plan || tab === "sources";
-  $("scene-tools").hidden = plan || tab === "sources";
-  $("compass").hidden = plan || tab === "sources";
+  $("scene-tools").hidden = tab === "floor" || tab === "sources";
+  $("compass").hidden = tab === "floor" || tab === "sources";
   $("photo-strip").hidden = tab !== "model" || garage;
   $("camera-bar").hidden = tab === "sources" || tab === "floor";
   $("sun-stamp").hidden = tab !== "sun";
@@ -1557,8 +1720,26 @@ function updateScene() {
   $("interaction-hint").textContent = plan
     ? drawingView !== "floor" ? "切换图纸 · 可缩放、下载 SVG · 尺寸设置联动" : "点击房间查看说明 · 滚轮或右下角按钮缩放图纸"
     : "拖动旋转 · 滚轮缩放 · 右键平移";
-  if (plan) drawPlan();
+  if (tab === "floor") drawPlan();
   if (isSceneVisible()) void syncLayoutTo3d();
+  if (frameChanged) {
+    const revision = ++designerCameraRevision;
+    const targetLevel = level;
+    void syncLayoutTo3d().then(ready => {
+      if (!ready || revision !== designerCameraRevision || tab !== "floor" || planMode !== "3d" || level !== targetLevel) return;
+      viewer?.resize();
+      if (checked("explode")) {
+        designerSceneCamera = "orbit";
+        viewer?.setFloorCamera(designerSceneCamera);
+        active("[data-designer-camera]", button => button.dataset.designerCamera === designerSceneCamera);
+      } else {
+        const pose = designerScenePoses.get(targetLevel);
+        if (pose) viewer?.restoreCameraPose(pose);
+        else viewer?.setFloorCamera(designerSceneCamera);
+      }
+      layoutScene?.sync();
+    });
+  }
 }
 function switchTab(name: string) {
   const resumePose = tab === "design" && name === lastViewingTab ? reviewPose : null;
@@ -1573,7 +1754,6 @@ function switchTab(name: string) {
   }
   if (tab === "floor") {
     updateScene();
-    if (planMode === "3d" && !checked("explode")) viewer?.setCamera("top");
   } else {
     if (tab === "sun") camera = "south";
     if (tab === "model" && camera === "top") camera = "aerial";
@@ -1719,7 +1899,11 @@ function captureMeetingView(): MeetingView {
     villaParams: getVillaParams(),
   };
 }
-function restoreMeetingView(view: MeetingView) {
+async function restoreMeetingView(view: MeetingView) {
+  const params = { ...DEFAULT_VILLA_PARAMS, ...view.villaParams, roofFenShui: view.fenShui };
+  if (!await commitVillaParams(params, { persist: true, toastMsg: "" })) {
+    throw new Error("方案尺寸或立体更新失败；当前草稿已保留");
+  }
   drawingView = "floor";
   level = view.level; planMode = view.planMode; isExisting = view.existing; balcony = view.balcony; camera = view.camera;
   roofStyle = view.roofStyle;
@@ -1729,8 +1913,6 @@ function restoreMeetingView(view: MeetingView) {
     const input = document.querySelector<HTMLInputElement>(`#${id}`);
     if (input) input.checked = view.flags[id];
   }
-  const params = { ...DEFAULT_VILLA_PARAMS, ...view.villaParams, roofFenShui: view.fenShui };
-  void commitVillaParams(params, { persist: true, toastMsg: "已恢复会议快照中的方案尺寸" });
   $<HTMLInputElement>("road-level").value = String(view.roadY);
   $<HTMLInputElement>("ramp-length").value = String(view.rampLength);
   $<HTMLInputElement>("route-progress").value = String(view.progress);
@@ -1742,9 +1924,15 @@ function restoreMeetingView(view: MeetingView) {
   active("[data-plan-mode]", (b) => b.dataset.planMode === planMode);
   updateRamp(); updateSun();
   switchTab(view.tab);
+  // 快照有自己的机位；取消切回户型时排队的自动取景，等模型完成再恢复。
+  designerCameraRevision++;
+  if (!await syncLayoutTo3d()) throw new Error("立体模型未能完成更新；当前草稿已保留");
   camera = view.camera;
   viewer?.setCamera(view.camera);
   if (view.pose) viewer?.restoreCameraPose(view.pose);
+  if (view.tab === "floor" && view.planMode === "3d" && !view.flags.explode && view.pose) {
+    designerScenePoses.set(view.level, view.pose);
+  }
   viewer?.setRouteLayers({ sweep: view.flags["route-sweep"], clearance: view.flags["route-clearance"], conflicts: view.flags["route-conflicts"] });
   active("[data-camera]", (b) => b.dataset.camera === camera);
 }
@@ -1793,6 +1981,90 @@ document.addEventListener("click", (event) => {
     "button, [data-room]",
   );
   if (!el) return;
+  if (el.dataset.canvasTool) {
+    if (el.dataset.canvasTool === "select" && !layoutEditing) setLayoutEditing(true);
+    planCanvas?.setMode(el.dataset.canvasTool as PlanCanvas["mode"]);
+    if (el.dataset.canvasTool === "select") layoutEditor?.setTool("select");
+    return;
+  }
+  if (el.dataset.editorWallHeight) {
+    layoutScene?.setWallHeight(el.dataset.editorWallHeight === "full" ? "full" : 1200);
+    active("[data-editor-wall-height]", button => button === el);
+    return;
+  }
+  if (el.dataset.editorAction && layoutEditor) {
+    const action = el.dataset.editorAction;
+    if (action === "done") layoutEditor.selectObject(null);
+    else if (action === "rotate-left" || action === "rotate-right") layoutEditor.rotateSelectedFurniture(action === "rotate-left" ? -90 : 90);
+    else if (action === "duplicate") { layoutEditor.copySelection(); layoutEditor.pasteClipboard(); }
+    else if (action === "delete") layoutEditor.deleteSelection();
+    else if (action === "focus") {
+      if (planMode === "3d") layoutScene?.focusSelection();
+      else {
+        const boxes = Array.from($("plan-drawing").querySelectorAll<SVGGraphicsElement>(".edit-selection"), element => element.getBoundingClientRect());
+        if (boxes.length) {
+          const left = Math.min(...boxes.map(box => box.left)), top = Math.min(...boxes.map(box => box.top));
+          planCanvas?.focus(new DOMRect(left, top, Math.max(...boxes.map(box => box.right)) - left, Math.max(...boxes.map(box => box.bottom)) - top));
+        }
+      }
+    }
+    return;
+  }
+  if (el.closest(".designer-menu-pop")) el.closest("details")?.removeAttribute("open");
+  if (el.dataset.libraryGroup) {
+    libraryGroup = el.dataset.libraryGroup;
+    active("[data-library-group]", b => b.dataset.libraryGroup === libraryGroup);
+    filterDesignerLibrary();
+    return;
+  }
+  if (el.dataset.designerLayer) {
+    const layer = el.dataset.designerLayer;
+    const on = el.getAttribute("aria-pressed") !== "true";
+    el.setAttribute("aria-pressed", String(on));
+    $("plan-panel").classList.toggle(layer === "grid" ? "designer-grid" : `designer-hide-${layer}`, layer === "grid" ? on : !on);
+    layoutScene?.sync();
+    return;
+  }
+  if (el.dataset.designerCamera === "orbit" || el.dataset.designerCamera === "top") {
+    designerSceneCamera = el.dataset.designerCamera;
+    viewer?.setFloorCamera(designerSceneCamera);
+    active("[data-designer-camera]", button => button.dataset.designerCamera === designerSceneCamera);
+    return;
+  }
+  if (el.id === "designer-explode") {
+    $<HTMLInputElement>("explode").checked = !checked("explode");
+    updateScene();
+    return;
+  }
+  if (el.id === "designer-scene-export") {
+    $("save-view").click();
+    return;
+  }
+  if (el.dataset.designerDisplay) {
+    const input = $<HTMLInputElement>(el.dataset.designerDisplay);
+    input.checked = !input.checked;
+    input.dispatchEvent(new Event("change"));
+    return;
+  }
+  if (el.id === "designer-inspector-float") {
+    inspectorFloating = !inspectorFloating;
+    stopLayoutInspectorDrag();
+    const panel = $("layout-inspector");
+    panel.classList.toggle("layout-inspector-float", inspectorFloating);
+    (document.querySelector(inspectorFloating ? ".designer-canvas" : ".designer-property-section") as HTMLElement).append(panel);
+    if (!inspectorFloating) {
+      for (const property of ["left", "top", "right", "bottom", "max-height"]) panel.style.removeProperty(property);
+    }
+    el.setAttribute("aria-pressed", String(inspectorFloating));
+    el.textContent = inspectorFloating ? "停靠" : "浮动";
+    el.title = inspectorFloating ? "将属性停靠到右侧" : "将属性切换为可拖动浮窗";
+    refreshLayoutInspector();
+    return;
+  }
+  if (el.dataset.designerRoom) {
+    selectDesignerRoom(el.dataset.designerRoom, el.dataset.designerAnnex === "true");
+    return;
+  }
   if (el.dataset.tab) switchTab(el.dataset.tab);
   if (el.dataset.camera) setCamera(el.dataset.camera as CameraName);
   if (el.dataset.existing) {
@@ -1801,6 +2073,15 @@ document.addEventListener("click", (event) => {
     active("[data-existing]", (b) => b === el);
     updateScene();
     viewer?.setCamera(camera);
+  }
+  if (el.dataset.buildingVariant) {
+    const params = readVillaParamsFromDom(document, { finalize: true });
+    const key = el.dataset.buildingVariant;
+    if (key === "porticoStyle" && (el.dataset.variantValue === "projecting" || el.dataset.variantValue === "recessed")) params.porticoStyle = el.dataset.variantValue;
+    if (key === "buildingPlacement" && (el.dataset.variantValue === "main-east" || el.dataset.variantValue === "main-west")) params.buildingPlacement = el.dataset.variantValue;
+    if (key === "thirdFloorMode" && (el.dataset.variantValue === "setback" || el.dataset.variantValue === "flush")) params.thirdFloorMode = el.dataset.variantValue;
+    void commitVillaParams(params, { toastMsg: "已切换造型与布局，相关视图已同步" });
+    return;
   }
   if (el.dataset.roofStyle) {
     roofStyle = parseRoofStyle(el.dataset.roofStyle);
@@ -1853,26 +2134,23 @@ document.addEventListener("click", (event) => {
     }
     layoutEditor?.clearSelectionOnFloorChange();
     updateScene();
-    if (planMode === "3d" && level >= 0 && !checked("explode")) viewer?.setCamera("top");
   }
   if (el.dataset.planMode) {
+    planCanvas?.setMode("select");
     drawingView = "floor";
     planMode = el.dataset.planMode;
-    if (planMode === "3d" && layoutEditing) layoutEditing = false;
     if (planMode === "3d" && level < 0) level = 0;
-    active("[data-plan-mode]", (b) => b === el);
+    active("[data-plan-mode]", (b) => b.dataset.planMode === planMode);
     updateScene();
-    if (planMode === "3d" && !checked("explode")) viewer?.setCamera("top");
   }
   if (el.id === "toggle-layout-edit") setLayoutEditing(!layoutEditing);
   if (el.dataset.autoRooms) {
-    if (!layoutEditing || !layoutEditor) {
-      toast("请先打开「编辑布局」");
-      return;
-    }
-    layoutEditor.generateAutoRooms(el.dataset.autoRooms === "annex");
+    if (!layoutEditing) setLayoutEditing(true);
+    layoutEditor?.generateAutoRooms(el.dataset.autoRooms === "annex");
+    el.closest("details")?.removeAttribute("open");
     return;
   }
+  if (el.id === "layout-magnet-snap" && !layoutEditing) setLayoutEditing(true);
   if (el.id === "layout-magnet-snap" && layoutEditor) {
     layoutEditor.magnetSnap = !layoutEditor.magnetSnap;
     el.classList.toggle("active", layoutEditor.magnetSnap);
@@ -1883,27 +2161,31 @@ document.addEventListener("click", (event) => {
         : "已关吸附：拖移不再自动对齐",
     );
   }
+  if (el.dataset.editTool && !layoutEditing) setLayoutEditing(true);
   if (el.dataset.editTool && layoutEditor) {
+    planCanvas?.setMode("select");
     suppressPaletteClickUntil = 0;
     const next = el.dataset.editTool as "select" | "wall" | "room" | "door" | "furniture";
-    // 再点同一类别则收起面板，回到选择
-    if (
-      layoutEditor.tool === next &&
-      (next === "room" || next === "door" || next === "furniture" || next === "wall")
-    ) {
-      layoutEditor.setTool("select");
-    } else {
-      layoutEditor.setTool(next);
-      if (next === "wall") toast("选择墙体类型后拖入，或在平面图上点两点画水平／竖直分界");
+    if (next !== "select") {
+      libraryCategory = next;
+      libraryGroup = "全部";
+      $<HTMLInputElement>("designer-library-search").value = "";
+      active("[data-library-group]", b => b.dataset.libraryGroup === "全部");
     }
+    layoutEditor.setTool(next);
+    if (next === "wall") toast(planMode === "3d" ? "选择墙体类型后点击或拖入场景放置，端点可在 2D 中调整" : "选择墙体类型后拖入，或在平面图上点两点画水平／竖直分界");
     syncLayoutPalette();
     refreshLayoutInspector();
   }
+  if (el.dataset.paletteKind && !layoutEditing) setLayoutEditing(true);
   if (el.dataset.paletteKind && layoutEditor) {
+    planCanvas?.setMode("select");
     if (Date.now() < suppressPaletteClickUntil) return;
+    layoutEditor.setTool(el.dataset.paletteCategory as LibraryCategory);
     const kind = el.dataset.paletteKind;
     if (layoutEditor.tool === "room") {
-      layoutEditor.roomKind = kind as typeof layoutEditor.roomKind;
+      layoutEditor.roomKind = (kind === "stair-triple" ? "stair" : kind) as typeof layoutEditor.roomKind;
+      if (kind === "stair" || kind === "stair-triple") layoutEditor.stairModel = kind === "stair-triple" ? "triple" : "double";
     } else if (layoutEditor.tool === "door") {
       layoutEditor.openingKind = kind as typeof layoutEditor.openingKind;
     } else if (layoutEditor.tool === "furniture") {
@@ -1912,18 +2194,21 @@ document.addEventListener("click", (event) => {
       layoutEditor.wallRole = kind as typeof layoutEditor.wallRole;
     }
     syncLayoutPalette();
-    toast("已选中，请拖到平面图放置");
+    toast(planMode === "3d" ? "已选中，点击场景或拖入放置" : "已选中，请拖到平面图放置");
   }
   if (el.id === "plan-zoom-in") {
-    setPlanZoom(planZoom + planZoomStep);
+    if (planMode === "3d") viewer?.zoomFloor(.8);
+    else setPlanZoom(planZoom + planZoomStep);
     return;
   }
   if (el.id === "plan-zoom-out") {
-    setPlanZoom(planZoom - planZoomStep);
+    if (planMode === "3d") viewer?.zoomFloor(1.25);
+    else setPlanZoom(planZoom - planZoomStep);
     return;
   }
   if (el.id === "plan-zoom-reset") {
-    setPlanZoom(1);
+    if (planMode === "3d") viewer?.setFloorCamera(designerSceneCamera);
+    else fitPlanToWindow();
     return;
   }
   if (el.id === "plan-focus-toggle") {
@@ -1940,13 +2225,18 @@ document.addEventListener("click", (event) => {
   }
   if (el.id === "layout-undo") layoutEditor?.undo();
   if (el.id === "layout-redo") layoutEditor?.redo();
-  if (el.id === "layout-export") layoutEditor?.exportJson();
-  if (el.id === "layout-reset") layoutEditor?.resetToPublished();
+  if (el.id === "layout-export" || el.id === "layout-reset") {
+    if (!layoutEditor) setLayoutEditing(true);
+    if (el.id === "layout-export") layoutEditor!.exportJson();
+    else layoutEditor!.resetToPublished();
+  }
   if (el.dataset.editDelete !== undefined) layoutEditor?.deleteSelection();
   if (el.dataset.furnRotate !== undefined) layoutEditor?.rotateSelectedFurniture(Number(el.dataset.furnRotate));
   if (el.dataset.alignCenter === "opening") layoutEditor?.centerSelectedOpeningInBay();
   if (el.dataset.alignCenter === "furniture") layoutEditor?.centerSelectedFurnitureInRoom();
   if (el.dataset.alignCenter === "portico") layoutEditor?.centerSelectedPorticoInBay();
+  if (el.hasAttribute("data-reset-window-height")) layoutEditor?.resetSelectedWindowDimensions();
+  if (el.hasAttribute("data-align-wall-line")) layoutEditor?.alignSelectedWallLine();
   if (
     el.dataset.alignWall === "left" ||
     el.dataset.alignWall === "right" ||
@@ -1963,6 +2253,13 @@ document.addEventListener("click", (event) => {
     updateSun();
   }
   if (el.dataset.room) {
+    if (tab === "floor" && planMode === "2d" && level >= 0) {
+      // 编辑时由 SVG 的 pointerdown 处理画墙、拖动与组合多选；仅接管浏览及键盘点选。
+      if (layoutEditing && event.detail > 0) return;
+      const annex = el.closest<HTMLElement>("[data-plan-building]")?.dataset.planBuilding === "annex";
+      selectDesignerRoom(el.dataset.room, annex);
+      return;
+    }
     showRoom(el.dataset.room);
     document
       .querySelectorAll("[data-room]")
@@ -2001,7 +2298,6 @@ $("floor-select").addEventListener("change", (event) => {
   level = Number(input.value);
   layoutEditor?.clearSelectionOnFloorChange();
   updateScene();
-  if (planMode === "3d" && !checked("explode")) viewer?.setCamera("top");
 });
 $("explode").addEventListener("change", () => {
   drawingView = "floor";
@@ -2017,7 +2313,9 @@ for (const id of ["room-clearance", "dining-mode"])
 $("layout-import").addEventListener("change", async (event) => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (!file || !layoutEditor) return;
+  if (!file) return;
+  if (!layoutEditing) setLayoutEditing(true);
+  if (!layoutEditor) return;
   try {
     layoutEditor.importJson(await file.text());
   } catch (error) {
@@ -2032,7 +2330,8 @@ $("layout-palette-chips").addEventListener("dragstart", (event) => {
   if (layoutEditor) {
     const kind = chip.dataset.paletteKind;
     if (kind && layoutEditor.tool === "room") {
-      layoutEditor.roomKind = kind as typeof layoutEditor.roomKind;
+      layoutEditor.roomKind = (kind === "stair-triple" ? "stair" : kind) as typeof layoutEditor.roomKind;
+      if (kind === "stair" || kind === "stair-triple") layoutEditor.stairModel = kind === "stair-triple" ? "triple" : "double";
     } else if (kind && layoutEditor.tool === "door") {
       layoutEditor.openingKind = kind as typeof layoutEditor.openingKind;
     } else if (kind && layoutEditor.tool === "furniture") {
@@ -2060,12 +2359,13 @@ $("layout-palette-chips").addEventListener("dragend", (event) => {
   syncLayoutPalette();
 });
 $("plan-drawing").addEventListener("dragover", (event) => {
-  if (!layoutEditing || !layoutEditor) return;
+  if (drawingView !== "floor" || level < 0) return;
+  if (!event.dataTransfer?.types.includes("application/x-anhua-layout")) return;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
 });
 $("plan-drawing").addEventListener("drop", (event) => {
-  if (!layoutEditing || !layoutEditor || !(event instanceof DragEvent)) return;
+  if (drawingView !== "floor" || level < 0 || !(event instanceof DragEvent)) return;
   event.preventDefault();
   $("plan-drawing").classList.remove("layout-drop-target");
   const raw =
@@ -2087,8 +2387,16 @@ $("plan-drawing").addEventListener("drop", (event) => {
     return;
   }
   if (!payload.kind) return;
-  const svg = (event.target as Element | null)?.closest<SVGSVGElement>("svg.floor-svg");
-  if (!svg) return;
+  const targetSvg = (event.target as Element | null)?.closest<SVGSVGElement>("svg.floor-svg");
+  if (!targetSvg) return;
+  const building = targetSvg.dataset.planBuilding;
+  if (!layoutEditing) setLayoutEditing(true);
+  const svg = $("plan-drawing").querySelector<SVGSVGElement>(`svg[data-plan-building="${building}"]`);
+  if (!svg || !layoutEditor) return;
+  if (payload.category === "furniture") {
+    $("plan-panel").classList.remove("designer-hide-furniture");
+    document.querySelector('[data-designer-layer="furniture"]')?.setAttribute("aria-pressed", "true");
+  }
   layoutEditor.dropPlace(svg, event.clientX, event.clientY, payload.category, payload.kind);
   active("[data-edit-tool]", (b) => b.dataset.editTool === "select");
   syncLayoutPalette();
@@ -2105,18 +2413,24 @@ $("plan-drawing").addEventListener(
   { passive: false },
 );
 $("plan-drawing").addEventListener("scroll", () => positionLayoutInspector(), { passive: true });
+$("designer-library-search").addEventListener("input", filterDesignerLibrary);
+$("designer-dining-mode").addEventListener("change", event => {
+  $<HTMLSelectElement>("dining-mode").value = (event.target as HTMLSelectElement).value;
+  drawPlan();
+});
 window.addEventListener("resize", () => {
   syncLayoutChromeHeight();
   positionLayoutInspector();
 });
 // 绑定到外层面板，避免属性重绘替换标题栏后丢失拖动监听或指针捕获。
 $("layout-inspector").addEventListener("pointerdown", (event) => {
+  if (!inspectorFloating) return;
   const target = event.target;
   if (event.button !== 0 || !event.isPrimary || !(target instanceof Element)) return;
   if (!target.closest("[data-inspector-drag-handle]")) return;
   if (target.closest("button, input, select, textarea, a, [contenteditable]")) return;
   const panel = $("layout-inspector");
-  const wrap = panel.closest<HTMLElement>(".plan-canvas-wrap");
+  const wrap = panel.closest<HTMLElement>(".designer-canvas");
   if (!wrap) return;
   event.preventDefault();
   event.stopPropagation();
@@ -2136,7 +2450,7 @@ $("layout-inspector").addEventListener("pointermove", (event) => {
   const drag = layoutInspectorDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
   const panel = $("layout-inspector");
-  const wrap = panel.closest<HTMLElement>(".plan-canvas-wrap");
+  const wrap = panel.closest<HTMLElement>(".designer-canvas");
   if (!wrap) return;
   event.preventDefault();
   event.stopPropagation();
@@ -2159,6 +2473,12 @@ $("layout-inspector").addEventListener("change", (event) => {
     layoutEditor.updateSelectedName((el as HTMLInputElement).value);
     return;
   }
+  const voidField = el.getAttribute("data-void-field");
+  if (voidField && el instanceof HTMLSelectElement) {
+    layoutEditor.updateLivingVoidField(voidField, el.value);
+    refreshLayoutInspector(true);
+    return;
+  }
   const openingField = el.getAttribute("data-opening-field");
   if (openingField && el instanceof HTMLSelectElement) {
     layoutEditor.updateOpeningField(openingField, el.value);
@@ -2170,8 +2490,19 @@ $("layout-inspector").addEventListener("change", (event) => {
     return;
   }
   const stairField = el.getAttribute("data-stair-field");
+  if (stairField === "model" && el instanceof HTMLSelectElement) {
+    if (el.value === "double" || el.value === "triple") layoutEditor.setStairModel(el.value);
+    refreshLayoutInspector(true);
+    return;
+  }
+  if (stairField === "direction" && el instanceof HTMLSelectElement) {
+    if (el.value === "east" || el.value === "west" || el.value === "south" || el.value === "north") layoutEditor.setStairDirection(el.value);
+    refreshLayoutInspector(true);
+    return;
+  }
   if (stairField === "axis" && el instanceof HTMLSelectElement) {
     if (el.value === "x" || el.value === "z") layoutEditor.setStairAxis(el.value);
+    refreshLayoutInspector(true);
     return;
   }
   if (stairField === "lowerSide" && el instanceof HTMLSelectElement) {
@@ -2186,9 +2517,9 @@ $("layout-inspector").addEventListener("change", (event) => {
       refreshLayoutInspector(true);
       return;
     }
-    layoutEditor.updateSelectedNumber(field, value);
+    const committed = layoutEditor.updateSelectedNumber(field, value);
     // 成功提交由下一帧统一刷新；约束拒绝仍立即回显实际几何。
-    if (!planRedraw.pending) refreshLayoutInspector(true);
+    if (!committed || !planRedraw.pending) refreshLayoutInspector(true);
   }
 });
 $("layout-inspector").addEventListener("keydown", (event) => {
@@ -2209,12 +2540,37 @@ function layoutEditorTypingTarget(target: EventTarget | null) {
   return !!el.isContentEditable;
 }
 
+document.addEventListener("contextmenu", (event) => {
+  const target = event.target as Element | null;
+  if (!target?.closest(".plan-canvas-wrap")) return;
+  event.preventDefault();
+  if (planLoadingTasks || !layoutEditor) return;
+  layoutEditor.cancelWallDraft();
+  layoutEditor.selection = null;
+  layoutEditor.setTool("select");
+  lastLayoutEscAt = performance.now();
+  syncLayoutPalette();
+  refreshLayoutInspector();
+});
+
 document.addEventListener(
   "keydown",
   (event) => {
     if (planLoadingTasks || document.querySelector("dialog[open]")) return;
     if (layoutEditorTypingTarget(event.target)) return;
-    if (!layoutEditing || !layoutEditor) return;
+    if (tab === "floor" && planMode === "2d" && drawingView === "floor" && level >= 0 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const key = event.key.toLowerCase();
+      if (key === "v" || key === "h" || key === "m" || key === "f") {
+        event.preventDefault();
+        if (key === "f") planCanvas?.fit();
+        else {
+          planCanvas?.setMode(key === "h" ? "pan" : key === "m" ? "measure" : "select");
+          if (key === "v") layoutEditor?.setTool("select");
+        }
+        return;
+      }
+    }
+    if (tab !== "floor" || !layoutEditing || !layoutEditor) return;
 
     const arrow =
       event.key === "ArrowLeft" ||
@@ -2232,6 +2588,13 @@ document.addEventListener(
       // 世界坐标已是毫米：方向键 1 mm，Shift＋方向键 10 mm。
       const step = event.shiftKey ? 10 : 1;
       const key = event.key.startsWith("Arrow") ? event.key : event.code;
+      if (planMode === "3d" && viewer) {
+        const right = key === "ArrowLeft" ? -1 : key === "ArrowRight" ? 1 : 0;
+        const up = key === "ArrowUp" ? 1 : key === "ArrowDown" ? -1 : 0;
+        const delta = viewer.floorNudge(right, up, step);
+        layoutEditor.nudgeSelection(delta.x, delta.z);
+        return;
+      }
       // 门头朝下时平面转 180°（南↑西→）：屏左＝东、屏上＝南，与北上东右相反。
       const s = PLAN_ENTRANCE_DOWN ? -1 : 1;
       if (key === "ArrowLeft") layoutEditor.nudgeSelection(-s * step, 0);
@@ -2539,6 +2902,15 @@ document.getElementById("villa-params-scroll")?.addEventListener("blur", (event)
   sanitizeVillaParamInput(input, true);
   syncVillaParamsWidthSum();
 }, true);
+planCanvas = new PlanCanvas($("plan-drawing"), {
+  active: () => tab === "floor" && planMode === "2d" && drawingView === "floor" && level >= 0,
+  selecting: () => !layoutEditing || layoutEditor?.tool === "select",
+  clearSelection: () => layoutEditor?.selectObject(null),
+  viewChanged: percent => {
+    if (planMode === "2d") $("plan-zoom-reset").textContent = `${percent}%`;
+    positionLayoutInspector();
+  },
+});
 renderFacts();
 drawPlan();
 updateFenShui();
@@ -2561,7 +2933,7 @@ $("dining-warning").textContent =
   }
   clearLegacyLocalStorage();
   if (boot) {
-    await applySchemeDocument(boot, { toastMsg: "正在载入方案文件…" });
+    await applySchemeDocument(boot);
   } else {
     applyVillaParams(DEFAULT_VILLA_PARAMS);
     fillVillaParamsDom(DEFAULT_VILLA_PARAMS, document, { force: true });
@@ -2580,6 +2952,31 @@ $("dining-warning").textContent =
 await new Promise((resolve) => requestAnimationFrame(resolve));
 try {
   viewer = new VillaViewer($("viewport"));
+  layoutScene = new LayoutScene(viewer, {
+    active: () => tab === "floor" && planMode === "3d",
+    floor: () => Math.max(0, level),
+    draft: currentLayoutDraft,
+    editor: () => layoutEditing ? layoutEditor : null,
+    beginEditing: () => {
+      if (!layoutEditing) {
+        setLayoutEditing(true);
+        layoutEditor?.setTool("select");
+      }
+      return layoutEditor;
+    },
+    placed: () => {
+      $("plan-panel").classList.remove("designer-hide-furniture");
+      document.querySelector('[data-designer-layer="furniture"]')?.setAttribute("aria-pressed", "true");
+      syncLayoutPalette();
+      drawPlan();
+    },
+    toast,
+    layers: () => ({
+      furniture: !$("plan-panel").classList.contains("designer-hide-furniture"),
+      labels: !$("plan-panel").classList.contains("designer-hide-labels"),
+      grid: $("plan-panel").classList.contains("designer-grid"),
+    }),
+  });
   sceneParamsKey = JSON.stringify(getVillaParams());
   viewer.onCompass = (angle) =>
     $("compass-arrow").setAttribute(

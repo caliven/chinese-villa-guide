@@ -26,6 +26,42 @@ function renderedChain(svg: string, side: string, kind: string) {
   return [...body.matchAll(/class="dim-mm"[^>]*>(\d+)</g)].map((m) => Number(m[1]));
 }
 
+test("门头侧墙线与面宽控制端点相同时合并，真实一毫米偏移仍保留", () => {
+  const draft = clonePublishedLayout();
+  removeStairFromDraft(draft);
+  const controls = dims(draft).controls;
+  draft.floors[2]!.partitions = controls.slice(1, -1).map(at => ({
+    a: [at, draft.floors[2]!.front], b: [at, z(6000)], role: "bearing",
+  }));
+  const render = () => buildingSvg(floorPlan(2, false, false, {}, planSourceFromDraft(draft, 2)), "main");
+  const merged = render();
+  assert.ok(!merged.includes('data-dim-side="north" data-dim-kind="walls"'));
+  assert.deepEqual(renderedChain(merged, "north", "control"), spans(controls));
+  assert.deepEqual(renderedChain(merged, "north", "overall"), [13600]);
+  draft.floors[2]!.partitions[0]!.a[0] += 1;
+  draft.floors[2]!.partitions[0]!.b[0] += 1;
+  assert.ok(render().includes('data-dim-side="north" data-dim-kind="walls"'));
+});
+
+test("楼梯不再常驻整栋尺寸链，选中时仅标梯间局部宽深且不改变图纸坐标系", () => {
+  const draft = clonePublishedLayout();
+  for (let i = 0; i < 3; i++) {
+    const source = planSourceFromDraft(draft, i);
+    const render = (selected = false) => buildingSvg(floorPlan(i, false, false,
+      { editable: true, selected: selected ? { kind: "stair" } : null }, source), "main");
+    const normal = render(), selected = render(true);
+    assert.ok(!normal.includes('data-dim-kind="stair"'));
+    assert.equal((selected.match(/data-dim-kind="stair"/g) ?? []).length, 2);
+    assert.deepEqual(renderedChain(selected, "south", "stair"), [Math.round(source.stair.room.w)]);
+    const side = source.stair.room.x + source.stair.room.w / 2 < site.main.x + site.main.w / 2 ? "west" : "east";
+    assert.deepEqual(renderedChain(selected, side, "stair"), [Math.round(source.stair.room.z + source.stair.room.d) - Math.round(source.stair.room.z)]);
+    assert.equal(selected.match(/viewBox="([^"]+)"/)?.[1], normal.match(/viewBox="([^"]+)"/)?.[1]);
+    const withoutStair = (html: string) => html.replace(/<g data-dim-side="[^"]+" data-dim-kind="stair">[\s\S]*?<\/g>/g, "");
+    const exteriorChains = (html: string) => [...withoutStair(html).matchAll(/<g data-dim-side="[^"]+" data-dim-kind="[^"]+">[\s\S]*?<\/g>/g)].map(m => m[0]);
+    assert.deepEqual(exteriorChains(selected), exteriorChains(normal));
+  }
+});
+
 test("拆图后房间内偏120mm、墙端偏10mm不污染主楼外轮廓总宽；门头侧保留柱心控制档", () => {
   const draft = clonePublishedLayout();
   const tea = draft.floors[0]!.rooms.find((r) => r.id === "tea")!;
@@ -33,8 +69,8 @@ test("拆图后房间内偏120mm、墙端偏10mm不污染主楼外轮廓总宽�
   draft.floors[0]!.partitions[0]!.a[0] -= 10;
   const svg = floorPlan(0, false, false, {}, planSourceFromDraft(draft, 0));
   const main = buildingSvg(svg, "main");
-  // 门厅柱心控制在北侧（门头朝下时画面下方）：左余 4500＋柱心距 4600＋右余 4500。
-  assert.deepEqual(renderedChain(main, "north", "control"), [4500, 4600, 4500]);
+  // 尺寸链按世界X由西到东：客厅侧4600＋门厅柱心距4500＋另一翼4500。
+  assert.deepEqual(renderedChain(main, "north", "control"), [4600, 4500, 4500]);
   assert.deepEqual(renderedChain(main, "north", "overall"), [13600]);
   // 总宽只标北侧，南侧不再重复。
   assert.ok(!main.includes('data-dim-side="south" data-dim-kind="overall"'));
@@ -104,7 +140,7 @@ test("接外墙内墙仍标墙距，换到另一控制线也更新；门厅柱�
   wall.a[0] = wall.b[0] = x(9100);
   assert.deepEqual(renderedChain(render(), "south", "walls"), [9100, 4500]);
   assert.deepEqual(renderedChain(render(), "north", "overall"), [13600]);
-  assert.deepEqual(renderedChain(render(), "north", "control"), [4500, 4600, 4500]);
+  assert.deepEqual(renderedChain(render(), "north", "control"), [4600, 4500, 4500]);
 });
 
 test("贯通实体墙在相交两侧均保留定位及闭合尺寸链", () => {
@@ -239,7 +275,7 @@ test("主辅楼总宽只标北、总进深只标东；接西墙的墙距仍在�
   // 接西外墙的水平内墙应出现在西侧墙线定位
   assert.ok(main.includes('data-dim-side="west" data-dim-kind="walls"'));
   assert.ok(annex.includes('data-dim-side="west" data-dim-kind="walls"'));
-  assert.deepEqual(renderedChain(main, "north", "control"), [4500, 4600, 4500]);
+  assert.deepEqual(renderedChain(main, "north", "control"), [4600, 4500, 4500]);
   assert.deepEqual(renderedChain(main, "north", "overall"), [13600]);
   assert.deepEqual(renderedChain(annex, "north", "overall"), [4000]);
   assert.ok(!main.includes('data-dim-side="south" data-dim-kind="overall"'));

@@ -1,3 +1,4 @@
+import { recessedFootprint, porticoFrontZ, annexLocalX, hasThirdFloorSideTerraces } from "./building-variants";
 import * as THREE from "three";
 import { floors, site, frontElevation, type Point } from "./data";
 import { roofPlanModel, type VillaLayoutLive } from "./architecture";
@@ -123,20 +124,28 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
   const { main: m, annex: a, hat: h, portico: p } = model;
   const id = `roof-${view}`;
   const front = Math.min(m.z, a.z, h.z, site.main.z - p.projection - 400);
-  const left = a.x - 1600, right = m.x + m.w + 1900, bottom = Math.max(m.z + m.d, a.z + a.d) + 1900;
+  const left = Math.min(a.x, m.x) - 1600, right = Math.max(a.x + a.w, m.x + m.w) + 1900, bottom = Math.max(m.z + m.d, a.z + a.d) + 1900;
   const top = front - 1700, width = right - left, depth = bottom - top;
-  const mainBody = box(site.main.x, floors[2].front, site.main.w, site.main.z + site.main.d - floors[2].front);
+  const mainBody = recessedFootprint(floors[2].front);
   const annexBody = box(site.annex.x, site.annex.z, site.annex.w, site.annex.d);
   const mainOutline = (inset: number) => selected === "joined"
     ? bayOutline(m.x, m.z, m.w, m.d, h.x, h.w, h.z, inset)
     : box(m.x + inset, m.z + inset, m.w - 2 * inset, m.d - 2 * inset);
   const gutter = (outline: (inset: number) => Point[]) => polygon(outline(0), "roof-gutter") + polygon(outline(gutterInnerLipInset()), "roof-gutter-inner");
+  const mainGutter = () => {
+    if (!model.frontTrimGap) return gutter(mainOutline);
+    const [x0, x1] = model.frontTrimGap, z0 = m.z - 1000, z1 = floors[2].front + 8;
+    const clip = `<clipPath id="${id}-main-trim"><path clip-rule="evenodd" d="M${n(left - 1000)} ${n(top - 1000)} H${n(right + 1000)} V${n(bottom + 1000)} H${n(left - 1000)} Z M${n(x0)} ${n(z0)} H${n(x1)} V${n(z1)} H${n(x0)} Z"/></clipPath>`;
+    return `<defs>${clip}</defs><g clip-path="url(#${id}-main-trim)">${gutter(mainOutline)}</g>`;
+  };
   const canopyOutline: Point[] = [[h.x, m.z], [h.x, h.z], [h.x + h.w, h.z], [h.x + h.w, m.z]];
   const terraceBack = frontElevation.terraceBack;
   const terraces = [
-    { x: site.main.x, z: frontElevation.terraceFront, w: p.x - site.main.x, d: terraceBack - frontElevation.terraceFront },
-    { x: p.x + p.w, z: frontElevation.terraceFront, w: site.main.x + site.main.w - p.x - p.w, d: terraceBack - frontElevation.terraceFront },
-    { x: p.x, z: site.main.z - p.projection - frontElevation.porticoColumnDepth / 2, w: p.w, d: terraceBack - site.main.z + p.projection + frontElevation.porticoColumnDepth / 2 },
+    ...(hasThirdFloorSideTerraces() ? [
+      { name: "西侧", x: site.main.x, z: frontElevation.terraceFront, w: p.x - site.main.x, d: floors[2].front + 40 - frontElevation.terraceFront },
+      { name: "东侧", x: p.x + p.w, z: frontElevation.terraceFront, w: site.main.x + site.main.w - p.x - p.w, d: floors[2].front + 40 - frontElevation.terraceFront },
+    ] : []),
+    { name: "中央", x: p.x, z: porticoFrontZ() - frontElevation.porticoColumnDepth / 2, w: p.w, d: terraceBack - porticoFrontZ() + frontElevation.porticoColumnDepth / 2 },
   ];
   const terraceProjection = terraces.filter(t => t.w > 0 && t.d > 0).map(t => polygon(box(t.x, t.z, t.w, t.d), "roof-terrace")).join("");
   let drawing: string;
@@ -144,7 +153,7 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
     const third = layout?.floors[2] ?? floors[2];
     const stair = third.rooms.find(r => r.kind === "stair");
     drawing = terraceProjection + polygon(mainBody, "roof-slab") + polygon(annexBody, "roof-slab")
-      + terraces.map((t, i) => label(t.x + t.w / 2, t.z + t.d / 2, `三层${i === 0 ? "西侧" : i === 1 ? "东侧" : "中央"}露台（下层）`, "roof-small")).join("")
+      + terraces.map(t => label(t.x + t.w / 2, t.z + t.d / 2, `三层${t.name}露台（下层）`, "roof-small")).join("")
       + polygon(mainOutline(0), "roof-projection") + polygon(box(a.x, a.z, a.w, a.d), "roof-projection")
       + (selected === "floating" ? `<polyline points="${pts(canopyOutline)}" class="roof-projection"/>` : "")
       + (stair ? polygon(box(stair.x, stair.z, stair.w, stair.d), "roof-projection") + label(stair.x + stair.w / 2, stair.z + stair.d / 2, "三层楼梯投影", "roof-small") : "")
@@ -157,15 +166,15 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
       + hDim(site.annex.x, site.annex.x + site.annex.w, site.annex.z - 1000, site.annex.z)
       + vDim(site.annex.z, site.annex.z + site.annex.d, site.annex.x - 800, site.annex.x);
   } else {
-    const floatingGutterEnd = m.z + roofTileInset + (h.eave + roofGutterDesign.clearDepth + 30 - m.eave - roofTileEaveLift()) / (model.pitch.fenShui / 10);
-    drawing = terraceProjection + gutter(mainOutline) + gutter(inset => box(a.x + inset, a.z + inset, a.w - 2 * inset, a.d - 2 * inset))
+    const floatingGutterEnd = Math.max(m.z, m.z + roofTileInset + (h.eave + roofGutterDesign.clearDepth + 30 - m.eave - roofTileEaveLift()) / (model.pitch.fenShui / 10));
+    drawing = terraceProjection + mainGutter() + gutter(inset => box(a.x + inset, a.z + inset, a.w - 2 * inset, a.d - 2 * inset))
       + [...model.mainFaces.filter(f => f.owner === 0), ...model.annexFaces].map(f => polygon(f.points.map(p => [p.x, p.z]), "roof-face")).join("")
       + (selected === "floating" ? polygon(hatEaveRim(h.x, h.z, h.w, 0, gutterInnerLipInset(), floatingGutterEnd), "roof-gutter") : "")
       + model.mainFaces.filter(f => f.owner === 1).map(f => polygon(f.points.map(p => [p.x, p.z]), "roof-hat")).join("")
       + [...roofProjectedEdges(model.mainFaces), ...roofProjectedEdges(model.annexFaces)].map(e => path(e.a, e.b, `roof-${e.kind}`)).join("")
       + [...slopeFaces(model.mainFaces), ...slopeFaces(model.annexFaces)].map(f => slopeArrow(f, id)).join("")
       + polygon(mainBody, "roof-projection") + polygon(annexBody, "roof-projection")
-      + polygon(box(site.annex.x + 850 - 360, site.annex.z + site.annex.d - 1050 - 360, 720, 720), "roof-chimney")
+      + polygon(box(annexLocalX(850) - 360, site.annex.z + site.annex.d - 1050 - 360, 720, 720), "roof-chimney")
       + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d + 2100, "辅楼烟囱 · 沿用模型位置", "roof-small")
       + label(m.x + m.w / 2, m.z + m.d + 550, `主楼瓦脊 ${height(model.mainPeak)}`, "roof-small")
       + label(a.x + a.w / 2, a.z + a.d + 550, `辅楼瓦脊 ${height(model.annexPeak)}`, "roof-small")

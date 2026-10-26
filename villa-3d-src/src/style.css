@@ -12,6 +12,14 @@
   --paper: #f5f4ef;
   --white: #fbfaf7;
   --gold: #a5752b;
+  --app-header-height: 58px;
+  --designer-panel: #fffdf9;
+  --designer-paper: #f7f4ee;
+  --designer-line: #e3dccf;
+  --designer-ink: #2b2824;
+  --designer-muted: #8a8174;
+  --designer-accent: #b5653a;
+  --designer-accent-soft: #f3e3d8;
 }
 * {
   box-sizing: border-box;
@@ -63,12 +71,14 @@ button svg {
   display: none !important;
 }
 .app-header {
-  height: 76px;
+  height: var(--app-header-height);
   display: flex;
   align-items: center;
-  padding: 0 27px;
+  padding: 0 20px;
   gap: 26px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--designer-line);
+  background: var(--designer-panel);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 .header-brand {
   display: flex;
@@ -90,18 +100,19 @@ button svg {
   color: var(--green);
 }
 .brand strong {
-  font-size: 23px;
+  font-size: 21px;
   letter-spacing: 1px;
   color: #202e27;
 }
 .brand > span {
+  display: none;
   font-size: 13px;
   color: var(--muted);
   margin-left: 5px;
 }
 .main-tabs {
   display: flex;
-  gap: 24px;
+  gap: 26px;
   height: 100%;
   margin: auto;
 }
@@ -110,7 +121,7 @@ button svg {
   background: transparent;
   position: relative;
   padding: 0 2px;
-  font-size: 14px;
+  font-size: 13px;
   color: #667168;
   white-space: nowrap;
 }
@@ -172,7 +183,7 @@ button svg {
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
-  height: calc(100svh - 117px);
+  height: calc(100svh - var(--app-header-height) - 41px);
   min-height: 530px;
   gap: 0;
   padding: 0 12px;
@@ -1995,7 +2006,7 @@ body.plan-editor-focus .plan-toolbar {
 .params-float {
   position: fixed;
   z-index: 80;
-  top: 76px;
+  top: var(--app-header-height);
   left: 12px;
   width: min(810px, calc(100vw - 24px));
   max-height: min(72svh, calc(100svh - 90px));
@@ -2708,15 +2719,6 @@ dialog .secondary-button {
   .camera-bar {
     left: 58%;
   }
-  .brand strong {
-    font-size: 26px;
-  }
-  .app-header {
-    height: 80px;
-  }
-  .workspace {
-    height: calc(100svh - 121px);
-  }
 }
 @media (max-width: 1150px) {
   .brand > span {
@@ -3147,7 +3149,7 @@ dialog .secondary-button {
 .review-difference { background: #fcf0d8; }
 .review-empty { grid-column: 1 / -1; color: #79846e; padding: 20px 0; }
 @media (min-width: 761px) {
-  .focused-view .workspace { height: calc(100svh - 76px); }
+  .focused-view .workspace { height: calc(100svh - var(--app-header-height)); }
 }
 @media (max-width: 1150px) {
   .review-header { align-items: flex-start; }

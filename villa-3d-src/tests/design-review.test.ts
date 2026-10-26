@@ -59,7 +59,7 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
   assert.ok(!svg.includes(">过道 "));
   assert.ok(!/>子孙道</.test(svg));
   assert.match(svg, /罗马柱门厅/);
-  assert.match(svg, /4600×2000/);
+  assert.match(svg, /4500×2000/);
   assert.ok(!svg.includes("前院东宽西窄"));
   assert.match(svg, /邻院外 8600/);
   assert.match(svg, /西总进深 11000/);
@@ -212,7 +212,7 @@ test("导出图册转义会议内容，参数变化更新图纸，未知工程�
   assert.match(html, /最低梁底待联测/);
   assert.match(html, /切口协商待确认/);
   assert.match(html, /首层建筑面积合计（含门厅）/);
-  assert.match(html, /136\.0＋32\.0＋9\.2＝177\.2㎡/);
+  assert.match(html, /136\.0＋32\.0＋9\.0＝177\.0㎡/);
   assert.doesNotMatch(html, /门厅[^<。]*另计/);
   assert.equal(html.match(/data-elevation="/g)?.length, 4);
   assert.match(html, /北立面（正立面）/);

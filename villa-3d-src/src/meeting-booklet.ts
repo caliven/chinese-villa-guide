@@ -1,13 +1,12 @@
-import { annexRooms, buildingAreas, construction, facts, floors, frontElevation, site } from "./data";
-import { facades } from "./facades";
-import { bedroomSummary, designBrief, designIssues, entranceMetrics, floorFinish, roomReference } from "./design-data";
+import { buildingAreas, construction, facts, floors, frontElevation, site } from "./data";
+import { designBrief, designIssues, entranceMetrics, floorFinish, roomReference } from "./design-data";
 import { designDrawings, drawingStyles, elevation, unresolvedConditions, type DrawingOptions } from "./design-drawings";
 import type { DesignSession, MeetingView } from "./design-session";
-import { courtyardSitePlan, floorPlan } from "./plan";
+import { courtyardSitePlan, floorPlan, planSourceFromDraft, planSourceFromPublished } from "./plan";
 import { roofPlanSvg, roofDrawingLabels, type RoofDrawingView } from "./roof-plan";
 import { elevationSvg, elevationLabels, type ElevationView } from "./elevation-plan";
-import { loadLayoutDraft } from "./layout-draft";
-import { villaLayoutFromDraft } from "./architecture";
+import { loadLayoutDraft, type LayoutDraft } from "./layout-draft";
+import { villaLayoutFromDraft, villaLayoutFacades } from "./architecture";
 import { escapeHtml as e, projectMeta, meetingTabLabels, cameraViewLabels } from "./project-meta";
 import { courtyardFinishLabels } from "./courtyard-finishes";
 import { roofStyleLabels } from "./roof-options";
@@ -27,17 +26,23 @@ export function controlTable() {
     ["入口侧坡道：名义高差／投影长度", `${formatMm(site.entranceRise)}／${formatMm(m.rampRun)} ≈ ${m.rampGrade.toFixed(1)}%`, "几何尺度示意；适老通行待核"],
     ["墙身层高／各层完成面", `${floors.map((f) => formatMm(f.height)).join("／")}；${floors.map((_, i) => elevation(floorFinish(i))).join("／")}`, "首层抬高；楼梯高差非统一层高"],
     ["地库地面／结构预留／净高目标", `${formatMm(site.garageFloor)}／${formatMm(site.deckStructure)}／${formatMm(site.garageClear)}`, "均为示意或目标，结构及最低净高待核"],
+    ["三楼模式／主体进深", `${site.setback > 0 ? `北向内退${formatMm(site.setback)}` : "不内退"}／${formatMm(site.main.d - site.setback)}`, site.setback > 0 ? "北侧退台，三块露台分开" : "前墙与二楼齐平，仅保留中央门厅露台"],
     ["短柱柱身＋挡墙（盖板另计）", `${formatMm(frontElevation.balustradePostHeight)}＋${formatMm(frontElevation.eaveParapet)}＝${formatMm(frontElevation.balustradePostHeight + frontElevation.eaveParapet)}`, "造型尺寸；栏杆安全及连接待设计"],
   ].map((row) => `<tr>${row.map((v, i) => `<${i ? "td" : "th"}>${e(v)}</${i ? "td" : "th"}>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
-export function roomSchedule() {
-  return `<table><caption>逐层房间 · 包含套卫，不汇总为可用面积</caption><thead><tr><th>层／房间</th><th>外轮廓 mm</th><th>模型墙内侧参考 mm</th><th>注意事项</th></tr></thead><tbody>${floors.map((f, i) => [...f.rooms, ...(i === 0 ? annexRooms : [])].filter((r) => r.kind !== "void").map((r) => {
-    const ref = roomReference(r, i);
-    return `<tr><th>${e(f.name)} · ${e(r.name)}</th><td>${formatMm(r.w)}×${formatMm(r.d)}</td><td>${formatMm(ref.w)}×${formatMm(ref.d)}</td><td>${e(ref.nested.length ? `含${ref.nested.map((n) => n.name).join("、")}；非可用净矩形` : r.purposeStatus ? "用途待确认" : "待扣装修、柱及设备；非实测")}</td></tr>`;
-  }).join("")).join("")}</tbody></table><p>内侧参考按模型外墙${formatMm(construction.outsideWall)}、贴边隔墙半厚${formatMm(construction.partition / 2)}（mm）估计，局部隔墙按整边参考。开敞边不算实体墙；未扣套卫占用、结构与装修，不用于订家具或结算面积。</p>`;
+export function roomSchedule(draft: LayoutDraft | null = loadLayoutDraft()) {
+  return `<table><caption>逐层房间 · 包含套卫，不汇总为可用面积</caption><thead><tr><th>层／房间</th><th>外轮廓 mm</th><th>模型墙内侧参考 mm</th><th>注意事项</th></tr></thead><tbody>${floors.map((f, i) => {
+    const source = draft ? planSourceFromDraft(draft, i) : planSourceFromPublished(i);
+    return [...source.floor.rooms, ...(i === 0 ? source.annexRooms : [])].filter((r) => r.kind !== "void").map((r) => {
+      const annex = source.annexRooms.includes(r);
+      const ref = roomReference(r, i, annex ? source.annexPartitions : source.floor.partitions, annex ? source.annexRooms : source.floor.rooms);
+      return `<tr><th>${e(f.name)} · ${e(r.name)}</th><td>${formatMm(r.w)}×${formatMm(r.d)}</td><td>${formatMm(ref.w)}×${formatMm(ref.d)}</td><td>${e(ref.nested.length ? `含${ref.nested.map((n) => n.name).join("、")}；非可用净矩形` : r.purposeStatus ? "用途待确认" : "待扣装修、柱及设备；非实测")}</td></tr>`;
+    }).join("");
+  }).join("")}</tbody></table><p>内侧参考按模型外墙${formatMm(construction.outsideWall)}、贴边隔墙半厚${formatMm(construction.partition / 2)}（mm）估计，局部隔墙按整边参考。开敞边不算实体墙；未扣套卫占用、结构与装修，不用于订家具或结算面积。</p>`;
 }
-export function openingSchedule() {
-  return `<table><caption>模型墙体洞口（非门窗加工表）</caption><thead><tr><th>编号／位置</th><th>类型</th><th>宽×高 mm</th><th>洞底／洞顶相对院坪 mm</th></tr></thead><tbody>${[0, 1, 2, 3].map((index) => facades(index).flatMap((wall, face) => wall.openings.map((o, n) => {
+export function openingSchedule(draft: LayoutDraft | null = loadLayoutDraft()) {
+  const layout = draft ? villaLayoutFromDraft(draft) : null;
+  return `<table><caption>模型墙体洞口（非门窗加工表）</caption><thead><tr><th>编号／位置</th><th>类型</th><th>宽×高 mm</th><th>洞底／洞顶相对院坪 mm</th></tr></thead><tbody>${[0, 1, 2, 3].map((index) => villaLayoutFacades(index, layout).flatMap((wall, face) => wall.openings.map((o, n) => {
     const base = index === 3 ? 0 : floors[index].y;
     const body = index === 3 ? site.annex : site.main;
     const midX = body.x + body.w / 2, midZ = body.z + body.d / 2;
@@ -60,12 +65,12 @@ export function meetingBooklet(session: DesignSession, options: DrawingOptions, 
     section("控制尺寸与标高", controlTable() + `<p>屋面分水${options.fenShui.toFixed(1)}；道路接入${Math.round(options.roadY)} mm、坡长${Math.round(options.rampLength)} mm均是当前探索值（单位 mm），未测。保留地坪最低梁底待测，切口协商待确认。</p>`),
     ...drawings.map((d) => section(d.title, `<p>${e(d.note)}</p>${d.svg}`)),
     section("整体院坪平面 · 自家与邻居", `<p>北向上、东向右。只画主辅楼与门厅外轮廓，不画室内布局。前院外沿取当前圆弧；邻居面宽13000、木房8800＋水泥2000、水泥外约9500院坪（mm）为口述占位。尺寸供建成后余量核对，非测绘。</p>${courtyardSitePlan()}`),
-    ...floors.map((f, i) => section(`${f.name}家具与使用讨论 · ${bedroomSummary(i)}`, `<p>南向上、西向右（门头朝下）。房间标注墙线面积与净空面积（㎡示意）。家具虚线按600 mm留位，使用方向和实际要求待设计，非通行校核。</p>${floorPlan(i, true, view.balcony, { useZones: true, dining: "full" })}`)),
+    ...floors.map((f, i) => section(`${f.name}家具与使用讨论 · 当前户型`, `<p>南向上、西向右（门头朝下）。房间标注墙线面积与净空面积（㎡示意）。家具虚线按600 mm留位，使用方向和实际要求待设计，非通行校核。</p>${floorPlan(i, true, view.balcony, { useZones: true, dining: "full" }, roofDraft ? planSourceFromDraft(roofDraft, i) : undefined)}`)),
     ...(["slab", "joined", "floating"] as RoofDrawingView[]).map(key => section(`屋顶设计 · ${roofDrawingLabels[key]}`, `<p>南向上、西向右。长度、模型相对标高均为mm。顶板与下层露台投影分开；屋面使用与立体相同的坡面和交线。粗绿线为屋脊、褐色虚线为谷线、蓝箭头为坡向。未设计新增屋顶房间或上屋顶楼梯；雨水口、防水与结构待深化。</p>${roofPlanSvg(key, view.roofStyle, roofLayout)}`)),
     ...(Object.keys(elevationLabels) as ElevationView[]).map(key => section(`建筑立面 · ${elevationLabels[key]}`, `<p>当前${roofStyleLabels[view.roofStyle]}方案正投影；北侧为正门，正立面左东右西。长度、相对标高均为mm；门窗及门厅读取当前户型草稿，主辅楼按实际前后关系消隐。雕花、栏杆与檐口细部简化，非施工图。</p>${elevationSvg(key, view.roofStyle, roofLayout, view.balcony)}`)),
-    section("餐厅日常示意 · 待比较", `<p>日常示意仅使用原小桌6座；圆桌及12椅暂收起，不修改3D基准。收纳位置、活动家具形式和厨房服务动线未定。本图册的一层满座图是双桌18座情景，仍偏紧。</p>${floorPlan(0, true, view.balcony, { inside: false, useZones: false, dining: "daily" })}`),
-    section("房间尺寸口径", roomSchedule()),
-    section("模型门窗洞口", openingSchedule()),
+    section("餐厅日常示意 · 待比较", `<p>在当前户型上临时收起圆桌及配套座椅，其余家具保持当前布置；不改写户型或3D基准。收纳位置、活动家具形式和厨房服务动线待比较。</p>${floorPlan(0, true, view.balcony, { inside: false, useZones: false, dining: "daily" }, roofDraft ? planSourceFromDraft(roofDraft, 0) : undefined)}`),
+    section("房间尺寸口径", roomSchedule(roofDraft)),
+    section("模型门窗洞口", openingSchedule(roofDraft)),
     section("编号议题与讨论记录", `<p>“已记录意见”只表示已记下讨论，专业确认仍须有图纸与依据。</p>${designIssues.map((issue) => {
       const note = session.notes[issue.id];
       return `<article><small>${e(issue.phase)} · ${e(note?.status ?? "未讨论")}</small><h3>${issue.id} · ${e(issue.title)}</h3><p>当前：${e(issue.current)}</p><p>下一步：${e(issue.action)}</p><p>建议负责：${e(issue.owner)}<br/>所需成果：${e(issue.output)}</p><p>本次负责人：${e(note?.owner || "待安排")}；下次资料日期：${e(note?.due || "待约定")}</p><div class="note">${e(note?.body || "尚未记录意见")}</div></article>`;

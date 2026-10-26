@@ -1,3 +1,6 @@
+import { alignedEntryOpenings } from "./entry-assembly";
+import { recessedFloor, recessedPortico, porticoFrontZ as currentPorticoFrontZ, porticoWallZ, mainLocalX, mirroredBuildings, recessFrontFacades, recessedFootprint, fitFacadeOpening, hasThirdFloorSideTerraces, frontTerracePosts, thirdFloorWingIsClosed } from "./building-variants";
+import { porticoColumnCenters, porticoColumnOuterWidth } from "./frontage-geometry";
 import {
   floors,
   site,
@@ -29,7 +32,8 @@ import { ensureFurnitureWallClearance } from "./layout-align";
 import type { LayoutDraft, StairDraft, PorticoDraft, VoidDraft, ExteriorOpeningDraft } from "./layout-draft";
 import { draftHasStair } from "./layout-draft";
 import { stairShape, stairWellBounds, fitStairToRoom } from "./stair-geometry";
-import { bedLayout, furnitureHasFacing, furnitureLocalBounds } from "./furniture-catalog";
+import { bedLayout, furnitureHasFacing, furnitureHasUseZone, furnitureLocalBounds } from "./furniture-catalog";
+import { floorplanFurnitureSymbol } from "./floorplan-furniture";
 import { openingSymbolSvg, openingHandlesSvg, normalizeOpening } from "./openings";
 import {
   type CourtyardDimLayout,
@@ -50,6 +54,7 @@ const colors: Record<Room["kind"], string> = {
   store: "#e5dfd1",
   void: "url(#void)",
 };
+export { colors as planRoomColors };
 /**
  * 户型平面图整体旋转 180°：门头（北）朝下、屋后（南）朝上。
  * 世界坐标仍为 X 东、Z 南；仅改变 SVG 观看方向。院坪总图不转。
@@ -131,7 +136,7 @@ function hDimChain(
 function vDimChain(
   breaks: number[],
   x: number,
-  opts: { side: "east" | "west"; fromX: number | ((z: number) => number) },
+  opts: { side: "east" | "west"; fromX: number | ((z: number) => number); inwardLabel?: boolean },
 ) {
   if (breaks.length < 2) return "";
   const xx = dimN(x);
@@ -151,31 +156,38 @@ function vDimChain(
     const seg = planDimSpanMm(a, b);
     if (seg <= 0) continue;
     const mid = dimN((a + b) / 2);
-    const lx = dimN(opts.side === "east" ? x + 300 : x - 300);
+    const offset = (opts.inwardLabel ? -1 : 1) * 300;
+    const lx = dimN(opts.side === "east" ? x + offset : x - offset);
     labels += text(lx, mid, String(seg), "dim-mm", rot);
   }
   return `${ext}${line}${ticks}${labels}`;
 }
 
 /**
- * 外圈：接外墙的墙线定位（只标相交侧）＋主楼门厅柱心控制＋外皮总尺寸。
+ * 外圈：接外墙的墙线定位（只标相交侧）＋主楼堂屋开间控制＋外皮总尺寸。
  * 总宽只标北侧、总进深只标东侧，避免对边重复；贯通墙的定位尺寸在相交两侧均保留。
  */
-function planOuterDimensions(index: number, northClear: number, source: PlanSource, building: PlanBuilding) {
+function planOuterDimensions(index: number, northClear: number, source: PlanSource, building: PlanBuilding, continuous = false, selectedStair = false) {
   const body = building === "annex" ? site.annex : site.main;
   const dims = collectPlanDimensions(index, source.floor, source.annexPartitions, building);
   const { northXs, southXs, eastZs, westZs, controls, xLo, xHi, front, south } = dims;
-  const northDetail = northXs.length > 2, southDetail = southXs.length > 2;
-  const eastDetail = eastZs.length > 2, westDetail = westZs.length > 2;
   const porticoControl = building === "main" && controls.length > 2;
+  // 同一组毫米端点只画一条链；不能用近似距离吞掉真实的墙线偏移。
+  const sameNorthChain = porticoControl && northXs.length === controls.length
+    && northXs.every((x, i) => dimN(x) === dimN(controls[i]));
+  const northDetail = northXs.length > 2 && !sameNorthChain, southDetail = southXs.length > 2;
+  const eastDetail = eastZs.length > 2, westDetail = westZs.length > 2;
   const nInner = northClear - PLAN_DIM_FACE;
   const sInner = south + PLAN_DIM_FACE;
   const nWall = nInner;
   const sWall = sInner;
-  // 门头朝下时北侧在画面下方：墙线 → 门厅柱心控制（4500｜4600｜4500）→ 总宽（总宽不再在南侧重复）
+  // 门头朝下时北侧在画面下方：墙线 → 堂屋开间控制（4500｜4500｜4600）→ 总宽。
   const nControl = nWall - (northDetail ? PLAN_DIM_CHAIN : 0);
   const nOuter = nControl - (porticoControl ? PLAN_DIM_CHAIN : 0);
-  const sOuter = sWall + (southDetail ? PLAN_DIM_CHAIN : 0);
+  // 梯间模型边框不是墙线；仅在选中楼梯时补局部宽深，不拆整栋外圈定位链。
+  const stair = building === "main" && source.stairPresent && selectedStair ? source.stair.room : null;
+  const sStair = sWall + (southDetail ? PLAN_DIM_CHAIN : 0);
+  const sOuter = stair ? sStair : sWall;
   const eastFace = body.x + body.w;
   const westFace = body.x;
   const eInner = eastFace + PLAN_DIM_FACE;
@@ -184,6 +196,12 @@ function planOuterDimensions(index: number, northClear: number, source: PlanSour
   const wInner = westFace - PLAN_DIM_FACE;
   const wWall = wInner;
   const wOuter = wWall - (westDetail ? PLAN_DIM_CHAIN : 0);
+  // 连续画布的子孙道只有1800：两侧仅放墙线链，数字各自朝向所属建筑；
+  // 辅楼总进深移到外侧，不能与主楼西侧墙距占同一条线。
+  const gapSide = continuous && index === 0;
+  const annexOverallWest = gapSide && building === "annex" && !mirroredBuildings();
+  const overallWest = gapSide && building === "main" && mirroredBuildings() || annexOverallWest;
+  const caption = (x: number, content: string) => continuous ? text(x, south + 850, content, "dim-chain-caption") : "";
   const group = (side: string, kind: string, title: string, svg: string) =>
     `<g data-dim-side="${side}" data-dim-kind="${kind}"><title>${title}</title>${svg}</g>`;
   const horizontal = (side: "north" | "south", breaks: number[], z: number) =>
@@ -195,10 +213,10 @@ function planOuterDimensions(index: number, northClear: number, source: PlanSour
       ? group(
           "north",
           "control",
-          "门厅柱心控制：西外皮→西柱心｜两柱心距｜东柱心→东外皮（门头侧；旋转后在画面下方）",
+          "面宽分档：客厅侧｜堂屋／门厅｜另一翼（门头侧；旋转后在画面下方）",
           hDimChain(controls, nControl, {
             labelSide: "north",
-            // 中间 4600 两端对准门厅柱心；左右 4500 仍接到主楼前墙外皮。
+            // 中间4500两端是堂屋开间边线，与外伸门厅柱最外缘对齐。
             fromZ: (x) => {
               const porch = source.portico;
               const atCol =
@@ -213,10 +231,19 @@ function planOuterDimensions(index: number, northClear: number, source: PlanSour
       fromZ: porticoControl ? nControl : northDetail ? nWall : front,
     })),
     southDetail ? horizontal("south", southXs, sWall) : "",
+    stair ? group("south", "stair", "选中梯间局部宽度（模型边框，非墙线或净宽）",
+      hDimChain([stair.x, stair.x + stair.w], sStair, { labelSide: "south", fromZ: stair.z + stair.d })) : "",
+    stair ? (() => {
+      const west = stair.x + stair.w / 2 < (xLo + xHi) / 2;
+      const x = west ? wOuter - (overallWest ? PLAN_DIM_CHAIN : 0)
+        : eOuter + (overallWest ? 0 : PLAN_DIM_CHAIN);
+      return group(west ? "west" : "east", "stair", "选中梯间局部进深（模型边框，非墙线或净宽）",
+        vDimChain([stair.z, stair.z + stair.d], x, { side: west ? "west" : "east", fromX: west ? stair.x : stair.x + stair.w }));
+    })() : "",
     // 总宽只保留北侧；南侧仅保留接南墙的墙线定位。
-    eastDetail ? group("east", "walls", "东侧墙线定位（仅接东外墙的实体墙）", vDimChain(eastZs, eWall, { side: "east", fromX: (z) => dims.verticalFrom("east", z) })) : "",
-    group("east", "overall", "外皮总进深", vDimChain([front, south], eOuter, { side: "east", fromX: eastDetail ? eWall : eastFace })),
-    westDetail ? group("west", "walls", "西侧墙线定位（仅接西外墙的实体墙；贯通墙两侧均标）", vDimChain(westZs, wWall, { side: "west", fromX: (z) => dims.verticalFrom("west", z) })) : "",
+    eastDetail ? group("east", "walls", `${building === "main" ? "主楼" : "辅楼"}东侧墙线定位（外皮至墙中线；仅接东外墙的实体墙）`, vDimChain(eastZs, eWall, { side: "east", fromX: (z) => dims.verticalFrom("east", z), inwardLabel: gapSide && (mirroredBuildings() ? building === "main" : building === "annex") }) + (gapSide && (mirroredBuildings() ? building === "main" : building === "annex") ? caption(eWall, building === "main" ? "主楼东侧" : "辅楼东侧") : "")) : "",
+    group(overallWest ? "west" : "east", "overall", "外皮总进深", vDimChain([front, south], overallWest ? wOuter : eOuter, { side: overallWest ? "west" : "east", fromX: overallWest ? westDetail ? wWall : westFace : eastDetail ? eWall : eastFace })),
+    westDetail ? group("west", "walls", `${building === "main" ? "主楼" : "辅楼"}西侧墙线定位（外皮至墙中线；仅接西外墙的实体墙；贯通墙两侧均标）`, vDimChain(westZs, wWall, { side: "west", fromX: (z) => dims.verticalFrom("west", z), inwardLabel: gapSide && (mirroredBuildings() ? building === "annex" : building === "main") }) + (gapSide && (mirroredBuildings() ? building === "annex" : building === "main") ? caption(wWall, building === "main" ? "主楼西侧" : "辅楼西侧") : "")) : "",
     // 总进深只保留东侧；西侧仅保留接西墙的墙线定位。
   ];
   return { svg: parts.join(""), northOuter: nOuter, southOuter: sOuter };
@@ -259,7 +286,7 @@ export interface PlanSource {
 
 export function planSourceFromPublished(index: number): PlanSource {
   return {
-    floor: floors[index],
+    floor: recessedFloor(floors[index]),
     annexRooms,
     annexPartitions,
     annexFurniture,
@@ -277,7 +304,7 @@ export function planSourceFromPublished(index: number): PlanSource {
 
 export function planSourceFromDraft(draft: LayoutDraft, index: number): PlanSource {
   return {
-    floor: draft.floors[index],
+    floor: recessedFloor(draft.floors[index]),
     annexRooms: draft.annexRooms,
     annexPartitions: draft.annexPartitions,
     annexFurniture: draft.annexFurniture,
@@ -287,7 +314,8 @@ export function planSourceFromDraft(draft: LayoutDraft, index: number): PlanSour
     sideDoorZ: draft.sideDoorZ,
     sideDoorWidth: draft.sideDoorWidth,
     thirdFront: draft.floors[2].front,
-    exteriorOpenings: draft.exteriorOpenings,
+    exteriorOpenings: alignedEntryOpenings(draft).map(item => item.opening.kind === "slidingDoor" && thirdFloorWingIsClosed(item.floor, item.facadeIndex, item.opening.offset + item.opening.width / 2)
+      ? { ...item, opening: { ...item.opening, kind: "window" as const } } : item),
     exteriorManaged: draft.exteriorManaged,
     stairPresent: draftHasStair(draft),
   };
@@ -368,8 +396,19 @@ function facade(
 ) {
   const angle = (Math.atan2(p.b[1] - p.a[1], p.b[0] - p.a[0]) * 180) / Math.PI,
     len = Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]);
+  if (p.sourceFacadeIndex != null) {
+    const sourceIndex = p.sourceFacadeIndex, shift = p.sourceOffset ?? 0;
+    draftOpenings = draftOpenings.map(item => {
+      if (item.floor !== floorKey || item.facadeIndex !== sourceIndex) return { ...item, floor: -1 };
+      const center = item.opening.offset + item.opening.width / 2;
+      const fitted = sourceIndex === 0 ? fitFacadeOpening(center, item.opening.width, shift, shift + len)
+        : { offset: item.opening.offset - shift, width: item.opening.width };
+      if (!fitted) return { ...item, floor: -1 };
+      return { ...item, facadeIndex, opening: { ...item.opening, ...fitted } };
+    });
+  }
   const thick = construction.outsideWall;
-  const hit = editable
+  const hit = editable && (!recessedPortico() || p.sourceFacadeIndex != null)
     ? `<path d="M0 0 H${len}" class="edit-hit" data-edit="facade" data-index="${facadeIndex}" data-floor="${floorKey}" stroke-width="400"/>`
     : "";
   const openingHide: [number, number][] = [];
@@ -437,7 +476,9 @@ function furnitureFacingMark(f: Furniture, pick: string) {
 }
 
 /** pick：写在真实绘制图形上，空白／外包矩形不能点选。 */
-function furnitureSymbol(f: Furniture, pick = "") {
+export function furnitureSymbol(f: Furniture, pick = "") {
+  const upstream = floorplanFurnitureSymbol(f, pick);
+  if (upstream !== undefined) return upstream + furnitureFacingMark(f, pick);
   const cls = `furniture ${f.kind}`;
   const a = (classes: string, extra = "") => `${extra} class="${classes}"${pick}`.trim();
   const face = furnitureFacingMark(f, pick);
@@ -571,6 +612,27 @@ function stairPlan(s: StairDraft, floorIndex: number, editable: boolean, roomId:
     const p = g.point(a, l), q = g.point(b, m);
     return `<path d="M${p.x} ${p.z} L${q.x} ${q.z}" class="${cls}"/>`;
   };
+  if (g.model === "triple") {
+    const flights = g.flights.map((f, index) => {
+      const overhead = floorIndex === 0 && index > 0;
+      const lines = Array.from({ length: f.risers }, (_, i) => f.axis === "along"
+        ? path(f.cross, f.along + i * f.tread, f.cross + f.crossSize, f.along + i * f.tread, "step-line")
+        : path(f.cross + i * f.tread, f.along, f.cross + i * f.tread, f.along + f.alongSize, "step-line")).join("");
+      const length = f.axis === "along" ? f.alongSize : f.crossSize;
+      const sign = f.sign * (floorIndex === 2 ? -1 : 1);
+      const pt = (t: number) => g.point(f.cross + (f.axis === "across" ? length * t : f.crossSize / 2), f.along + (f.axis === "along" ? length * t : f.alongSize / 2));
+      const a = pt(sign > 0 ? .2 : .8), b = pt(sign > 0 ? .8 : .2);
+      const len = Math.hypot(b.x - a.x, b.z - a.z), u = (b.x - a.x) / len, v = (b.z - a.z) / len;
+      const arrow = `<path d="M${a.x} ${a.z} L${b.x} ${b.z} M${b.x - u * 140 - v * 80} ${b.z - v * 140 + u * 80} L${b.x} ${b.z} L${b.x - u * 140 + v * 80} ${b.z - v * 140 - u * 80}" class="stair-arrow"/>${text(a.x, a.z, floorIndex === 2 ? "下" : "上", "stair-note")}`;
+      return `<g data-stair-flight="${index + 1}">${box(f.bounds, overhead ? "stair-overhead" : "stair-flight")}${!overhead ? lines : ""}
+        ${!overhead ? rect(f.bounds.x, f.bounds.z, f.bounds.w, f.bounds.d, `class="edit-hit" ${editable ? 'data-edit="stair"' : ''} fill="transparent"`) : ""}
+        <g pointer-events="none">${!overhead ? arrow : ""}</g></g>`;
+    }).join("");
+    const platforms = g.platforms.map((p, i) => `${box(p.bounds, floorIndex === 0 && i === 1 ? "stair-overhead" : "stair-platform")}${floorIndex > 0 || i === 0 ? rect(p.bounds.x, p.bounds.z, p.bounds.w, p.bounds.d, `class="edit-hit" ${editable ? 'data-edit="stair"' : ''} fill="transparent"`) : ""}`).join("");
+    const label = g.point(g.across / 2, g.run / 2);
+    return `<g data-stair-floor="${floorIndex}" data-stair-model="triple" data-stair-direction="${s.axis}:${g.direction}" data-lower-side="${g.lowerSide}" data-room="${roomId}" tabindex="0" role="button" aria-label="三跑楼梯，三段直梯与两个转角平台">
+      ${flights}${platforms}<g pointer-events="none">${text(label.x, label.z, "三跑楼梯", "stair-note")}${text(label.x, label.z + 230, `梯间 ${Math.round(well.w)}×${Math.round(well.d)}`, "stair-size")}</g></g>`;
+  }
   const treads = (cross: number, start: number, count: number) => Array.from({length: count + 1}, (_, i) =>
     path(cross, start + i * s.tread, cross + s.flight, start + i * s.tread, "step-line")).join("");
   const arrow = (cross: number, reverse: boolean, label: string) => {
@@ -585,7 +647,7 @@ function stairPlan(s: StairDraft, floorIndex: number, editable: boolean, roomId:
   const label = g.point(g.lowerAcross + s.flight / 2, g.run / 2);
   const free = g.point(g.upperAcross + s.flight / 2, g.run / 2);
   const size = g.point(g.across / 2, g.run + s.landing / 2);
-  return `<g data-stair-floor="${floorIndex}" data-lower-side="${g.lowerSide}" data-room="${roomId}" tabindex="0" role="button" aria-label="楼梯，一层返跑下方可用，两侧优先共用已有墙体">
+  return `<g data-stair-floor="${floorIndex}" data-stair-direction="${s.axis}:${g.direction}" data-lower-side="${g.lowerSide}" data-room="${roomId}" tabindex="0" role="button" aria-label="楼梯，一层返跑下方可用，两侧优先共用已有墙体">
     ${box(g.lower, "stair-flight")}${box(g.landing, "stair-platform")}
     ${floorIndex > 0 ? box(g.upper, "stair-flight") : box(g.upper, "stair-overhead")}
     ${treads(g.lowerAcross, g.lowerStart, g.lowerTreads)}
@@ -745,6 +807,8 @@ export type AlignGuide =
   | { kind: "room"; x: number; z: number; w: number; d: number };
 
 export interface PlanOptions {
+  /** 编辑器连续画布；普通图纸导出保留完整制图表达。 */
+  editorCanvas?: boolean;
   inside?: boolean;
   useZones?: boolean;
   dining?: "full" | "daily";
@@ -806,22 +870,35 @@ export function renderDrawGuide(g: DrawGuide) {
   return `<g id="edit-draw-guide" class="edit-draw-guide" pointer-events="none">${axes}${alignX}${alignZ}${rubber}${start}${end}${label}${hint}</g>`;
 }
 function useZone(f: Furniture) {
-  if (!["bed", "wardrobe", "cabinet", "toilet", "squatToilet", "basin", "sink", "stove", "hob", "dressingTable"].includes(f.kind)) return "";
+  if (!furnitureHasUseZone(f.kind)) return "";
   const b = furnitureLocalBounds(f);
   return `<g pointer-events="none" transform="translate(${f.x} ${f.z}) rotate(${(-(f.rotation ?? 0) * 180) / Math.PI})">${rect(b.x0 - 600, b.z0 - 600, b.x1 - b.x0 + 1200, b.z1 - b.z0 + 1200, 'class="use-zone"')}<title>家具四周600讨论留位；使用方向、门扇及实际净宽待设计</title></g>`;
 }
 
-/** 平面门厅柱：柱心在外伸北沿左右两角（与 frontElevation / syncFrontElevation 一致）。 */
+/** 平面含柱脚／柱头饰线，柱心落在门厅前沿两角。 */
 function porticoPosts(porch: PorticoDraft) {
-  const w = frontElevation.porticoColumnDepth;
-  return [
-    { x: porch.x, w },
-    { x: porch.x + porch.w, w },
-  ];
+  const shaft = frontElevation.porticoColumnDepth;
+  const w = porticoColumnOuterWidth(shaft);
+  return porticoColumnCenters(porch).map(x => ({ x, w }));
 }
 
 export function floorPlan(index: number, clearance: boolean, balcony: boolean, options: PlanOptions = {}, source?: PlanSource) {
   if (!source) ensureFurnitureWallClearance();
+  if (options.editorCanvas) {
+    const src = source ?? planSourceFromPublished(index);
+    const west = index === 0 ? Math.min(site.annex.x, site.main.x) : site.main.x;
+    const north = Math.min(src.floor.front, currentPorticoFrontZ());
+    const frame = planFrame(west, index === 0 ? Math.max(site.annex.x + site.annex.w, site.main.x + site.main.w) : site.main.x + site.main.w, north - 1000, site.main.z + site.main.d + 1000);
+    const { cx, cy } = planViewCenter(frame.viewBox);
+    return `<svg class="floor-svg editor-floor-svg ${options.editable ? "editing" : ""}" data-plan-building="all" data-canvas-floor="${index}" xmlns="http://www.w3.org/2000/svg" viewBox="${frame.viewBox}" aria-label="${src.floor.name}统一户型编辑画布，南向上，西向右，长度单位毫米">
+      <defs><pattern id="editor-dot-grid" patternUnits="userSpaceOnUse" width="500" height="500"><circle cx="250" cy="250" r="18" fill="#d4cbbb"/></pattern></defs>
+      <g class="plan-world" transform="rotate(180 ${dimN(cx)} ${dimN(cy)})">
+        <rect class="editor-world-grid" x="-100000" y="-100000" width="200000" height="200000" fill="url(#editor-dot-grid)"/>
+        ${buildingFloorPlan(index, clearance, balcony, options, src, "main")}
+        ${index === 0 ? buildingFloorPlan(index, clearance, balcony, options, src, "annex") : ""}
+      </g>
+    </svg>`;
+  }
   const shared = collectPlanSiteDimensions();
   const m = (mm: number) => formatMm(mm);
   const names = ["西侧", "辅楼", "子孙道", "主楼", "东侧"];
@@ -852,15 +929,14 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
   const editable = !!options.editable;
   const allRooms = isAnnex ? src.annexRooms : f.rooms;
   const porch = src.portico;
-  const porchFront = site.main.z - porch.projection;
+  const porchFront = currentPorticoFrontZ();
   const elevation = frontElevation;
   const posts = porticoPosts(porch);
   const [westPost, , , eastPost] = elevation.balustradePosts;
-  const middleWest = { ...elevation.balustradePosts[1], x: posts[0].x, w: posts[0].w };
-  const middleEast = { ...elevation.balustradePosts[2], x: posts[1].x, w: posts[1].w };
+  const middleWest = { ...elevation.balustradePosts[1], x: posts[0].x };
   const wallFace = src.thirdFront;
   const sideFront = elevation.terraceFront;
-  const terraceRails = `<path d="M${westPost.x} ${wallFace} V${sideFront} H${middleWest.x} M${eastPost.x} ${wallFace} V${sideFront} H${middleEast.x} M${middleWest.x} ${elevation.postZ} V${middleWest.z} H${middleEast.x} V${elevation.postZ}" class="balustrade"/>`;
+  const terraceRails = `<path d="${hasThirdFloorSideTerraces() ? `M${westPost.x} ${wallFace} V${sideFront} H${porch.x} M${eastPost.x} ${wallFace} V${sideFront} H${porch.x + porch.w} ` : ""}M${porch.x} ${elevation.postZ} V${middleWest.z} H${porch.x + porch.w} V${elevation.postZ}" class="balustrade"/>`;
   const s = `<defs><pattern id="void" patternUnits="userSpaceOnUse" width="280" height="280" patternTransform="rotate(45)"><rect width="280" height="280" fill="#f4f3ee"/><path d="M0 0 V280" stroke="#d8d6cc" stroke-width="45"/></pattern></defs>`;
   const mainPartitions = f.partitions;
   const annexParts = src.annexPartitions;
@@ -876,13 +952,22 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
       const fill = roomFillBounds(r, index, partitionsFor(r));
       const irregular = !roomIsRectangular(r);
       const areas = roomAreas(r, index, partitionsFor(r));
-      const buildingMm = `${Math.round(r.w)}×${Math.round(r.d)}=${areas.building.toFixed(2)}㎡`;
-      const netMm = `${Math.round(fill.w)}×${Math.round(fill.d)}=${areas.interior.toFixed(2)}㎡`;
+      if (options.editorCanvas) {
+        const status = r.kind === "void" ? "挑空 · 无楼板" : r.boundary?.status === "unbounded" ? "失去围合 · 待核" : `净空 ${areas.interior.toFixed(2)}㎡`;
+        return `<g class="room-label" data-label-x="${x}" data-label-z="${z}" pointer-events="none">${text(x, z + 180, r.name)}${text(x, z - 180, status, "room-area-net")}</g>`;
+      }
+      const buildingMm = irregular
+        ? `墙线 ${areas.building.toFixed(2)}㎡ · 包络 ${Math.round(r.w)}×${Math.round(r.d)}`
+        : `${Math.round(r.w)}×${Math.round(r.d)}=${areas.building.toFixed(2)}㎡`;
+      const netMm = Math.abs(fill.w * fill.d / 1_000_000 - areas.interior) > .001
+        ? `净空 ${areas.interior.toFixed(2)}㎡ · 包络 ${Math.round(fill.w)}×${Math.round(fill.d)}`
+        : `${Math.round(fill.w)}×${Math.round(fill.d)}=${areas.interior.toFixed(2)}㎡`;
       const status = [r.kind === "void" ? "两层通高 · 无楼板" : "", irregular ? "凹形：包络尺寸／轮廓面积" : "", r.boundary?.status === "unbounded" ? "失去围合 · 面积待核" : r.boundary?.status === "open" ? "开敞分区" : ""].filter(Boolean).join(" · ");
       return `<g class="room-label" pointer-events="none">${text(x, z + labelStack.name, r.name)}${text(x, z + labelStack.mid, buildingMm, "room-size")}${text(x, z + labelStack.net, netMm, "room-area-net")}${status ? text(x, z + (PLAN_ENTRANCE_DOWN ? -300 : 740), status, "room-area-net") : ""}</g>`;
     })
     .join("");
   const stair = src.stair;
+  const stairBounds = stairShape(stair).footprint;
   const stepLines = !isAnnex && src.stairPresent ? stairPlan(stair, index, editable, f.rooms.find(r => r.kind === "stair")?.id ?? `stair${index}`) : "";
   // 户型图不画门厅柱间三步与左右侧坡道（仅立体模型保留）。
   const columnNorth = elevation.porticoColumnZ - elevation.porticoColumnDepth / 2;
@@ -961,8 +1046,8 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     (!isAnnex && editable && selected?.kind === "portico"
       ? rect(porch.x, porchY, porch.w, porchH, 'class="edit-selection" fill="none"')
       : !isAnnex && editable && src.stairPresent && selected?.kind === "stair"
-        ? `${rect(stair.room.x, stair.room.z, stair.room.w, stair.room.d, 'class="edit-selection" fill="none"')}
-              ${[["nw", stair.room.x, stair.room.z], ["ne", stair.room.x + stair.room.w, stair.room.z], ["sw", stair.room.x, stair.room.z + stair.room.d], ["se", stair.room.x + stair.room.w, stair.room.z + stair.room.d]]
+        ? `${rect(stairBounds.x, stairBounds.z, stairBounds.w, stairBounds.d, 'class="edit-selection" data-stair-selection="1" fill="none"')}
+              ${[["nw", stairBounds.x, stairBounds.z], ["ne", stairBounds.x + stairBounds.w, stairBounds.z], ["sw", stairBounds.x, stairBounds.z + stairBounds.d], ["se", stairBounds.x + stairBounds.w, stairBounds.z + stairBounds.d]]
                 .map(([c, x, z]) => `<rect x="${Number(x) - 120}" y="${Number(z) - 120}" width="240" height="240" class="edit-handle" data-edit="stair-handle" data-corner="${c}"/>`)
                 .join("")}`
         : "");
@@ -973,7 +1058,7 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     : index === 2
       ? Math.min(elevation.centerFront, elevation.terraceFront, porchY)
       : Math.min(porchFront, columnNorth);
-  const dimensions = planOuterDimensions(index, northClear, src, building);
+  const dimensions = planOuterDimensions(index, northClear, src, building, !!options.editorCanvas, editable && selected?.kind === "stair");
   const body = isAnnex ? site.annex : site.main;
   const regionBody = isAnnex ? body : { ...body, z: f.front, d: site.main.z + site.main.d - f.front };
   // 「分区／分区包络」易与房间混淆：仅在虚线分区中心尚未被房间占用时标注，并改用更明确文案。
@@ -1003,7 +1088,7 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
           b: w.b,
           thick: wallRoleOf(w) === "bearing" ? construction.outsideWall : construction.partition,
         })),
-        ...facades(index).map((w) => ({ a: w.a, b: w.b, thick: construction.outsideWall })),
+        ...recessFrontFacades(facades(index), f.front).map((w) => ({ a: w.a, b: w.b, thick: construction.outsideWall })),
       ];
   // 固定预留标注空间；实体墙增减尺寸分段时坐标系保持不变。
   const frame = planFrame(
@@ -1015,24 +1100,26 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
   const noteZ = dimensions.southOuter + 950;
   const { cx, cy } = planViewCenter(frame.viewBox);
   const orientLabel = PLAN_ENTRANCE_DOWN ? "南向上，西向右（门头朝下）" : "北向上，东向右";
-  const worldOpen = PLAN_ENTRANCE_DOWN
+  const worldOpen = options.editorCanvas ? `<g class="editor-building" data-plan-building="${building}">` : PLAN_ENTRANCE_DOWN
     ? `<g class="plan-world" transform="rotate(180 ${dimN(cx)} ${dimN(cy)})">`
     : `<g class="plan-world">`;
-  return `<svg data-plan-building="${building}" class="floor-svg ${isAnnex ? "annex-floor-svg" : "main-floor-svg"} ${editable ? "editing" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="${frame.viewBox}" aria-label="${isAnnex ? "辅楼一层" : `主楼${f.name}`}户型平面图，${orientLabel}${options.dining === "daily" ? "，餐厅日常6座建议情景" : ""}${editable ? "，编辑模式" : ""}">
-    ${s}<rect x="${frame.board.x}" y="${frame.board.z}" width="${frame.board.w}" height="${frame.board.h}" rx="200" fill="#fbfaf6"/>
+  return `${options.editorCanvas ? "" : `<svg data-plan-building="${building}" class="floor-svg ${isAnnex ? "annex-floor-svg" : "main-floor-svg"} ${editable ? "editing" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="${frame.viewBox}" aria-label="${isAnnex ? "辅楼一层" : `主楼${f.name}`}户型平面图，${orientLabel}${options.dining === "daily" ? "，餐厅日常6座建议情景" : ""}${editable ? "，编辑模式" : ""}">`}
+    ${s}${options.editorCanvas ? "" : `<rect x="${frame.board.x}" y="${frame.board.z}" width="${frame.board.w}" height="${frame.board.h}" rx="200" fill="#fbfaf6"/>`}
     ${worldOpen}
     ${dimensions.svg}
-    ${!isAnnex && index === 2 ? `${elevation.sideTerraces.map(t => rect(t.x, elevation.terraceFront, t.w, elevation.terraceBack - elevation.terraceFront, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width="60"')).join("")}${text(8850, -200, "西侧露台", "dim-label")}${text(18400, -200, "东侧露台", "dim-label")}` : ""}
+    ${!isAnnex && index === 2 && hasThirdFloorSideTerraces() ? `${elevation.sideTerraces.map(t => rect(t.x, elevation.terraceFront, t.w, f.front + 40 - elevation.terraceFront, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width="60"')).join("")}${text(8850, -200, "西侧露台", "dim-label")}${text(18400, -200, "东侧露台", "dim-label")}` : ""}
     ${porticoHit}${!isAnnex ? rect(porch.x, porchY, porch.w, porchH, `fill="${index === 1 ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width="60"`) : ""}
     ${!isAnnex ? text(porch.x + porch.w / 2, -1950, index === 2 ? "中央露台 · 前方敞开" : index === 1 ? "门厅上空 · 无楼板" : `门厅 ${formatMm(porch.w)}×${formatMm(porch.projection)} · 计入首层合计`, "dim-label") : ""}
-    ${!isAnnex ? `${index < 2 ? `${posts.map(p => rect(p.x - p.w / 2, elevation.porticoColumnZ - elevation.porticoColumnDepth / 2, p.w, elevation.porticoColumnDepth, 'fill="#879183"')).join("")}${cornerColumn(site.main.x + 120, f.front + 120, -1)}${cornerColumn(site.main.x + site.main.w - 120, f.front + 120, 1)}` : `${terraceRails}${elevation.balustradePosts.map(p => rect(p.x - p.w / 2, p.z - p.w / 2, p.w, p.w, 'fill="#c3bba9" stroke="#777872" stroke-width="40"')).join("")}${posts.map(p => rect(p.x - elevation.dividerWidth / 2, elevation.postZ - 250, elevation.dividerWidth, 500, 'fill="#879183"')).join("")}${text(13700, -480, "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱", "room-size")}`}${cornerColumn(site.main.x + 120, site.main.z + site.main.d - 120, -1, 1)}${cornerColumn(site.main.x + site.main.w - 120, site.main.z + site.main.d - 120, 1, 1)}` : ""}
+    ${!isAnnex ? `${index < 2 ? `${posts.map(p => rect(p.x - p.w / 2, elevation.porticoColumnZ - elevation.porticoColumnDepth / 2, p.w, elevation.porticoColumnDepth, 'fill="#879183"')).join("")}${cornerColumn(site.main.x + 120, f.front + 120, -1)}${cornerColumn(site.main.x + site.main.w - 120, f.front + 120, 1)}` : `${terraceRails}${frontTerracePosts().map(p => rect(p.x - p.w / 2, p.z - p.w / 2, p.w, p.w, 'fill="#c3bba9" stroke="#777872" stroke-width="40"')).join("")}${[porch.x, porch.x + porch.w].map(x => rect(x - elevation.dividerWidth / 2, elevation.postZ - 250, elevation.dividerWidth, 500, 'fill="#879183"')).join("")}${text(site.portico.x + site.portico.w / 2, elevation.centerFront - 400, hasThirdFloorSideTerraces() ? "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱" : "三楼不内退 · 仅保留中央门厅露台", "room-size")}`}${cornerColumn(site.main.x + 120, site.main.z + site.main.d - 120, -1, 1)}${cornerColumn(site.main.x + site.main.w - 120, site.main.z + site.main.d - 120, 1, 1)}` : ""}
     ${!isAnnex ? f.rooms.filter(r => r.kind !== "stair").map((r) => room(r, index, editable, false, mainPartitions)).join("") : ""}
     ${isAnnex ? src.annexRooms.map((r) => room(r, index, editable, true, annexParts)).join("") : ""}
     ${options.useZones ? allFurniture.map(useZone).join("") : ""}
     ${stepLines}
     ${roomLiftFills ? `<g class="room-lift-under-furniture" pointer-events="none">${roomLiftFills}</g>` : ""}
     ${(isAnnex ? [] : f.partitions)
-      .map((p, i) =>
+      .map((p, i) => ({ p, i: p.sourceIndex ?? i }))
+      .sort((a, b) => Number(wallRoleOf(a.p) === "bearing") - Number(wallRoleOf(b.p) === "bearing"))
+      .map(({ p, i }) =>
         partition(
           p,
           i,
@@ -1045,7 +1132,7 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
         ),
       )
       .join("")}
-    ${(isAnnex ? [] : facades(index))
+    ${(isAnnex ? [] : recessFrontFacades(facades(index), f.front))
       .map((p, fi) =>
         facade(
           p,
@@ -1063,7 +1150,9 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
       .join("")}
     ${isAnnex
       ? src.annexPartitions
-          .map((p, i) =>
+          .map((p, i) => ({ p, i: p.sourceIndex ?? i }))
+          .sort((a, b) => Number(wallRoleOf(a.p) === "bearing") - Number(wallRoleOf(b.p) === "bearing"))
+          .map(({ p, i }) =>
             partition(
               p,
               1000 + i,
@@ -1103,7 +1192,7 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     )}
     ${isAnnex && clearance ? `${options.dining !== "daily" ? `<circle cx="${dineClear.cx}" cy="${dineClear.cz}" r="${dineClear.radius}" class="clearance"/>` : text(roundCx, roundCz + 480, "日常示意：圆桌收起 · 收纳待定", "room-size")}` : ""}
     ${!isAnnex && balcony && index === 2 ? (() => {
-      const bx = site.main.x + site.main.w * (12650 - 6800) / 13500;
+      const bx = mainLocalX(site.main.w * (12650 - 6800) / 13500 + (mirroredBuildings() ? 2500 * site.main.w / 13500 : 0));
       const bw = 2500 * (site.main.w / 13500);
       const bz = site.main.z + site.main.d;
       return rect(bx, bz, bw, 1200, 'class="clearance"') + text(bx + bw / 2, bz + 700, "局部浅阳台", "room-size");
@@ -1128,10 +1217,10 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     ${labels}
     ${regionLabels}
     ${text(body.x + body.w / 2, noteZ, `南侧高田 +${formatMm(site.rearField)} · 屋后留 ${formatMm(site.rearGap)}`, "dim-label")}
-    ${options.drawGuide && (options.drawGuide.ax < site.main.x) === isAnnex ? renderDrawGuide(options.drawGuide) : ""}
-    ${options.alignGuide && ((options.alignGuide.kind === "room" ? options.alignGuide.x : options.alignGuide.a[0]) < site.main.x) === isAnnex ? renderAlignGuide(options.alignGuide) : ""}
+    ${options.drawGuide && (options.drawGuide.ax >= site.annex.x && options.drawGuide.ax <= site.annex.x + site.annex.w) === isAnnex ? renderDrawGuide(options.drawGuide) : ""}
+    ${options.alignGuide && ((options.alignGuide.kind === "room" ? options.alignGuide.x : options.alignGuide.a[0]) >= site.annex.x && (options.alignGuide.kind === "room" ? options.alignGuide.x : options.alignGuide.a[0]) <= site.annex.x + site.annex.w) === isAnnex ? renderAlignGuide(options.alignGuide) : ""}
     </g>
-  </svg>`;
+  ${options.editorCanvas ? "" : "</svg>"}`;
 }
 
 export function diningClearance() {
@@ -1285,15 +1374,15 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
   const wallZ = main.z;
   const rearZ = main.z + main.d;
   const siteRear = site.oldDepth;
-  const porchFront = wallZ - porch.projection;
+  const porchFront = currentPorticoFrontZ();
   const colNorth = elev.porticoColumnZ - elev.porticoColumnDepth / 2;
   const porticoCx = porch.x + porch.w / 2;
-  const westCornerX = annex.x;
-  const eastCornerX = main.x + main.w;
+  const westCornerX = Math.min(main.x, annex.x);
+  const eastCornerX = Math.max(main.x + main.w, annex.x + annex.w);
   const westGap = site.sideGap;
   const eastGap = site.width - eastCornerX;
-  const laneX0 = annex.x + annex.w;
-  const laneX1 = main.x;
+  const laneX0 = Math.min(annex.x + annex.w, main.x + main.w);
+  const laneX1 = Math.max(annex.x, main.x);
 
   const frontAt = (x: number) => contourAt(courtyardFront, x);
   const depthFrom = (zFrom: number, x: number) => zFrom - frontAt(x);
@@ -1321,10 +1410,7 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
     "Z",
   ].join(" ");
 
-  const posts = [
-    { x: porch.x + 380, w: 800 },
-    { x: porch.x + porch.w - 380, w: 800 },
-  ];
+  const posts = porticoPosts(porch);
   const annexFront = annex.z;
   const annexRear = annex.z + annex.d;
   const wallDepthAnnexE = depthFrom(annexFront, annexEastX);
@@ -1342,7 +1428,7 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
   const eastColOuterToFront = depthFrom(colNorth, eastCol.x);
   // 主楼左／右开间中心（面对房子：左＝东、右＝西）前墙→外沿
   const rightBayCx = (main.x + porch.x) / 2;
-  const leftBayCx = (porch.x + porch.w + eastCornerX) / 2;
+  const leftBayCx = (porch.x + porch.w + main.x + main.w) / 2;
   const rightBayFront = frontAt(rightBayCx);
   const leftBayFront = frontAt(leftBayCx);
   const rightBayWallToFront = depthFrom(wallZ, rightBayCx);
@@ -1439,7 +1525,7 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
     yardHDim(laneX0, laneX1, siteRear, siteRear + 1100, `子孙道 ${dimMm(site.lane)}`, {
       id: "h-lane", labelSide: "south", small: true, shift: sh("h-lane"),
     }),
-    yardHDim(main.x, eastCornerX, siteRear, siteRear + 1100, `主楼 ${dimMm(main.w)}`, {
+    yardHDim(main.x, main.x + main.w, siteRear, siteRear + 1100, `主楼 ${dimMm(main.w)}`, {
       id: "h-main-w", labelSide: "south", small: true, shift: sh("h-main-w"),
     }),
     yardHDim(eastCornerX, site.width, siteRear, siteRear + 1100, `东侧 ${dimMm(eastGap)}`, {
@@ -1453,12 +1539,12 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
     }),
   ].join("");
 
-  const porchLabelZ = (porchFront + wallZ) / 2;
+  const porchLabelZ = porchFront + porch.projection / 2;
   const callouts = [
     text(annex.x + annex.w / 2, annex.z + annex.d / 2, `辅楼 ${formatMm(annex.w)}×${formatMm(annex.d)}`, "room-name"),
     text(main.x + main.w / 2, main.z + main.d / 2 + 350, `主楼 ${formatMm(main.w)}×${formatMm(main.d)}`, "room-name"),
     // 门厅尺寸写在门厅投影内，不再外挂一条尺寸线
-    text(porticoCx, porchLabelZ - 220, "罗马柱门厅", "room-name"),
+    text(porticoCx, porchLabelZ - 220, recessedPortico() ? "凹入式门厅" : "凸出式罗马柱门厅", "room-name"),
     text(porticoCx, porchLabelZ + 320, `${formatMm(porch.w)}×${formatMm(porch.projection)}`, "room-size"),
     text(nbr.x + nbr.w / 2, nbrWoodFront + nbr.woodDepth / 2, `邻居木房 ${formatMm(nbr.w)}×${formatMm(nbr.woodDepth)}`, "room-name"),
     text(nbr.x + nbr.w / 2, nbr.cementFront + nbr.cementDepth / 2, "邻水泥地", "room-size"),
@@ -1487,7 +1573,7 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
     ${rect(nbr.x, nbrWoodFront, nbr.w, nbr.woodDepth, 'fill="#efe6d6" stroke="#8a7d68" stroke-width="80"')}
     ${rect(0, wallZ, site.width, main.d, 'fill="none" stroke="#b7b9ae" stroke-width="40" stroke-dasharray="200 140"')}
     ${rect(annex.x, annex.z, annex.w, annex.d, 'fill="#f3f0e8" stroke="#5f6a58" stroke-width="100"')}
-    ${rect(main.x, main.z, main.w, main.d, 'fill="#f3f0e8" stroke="#5f6a58" stroke-width="100"')}
+    ${recessedPortico() ? `<path d="${recessedFootprint(main.z).map(([x, z], i) => `${i ? "L" : "M"}${x} ${z}`).join(" ")} Z" fill="#f3f0e8" stroke="#5f6a58" stroke-width="100"/>` : rect(main.x, main.z, main.w, main.d, 'fill="#f3f0e8" stroke="#5f6a58" stroke-width="100"')}
     ${rect(porch.x, porchFront, porch.w, porch.projection, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width="70"')}
     ${posts.map((p) => rect(p.x - p.w / 2, colNorth, p.w, elev.porticoColumnDepth, 'fill="#879183"')).join("")}
     <path d="M${nbr.x} ${nbrYardFront} V${nbrWoodRear}" stroke="#8a9580" stroke-width="50" stroke-dasharray="160 120"/>

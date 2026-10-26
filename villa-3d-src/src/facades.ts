@@ -1,3 +1,4 @@
+import { mirroredBuildings, mirrorFacade, mainLocalX, hasThirdFloorSideTerraces } from "./building-variants";
 import { floors, site, frontElevation, circulation, stairLayout, annexRooms, type Point } from "./data";
 import {
   DOOR_OPENING,
@@ -6,6 +7,7 @@ import {
   doorCenterAgainstHinge,
   type DoorHinge,
   type DoorSide,
+  type OpeningKind,
 } from "./openings";
 import { fasciaBottomY, openingBelowFasciaClearance } from "./roof-options";
 
@@ -15,6 +17,7 @@ export interface Opening {
   sill: number;
   h: number;
   door?: boolean;
+  kind?: OpeningKind;
   /** 双扇平开（堂屋大门等）；默认单开 */
   double?: boolean;
   glazed?: boolean;
@@ -25,6 +28,11 @@ export interface Opening {
   side?: DoorSide;
   // 挑空客厅和正中大门：下层接到本层墙顶，上层从墙底接上，中间不砌墙。
   span?: "lower" | "upper";
+  /** 派生的跨层玻璃ID；墙体只开洞，玻璃与框由跨层构件生成一次。 */
+  continuous?: string;
+  entryAssembly?: string;
+  /** 派生洞口对应的草稿索引，拆分凹入立面后仍保留。 */
+  layoutSourceIndex?: number;
 }
 
 /** 默认主楼面宽（开间／洞口比例基准）。 */
@@ -79,6 +87,8 @@ export interface Facade {
   a: Point;
   b: Point;
   openings: Opening[];
+  sourceFacadeIndex?: number;
+  sourceOffset?: number;
 }
 const wall = (a: Point, b: Point, openings: Opening[] = []): Facade => ({
   a,
@@ -143,11 +153,18 @@ export function centeredWindowOnSpan(
 
 /** 正面洞口中心世界 X（at0 为默认 13.5 m 墙长上的中心距西端）。 */
 export function mainFrontOpeningX(at0: number) {
-  return site.main.x + scaleMainAt(at0);
+  return mainLocalX(scaleMainAt(at0));
 }
 
 // 平面图和3D使用同一组墙体/洞口。坐标位于墙厚中心线。
 export function facades(index: number): Facade[] {
+  const faces = unmirroredFacades(index);
+  if (!mirroredBuildings()) return faces;
+  const body = index === 3 ? site.annex : site.main;
+  return faces.map(f => mirrorFacade(f, body.x * 2 + body.w));
+}
+
+function unmirroredFacades(index: number): Facade[] {
   if (index === 3) {
     const ax = site.annex.x;
     const aw = site.annex.w;
@@ -307,11 +324,11 @@ export function facades(index: number): Facade[] {
                   {
                     at: livingAt,
                     w: livingW,
-                    sill: 0,
-                    h: 2700,
-                    door: true,
+                    sill: hasThirdFloorSideTerraces() ? 0 : 900,
+                    h: hasThirdFloorSideTerraces() ? 2700 : 1800,
+                    door: hasThirdFloorSideTerraces(),
                     glazed: true,
-                    pattern: "sliding",
+                    pattern: hasThirdFloorSideTerraces() ? "sliding" : "villa",
                   },
                   maxH,
                 ),
@@ -331,11 +348,11 @@ export function facades(index: number): Facade[] {
                   {
                     at: teaAt,
                     w: teaW,
-                    sill: 0,
-                    h: 2700,
-                    door: true,
+                    sill: hasThirdFloorSideTerraces() ? 0 : 900,
+                    h: hasThirdFloorSideTerraces() ? 2700 : 1800,
+                    door: hasThirdFloorSideTerraces(),
                     glazed: true,
-                    pattern: "sliding",
+                    pattern: hasThirdFloorSideTerraces() ? "sliding" : "villa",
                   },
                   maxH,
                 ),
@@ -514,4 +531,14 @@ export function facades(index: number): Facade[] {
     ),
   );
   return out;
+}
+
+/** 编辑已有洞口时保持源偏移轴，同时采用该开间真实的凹入墙面。 */
+export function openingFacade(floor: number, facadeIndex: number, offset: number): Facade {
+  const face = facades(floor)[facadeIndex];
+  if (floor === 3 || facadeIndex !== 0 || site.porticoStyle !== "recessed") return face;
+  const length = Math.abs(face.b[0] - face.a[0]);
+  const x = face.a[0] + (face.b[0] - face.a[0]) * offset / length;
+  const shift = x > site.portico.x && x < site.portico.x + site.portico.w ? site.portico.projection : 0;
+  return { ...face, a: [face.a[0], face.a[1] + shift], b: [face.b[0], face.b[1] + shift] };
 }

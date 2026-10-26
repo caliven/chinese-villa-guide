@@ -8,6 +8,7 @@ import {
   formatSavedAtDisplay,
   makeVersionId,
   parseSchemeDocument,
+  persistSchemeFile,
   schemeSchema,
   schemeToJson,
 } from "../src/scheme-store";
@@ -128,4 +129,31 @@ test("savedAt 为北京时间 +08:00，与版本 id 同时段一致", () => {
 
 test("非法 schema 拒绝", () => {
   assert.throws(() => parseSchemeDocument({ schema: "nope" }), /方案版本/);
+});
+
+test("方案真实写入失败必须报错，不回落为下载成功", async t => {
+  for (const status of [400, 403, 500, 507]) {
+    const fetch = t.mock.method(globalThis, "fetch", async () => new Response("write failed", { status }));
+    await assert.rejects(persistSchemeFile("current", createEmptyScheme()), new RegExp(`保存方案失败.*${status}`));
+    fetch.mock.restore();
+  }
+});
+
+test("方案静态服务缺少写接口时仍可下载备份", async t => {
+  const downloads: string[] = [];
+  t.mock.method(globalThis, "fetch", async () => new Response("not found", { status: 404 }));
+  t.mock.method(URL, "createObjectURL", () => "blob:scheme-test");
+  t.mock.method(globalThis, "setTimeout", (() => 0) as unknown as typeof setTimeout);
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", { configurable: true, value: {
+    body: { append() {} },
+    createElement() { return { download: "", click() { downloads.push(this.download); }, remove() {} }; },
+  } });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "document", previous);
+    else Reflect.deleteProperty(globalThis, "document");
+  });
+  const result = await persistSchemeFile("current", createEmptyScheme());
+  assert.equal(result.via, "download");
+  assert.deepEqual(downloads, ["current.json"]);
 });

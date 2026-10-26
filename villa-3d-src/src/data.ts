@@ -2,6 +2,8 @@ import { smoothContour } from "./contours";
 import { placeRoadsideVilla } from "./roadside-villa-layout";
 import { roofGutterDesign, roofTileInset } from "./roof-options";
 import { areaM2 } from "./units";
+import { porticoColumnCenters } from "./frontage-geometry";
+import { getFloorplanFurniture, type FloorplanFurnitureId } from "./floorplan-catalog";
 import {
   DOOR_OPENING,
   doorOffsetAgainstHinge,
@@ -49,6 +51,8 @@ export interface Room {
 /** virtual 仅为开放区域分界，无实体、无墙厚。 */
 export type WallRole = "bearing" | "partition" | "virtual";
 export interface Wall {
+  /** 造型派生拆段对应的原始隔墙索引，不写入户型源稿。 */
+  sourceIndex?: number;
   /** 编辑器内部的稳定身份，删除其他墙后不随数组下标变化。 */
   id?: string;
   a: Point;
@@ -90,7 +94,8 @@ export interface Furniture {
     | "sink"
     | "altar"
     | "shrine"
-    | "railing";
+    | "railing"
+    | FloorplanFurnitureId;
   x: number;
   z: number;
   w: number;
@@ -190,6 +195,8 @@ export function rebuildCourtyardGeometry() {
 }
 
 export const site = {
+  porticoStyle: "projecting" as "projecting" | "recessed",
+  buildingPlacement: "main-east" as "main-east" | "main-west",
   width: 21000,
   oldDepth: 10800,
   // 屋后至梯田边预留默认 1200 mm（2026-10-16 用户改）；前墙 Z＝oldDepth−rearGap−mainDepth＝−400。
@@ -209,8 +216,8 @@ export const site = {
   eave: 800,
   secondFrontEave: 800,
   thirdEave: 800,
-  // 门厅在主楼面宽居中：柱心距 4600 → x = 6600 + (13600−4600)/2 = 11100；左右各 4500。
-  portico: { x: 11100, w: 4600, projection: 2000 },
+  // 西侧客厅4600＋堂屋4500＋东翼4500；门厅前沿两角为柱心。
+  portico: { x: 11200, w: 4500, projection: 2000 },
   // 设计建议：室内一楼比院坪高三步。每步 150mm，不是测绘。面对房子时左侧为东。
   entranceRise: 450,
   rearField: 2500,
@@ -251,7 +258,7 @@ export const site = {
 
 export const buildingAreas = {
   get main() {
-    return areaM2(site.main.w, site.main.d);
+    return areaM2(site.main.w, site.main.d) - (site.porticoStyle === "recessed" ? this.portico : 0);
   },
   get annex() {
     return areaM2(site.annex.w, site.annex.d);
@@ -295,7 +302,7 @@ export const frontElevation = {
   // 露台北缘随后由 syncFrontElevation 按柱位重算；此处与默认柱位一致。
   terraceFront: site.main.z - 120 - 75 - 300,
   terraceBack: site.main.z + site.setback + 40,
-  // 中间露台北缘＝门厅柱北皮（柱心在外伸北沿角上）。
+  // 中间露台北缘＝门厅柱北皮。
   centerFront: site.main.z - site.portico.projection - 400,
   sideTerraces: [
     { x: site.main.x + 180, w: site.portico.x - (site.main.x + 180) },
@@ -304,7 +311,7 @@ export const frontElevation = {
       w: site.main.x + site.main.w - 180 - (site.portico.x + site.portico.w),
     },
   ],
-  // 门厅柱心＝外伸北沿左右两角；改参见 syncFrontElevation。
+  // 贴前墙官帽柱与门厅柱共用堂屋两端分档轴线，门厅柱心在前沿两角。
   postXs: [site.portico.x, site.portico.x + site.portico.w],
   // 与一层前墙外皮同面（柱身进深 500 mm 时中心在外皮南 250 mm）；改参见 syncFrontElevation。
   postZ: site.main.z + 250,
@@ -321,15 +328,15 @@ export const frontElevation = {
   eaveParapet: 500,
   // 两侧露台短柱柱身（中间两根与门厅柱同截面，见 balustradePosts）。盖板另在柱身外每边加 100。
   shortPostWidth: 600,
-  // 柱心在北沿角上：内侧到前墙＝外伸−半柱（默认 2000−400＝1600）。三楼短柱与门厅柱同轴。
+  // 柱心在北沿：内侧到前墙＝外伸−半柱（默认 2000−400＝1600）。三楼短柱与门厅柱同轴。
   porticoColumnWallGap: 1600,
   porticoColumnDepth: 800,
   porticoColumnZ: site.main.z - site.portico.projection,
   // 初始占位；加载／改参后由 villa-params.syncFrontElevation 写成与下层柱同轴。
   balustradePosts: [
     { x: 7095, z: site.main.z - 120 - 75, w: 600 },
-    { x: site.portico.x, z: site.main.z - site.portico.projection, w: 800 },
-    { x: site.portico.x + site.portico.w, z: site.main.z - site.portico.projection, w: 800 },
+    { x: porticoColumnCenters(site.portico)[0], z: site.main.z - site.portico.projection, w: 800 },
+    { x: porticoColumnCenters(site.portico)[1], z: site.main.z - site.portico.projection, w: 800 },
     { x: 20105, z: site.main.z - 120 - 75, w: 600 },
   ],
   // 三楼瓦檐从挡墙顶落到外沿的高差，水平出檐是 secondFrontEave。380 是造型。
@@ -395,6 +402,8 @@ export const stairLayout = {
   landing: 800,
   /** x＝两跑沿东西（左右折返）；z＝两跑沿南北（竖向折返）。布局编辑可选。 */
   axis: "x" as "x" | "z",
+  direction: "positive" as "positive" | "negative",
+  lowerSide: "min" as "min" | "max",
   hole: { x: 16900, z: 2340, w: 2950, d: 2300 },
 };
 // 与当前几何共用的示意尺寸；不是经结构或通行设计确认的数值。
@@ -698,7 +707,7 @@ export const annexFurniture: Furniture[] = [
   const mapFurniture = (f: Furniture, east0: number, south0: number, east1: number, south1: number, kx: number, kz: number) => {
     f.x = east1 - (east0 - f.x) * kx;
     f.z = south1 - (south0 - f.z) * kz;
-    if (!fixedFurniture.has(f.kind)) {
+    if (!fixedFurniture.has(f.kind) && !getFloorplanFurniture(f.kind)) {
       f.w *= kx;
       f.d *= kz;
     }
@@ -828,16 +837,16 @@ export const facts: Fact[] = [
     get note() { return `主辅楼按当前尺寸参数计算；辅楼前墙内退${site.annex.z - site.main.z} mm，后墙齐平。加上门厅${buildingAreas.portico.toFixed(1)}㎡，首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡；报建面积以核定为准。`; },
   },
   {
-    label: "外伸通高门厅",
-    get value() { return `外伸${site.portico.projection} mm / 计入${buildingAreas.portico.toFixed(1)}㎡`; },
+    get label() { return site.porticoStyle === "recessed" ? "凹入通高门厅" : "外伸通高门厅"; },
+    get value() { return `${site.porticoStyle === "recessed" ? "凹入" : "外伸"}${site.portico.projection} mm / 计入${buildingAreas.portico.toFixed(1)}㎡`; },
     source: "用户提供",
-    get note() { return `门厅柱心距${site.portico.w} mm、外伸${site.portico.projection} mm，投影${buildingAreas.portico.toFixed(1)}㎡全额计入首层合计一次。柱间二楼无平台，三楼为露台；首层合计${buildingAreas.total.toFixed(1)}㎡，不等于全楼各层建筑面积总和。`; },
+    get note() { return `堂屋／门厅面宽${site.portico.w} mm（两柱柱心对齐门厅前沿两角，柱心距等于面宽）、${site.porticoStyle === "recessed" ? "凹入" : "外伸"}${site.portico.projection} mm，${site.porticoStyle === "recessed" ? "主楼先扣凹口；" : ""}投影${buildingAreas.portico.toFixed(1)}㎡全额计入首层合计一次。柱间二楼无平台，三楼为露台；首层合计${buildingAreas.total.toFixed(1)}㎡，不等于全楼各层建筑面积总和。`; },
   },
   {
     label: "飘檐 / 官帽 / 天沟",
     value: "二楼前800 mm / 三楼四面800 mm",
     source: "用户提供",
-    note: "主楼三楼、辅楼四面与二楼前栏杆下飘檐均出 0.8m，天沟／三眼皮／梁托（500×200×160）／下沿线同一造型与参数；主楼东檐约超地块东界 0.1m，辅楼前檐可略超院坪西端外沿，邻居／院坪间距仍需现场复核。",
+    note: "主楼屋顶、辅楼四面与二楼顶部挑檐默认均出800 mm。二楼顶部（三楼栏杆下）无天沟：瓦铺到檐边，下方为薄檐板与梁托；主辅楼屋顶及官帽保留天沟、反坎、压顶和三眼皮。梁托默认500×200×160。主楼东檐约超地块东界100 mm，辅楼前檐可略超院坪西端外沿，邻居／院坪间距仍需现场复核。",
   },
   {
     label: "院坪与人行通道",
@@ -847,9 +856,9 @@ export const facts: Fact[] = [
   },
   {
     label: "两侧 / 子孙道",
-    value: "西800／东800／1800 mm",
+    get value() { return `西${site.sideGap}／东${site.width - Math.max(site.main.x + site.main.w, site.annex.x + site.annex.w)}／${site.lane} mm`; },
     source: "设计建议",
-    note: "墙面间距，需另扣栏杆；总宽21米＝西侧0.8＋辅楼4.0＋子孙道1.8＋主楼13.6＋东侧0.8。主楼三楼檐口四面统一 0.8m，东檐因此约探出地块东界 0.1m，不是收回墙至界。主楼和辅楼外的落水管已按用户要求删除。邻居屋檐间距仍需现场复核。",
+    get note() { return `墙面间距，需另扣栏杆；当前${site.buildingPlacement === "main-east" ? "主楼在东、辅楼在西" : "主楼在西、辅楼在东"}，主辅楼面宽${site.main.w}／${site.annex.w} mm、子孙道${site.lane} mm；两侧余量与总宽同步重算。屋檐及邻居间距仍需现场复核。`; },
   },
   {
     label: "后退 / 前伸",
@@ -861,13 +870,13 @@ export const facts: Fact[] = [
     label: "层高",
     value: "3600 / 3600 / 3300 mm",
     source: "用户提供",
-    note: "墙身和檐口仍按楼面0、3.6、7.2米、檐口10.5米。室内一楼完成面比院坪高0.45米，这是三步×150毫米的设计高度，不是测绘。门厅台阶、门前垫高和左右坡道用深褐近黑的抛光石，带浅麻点，对照用户照片，不是石材色卡。踏步前沿防滑线收细，颜色只比石面略浅。石面反光压低，正面看也是深色，不是只在俯瞰时才显出颜色。两根门厅柱前面是整块垫高，三步只嵌在柱与柱中间。门厅柱心落在外伸投影北沿左右两角的直角处；柱内侧到前墙＝外伸−半柱（默认 1.6 米）。面对房子时左右各有一条约2米的侧坡道·坡度待核，外侧边贴着柱子北缘，分别向东、向西降，按0.45米高差/2米投影约22.5%，仅是现有几何示意，适老和无障碍使用条件待设计核定。坡道防滑条改细，颜色只比石面略浅。屋顶没有跟着抬。",
+    note: "墙身和檐口仍按楼面0、3.6、7.2米、檐口10.5米。室内一楼完成面比院坪高0.45米，这是三步×150毫米的设计高度，不是测绘。门厅台阶、门前垫高和左右坡道用深褐近黑的抛光石，带浅麻点，对照用户照片，不是石材色卡。踏步前沿防滑线收细，颜色只比石面略浅。石面反光压低，正面看也是深色，不是只在俯瞰时才显出颜色。两根门厅柱前面是整块垫高，三步只嵌在柱与柱中间。门厅两柱柱心落在门厅北沿的两个直角顶点，柱身与饰线跨轴线居中；柱内侧到前墙＝外伸−半柱（默认 1.6 米）。面对房子时左右各有一条约2米的侧坡道·坡度待核，外侧边贴着柱子北缘，分别向东、向西降，按0.45米高差/2米投影约22.5%，仅是现有几何示意，适老和无障碍使用条件待设计核定。坡道防滑条改细，颜色只比石面略浅。屋顶没有跟着抬。",
   },
   {
     label: "三楼北退",
-    value: "1200 mm",
+    get value() { return site.setback > 0 ? `${site.setback} mm` : "不内退"; },
     source: "设计建议",
-    note: "仅北侧退台，三楼主体外轮廓约13.6×8.8米（主楼进深10−北退1.2）。",
+    get note() { return `三楼主体外包络${site.main.w}×${site.main.d - site.setback} mm；${site.setback > 0 ? "仅北侧退台，两侧露台与中央露台分开" : "两翼前墙与二楼齐平，取消两侧露台、栏杆及短柱，保留中央门厅露台"}。`; },
   },
   {
     label: "梁板与屋脊",

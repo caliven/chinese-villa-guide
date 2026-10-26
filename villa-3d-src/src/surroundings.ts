@@ -164,10 +164,10 @@ export function syncNeighborFootprint(width: number, depth: number) {
   if (span > 100) surroundings.frontHouse.wingRatio = (left - yardWest) / span;
 }
 
-/** 按当前辅楼西墙重算蓝顶邻房世界坐标，并刷新弯道。 */
+/** 蓝顶邻房仍以场地西侧余量定位；互换建筑不移动邻房或道路。 */
 export function syncRoadsideVillaPlacement() {
   const next = placeRoadsideVilla(
-    site.annex.x,
+    site.sideGap,
     site.garageFloor - site.frontFieldDrop - site.frontHouseDrop,
   );
   Object.assign(roadsideVilla, next);

@@ -36,6 +36,11 @@ test("两种官帽同用主辅楼控制尺寸，原有同脊、悬浮落脊，�
   assert.equal(joined.main.d, DEFAULT_VILLA_PARAMS.mainDepth - DEFAULT_VILLA_PARAMS.thirdSetback + 2 * DEFAULT_VILLA_PARAMS.thirdEave);
   assert.equal(joined.hat.peak, joined.mainPeak);
   assert.equal(floating.mainPeak - floating.hat.peak, DEFAULT_VILLA_PARAMS.floatingHatRidgeDrop);
+  assert.equal(joined.frontTrimGap, undefined);
+  assert.deepEqual(floating.frontTrimGap, [frontElevation.postXs[0] - frontElevation.dividerWidth / 2 - 40,
+    frontElevation.postXs[1] + frontElevation.dividerWidth / 2 + 40]);
+  assert.match(roofPlanSvg("floating", "floating"), /clip-path="url\(#roof-floating-main-trim\)"/);
+  assert.doesNotMatch(roofPlanSvg("joined", "joined"), /main-trim/);
   assert.ok(joined.mainFaces.some(f => f.owner === 1));
   assert.ok(floating.mainFaces.some(f => f.owner === 1));
   assert.ok(roofProjectedEdges(joined.mainFaces).some(e => e.kind === "valley"));

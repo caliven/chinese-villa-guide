@@ -247,7 +247,7 @@ type PersistOptions = {
   index?: SchemeVersionsIndex;
 };
 
-/** 优先 POST 一次写入仓库；失败则只下载一个 JSON，避免连下多个文件。 */
+/** 优先 POST 一次写入仓库；静态服务缺少接口时下载一个 JSON。 */
 export async function persistSchemeFile(
   kindOrOpts: "current" | "version" | PersistOptions,
   doc?: SchemeDocument,
@@ -264,26 +264,30 @@ export async function persistSchemeFile(
     current: opts.current ?? null,
     index: opts.index ?? null,
   };
+  let res: Response | undefined;
   try {
-    const res = await fetch("/__scheme_save", {
+    res = await fetch("/__scheme_save", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (res.ok) {
-      const data = (await res.json()) as { path?: string };
-      return {
-        ok: true,
-        via: "api",
-        path: data.path,
-        message:
-          opts.kind === "current"
-            ? `已写入 ${data.path ?? "scheme/current.json"}`
-            : `已保存版本（当前稿＋目录已一并更新）→ ${data.path ?? "scheme/versions/"}`,
-      };
-    }
   } catch {
     /* 静态服务无写入接口时走下载 */
+  }
+  if (res?.ok) {
+    const data = (await res.json()) as { path?: string };
+    return {
+      ok: true,
+      via: "api",
+      path: data.path,
+      message:
+        opts.kind === "current"
+          ? `已写入 ${data.path ?? "scheme/current.json"}`
+          : `已保存版本（当前稿＋目录已一并更新）→ ${data.path ?? "scheme/versions/"}`,
+    };
+  }
+  if (res && ![404, 405, 501].includes(res.status)) {
+    throw new Error(`保存方案失败（${res.status}），当前编辑已保留，请重试`);
   }
 
   // 静态页：无论当前稿还是版本，都只触发一次下载。

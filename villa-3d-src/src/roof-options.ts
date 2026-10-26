@@ -95,6 +95,31 @@ export function gutterInnerLipInset() {
 /** 封闭瓦面挤出厚度（毫米）；略薄于旧值，减轻瓦底与天沟构件共面闪线。 */
 export const roofTileThickness = 50;
 
+/** 二楼顶部的无天沟瓦挑檐，采用独立薄檐板，不套用屋顶三眼皮。造型尺寸，非结构尺寸。 */
+export const apronEaveDesign = {
+  boardThickness: 120,
+  fasciaDrop: 300,
+  fasciaHeight: 100,
+  fasciaProtrusion: 100,
+  supportDepth: 280,
+  parapetThickness: 280,
+  /** 柱位承台每侧比短柱脚多出60，与下沿线连成完整节点。 */
+  postSeatOverhang: 60,
+  /** 两侧次要柱冠比门厅主柱下收，空出的层次由退进柱颈连续衔接。 */
+  cornerCapitalDrop: 180,
+};
+
+export function frontApronSection(parapetTop: number, drop: number) {
+  const tileOuterY = parapetTop - drop;
+  const boardOuterTop = tileOuterY - roofTileThickness;
+  const soffitY = boardOuterTop - apronEaveDesign.boardThickness;
+  const fasciaTopY = soffitY - apronEaveDesign.fasciaDrop;
+  const fasciaBottomY = fasciaTopY - apronEaveDesign.fasciaHeight;
+  return { tileOuterY, boardOuterTop, soffitY, fasciaTopY, fasciaBottomY,
+    columnTopY: fasciaBottomY - apronEaveDesign.cornerCapitalDrop,
+    porticoTopY: fasciaBottomY };
+}
+
 /** 自屋面外轮廓到瓦边：内挡沟侧再减去探出量，瓦边伸进沟内。 */
 export let roofTileInset = gutterInnerLipInset() - roofGutterDesign.tileOverhang;
 

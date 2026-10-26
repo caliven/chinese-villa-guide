@@ -107,7 +107,7 @@ test("外墙洞口删除与移动反映到立面，正立面改动不残留旧�
   side.opening.offset += 100;
   const changed = villaLayoutFacades(0, villaLayoutFromDraft(draft));
   assert.equal(changed[0].openings.length, count - 1);
-  assert.ok(changed[0].openings.every(opening => opening.span === undefined));
+  assert.ok(changed[0].openings.every(opening => opening.span === undefined || opening.entryAssembly), "删除客厅窗不应拆散门厅通高门");
   viewer.rebuildLayout(villaLayoutFromDraft(draft));
   assert.equal(viewer.livingGlass.children.length, 0);
   assert.notEqual(viewer.villa.levels[0], old.levels[0]);

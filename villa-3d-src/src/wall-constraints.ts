@@ -1,6 +1,8 @@
 import { construction, isPhysicalWall, wallRoleOf, type Point, type Wall } from "./data";
 
 export type WallConstraintResult = { ok: boolean; reason?: string };
+/** 显式同线吸附：纠正相接墙端的毫米级错位，其余编辑仍保留原接点偏移。 */
+export type WallLineAlignment = { wallIndex: number; target: number; tolerance?: number };
 type Coordinate = 0 | 1;
 type End = "a" | "b";
 type Axis = Coordinate;
@@ -77,6 +79,7 @@ export function constrainWallEdits(
   walls: Wall[],
   originals: Wall[],
   editedIndices: readonly number[],
+  alignment?: WallLineAlignment,
 ): WallConstraintResult {
   if (walls.length !== originals.length) return { ok: false, reason: "墙体列表与操作快照不一致" };
   const edited = new Set(editedIndices);
@@ -107,8 +110,26 @@ export function constrainWallEdits(
   const contacts: Contact[] = [];
   // 每端有 X/Z 两个节点。连通节点使用相同位移，天然保留原有墙面偏移。
   const node = (i: number, end: End, coordinate: Coordinate) => i * 4 + (end === "b" ? 2 : 0) + coordinate;
-  const edges: number[][] = Array.from({ length: walls.length * 4 }, () => []);
-  const link = (a: number, b: number) => { edges[a]!.push(b); edges[b]!.push(a); };
+  const edges: { node: number; offset: number }[][] = Array.from({ length: walls.length * 4 }, () => []);
+  const alignedWall = alignment && edited.has(alignment.wallIndex) ? originals[alignment.wallIndex] : undefined;
+  const alignedAxis = alignedWall ? axisOf(alignedWall) : null;
+  const alignedCoordinate = alignedAxis === null ? null : (1 - alignedAxis) as Coordinate;
+  const alignedAt = alignedWall && alignedCoordinate !== null ? alignedWall.a[alignedCoordinate] : NaN;
+  if (alignment && (!alignedWall || alignedCoordinate === null || !Number.isFinite(alignment.target) ||
+      Math.abs(candidate[alignment.wallIndex]!.a[alignedCoordinate] - alignment.target) > JOINT_TOL)) {
+    return { ok: false, reason: "同线对齐目标与所选墙位置不一致" };
+  }
+  const valueAtNode = (n: number) => originals[Math.floor(n / 4)]![n % 4 < 2 ? "a" : "b"][n % 2 as Coordinate];
+  const link = (a: number, b: number) => {
+    // 同线操作约束最终坐标相同，而非保留原来 7／13 mm 等接点误差。
+    // 只校正本行及真实相接端点，不将另一侧平行墙或无关房间一起拉走。
+    const normalize = alignedCoordinate !== null && a % 2 === alignedCoordinate && b % 2 === alignedCoordinate &&
+      Math.abs(valueAtNode(a) - alignedAt) <= (alignment?.tolerance ?? 120) &&
+      Math.abs(valueAtNode(b) - alignedAt) <= (alignment?.tolerance ?? 120);
+    const offset = normalize ? valueAtNode(a) - valueAtNode(b) : 0;
+    edges[a]!.push({ node: b, offset });
+    edges[b]!.push({ node: a, offset: -offset });
+  };
   for (let i = 0; i < walls.length; i += 1) {
     const axis = axes[i];
     if (axis === null) continue;
@@ -154,6 +175,7 @@ export function constrainWallEdits(
     prescribed.set(node(i, end, coordinate), candidate[i]![end][coordinate] - originals[i]![end][coordinate]);
   }
   const displacement = new Float64Array(edges.length);
+  const relative = new Float64Array(edges.length);
   const visited = new Uint8Array(edges.length);
   for (let start = 0; start < edges.length; start += 1) {
     if (visited[start]) continue;
@@ -162,19 +184,26 @@ export function constrainWallEdits(
     let delta: number | undefined;
     for (let cursor = 0; cursor < component.length; cursor += 1) {
       const current = component[cursor]!;
-      const required = prescribed.get(current);
+      const prescribedDelta = prescribed.get(current);
+      const required = prescribedDelta === undefined ? undefined : prescribedDelta - relative[current]!;
       if (required !== undefined) {
         if (delta !== undefined && Math.abs(delta - required) > JOINT_TOL) {
           return { ok: false, reason: "相连墙体的编辑约束相互矛盾，请分步调整" };
         }
         delta ??= required;
       }
-      for (const next of edges[current]!) if (!visited[next]) {
-        visited[next] = 1;
-        component.push(next);
+      for (const edge of edges[current]!) {
+        const next = edge.node, offset = relative[current]! + edge.offset;
+        if (!visited[next]) {
+          visited[next] = 1;
+          relative[next] = offset;
+          component.push(next);
+        } else if (Math.abs(relative[next]! - offset) > JOINT_TOL) {
+          return { ok: false, reason: "相接墙线无法同时对齐，请先检查墙体连接" };
+        }
       }
     }
-    for (const current of component) displacement[current] = delta ?? 0;
+    for (const current of component) displacement[current] = delta === undefined ? 0 : relative[current]! + delta;
   }
   for (let i = 0; i < walls.length; i += 1) {
     const wall = candidate[i]!;

@@ -1,3 +1,4 @@
+import { porticoFrontZ, recessedPortico } from "./building-variants";
 import * as THREE from "three";
 import { formatMm } from "./units";
 import { site, floors, frontFieldLevel, courtyardFront, neighborCourtyardPlan, type Point } from "./data";
@@ -1089,7 +1090,7 @@ export function buildSite(mat: Mats) {
     forceSinglePass: true,
   });
   slab(overlap, rect(site.main.x, site.main.z, site.main.w, 1000), 35, 25, overlapMat);
-  slab(overlap, rect(site.portico.x, site.main.z - site.portico.projection, site.portico.w, site.portico.projection), 35, 25, overlapMat);
+  slab(overlap, rect(site.portico.x, porticoFrontZ(), site.portico.w, site.portico.projection), 35, 25, overlapMat);
   tag(overlap, "主楼前伸 1.0 m · 与地库重叠", 13550, 1400, -400, "#ffe566", 0.78, true);
   overlap.visible = false;
   const columnNotes = new THREE.Group();
@@ -1163,6 +1164,8 @@ export function buildSite(mat: Mats) {
     line(parent, [a, b], 0xffc43d, true);
   const main = site.main;
   const annex = site.annex;
+  const west = Math.min(main.x, annex.x), east = Math.max(main.x + main.w, annex.x + annex.w);
+  const laneWest = Math.min(main.x + main.w, annex.x + annex.w), laneEast = Math.max(main.x, annex.x);
   const eave = floors.reduce((sum, floor) => sum + floor.height, 0);
   const side = surroundings.sideHouse;
   const rear = surroundings.rearHouse;
@@ -1172,9 +1175,9 @@ export function buildSite(mat: Mats) {
   roadsideDimensions.name = "蓝顶邻房位置与朝向估算";
   dimensions.add(roadsideDimensions);
   const eastPoint = roadsideFootprints(roadside).flat().reduce((a, b) => a[0] > b[0] ? a : b);
-  span(roadsideDimensions, p(annex.x, annex.z, 400), p(annex.x, eastPoint[1], 400));
-  span(roadsideDimensions, p(annex.x, eastPoint[1], 400), p(eastPoint[0], eastPoint[1], 400));
-  dim(roadsideDimensions, `辅楼西墙延长线 · 横向约 ${formatMm(roadside.extensionGap)}`, (annex.x + eastPoint[0]) / 2, 1800, eastPoint[1] - 700, 0.7);
+  span(roadsideDimensions, p(site.sideGap, annex.z, 400), p(site.sideGap, eastPoint[1], 400));
+  span(roadsideDimensions, p(site.sideGap, eastPoint[1], 400), p(eastPoint[0], eastPoint[1], 400));
+  dim(roadsideDimensions, `西侧场地参考线 · 横向约 ${formatMm(roadside.extensionGap)}`, (site.sideGap + eastPoint[0]) / 2, 1800, eastPoint[1] - 700, 0.7);
   const eaveHeight = roadside.floorHeights.reduce((sum, height) => sum + height, 0);
   dim(roadsideDimensions, `蓝顶邻房 ${formatMm(roadside.w)}×${formatMm(roadside.d)} · 三层 · 估算`, roadside.x, roadside.y + eaveHeight + roadside.roofRise + 1500, roadside.z, 0.75);
   const facing = roadsideToWorld(roadside, 0, -roadside.d / 2 - roadside.portico.d - 1000);
@@ -1202,22 +1205,22 @@ export function buildSite(mat: Mats) {
   dim(dimensions, "屋后田宽约 400", front.x + 4000, front.y + 1500, front.z + front.d + 900, 0.66);
   dim(dimensions, "靠木房出口 2000", surroundings.road.x - 800, 1800, side.z - 1000, 0.66);
   span(scheme, p(main.x, -4300, 400), p(main.x + main.w, -4300, 400));
-  dim(scheme, `主楼 ${formatMm(main.w)}×${formatMm(main.d)}`, 13550, eave + 3600, 1500, 0.82);
+  dim(scheme, `主楼 ${formatMm(main.w)}×${formatMm(main.d)}`, main.x + main.w / 2, eave + 3600, 1500, 0.82);
   dim(scheme, `层高 ${floors.map((floor) => formatMm(floor.height)).join(" / ")}`, 4200, 5800, 9600, 0.74);
   span(scheme, p(main.x + main.w - 200, main.z + main.d, 300), p(main.x + main.w - 200, main.z + main.d, eave));
   dim(scheme, `檐口 ${formatMm(eave)}`, 18800, eave + 2600, 10600, 0.7);
   span(scheme, p(annex.x, -3500, 400), p(annex.x + annex.w, -3500, 400));
-  dim(scheme, `辅楼 ${formatMm(annex.w)}×${formatMm(annex.d)} · 高 ${formatMm(annex.height)}`, 3050, annex.height + 1600, 4000, 0.72);
-  span(scheme, p(main.x + main.w, 6000, 400), p(site.width, 6000, 400));
-  dim(scheme, `东侧 ${formatMm((site.width - main.x - main.w))}`, (main.x + main.w + site.width) / 2, 2200, 7200, 0.64);
-  span(scheme, p(0, 3000, 400), p(annex.x, 3000, 400));
+  dim(scheme, `辅楼 ${formatMm(annex.w)}×${formatMm(annex.d)} · 高 ${formatMm(annex.height)}`, annex.x + annex.w / 2, annex.height + 1600, 4000, 0.72);
+  span(scheme, p(east, 6000, 400), p(site.width, 6000, 400));
+  dim(scheme, `东侧 ${formatMm(site.width - east)}`, (east + site.width) / 2, 2200, 7200, 0.64);
+  span(scheme, p(0, 3000, 400), p(west, 3000, 400));
   dim(scheme, `西侧 ${formatMm(site.sideGap)}`, 400, 2200, 1400, 0.64);
-  span(scheme, p(annex.x + annex.w, 5000, 400), p(main.x, 5000, 400));
-  dim(scheme, `子孙道 ${formatMm(site.lane)}`, 6050, 2500, 6200, 0.68);
-  span(scheme, p(10000, main.z, 8400), p(10000, main.z + site.setback, 8400));
-  dim(scheme, `三楼北退 ${formatMm(site.setback)}`, 8600, 7600, -2600, 0.68);
+  span(scheme, p(Math.min(annex.x + annex.w, main.x + main.w), 5000, 400), p(Math.max(annex.x, main.x), 5000, 400));
+  dim(scheme, `子孙道 ${formatMm(site.lane)}`, (laneWest + laneEast) / 2, 2500, 6200, 0.68);
+  if (site.setback > 0) span(scheme, p(10000, main.z, 8400), p(10000, main.z + site.setback, 8400));
+  dim(scheme, site.setback > 0 ? `三楼北退 ${formatMm(site.setback)}` : "三楼不内退 · 前墙齐平", 8600, 7600, -2600, 0.68);
   dim(scheme, `屋后留 ${formatMm(site.rearGap)}`, 17400, 3600, 9200, 0.68);
-  dim(scheme, `门厅 ${formatMm(site.portico.w)}×${formatMm(site.portico.projection)} · 计入首层合计`, 13700, 3400, -5400, 0.72);
+  dim(scheme, `${recessedPortico() ? "凹入式" : "凸出式"}门厅 ${formatMm(site.portico.w)}×${formatMm(site.portico.projection)} · 计入首层合计`, site.portico.x + site.portico.w / 2, 3400, -5400, 0.72);
   dim(scheme, `二楼前檐 ${formatMm(site.secondFrontEave)} · 顶檐 ${formatMm(site.thirdEave)} · 同构造`, 17600, 4200, -4600, 0.68);
   dim(scheme, "前通道约 2000", 2800, 1600, -2500, 0.66);
   dim(scheme, `侧道 ${formatMm(site.sideGap)}`, 450, 1800, 6400, 0.64);
@@ -1225,7 +1228,7 @@ export function buildSite(mat: Mats) {
   dim(scheme, `右侧上田整体再向前 ${formatMm(surroundings.rightTerraceAdvance)}`, -4200, 1500, 2200, 0.68);
   span(scheme, p(main.x, main.z, 350), p(main.x, main.z + main.d, 350));
   dim(scheme, `进深 ${formatMm(main.d)}`, 4600, 4200, -1200, 0.68);
-  for (const x of [main.x + main.w, 13550, main.x]) {
+  for (const x of [main.x + main.w, main.x + main.w / 2, main.x]) {
     const z = contourAt(courtyardFront, x);
     const depth = main.z - z;
     span(scheme, p(x, main.z, 200), p(x, z, 200));

@@ -84,7 +84,7 @@ export function collectPlanDimensions(index: number, floor: Floor, annexWalls: W
   // 楼梯只是模型，不是墙；其框边不参与外圈墙线定位，也不与自画侧墙拆出碎档。
   const northXs = bodyAxes.north;
   const southXs = bodyAxes.south;
-  // 主楼：门厅两柱心＋主楼西／东外皮 → 左余量｜柱心距｜右余量（默认 4500＋4600＋4500）。
+  // 主楼：堂屋两端分档线＋主楼西／东外皮；门头朝下默认4500＋4500＋4600。
   // 辅楼：无门厅控制档，controls 仅外皮两端。
   const porch = site.portico;
   const controlBreaks =
@@ -104,7 +104,7 @@ export function collectPlanDimensions(index: number, floor: Floor, annexWalls: W
 
 /** 两张图共用真实场地坐标，图纸留白不计入子孙道或总宽。 */
 export function collectPlanSiteDimensions() {
-  const breaks = [0, site.annex.x, site.annex.x + site.annex.w, site.main.x, site.main.x + site.main.w, site.width];
+  const breaks = [0, site.annex.x, site.annex.x + site.annex.w, site.main.x, site.main.x + site.main.w, site.width].sort((a, b) => a - b);
   return {
     widthSegmentsMm: breaks.slice(1).map((v, i) => planDimSpanMm(breaks[i], v)),
     totalWidthMm: planDimSpanMm(0, site.width),

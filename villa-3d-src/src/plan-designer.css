@@ -1,0 +1,978 @@
+/* 户型工作台：参考 floorplan-3d 的纸面色、工具分组与左右停靠布局。 */
+body.plan-designer {
+  color: var(--designer-ink);
+  background: var(--designer-panel);
+  font:
+    13px/1.5 -apple-system,
+    BlinkMacSystemFont,
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+}
+.plan-designer .workspace {
+  display: block;
+  height: calc(100dvh - var(--app-header-height));
+  min-height: 0;
+  padding: 0;
+}
+.plan-designer .stage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+}
+.plan-designer .workspace > .inspector,
+.plan-designer .app-footer {
+  display: none !important;
+}
+.plan-designer .plan-panel {
+  background: var(--designer-paper);
+  color: var(--designer-ink);
+}
+.plan-designer .plan-panel button {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.plan-designer .plan-panel button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+.plan-designer .plan-panel button:focus-visible,
+.plan-designer .plan-panel input:focus-visible,
+.plan-designer .plan-panel select:focus-visible,
+.plan-designer summary:focus-visible {
+  outline: 2px solid var(--designer-accent);
+  outline-offset: 2px;
+}
+.plan-designer .plan-toolbar {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 18px;
+  min-height: 62px;
+  padding: 10px 20px;
+  background: var(--designer-panel);
+  border-color: var(--designer-line);
+}
+.plan-designer .plan-toolbar h1 {
+  flex-shrink: 0;
+  margin: 0 10px 0 0;
+  font-size: 19px;
+  font-weight: 650;
+}
+.plan-designer .designer-view-switch {
+  display: flex;
+  flex-shrink: 0;
+  padding: 3px;
+  border: 1px solid var(--designer-line);
+  border-radius: 7px;
+  background: #fff;
+}
+.plan-designer .designer-view-switch button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  white-space: nowrap;
+}
+.plan-designer .designer-view-switch .active {
+  background: var(--designer-accent);
+  color: #fff;
+}
+.plan-designer .floor-pills {
+  display: flex;
+  flex-shrink: 0;
+  gap: 3px;
+  padding-left: 16px;
+  border-left: 1px solid var(--designer-line);
+}
+.plan-designer .floor-pills button {
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--designer-ink);
+  background: transparent;
+}
+.plan-designer .floor-pills button.active {
+  background: #e7ece3;
+  color: #35513e;
+  border-color: #d2dacb;
+}
+.plan-designer .plan-toolbar-actions {
+  margin-left: auto;
+  flex-wrap: nowrap;
+  gap: 10px;
+  color: var(--designer-ink);
+}
+.plan-designer .layout-version-label {
+  color: var(--designer-ink);
+  gap: 10px;
+  font-size: 12px;
+}
+.plan-designer .layout-version-label select {
+  max-width: 300px;
+  min-width: 150px;
+  height: 34px;
+  padding: 5px 9px;
+  border: 1px solid var(--designer-line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--designer-ink);
+}
+.plan-designer #toggle-layout-edit,
+.plan-designer .designer-file-menu > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--designer-line);
+  border-radius: 5px;
+  background: #fff;
+  white-space: nowrap;
+  font-size: 12px;
+  cursor: pointer;
+}
+.plan-designer #toggle-layout-edit.active {
+  background: var(--designer-accent-soft);
+  color: var(--designer-accent);
+  border-color: #d8b49e;
+}
+.plan-designer .designer-file-menu {
+  position: relative;
+}
+.plan-designer .designer-file-menu summary {
+  list-style: none;
+}
+.plan-designer .designer-file-menu summary::-webkit-details-marker {
+  display: none;
+}
+.plan-designer .designer-file-menu svg {
+  width: 13px;
+  height: 13px;
+}
+.plan-designer .designer-menu-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 5px;
+  border: 1px solid var(--designer-line);
+  border-radius: 8px;
+  background: var(--designer-panel);
+  box-shadow: 0 8px 24px #30271b1a;
+}
+.plan-designer .designer-menu-pop button,
+.plan-designer .designer-menu-pop .layout-file-button {
+  display: block;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+}
+.plan-designer .designer-menu-pop hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--designer-line);
+}
+.plan-designer .designer-menu-pop .designer-danger {
+  color: #ae4234;
+}
+.plan-designer .layout-edit-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--designer-line);
+  background: var(--designer-panel);
+}
+.plan-designer .layout-tools {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.plan-designer .layout-tools button,
+.plan-designer .designer-history button,
+.plan-designer .designer-layers button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--designer-ink);
+  white-space: nowrap;
+}
+.plan-designer .layout-tools button svg,
+.plan-designer .designer-history button svg {
+  width: 16px;
+  height: 16px;
+}
+.plan-designer .layout-tools button.active {
+  background: var(--designer-ink);
+  color: #fff;
+  border-color: var(--designer-ink);
+}
+.plan-designer .is-editing .layout-tools button.active {
+  background: var(--designer-accent);
+  border-color: var(--designer-accent);
+}
+.plan-designer .designer-history {
+  display: flex;
+  gap: 4px;
+  padding: 0 14px;
+  margin-left: auto;
+  border-left: 1px solid var(--designer-line);
+  border-right: 1px solid var(--designer-line);
+}
+.plan-designer #layout-magnet-snap[aria-pressed="true"] {
+  color: var(--designer-accent);
+  background: var(--designer-accent-soft);
+}
+.plan-designer .designer-history #layout-save {
+  border: 1px solid var(--designer-line) !important;
+  background: #fff !important;
+  color: var(--designer-ink) !important;
+  padding: 6px 13px;
+  font-weight: 500;
+}
+.plan-designer .designer-layers {
+  display: flex;
+  gap: 2px;
+}
+.plan-designer .designer-layers button {
+  gap: 5px;
+  padding: 6px;
+}
+.plan-designer .designer-layers button::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border: 1px solid #c9c0b4;
+  border-radius: 2px;
+  background: #fff;
+}
+.plan-designer .designer-layers button[aria-pressed="true"] {
+  color: var(--designer-ink);
+  border-color: transparent;
+  background: transparent;
+}
+.plan-designer .designer-layers button[aria-pressed="true"]::before {
+  border-color: var(--designer-accent);
+  background: var(--designer-accent);
+}
+.plan-designer .plan-canvas-wrap {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 280px;
+  overflow: hidden;
+}
+.plan-designer .layout-palette {
+  display: block;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px;
+  border-right: 1px solid var(--designer-line);
+  background: var(--designer-panel);
+}
+.plan-designer .layout-palette-head {
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.plan-designer .layout-palette-head strong {
+  font-size: 14px;
+  color: var(--designer-ink);
+}
+.plan-designer #designer-library-count {
+  font-size: 11px;
+  color: var(--designer-muted);
+}
+.plan-designer .designer-search {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid var(--designer-line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--designer-muted);
+}
+.plan-designer .designer-search svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.plan-designer .designer-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline-offset: 5px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--designer-ink);
+}
+.plan-designer .designer-library-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 10px 0 7px;
+}
+.plan-designer .designer-library-filters button {
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 11px;
+}
+.plan-designer .designer-library-filters button.active {
+  background: var(--designer-accent-soft);
+  color: var(--designer-accent);
+}
+.plan-designer .layout-palette-hint {
+  margin: 9px 0 12px;
+  color: var(--designer-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.plan-designer .layout-palette-chips {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.plan-designer .layout-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 110px;
+  padding: 9px 4px 8px;
+  border: 1px solid var(--designer-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--designer-ink);
+}
+.plan-designer .layout-chip:hover {
+  border-color: #c3977d;
+}
+.plan-designer .layout-chip.active {
+  border-color: var(--designer-accent);
+  box-shadow: inset 0 0 0 1px var(--designer-accent);
+  background: #fdf8f2;
+}
+.plan-designer .layout-chip > svg {
+  width: 56px;
+  height: 46px;
+  flex-shrink: 0;
+  color: #6e7469;
+}
+.plan-designer .layout-chip > svg:not(.designer-furniture-preview) {
+  padding: 10px;
+}
+.plan-designer .layout-chip strong {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.plan-designer .layout-chip small {
+  margin-top: auto;
+  color: var(--designer-muted);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.plan-designer .designer-furniture-preview .facing-mark {
+  display: none;
+}
+.plan-designer .designer-canvas {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.plan-designer .designer-scene,
+.plan-designer .designer-scene-host,
+.plan-designer .designer-scene #viewport {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.plan-designer .designer-scene {
+  background: #f2eee7;
+}
+.plan-designer .designer-scene-tools {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+.plan-designer .designer-scene-tools > div {
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--designer-line);
+  border-radius: 7px;
+  background: #fffdf8ee;
+  box-shadow: 0 3px 12px #4338290b;
+  pointer-events: auto;
+}
+.plan-designer .designer-scene-tools button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--designer-muted);
+  background: transparent;
+}
+.plan-designer .designer-scene-tools button[aria-pressed="true"] {
+  color: var(--designer-accent);
+  background: #f1e5d9;
+}
+.plan-designer .designer-scene-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 190px;
+  margin: 0;
+  padding: 8px 10px;
+  width: fit-content;
+  max-width: calc(100% - 210px);
+  border: 1px solid var(--designer-line);
+  border-radius: 5px;
+  background: #fffdf8e8;
+  color: var(--designer-muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+.plan-designer .floor-svg:not(.editing) [data-room] {
+  pointer-events: all;
+  cursor: pointer;
+}
+.plan-designer .plan-scroll {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  padding: 18px 22px 66px;
+  background: transparent;
+}
+.plan-designer .plan-shared-dimensions {
+  margin: 0 0 22px;
+  padding: 9px 12px;
+  border-color: var(--designer-line);
+  border-radius: 5px;
+  background: var(--designer-panel);
+  font-size: 12px;
+}
+.plan-designer .plan-shared-dimensions summary span {
+  color: var(--designer-muted);
+}
+.plan-designer .plan-sheets {
+  min-width: 0;
+  gap: 18px;
+  margin-inline: auto;
+}
+.plan-designer .plan-sheets:not(.plan-sheets-split) {
+  max-width: calc(900px * var(--plan-zoom, 1));
+  margin: 0 auto;
+}
+.plan-designer .plan-sheets-split {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  min-width: 0;
+}
+.plan-designer .plan-sheet {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.plan-designer .plan-sheet-head {
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 0;
+}
+.plan-designer .plan-sheet-head h3 {
+  font-size: 15px;
+}
+.plan-designer .plan-sheet-head .plan-auto-rooms {
+  padding: 4px 6px;
+  border: 1px solid var(--designer-line);
+  background: var(--designer-panel);
+  color: var(--designer-muted);
+  font-size: 10px;
+}
+.plan-designer .floor-svg {
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  border-radius: 0;
+}
+.plan-designer .floor-svg > rect:first-of-type {
+  fill: transparent;
+}
+.plan-designer .plan-zoom-controls {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  right: 16px;
+  bottom: 16px;
+  gap: 0;
+  padding: 3px;
+  border: 1px solid var(--designer-line);
+  border-radius: 6px;
+  background: var(--designer-panel);
+  box-shadow: none;
+}
+.plan-designer .plan-zoom-controls button {
+  min-width: 32px;
+  width: 32px;
+  height: 30px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--designer-ink);
+  box-shadow: none;
+  font-size: 17px;
+}
+.plan-designer .plan-zoom-controls #plan-zoom-reset {
+  width: 48px;
+  font-size: 11px;
+}
+.plan-designer .plan-zoom-controls #plan-focus-toggle {
+  border-left: 1px solid var(--designer-line);
+  margin-left: 3px;
+}
+.plan-designer .designer-properties {
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--designer-line);
+  background: var(--designer-panel);
+}
+.plan-designer .designer-properties section {
+  padding: 16px;
+  border-bottom: 1px solid var(--designer-line);
+}
+.plan-designer .designer-properties h2 {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+  color: var(--designer-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.plan-designer .designer-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+.plan-designer .designer-section-heading h2 {
+  margin: 0;
+}
+.plan-designer .designer-section-heading > span {
+  color: var(--designer-muted);
+  font-size: 11px;
+}
+.plan-designer #designer-inspector-float {
+  padding: 2px 5px;
+  border: 0;
+  background: transparent;
+  color: var(--designer-muted);
+  font-size: 11px;
+}
+.plan-designer .designer-empty-selection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 116px;
+  padding: 12px;
+  border: 1px dashed var(--designer-line);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--designer-muted);
+}
+.plan-designer .designer-empty-selection svg {
+  width: 27px;
+  height: 27px;
+}
+.plan-designer .layout-inspector:not(.layout-inspector-float) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+.plan-designer
+  .layout-inspector:not(.layout-inspector-float)
+  .layout-inspector-head {
+  cursor: default;
+}
+.plan-designer .layout-inspector-head,
+.plan-designer .layout-inspector > p,
+.plan-designer .layout-inspector > div,
+.plan-designer .layout-inspector label:has(#edit-model-name) {
+  grid-column: 1 / -1;
+}
+.plan-designer .layout-inspector-title {
+  color: var(--designer-ink);
+  font-size: 12px;
+}
+.plan-designer .layout-inspector .select-label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: stretch;
+  margin: 0;
+  color: var(--designer-muted);
+  font-size: 11px;
+}
+.plan-designer .layout-inspector .layout-field-name {
+  text-align: left;
+}
+.plan-designer .layout-inspector .select-label > :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--designer-line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--designer-ink);
+  font-size: 12px;
+}
+.plan-designer .layout-inspector .layout-rotate-row {
+  margin-left: 0;
+}
+.plan-designer .layout-inspector .layout-align-hint {
+  color: var(--designer-muted);
+  line-height: 1.6;
+}
+.plan-designer .layout-inspector-float {
+  width: 280px;
+  min-width: 240px;
+  padding: 14px;
+  border-color: var(--designer-line);
+  background: var(--designer-panel);
+}
+.plan-designer .layout-inspector-float .select-label {
+  margin: 5px 0;
+}
+.plan-designer .designer-room-group {
+  margin: 12px 0 5px;
+  color: var(--designer-muted);
+  font-size: 11px;
+}
+.plan-designer .designer-room-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 3px;
+  border: 0;
+  border-bottom: 1px dashed var(--designer-line);
+  background: transparent;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.plan-designer .designer-room-row i {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  border: 1px solid #0002;
+  border-radius: 3px;
+}
+.plan-designer .designer-room-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-designer .designer-room-row b {
+  margin-left: auto;
+  font-weight: 400;
+}
+.plan-designer .designer-room-row.active {
+  background: var(--designer-accent-soft);
+  color: var(--designer-accent);
+}
+.plan-designer .designer-note,
+.plan-designer .designer-empty {
+  margin: 12px 0 0;
+  color: var(--designer-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.plan-designer .designer-plan-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.plan-designer .designer-plan-stats div {
+  padding: 9px 10px;
+  border: 1px solid var(--designer-line);
+  border-radius: 5px;
+}
+.plan-designer .designer-plan-stats small {
+  display: block;
+  color: var(--designer-muted);
+  font-size: 11px;
+}
+.plan-designer .designer-plan-stats b {
+  font-size: 21px;
+  font-weight: 600;
+}
+.plan-designer .designer-display-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plan-designer .designer-display-options h2 {
+  margin-bottom: 4px;
+}
+.plan-designer .designer-display-options button {
+  padding: 7px 9px;
+  border: 1px solid var(--designer-line);
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+}
+.plan-designer .designer-display-options button[aria-pressed="true"] {
+  background: var(--designer-accent-soft);
+  border-color: #d8b49e;
+  color: var(--designer-accent);
+}
+.plan-designer .designer-display-options label {
+  display: grid;
+  gap: 6px;
+  color: var(--designer-muted);
+  font-size: 11px;
+}
+.plan-designer .designer-display-options select {
+  width: 100%;
+  padding: 7px;
+  border: 1px solid var(--designer-line);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--designer-ink);
+  font-size: 12px;
+}
+.plan-designer .designer-status {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 16px;
+  height: 30px;
+  padding: 0 16px;
+  border-top: 1px solid var(--designer-line);
+  background: var(--designer-panel);
+  color: var(--designer-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.plan-designer .layout-save-status {
+  min-width: 0;
+  color: var(--designer-accent);
+  font-size: 11px;
+}
+.plan-designer .designer-status-hint {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plan-designer
+  .plan-panel
+  button:hover:not(:disabled):not(.active):not(.layout-chip):not(
+    [aria-pressed="true"]
+  ) {
+  background-color: #f2ece2;
+}
+.plan-designer .designer-grid .designer-canvas {
+  background-image:
+    linear-gradient(#e3dccf66 1px, transparent 1px),
+    linear-gradient(90deg, #e3dccf66 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.plan-designer .designer-hide-labels .floor-svg .room-label,
+.plan-designer .designer-hide-furniture .floor-svg .furniture-root {
+  display: none;
+}
+.plan-designer
+  .designer-hide-dims
+  .floor-svg
+  :is(
+    .dim-line,
+    .dim-ext,
+    .dim-label,
+    .dim-label-sm,
+    .dim-mm,
+    .dim-chain-caption,
+    .dim-unit,
+    .dim-tick-slash,
+    .dim-span,
+    .dim-arrow,
+    .dim-anchor,
+    .dim-tick,
+    .wall-thick-label
+  ) {
+  display: none;
+}
+.plan-designer .is-special-drawing .plan-canvas-wrap {
+  grid-template-columns: minmax(0, 1fr);
+}
+.plan-designer .is-special-drawing #layout-palette,
+.plan-designer .is-special-drawing #designer-properties {
+  display: none;
+}
+.plan-designer.plan-editor-focus .workspace {
+  height: 100dvh;
+}
+@media (max-width: 1450px) {
+  .plan-designer .plan-toolbar {
+    gap: 10px;
+    padding-inline: 14px;
+  }
+  .plan-designer .plan-toolbar h1 {
+    margin-right: 0;
+    font-size: 17px;
+  }
+  .plan-designer .floor-pills {
+    padding-left: 10px;
+    gap: 0;
+  }
+  .plan-designer .floor-pills button {
+    padding-inline: 8px;
+  }
+  .plan-designer .layout-version-label > span {
+    display: none;
+  }
+  .plan-designer .layout-version-label select {
+    max-width: 245px;
+  }
+  .plan-designer .plan-canvas-wrap {
+    grid-template-columns: 208px minmax(0, 1fr) 260px;
+  }
+  .plan-designer .layout-edit-bar {
+    padding-inline: 14px;
+    gap: 6px;
+  }
+  .plan-designer .designer-history {
+    padding-inline: 8px;
+    gap: 0;
+  }
+  .plan-designer .layout-tools button {
+    padding-inline: 7px;
+  }
+  .plan-designer .designer-layers button {
+    padding-inline: 5px;
+  }
+}
+
+/* 连续编辑画布：毫米世界坐标与原有约束共用，图纸导出保留完整标注。 */
+.plan-designer #plan-panel[data-editor-canvas="true"] #plan-drawing {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  background: var(--designer-paper);
+  touch-action: none;
+}
+.plan-designer .editor-floor-svg {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.editor-floor-svg .editor-world-grid { pointer-events: all; }
+.plan-panel:not(.designer-grid) .editor-world-grid { display: none; }
+.editor-floor-svg .outside-wall,
+.editor-floor-svg .bearing-wall { stroke: #45443e; }
+.editor-floor-svg .partition { stroke: #a9a294; }
+.editor-floor-svg .room-name { font-size: var(--editor-name-size, 290px); font-weight: 600; fill: #403c35; }
+.editor-floor-svg .room-area-net { font-size: var(--editor-area-size, 215px); font-weight: 400; fill: #797165; }
+.editor-floor-svg .room-label text { paint-order: stroke; stroke: #fbfaf699; stroke-width: 30px; stroke-linejoin: round; }
+.editor-floor-svg .dim-line,
+.editor-floor-svg .dim-tick-slash { stroke: #998d7b; stroke-width: 20px; }
+.editor-floor-svg .dim-ext { stroke: #b7ac9b !important; stroke-width: 14px !important; opacity: .6; }
+.editor-floor-svg .dim-mm { fill: #71695d; font-size: var(--editor-dim-size, 220px); font-weight: 450; letter-spacing: 0; }
+.dim-chain-caption { fill: #71695d; font-size: 180px; font-weight: 500; }
+.editor-floor-svg .dim-label { fill: #8b8172; font-size: 200px; font-weight: 400; letter-spacing: 0; }
+.editor-floor-svg .wall-role-legend,
+.editor-floor-svg .wall-thick-legend,
+.editor-floor-svg .footnote,
+.editor-floor-svg .stair-size { display: none; }
+.editor-floor-svg .editor-building[data-plan-building="main"] [data-dim-side="west"],
+.editor-floor-svg .editor-building[data-plan-building="annex"] [data-dim-side="east"] { opacity: 1; }
+.plan-designer .editor-floor-svg.editing .edit-selection { stroke: #b5653a; stroke-width: 1.7px; vector-effect: non-scaling-stroke; stroke-dasharray: 5 3; }
+.plan-designer .editor-floor-svg.editing .edit-handle { fill: #fffdf9; stroke: #b5653a; stroke-width: 1.5px; vector-effect: non-scaling-stroke; rx: 35px; }
+.plan-designer .editor-floor-svg.editing .edit-rotate-handle { fill: #b5653a; stroke: #fff; stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.plan-designer .editor-floor-svg.editing .edit-rotate-stem { stroke: #b5653a; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.editor-floor-svg .door-leaf { stroke: #827363; }
+.editor-floor-svg .door-swing { stroke: #a69a88; stroke-dasharray: 90 50; stroke-width: 24px; }
+.editor-floor-svg .window { stroke: #73989e; }
+.editor-floor-svg .stair-note { font-size: 270px; font-weight: 500; fill: #655f54; }
+.editor-floor-svg .editor-measure path { fill: none; stroke: #2f5d62; stroke-width: 1.5px; vector-effect: non-scaling-stroke; stroke-dasharray: 5 3; }
+.editor-floor-svg .editor-measure circle { fill: #2f5d62; stroke: #fff; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.editor-floor-svg .editor-measure text { fill: #2f5d62; stroke: #fffdf9; stroke-width: 4px; paint-order: stroke; vector-effect: non-scaling-stroke; }
+.editor-canvas-tools { position: absolute; inset: 16px 16px auto; display: flex; align-items: start; justify-content: space-between; gap: 12px; pointer-events: none; z-index: 4; }
+.editor-tool-group,
+.editor-room-menu > summary,
+.editor-selection-bar { display: flex; align-items: center; gap: 3px; border: 1px solid var(--designer-line); border-radius: 7px; background: #fffdf9f5; box-shadow: 0 3px 12px #30271b0a; padding: 4px; pointer-events: auto; }
+.editor-tool-group button,
+.editor-room-menu button,
+.editor-selection-bar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--designer-ink); white-space: nowrap; }
+.editor-tool-group svg,
+.editor-selection-bar svg,
+.editor-room-menu svg { width: 16px; height: 16px; }
+.editor-tool-group button.active { background: var(--designer-accent); color: white; }
+.editor-room-menu { position: relative; pointer-events: auto; }
+.editor-room-menu > summary { padding: 10px 12px; gap: 7px; list-style: none; cursor: pointer; }
+.editor-room-menu > summary::-webkit-details-marker { display: none; }
+.editor-room-menu > div { position: absolute; top: calc(100% + 6px); right: 0; min-width: 184px; padding: 5px; background: var(--designer-panel); border: 1px solid var(--designer-line); border-radius: 7px; box-shadow: 0 8px 20px #30271b12; }
+.editor-room-menu button { width: 100%; justify-content: start; }
+.editor-mode-hint { position: absolute; top: 65px; left: 50%; max-width: calc(100% - 32px); transform: translateX(-50%); margin: 0; padding: 6px 12px; border-radius: 5px; background: #3f3b34ed; color: #fffdf9; font-size: 12px; white-space: nowrap; z-index: 5; pointer-events: none; }
+.editor-plan-scale { position: absolute; bottom: 18px; left: 22px; display: flex; flex-direction: column; gap: 5px; color: #797165; font-size: 10px; pointer-events: none; z-index: 3; }
+.editor-north { color: #514b40; margin-bottom: 5px; font-size: 11px; }
+#editor-scale-line { display: block; height: 5px; border: 1px solid #82786a; border-top: 0; }
+.editor-selection-bar { position: absolute; bottom: 58px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 5px; max-width: calc(100% - 32px); }
+.editor-selection-bar strong { padding: 0 7px; font-weight: 550; font-size: 12px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-selection-bar .editor-action-done { background: var(--designer-accent); color: #fff; }
+.editor-selection-bar .editor-action-danger { color: #ae4234; }
+.editor-tool-separator { display: inline-block; align-self: stretch; width: 1px; margin: 5px 4px; background: var(--designer-line); }
+.editor-tool-group button:hover:not(.active),
+.editor-room-menu button:hover,
+.editor-selection-bar button:hover:not(.editor-action-done) { background: var(--designer-accent-soft); }
+.plan-designer .designer-scene-tools button[data-editor-wall-height].active { background: var(--designer-accent); color: #fff; }
+#plan-panel[data-editor-canvas="false"] .editor-selection-bar,
+#plan-panel[data-editor-canvas="false"] .editor-canvas-tools,
+#plan-panel[data-editor-canvas="false"] .editor-plan-scale,
+#plan-panel[data-editor-canvas="false"] .editor-mode-hint { display: none !important; }

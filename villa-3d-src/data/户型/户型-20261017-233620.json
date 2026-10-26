@@ -3,11 +3,11 @@
   "units": "mm",
   "id": "户型-20261017-233620",
   "title": "户型-楼梯在北侧的",
-  "savedAt": "2026-10-21T16:55:21+08:00",
+  "savedAt": "2026-10-23T17:33:00+08:00",
   "layoutDraft": {
     "schema": 1,
     "revision": "沟通方案 05",
-    "updatedAt": "2026-10-21T08:55:21.152Z",
+    "updatedAt": "2026-10-23T09:33:00.938Z",
     "note": "布局草稿 · 设计建议 · 非施工图。二、三层动线修订：起居大空间；主卧并入西侧过道；楼梯北端折跑处西墙不开到外墙、井道洞口拉通；门扇开进所服务房间；三层东南卧自楼梯间独立进门。一层与 stairLayout 定位未改。",
     "floors": [
       {
@@ -15,22 +15,376 @@
         "y": 0,
         "height": 3600,
         "front": -400,
-        "rooms": [],
+        "rooms": [
+          {
+            "id": "room1",
+            "name": "房间1",
+            "x": 16000,
+            "z": -400,
+            "w": 4200,
+            "d": 3600,
+            "kind": "living",
+            "note": "按三面墙生成的开敞分区，未补实体墙；面积为模型分区参考，房间用途待确认。",
+            "label": [
+              18100,
+              1400
+            ],
+            "purposeStatus": "pending",
+            "boundary": {
+              "key": "open-walls:exterior:east|exterior:north|wall-1:north",
+              "status": "unbounded"
+            }
+          },
+          {
+            "id": "room3",
+            "name": "房间3",
+            "x": 6600,
+            "z": 4600,
+            "w": 4500,
+            "d": 5000,
+            "kind": "living",
+            "note": "按实际墙线闭合生成；面积为模型分区参考，房间用途待确认。",
+            "label": [
+              8850,
+              7100
+            ],
+            "purposeStatus": "pending",
+            "boundary": {
+              "key": "exterior:south|exterior:west|wall-5:south|wall-6:west",
+              "status": "enclosed"
+            }
+          },
+          {
+            "id": "room4",
+            "name": "房间4",
+            "x": 6600,
+            "z": -400,
+            "w": 8431,
+            "d": 5000,
+            "kind": "living",
+            "note": "按三面墙生成的开敞分区，未补实体墙；面积为模型分区参考，房间用途待确认。",
+            "label": [
+              10815.5,
+              2100
+            ],
+            "purposeStatus": "pending",
+            "boundary": {
+              "key": "open-walls:exterior:north|exterior:west|wall-5:north",
+              "status": "open"
+            }
+          },
+          {
+            "id": "stair0",
+            "name": "楼梯",
+            "x": 13100,
+            "z": 5640,
+            "w": 2900,
+            "d": 3917,
+            "kind": "stair",
+            "note": "编辑器放置的楼梯示意；踏步、净高与洞口待结构核定。",
+            "label": [
+              14550,
+              7598.5
+            ]
+          },
+          {
+            "id": "room5",
+            "name": "房间5",
+            "x": 16000,
+            "z": 4600,
+            "w": 4200,
+            "d": 5000,
+            "kind": "living",
+            "note": "按实际墙线闭合生成；面积为模型分区参考，房间用途待确认。",
+            "label": [
+              18100,
+              7100
+            ],
+            "purposeStatus": "pending",
+            "outline": [
+              [
+                16000,
+                4600
+              ],
+              [
+                17300,
+                4600
+              ],
+              [
+                17300,
+                6200
+              ],
+              [
+                20200,
+                6200
+              ],
+              [
+                20200,
+                9600
+              ],
+              [
+                16000,
+                9600
+              ]
+            ],
+            "boundary": {
+              "key": "exterior:east|exterior:south|wall-2:south|wall-3:east|wall-7:south|wall-8:west",
+              "status": "enclosed"
+            }
+          },
+          {
+            "id": "room6",
+            "name": "房间6",
+            "x": 17300,
+            "z": 4600,
+            "w": 2900,
+            "d": 1600,
+            "kind": "living",
+            "note": "按实际墙线闭合生成；面积为模型分区参考，房间用途待确认。",
+            "label": [
+              18750,
+              5400
+            ],
+            "purposeStatus": "pending",
+            "boundary": {
+              "key": "exterior:east|wall-2:south|wall-7:north|wall-8:east",
+              "status": "enclosed"
+            }
+          },
+          {
+            "id": "room2",
+            "name": "房间2",
+            "x": 11100,
+            "z": 7600,
+            "w": 2000,
+            "d": 2000,
+            "kind": "living",
+            "note": "按实际墙线闭合生成；面积为模型分区参考，房间用途待确认。",
+            "label": [
+              12100,
+              8600
+            ],
+            "purposeStatus": "pending",
+            "boundary": {
+              "key": "exterior:south|wall-1:west|wall-4:south|wall-6:east",
+              "status": "enclosed"
+            }
+          }
+        ],
         "partitions": [
           {
             "a": [
-              20200,
-              5100
+              20080,
+              4600
             ],
             "b": [
-              6600,
-              5100
+              16071,
+              4600
             ],
+            "id": "wall-2",
             "role": "bearing",
-            "id": "wall-1"
+            "door": {
+              "offset": 2964,
+              "width": 900,
+              "kind": "door",
+              "hinge": "end",
+              "side": "in"
+            }
+          },
+          {
+            "a": [
+              16000,
+              9480
+            ],
+            "b": [
+              16000,
+              4600
+            ],
+            "id": "wall-3",
+            "role": "bearing"
+          },
+          {
+            "a": [
+              15031,
+              4600
+            ],
+            "b": [
+              6720,
+              4600
+            ],
+            "id": "wall-5",
+            "role": "bearing"
+          },
+          {
+            "a": [
+              11100,
+              9480
+            ],
+            "b": [
+              11100,
+              4600
+            ],
+            "id": "wall-6",
+            "role": "bearing"
+          },
+          {
+            "a": [
+              13100,
+              9480
+            ],
+            "b": [
+              13100,
+              7487
+            ],
+            "id": "wall-1",
+            "role": "bearing"
+          },
+          {
+            "a": [
+              20080,
+              6200
+            ],
+            "b": [
+              17300,
+              6200
+            ],
+            "id": "wall-7",
+            "role": "partition"
+          },
+          {
+            "a": [
+              17300,
+              6200
+            ],
+            "b": [
+              17300,
+              4600
+            ],
+            "id": "wall-8",
+            "role": "partition",
+            "door": {
+              "offset": 120,
+              "width": 700,
+              "kind": "door",
+              "hinge": "start",
+              "side": "out"
+            }
+          },
+          {
+            "a": [
+              13100,
+              7600
+            ],
+            "b": [
+              11100,
+              7600
+            ],
+            "id": "wall-4",
+            "role": "partition",
+            "door": {
+              "offset": 212,
+              "width": 700,
+              "kind": "door",
+              "hinge": "start",
+              "side": "in"
+            }
+          },
+          {
+            "a": [
+              11100,
+              5640
+            ],
+            "b": [
+              11900,
+              5640
+            ],
+            "id": "wall-12",
+            "role": "partition"
           }
         ],
-        "furniture": []
+        "furniture": [
+          {
+            "kind": "fp-washer",
+            "x": 11540,
+            "z": 7220,
+            "w": 600,
+            "d": 600,
+            "rotation": -1.5707963267948966,
+            "label": "洗衣机"
+          },
+          {
+            "kind": "fp-vanity-double",
+            "x": 11540,
+            "z": 6320,
+            "w": 1200,
+            "d": 600,
+            "rotation": -1.5707963267948966,
+            "label": "双盆浴室柜"
+          },
+          {
+            "kind": "fp-shower",
+            "x": 19490,
+            "z": 5425,
+            "w": 1370,
+            "d": 900,
+            "rotation": 1.5707963267948966,
+            "label": "淋浴房"
+          },
+          {
+            "kind": "fp-bed-double-1800",
+            "x": 18940,
+            "z": 7786,
+            "w": 1800,
+            "d": 2000,
+            "rotation": 1.5707963267948966,
+            "label": "双人床 1.8m"
+          },
+          {
+            "kind": "fp-nightstand",
+            "x": 19740,
+            "z": 8911,
+            "w": 450,
+            "d": 400,
+            "rotation": 1.5707963267948966,
+            "label": "床头柜"
+          },
+          {
+            "kind": "fp-nightstand",
+            "x": 19740,
+            "z": 6661,
+            "w": 450,
+            "d": 400,
+            "rotation": 1.5707963267948966,
+            "label": "床头柜"
+          },
+          {
+            "kind": "fp-wardrobe",
+            "x": 16440,
+            "z": 7785,
+            "w": 2000,
+            "d": 600,
+            "rotation": -1.5707963267948966,
+            "label": "衣柜"
+          },
+          {
+            "kind": "fp-toilet",
+            "x": 18660,
+            "z": 5090,
+            "w": 400,
+            "d": 700,
+            "rotation": 3.141592653589793,
+            "label": "马桶"
+          },
+          {
+            "kind": "fp-vanity",
+            "x": 17780,
+            "z": 4990,
+            "w": 800,
+            "d": 500,
+            "rotation": 3.141592653589793,
+            "label": "浴室柜"
+          }
+        ]
       },
       {
         "name": "二层",
@@ -106,6 +460,20 @@
             "label": [
               18250,
               7500
+            ]
+          },
+          {
+            "id": "stair1",
+            "name": "楼梯",
+            "x": 13100,
+            "z": 5640,
+            "w": 2900,
+            "d": 3917,
+            "kind": "stair",
+            "note": "编辑器放置的楼梯示意；踏步、净高与洞口待结构核定。",
+            "label": [
+              14550,
+              7598.5
             ]
           }
         ],
@@ -380,6 +748,20 @@
               "key": "exterior:south|wall-27:south|wall-28:east|wall-32:west",
               "status": "enclosed"
             }
+          },
+          {
+            "id": "stair2",
+            "name": "楼梯",
+            "x": 13100,
+            "z": 5640,
+            "w": 2900,
+            "d": 3917,
+            "kind": "stair",
+            "note": "编辑器放置的楼梯示意；踏步、净高与洞口待结构核定。",
+            "label": [
+              14550,
+              7598.5
+            ]
           }
         ],
         "partitions": [
@@ -632,31 +1014,36 @@
     ],
     "stairLayout": {
       "room": {
-        "x": 13400,
-        "z": 5400,
+        "x": 13100,
+        "z": 5640,
         "w": 2900,
-        "d": 4200
+        "d": 3917,
+        "label": [
+          14550,
+          7598.5
+        ]
       },
-      "x": 13520,
-      "z": 5520,
+      "x": 13220,
+      "z": 5640,
       "flight": 980,
       "gap": 180,
       "risers": 20,
       "tread": 290,
       "landing": 800,
       "axis": "z",
+      "direction": "positive",
       "lowerSide": "max",
       "hole": {
-        "x": 13520,
-        "z": 5520,
+        "x": 13220,
+        "z": 5640,
         "w": 2660,
-        "d": 3840
+        "d": 3720
       }
     },
     "portico": {
       "x": 11100,
       "w": 4600,
-      "projection": 2000
+      "projection": 1800
     },
     "livingVoid": {
       "x": 6600,
@@ -715,7 +1102,7 @@
         "floor": 0,
         "facadeIndex": 1,
         "opening": {
-          "offset": 10728.888888888889,
+          "offset": 10596,
           "width": 1813.3333333333333,
           "kind": "window",
           "hinge": "start",
@@ -833,11 +1220,99 @@
         }
       },
       {
+        "floor": 1,
+        "facadeIndex": 0,
+        "opening": {
+          "offset": 10688,
+          "width": 1500,
+          "kind": "window",
+          "hinge": "start",
+          "side": "out"
+        }
+      },
+      {
+        "floor": 1,
+        "facadeIndex": 0,
+        "opening": {
+          "offset": 6065,
+          "width": 1500,
+          "kind": "window",
+          "hinge": "start",
+          "side": "out"
+        }
+      },
+      {
+        "floor": 1,
+        "facadeIndex": 3,
+        "opening": {
+          "offset": 4024,
+          "width": 1500,
+          "kind": "window",
+          "hinge": "start",
+          "side": "out"
+        }
+      },
+      {
+        "floor": 1,
+        "facadeIndex": 1,
+        "opening": {
+          "offset": 10896,
+          "width": 1500,
+          "kind": "window",
+          "hinge": "start",
+          "side": "out"
+        }
+      },
+      {
+        "floor": 1,
+        "facadeIndex": 1,
+        "opening": {
+          "offset": 1299,
+          "width": 1500,
+          "kind": "window",
+          "hinge": "start",
+          "side": "out"
+        }
+      },
+      {
+        "floor": 1,
+        "facadeIndex": 1,
+        "opening": {
+          "offset": 7130,
+          "width": 1500,
+          "kind": "window",
+          "hinge": "start",
+          "side": "out"
+        }
+      },
+      {
+        "floor": 2,
+        "facadeIndex": 3,
+        "opening": {
+          "offset": 3479,
+          "width": 1500,
+          "kind": "window",
+          "hinge": "start",
+          "side": "out"
+        }
+      },
+      {
+        "floor": 2,
+        "facadeIndex": 3,
+        "opening": {
+          "offset": 627,
+          "width": 1500,
+          "kind": "window",
+          "hinge": "start",
+          "side": "out"
+        }
+      },
+      {
         "floor": 0,
         "facadeIndex": 1,
         "opening": {
-          "offset": 5678,
-          "width": 2014.8148148148146,
+          "offset": 5000,
+          "width": 1000,
           "kind": "window",
           "hinge": "start",
           "side": "out"

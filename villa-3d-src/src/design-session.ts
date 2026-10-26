@@ -3,7 +3,7 @@ import { projectMeta } from "./project-meta";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
 import { parseRoofStyle, type RoofStyle } from "./roof-options";
 import { isMeterLengthPayload, migrateVillaParamsToMm } from "./units";
-import { DEFAULT_VILLA_PARAMS, type VillaParams } from "./villa-params";
+import { DEFAULT_VILLA_PARAMS, validateVillaParams, type VillaParams } from "./villa-params";
 
 export const viewFlags = ["roof", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside", "explode", "chair-clearance", "room-clearance", "room-inside", "route-sweep", "route-clearance", "route-conflicts"] as const;
 export interface CameraPose { position: [number, number, number]; target: [number, number, number]; zoom: number }
@@ -84,10 +84,14 @@ export function validateMeetingView(value: unknown): MeetingView {
     const raw = isMeterLengthPayload(rawParams, { mainWidth: rawParams.mainWidth }) ? migrateVillaParamsToMm(rawParams) : rawParams;
     const next = { ...DEFAULT_VILLA_PARAMS };
     for (const key of Object.keys(DEFAULT_VILLA_PARAMS) as (keyof VillaParams)[]) {
-      if (typeof raw[key] === "number" && Number.isFinite(raw[key])) next[key] = raw[key] as number;
+      if (typeof DEFAULT_VILLA_PARAMS[key] === "number" && typeof raw[key] === "number" && Number.isFinite(raw[key])) (next as unknown as Record<string, unknown>)[key] = raw[key];
+      if (key === "porticoStyle" && ["projecting", "recessed"].includes(raw[key] as string)) next.porticoStyle = raw[key] as VillaParams["porticoStyle"];
+      if (key === "buildingPlacement" && ["main-east", "main-west"].includes(raw[key] as string)) next.buildingPlacement = raw[key] as VillaParams["buildingPlacement"];
+      if (key === "thirdFloorMode" && ["setback", "flush"].includes(raw[key] as string)) next.thirdFloorMode = raw[key] as VillaParams["thirdFloorMode"];
     }
     villaParams = next;
   }
+  if (validateVillaParams(villaParams).length) throw new Error("快照中的方案尺寸无效");
   return {
     roofStyle: parseRoofStyle(v.roofStyle),
     courtyardFinish: parseCourtyardFinish(v.courtyardFinish),

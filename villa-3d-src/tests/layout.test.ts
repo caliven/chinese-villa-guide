@@ -21,16 +21,15 @@ import { facades } from "../src/facades";
 import { sunDirection } from "../src/viewer";
 import { diningClearance } from "../src/plan";
 import type { Mats } from "../src/primitives";
-import { cornerPilasterTopY, eyelidFixed, fasciaBottomY } from "../src/roof-options";
-import { frontApronEaveBase } from "../src/facade-details";
+import { cornerPilasterTopY, eyelidFixed, fasciaBottomY, frontApronSection } from "../src/roof-options";
 
-test("首层含门厅177.2平方米，21米内包含两侧过道和子孙道，辅楼内退2米", () => {
+test("首层含门厅177平方米，21米内包含两侧过道和子孙道，辅楼内退2米", () => {
   assert.equal(areaM2(site.main.w, site.main.d), 136);
   assert.equal(areaM2(site.annex.w, site.annex.d), 32);
   assert.equal(site.annex.d, 8000);
   assert.equal(site.annex.z - site.main.z, 2000);
-  assert.equal(buildingAreas.portico, 9.2);
-  assert.equal(buildingAreas.total, 177.2);
+  assert.equal(buildingAreas.portico, 9);
+  assert.equal(buildingAreas.total, 177);
   assert.ok(Math.abs(buildingAreas.total - buildingAreas.main - buildingAreas.annex - buildingAreas.portico) < 1e-9);
   assert.equal(site.width, 21000);
   const eastGap = site.width - site.main.x - site.main.w;
@@ -312,16 +311,15 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     if (object.name === "包角柱" && object.position.y < 1000 && object.position.z < 0) frontCorners.push(object);
   });
   assert.equal(frontCorners.length, 2);
-  // 正面一二层包角柱顶：二楼前檐下沿线底以下约10厘米，不通到三眼皮／天沟。
-  const frontApronBase = frontApronEaveBase(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
-  const frontExpect = cornerPilasterTopY(frontApronBase);
-  const frontFasciaBot = fasciaBottomY(frontApronBase, 0);
+  // 正面包角柱冠下收，由实体退进柱颈接承台。
+  const apron = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
+  const frontExpect = apron.columnTopY;
+  const frontFasciaBot = apron.fasciaBottomY;
   for (const column of frontCorners) {
     const top = new THREE.Box3().setFromObject(column).max.y;
     assert.ok(Math.abs(top - frontExpect) < 0.1, `包角柱顶 ${top} 应为 ${frontExpect}`);
-    assert.ok(frontFasciaBot - top > 90 && frontFasciaBot - top < 120, "柱顶到下沿线底约10厘米");
-    // 下沿线／梁托也在飘檐分组内，不能用整组 AABB；柱顶须低于三眼皮底。
-    assert.ok(top < frontApronBase - eyelidFixed.rises[0] - eyelidFixed.rises[1] - eyelidFixed.rises[2] - 250, "柱顶须明显低于挑檐三眼皮底");
+    assert.ok(Math.abs(frontFasciaBot - top - 180) < .1, "包角柱冠比承台下收180");
+    assert.ok(top < apron.soffitY - 250, "柱顶须低于挑檐梁托及收口区");
   }
   // 屋后与三楼包角柱：正屋天沟下沿线底以下约10厘米。
   const mainExpect = cornerPilasterTopY(mainRoofFootprint().eave);

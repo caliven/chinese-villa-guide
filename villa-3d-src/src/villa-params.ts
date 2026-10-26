@@ -1,3 +1,4 @@
+import { mirrorRoom, mirrorWall, mirrorFurniture, porticoFrontZ, porticoWallZ, resizeThirdFloorFront, type PorticoStyle, type BuildingPlacement, type ThirdFloorMode } from "./building-variants";
 /**
  * 方案尺寸参数（长度一律毫米）：总面宽锁定 21000 mm；改参后重算场地／主辅楼／院坪，
  * 并按主楼／辅楼面宽、进深轴向比例缩放室内房间与家具（相对默认几何，不叠乘）。
@@ -30,7 +31,6 @@ import {
   roofGutterDesign,
   floatingHatDesign,
   eaveTrimDesign,
-  eyelidFixed,
   roofTileInset,
   syncRoofTileInset,
 } from "./roof-options";
@@ -40,12 +40,16 @@ import { rebuildVehicleRoute } from "./vehicle-route";
 import { mainEaveY } from "./facades";
 import { ensureFurnitureWallClearance } from "./layout-align";
 import { formatMm, isMeterLengthPayload, migrateVillaParamsToMm } from "./units";
+import { porticoColumnCenters, porticoColumnOuterWidth, porticoWestOffset } from "./frontage-geometry";
 
 export const LOCKED_SITE_WIDTH = 21000;
 /** @deprecated 已改存 scheme 文件，仅供旧迁移识别。 */
 export const villaParamsPreferenceKey = "anhua-villa-params-v1";
 
 export interface VillaParams {
+  porticoStyle: PorticoStyle;
+  buildingPlacement: BuildingPlacement;
+  thirdFloorMode: ThirdFloorMode;
   westGap: number;
   eastGap: number;
   lane: number;
@@ -109,6 +113,9 @@ export interface VillaParams {
 }
 
 export const DEFAULT_VILLA_PARAMS: VillaParams = {
+  porticoStyle: "projecting",
+  buildingPlacement: "main-east",
+  thirdFloorMode: "setback",
   westGap: 800,
   eastGap: 800,
   lane: 1800,
@@ -120,11 +127,11 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   thirdSetback: 1200,
   secondFrontEave: 800,
   thirdEave: 800,
-  /** 门厅面宽＝两根门厅柱心距；主楼面宽 13600 时左右各余 4500。 */
-  porticoWidth: 4600,
+  /** 堂屋／门厅面宽及柱心距4500；另两翼为客厅4600、另一翼4500。 */
+  porticoWidth: 4500,
   porticoProjection: 2000,
   porticoColumnSize: 800,
-  /** 派生：外伸 − 半柱；柱心在北沿角上时内侧到前墙＝外伸−半柱。 */
+  /** 派生：外伸 − 半柱；柱心在北沿时内侧到前墙＝外伸−半柱。 */
   porticoColumnWallGap: 1600,
   cornerProject: 150,
   annexWidth: 4000,
@@ -163,10 +170,7 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   neighborYardBeyondCement: 8600,
 };
 
-/**
- * 柱心距（只读派生）＝门厅面宽。
- * 约定：两根门厅柱心落在外伸投影北沿左右两角的直角处，故心距等于面宽。
- */
+/** 门厅两柱柱心落在前沿两角，柱心距等于门厅面宽。 */
 export function porticoColumnSpacing(p: VillaParams) {
   return p.porticoWidth;
 }
@@ -202,9 +206,14 @@ export function derivedAnnexSetback(p: Pick<VillaParams, "mainDepth" | "annexDep
   return p.mainDepth - p.annexDepth;
 }
 
+/** 不内退时实际退距为零；保留配置退距，便于切回原方案。 */
+export function effectiveThirdSetback(p: Pick<VillaParams, "thirdFloorMode" | "thirdSetback">) {
+  return p.thirdFloorMode === "flush" ? 0 : p.thirdSetback;
+}
+
 /** 三楼主体最小剩余进深（毫米）；再小则房间／楼梯／门洞无法合理布置。 */
 export const MIN_THIRD_BODY_DEPTH = 3000;
-/** 门厅柱间净宽下限（柱内皮之间）。 */
+/** 门厅柱间净宽下限（含柱脚饰线的相向内皮之间）。 */
 export const MIN_PORTICO_CLEAR = 900;
 /** 两侧露台最小宽度。 */
 export const MIN_SIDE_TERRACE = 150;
@@ -261,10 +270,11 @@ export function buildingDepthLimits(p: VillaParams) {
     [LOCKED_SITE_WIDTH - p.courtyardMidFromEast, p.oldDepth - p.courtyardMidTotal],
     [LOCKED_SITE_WIDTH, p.oldDepth - p.courtyardEastTotal],
   ]);
-  const mainEast = LOCKED_SITE_WIDTH - p.eastGap;
-  const mainWest = mainEast - p.mainWidth;
-  const annexEast = mainWest - p.lane;
-  const porticoWest = mainWest + (p.mainWidth - p.porticoWidth) / 2;
+  const east = LOCKED_SITE_WIDTH - p.eastGap;
+  const mainWest = p.buildingPlacement === "main-west" ? derivedWestGap(p) : east - p.mainWidth;
+  const mainEast = mainWest + p.mainWidth;
+  const annexEast = p.buildingPlacement === "main-west" ? east : mainWest - p.lane;
+  const porticoWest = mainWest + porticoWestOffset(p);
   const depth = (lo: number, hi: number) => {
     // 圆弧在区间内唯一可能的极值是圆心X；同时检查两端。
     const xs = [lo, hi, Math.max(lo, Math.min(hi, circle.h))];
@@ -280,6 +290,9 @@ export function buildingDepthLimits(p: VillaParams) {
 
 export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   const issues: VillaParamsIssue[] = [];
+  if (p.porticoStyle !== undefined && !["projecting", "recessed"].includes(p.porticoStyle)) issues.push({ field: "porticoStyle", message: "门厅造型无效" });
+  if (p.buildingPlacement !== undefined && !["main-east", "main-west"].includes(p.buildingPlacement)) issues.push({ field: "buildingPlacement", message: "主辅楼位置无效" });
+  if (p.thirdFloorMode !== undefined && !["setback", "flush"].includes(p.thirdFloorMode)) issues.push({ field: "thirdFloorMode", message: "三楼模式无效" });
   const west = derivedWestGap(p);
   if (west <= 1) {
     issues.push({
@@ -319,8 +332,8 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   if (p.annexSetback < 0 || !Number.isFinite(p.annexSetback)) {
     issues.push({ field: "annexSetback", message: "辅楼内退不能为负" });
   }
-  if (p.porticoWidth <= p.porticoColumnSize) {
-    issues.push({ field: "porticoWidth", message: "门厅面宽须大于柱截面" });
+  if (porticoColumnSpacing(p) <= porticoColumnOuterWidth(p.porticoColumnSize)) {
+    issues.push({ field: "porticoWidth", message: "门厅柱心距须大于含柱脚饰线的柱外包宽度" });
   }
   if (p.cornerProject > 500) {
     issues.push({ field: "cornerProject", message: "包角柱突出墙面不宜超过 500 mm（50 cm）" });
@@ -331,7 +344,7 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   if (p.roofFenShui < 1 || p.roofFenShui > 10) {
     issues.push({ field: "roofFenShui", message: "分水须在 1～10" });
   }
-  if (p.gutterCopingSlope < 0 || p.gutterCopingSlope > 15) {
+  if (typeof p.gutterCopingSlope !== "number" || !Number.isFinite(p.gutterCopingSlope) || p.gutterCopingSlope < 0 || p.gutterCopingSlope > 15) {
     issues.push({ field: "gutterCopingSlope", message: "天沟顶面内倾宜在 0～15°" });
   }
   if (typeof p.gutterBedSlope !== "number" || !Number.isFinite(p.gutterBedSlope)) {
@@ -348,12 +361,11 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   if (p.corbelLength > p.thirdEave) {
     issues.push({ field: "corbelLength", message: "梁托长度不宜超过三楼檐口挑出" });
   }
-  // 二楼前檐经三眼皮两级内收后的最下层出挑须能容纳梁托。
-  const lowestSecondEave = p.secondFrontEave - 2 * eyelidFixed.stepExtra;
-  if (lowestSecondEave > 0 && p.corbelLength > lowestSecondEave + 1e-6) {
+  // 二楼无天沟挑檐为完整檐板，梁托须收在实际挑出内，不再扣除屋顶三眼皮级差。
+  if (p.corbelLength > p.secondFrontEave + 1e-6) {
     issues.push({
       field: "corbelLength",
-      message: `梁托 ${p.corbelLength} mm 超过二楼前檐最下层出挑约 ${formatMm(lowestSecondEave)} mm；请减小梁托或加大二楼前檐`,
+      message: `梁托 ${p.corbelLength} mm 超过二楼前檐挑出 ${formatMm(p.secondFrontEave)} mm；请减小梁托或加大二楼前檐`,
     });
   }
   if (p.corbelCornerSpacing > p.corbelSpacing) {
@@ -385,8 +397,10 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   }
 
   // —— 几何包络／净空约束（无效组合直接拒绝应用）——
-  const bodyDepth = p.mainDepth - p.thirdSetback;
-  if (!(p.thirdSetback < p.mainDepth - MIN_THIRD_BODY_DEPTH + 1e-6)) {
+  const thirdSetback = effectiveThirdSetback(p);
+  if (p.porticoStyle === "recessed" && p.mainDepth - thirdSetback - p.porticoProjection < MIN_THIRD_BODY_DEPTH) issues.push({ field: "porticoProjection", message: "凹入门厅后，三层中央剩余进深须至少 3000 mm" });
+  const bodyDepth = p.mainDepth - thirdSetback;
+  if (!(thirdSetback < p.mainDepth - MIN_THIRD_BODY_DEPTH + 1e-6)) {
     issues.push({
       field: "thirdSetback",
       message: `三楼北退后剩余进深须至少 ${MIN_THIRD_BODY_DEPTH} mm（当前约 ${formatMm(bodyDepth)} mm）；请减小北退或加大主楼进深`,
@@ -404,7 +418,7 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
     for (const [field, name, used, limit] of [
       ["mainDepth", "主楼＋屋后预留", p.mainDepth + p.rearGap, limits.main],
       ["annexDepth", "辅楼＋屋后预留", p.annexDepth + p.rearGap, limits.annex],
-      ["porticoProjection", "主楼＋门厅外伸＋屋后预留", p.mainDepth + p.porticoProjection + p.rearGap, limits.portico],
+      ["porticoProjection", "主楼＋门厅外伸＋屋后预留", p.mainDepth + (p.porticoStyle === "recessed" ? 0 : p.porticoProjection) + p.rearGap, limits.portico],
     ] as const) {
       if (used > limit + 1) issues.push({
         field,
@@ -437,7 +451,7 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
     });
   }
 
-  const porticoClear = p.porticoWidth - p.porticoColumnSize;
+  const porticoClear = porticoColumnSpacing(p) - porticoColumnOuterWidth(p.porticoColumnSize);
   if (porticoClear < MIN_PORTICO_CLEAR) {
     issues.push({
       field: "porticoWidth",
@@ -452,7 +466,8 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
     });
   }
   const cornerOffsetCheck = 180 * (p.mainWidth / DEFAULT_VILLA_PARAMS.mainWidth);
-  const sideTerrace = (p.mainWidth - p.porticoWidth) / 2 - cornerOffsetCheck;
+  const westWing = porticoWestOffset(p);
+  const sideTerrace = Math.min(westWing, p.mainWidth - p.porticoWidth - westWing) - cornerOffsetCheck;
   if (sideTerrace < MIN_SIDE_TERRACE) {
     issues.push({
       field: "porticoWidth",
@@ -642,9 +657,9 @@ let currentParams: VillaParams = { ...DEFAULT_VILLA_PARAMS };
  */
 export function normalizeVillaParamsLengths(params: VillaParams): VillaParams {
   if (isMeterLengthPayload(params, { mainWidth: params.mainWidth })) {
-    return migrateVillaParamsToMm({ ...params });
+    return { ...DEFAULT_VILLA_PARAMS, ...migrateVillaParamsToMm({ ...params }) };
   }
-  return { ...params };
+  return { ...DEFAULT_VILLA_PARAMS, ...params };
 }
 
 export function getVillaParams(): VillaParams {
@@ -692,19 +707,22 @@ export function applyVillaParams(input: VillaParams) {
 
   // 南墙＝屋后界 − 预留；东墙＝总宽 − 东侧。改面宽／进深只动西墙与北墙。
   const mainSouth = synced.oldDepth - synced.rearGap;
-  const mainEast = LOCKED_SITE_WIDTH - synced.eastGap;
-  const mainX = mainEast - synced.mainWidth;
+  const east = LOCKED_SITE_WIDTH - synced.eastGap;
+  const mainX = synced.buildingPlacement === "main-west" ? westGap : east - synced.mainWidth;
+  const mainEast = mainX + synced.mainWidth;
   const mainZNext = mainSouth - synced.mainDepth;
-  const annexEast = mainX - synced.lane;
+  const annexEast = synced.buildingPlacement === "main-west" ? east : mainX - synced.lane;
   const annexX = annexEast - synced.annexWidth;
   const annexZ = mainSouth - synced.annexDepth;
 
+  site.porticoStyle = synced.porticoStyle;
+  site.buildingPlacement = synced.buildingPlacement;
   site.width = LOCKED_SITE_WIDTH;
   site.sideGap = westGap;
   site.lane = synced.lane;
   site.oldDepth = synced.oldDepth;
   site.rearGap = synced.rearGap;
-  site.setback = synced.thirdSetback;
+  site.setback = effectiveThirdSetback(synced);
   site.thirdEave = synced.thirdEave;
   site.eave = synced.thirdEave;
   site.secondFrontEave = synced.secondFrontEave;
@@ -721,7 +739,7 @@ export function applyVillaParams(input: VillaParams) {
   site.annex.height = synced.annexHeight;
   site.portico.w = synced.porticoWidth;
   site.portico.projection = synced.porticoProjection;
-  site.portico.x = mainX + (synced.mainWidth - synced.porticoWidth) / 2;
+  site.portico.x = mainX + porticoWestOffset(synced);
 
   roofGutterDesign.clearWidth = params.gutterClearWidth;
   roofGutterDesign.clearDepth = params.gutterClearDepth;
@@ -740,7 +758,7 @@ export function applyVillaParams(input: VillaParams) {
   // 主楼四坡起高随四面统一 thirdEave 后的外包络半坡重算（与 roofPitch 一致）。
   {
     const roofW = params.mainWidth + 2 * params.thirdEave;
-    const roofD = params.mainDepth - params.thirdSetback + 2 * params.thirdEave;
+    const roofD = params.mainDepth - site.setback + 2 * params.thirdEave;
     site.roofRise = (params.roofFenShui / 10) * (Math.min(roofW, roofD) - 2 * roofTileInset) / 2;
   }
 
@@ -794,12 +812,12 @@ export function applyVillaParams(input: VillaParams) {
       ...floor,
       y: ys[i] ?? floor.y,
       height: heights[i] ?? floor.height,
-      front: i === 2 ? nz + synced.thirdSetback : nz,
+      front: i === 2 ? nS - (oS - floor.front) * sz : nz,
       rooms,
       partitions,
       furniture,
     };
-    return i === 2 ? clampThirdFloorNorth(next, next.front) : next;
+    return i === 2 ? clampThirdFloorNorth(resizeThirdFloorFront(next, nz + site.setback), nz + site.setback) : next;
   });
   replaceArray(floors, nextFloors);
 
@@ -854,6 +872,27 @@ export function applyVillaParams(input: VillaParams) {
   circulation.sideDoorWidth = base.circulation.sideDoorWidth;
   syncSideDoorToLivingBridge();
 
+  if (synced.buildingPlacement === "main-west") {
+    const sum = site.main.x * 2 + site.main.w, asum = site.annex.x * 2 + site.annex.w;
+    for (const f of floors) {
+      f.rooms = f.rooms.map(r => mirrorRoom(r, sum));
+      f.partitions = f.partitions.map(w => mirrorWall(w, sum));
+      f.furniture = f.furniture.map(f => mirrorFurniture(f, sum));
+    }
+    replaceArray(annexRooms, annexRooms.map(r => mirrorRoom(r, asum)));
+    replaceArray(annexPartitions, annexPartitions.map(w => mirrorWall(w, asum)));
+    replaceArray(annexFurniture, annexFurniture.map(f => mirrorFurniture(f, asum)));
+    const stairOffsetX = stairLayout.x - stairLayout.room.x;
+    stairLayout.room.x = sum - stairLayout.room.x - stairLayout.room.w;
+    stairLayout.hole.x = sum - stairLayout.hole.x - stairLayout.hole.w;
+    stairLayout.x = stairLayout.room.x + stairOffsetX;
+    if (stairLayout.axis === "x") stairLayout.direction = sl.direction === "negative" ? "positive" : "negative";
+    else stairLayout.lowerSide = sl.lowerSide === "max" ? "min" : "max";
+    circulation.livingVoid.x = sum - circulation.livingVoid.x - circulation.livingVoid.w;
+  } else {
+    stairLayout.direction = sl.direction;
+    stairLayout.lowerSide = sl.lowerSide;
+  }
   syncFrontElevation(synced);
 
   // 改尺后家具仍可能压在墙中线上，再钳到墙内皮。
@@ -863,22 +902,21 @@ export function applyVillaParams(input: VillaParams) {
 }
 
 /**
- * 三楼露台短柱与下层柱同轴：中间两根＝门厅柱延伸，两侧＝包角柱延伸。
+ * 三楼露台短柱与下层柱同轴；贴前墙的官帽柱另按堂屋两端分档线定位。
  * 改门厅／包角相关参数时由此一处重算，避免错位。
  */
 function syncFrontElevation(params: VillaParams) {
   const main = site.main;
   const porch = site.portico;
-  const half = params.porticoColumnSize / 2;
   frontElevation.cornerProject = params.cornerProject;
   const project = params.cornerProject;
   const leg = frontElevation.cornerLeg;
   const shortW = frontElevation.shortPostWidth;
 
-  // 门厅柱心落在外伸投影北沿左右两角的直角处（用户约定）：X＝门厅左右边，Z＝北沿。
+  // 官帽柱与门厅柱共用堂屋开间两端的X轴线；门厅柱心在前沿两角。
   frontElevation.postXs = [porch.x, porch.x + porch.w];
   // 官帽柱／墙内构造柱：北皮贴一层前墙外皮（recessedHatPier 进深 500 mm，中心在外皮以南半深）。
-  frontElevation.postZ = main.z + 250;
+  frontElevation.postZ = porticoWallZ() + 250;
   frontElevation.wallCornerXs = [main.x + 270, main.x + main.w - 270];
   frontElevation.cornerWestX = main.x + 120;
   frontElevation.cornerEastX = main.x + main.w - 120;
@@ -886,7 +924,7 @@ function syncFrontElevation(params: VillaParams) {
   params.porticoColumnWallGap = wallGap;
   frontElevation.porticoColumnWallGap = wallGap;
   frontElevation.porticoColumnDepth = params.porticoColumnSize;
-  frontElevation.porticoColumnZ = main.z - params.porticoProjection;
+  frontElevation.porticoColumnZ = porticoFrontZ();
 
   // 包角柱正面段中心（与下层 L 形柱身同轴）。
   const cornerShaft = (cornerX: number, outward: number) => ({
@@ -896,13 +934,14 @@ function syncFrontElevation(params: VillaParams) {
   });
   const westCorner = cornerShaft(frontElevation.cornerWestX, -1);
   const eastCorner = cornerShaft(frontElevation.cornerEastX, 1);
+  const columnXs = porticoColumnCenters(porch);
   const middleWest = {
-    x: frontElevation.postXs[0],
+    x: columnXs[0],
     z: frontElevation.porticoColumnZ,
     w: params.porticoColumnSize,
   };
   const middleEast = {
-    x: frontElevation.postXs[1],
+    x: columnXs[1],
     z: frontElevation.porticoColumnZ,
     w: params.porticoColumnSize,
   };
@@ -911,7 +950,7 @@ function syncFrontElevation(params: VillaParams) {
   // 露台北缘包住短柱外皮，与下层柱北缘对齐。
   frontElevation.centerFront = middleWest.z - middleWest.w / 2;
   frontElevation.terraceFront = Math.min(westCorner.z - westCorner.w / 2, eastCorner.z - eastCorner.w / 2);
-  frontElevation.terraceBack = main.z + params.thirdSetback + 40;
+  frontElevation.terraceBack = porticoWallZ(main.z + effectiveThirdSetback(params)) + 40;
   const cornerOffset = 180 * (params.mainWidth / DEFAULT_VILLA_PARAMS.mainWidth);
   frontElevation.sideTerraces = [
     { x: main.x + cornerOffset, w: porch.x - (main.x + cornerOffset) },
@@ -920,7 +959,7 @@ function syncFrontElevation(params: VillaParams) {
       w: main.x + main.w - cornerOffset - (porch.x + porch.w),
     },
   ];
-  frontElevation.hatFront = main.z - 980 * (params.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection);
+  frontElevation.hatFront = main.z - 980 * (params.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection) + (params.porticoStyle === "recessed" ? params.porticoProjection : 0);
   frontElevation.hatWidth = porch.w + 1040;
   // 官帽檐口随三层层高累加；悬浮方案另有 floatingHatLayout 抬高。
   frontElevation.hatEave = mainEaveY();

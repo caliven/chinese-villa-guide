@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DeferredSceneUpdate, FrameRedraw } from "../src/deferred-scene-update.ts";
+import { LayoutEditor } from "../src/layout-editor.ts";
+import { clonePublishedLayout, draftToJson } from "../src/layout-draft.ts";
 
 function setup() {
   let visible = false;
@@ -128,4 +130,46 @@ test("同一帧的选择/拖动/提交只重绘一次，立即重绘可取消排
   redraw.clear();
   assert.equal(frames.size, 0);
   assert.equal(draws, 1);
+});
+
+test("导入和恢复户型会通知场地模型；二维替换后切回三维应用最新布局", async () => {
+  let visible = true;
+  let editor: LayoutEditor;
+  const applied: number[] = [], notifications: boolean[] = [];
+  const sync = new DeferredSceneUpdate({
+    visible: () => visible,
+    capture: () => ({ key: JSON.stringify({ ...editor.draft, updatedAt: "" }), value: editor.draft.floors[0].furniture.length }),
+    apply: count => { applied.push(count); },
+    loading: async work => { work(); },
+  });
+  editor = new LayoutEditor({
+    getFloor: () => 0, redraw: () => {}, toast: () => {},
+    onDraftSaved: (_updatedAt, manual) => { notifications.push(manual); sync.invalidate(); },
+  }, clonePublishedLayout());
+  const publishedCount = editor.draft.floors[0].furniture.length;
+  assert.ok(publishedCount > 0);
+  await sync.flush();
+  assert.deepEqual(applied, [publishedCount]);
+
+  visible = false;
+  const imported = clonePublishedLayout(); imported.floors[0].furniture = [];
+  editor.importJson(draftToJson(imported));
+  await sync.flush();
+  assert.deepEqual(applied, [publishedCount], "二维导入不立即重建场地模型");
+  assert.equal(editor.canUndo, false);
+  assert.equal(editor.canRedo, false);
+  visible = true;
+  await sync.flush();
+  assert.deepEqual(applied, [publishedCount, 0], "切回三维不能保留导入前的模型");
+
+  visible = false;
+  editor.resetToPublished();
+  await sync.flush();
+  visible = true;
+  await sync.flush();
+  assert.deepEqual(applied, [publishedCount, 0, publishedCount], "恢复正式户型同样触发同步");
+  assert.deepEqual(notifications, [false, false, false]);
+  assert.equal(editor.selection, null);
+  assert.equal(editor.canUndo, false);
+  assert.equal(editor.canRedo, false);
 });

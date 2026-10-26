@@ -358,6 +358,65 @@ export class VillaViewer {
     this.camera.updateProjectionMatrix();
     this.needsRender = true;
   }
+  invalidate() {
+    this.needsRender = true;
+  }
+  zoomFloor(factor: number) {
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    const distance = THREE.MathUtils.clamp(offset.length() * factor, this.controls.minDistance, this.controls.maxDistance);
+    this.camera.position.copy(this.controls.target).add(offset.setLength(distance));
+    this.controls.update();
+    this.needsRender = true;
+  }
+  floorNudge(right: number, up: number, step: number) {
+    const horizontal = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const vertical = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    horizontal.y = vertical.y = 0;
+    const delta = horizontal.normalize().multiplyScalar(right).add(vertical.normalize().multiplyScalar(up)).multiplyScalar(step);
+    return { x: Math.round(delta.x), z: Math.round(delta.z) };
+  }
+  /** 户型工作台按中间画布居中取景，不沿用场地页为侧栏预留的偏移。 */
+  floorEditorRoot: THREE.Object3D | null = null;
+  floorEditorBounds: (() => THREE.Box3) | null = null;
+  setFloorCamera(mode: "orbit" | "top" = "orbit", targetBounds?: THREE.Box3) {
+    const level = this.state.floor ?? 0;
+    this.scene.updateMatrixWorld(true);
+    const bounds = targetBounds?.clone() ?? this.floorEditorBounds?.() ?? new THREE.Box3().setFromObject(this.villa.levels[level]);
+    if (!targetBounds && !this.floorEditorBounds && this.state.exploded) {
+      for (const group of this.villa.levels) if (group.visible) bounds.union(new THREE.Box3().setFromObject(group));
+    }
+    if (!targetBounds && !this.floorEditorBounds && (level === 0 || this.state.exploded) && this.villa.annex.visible) bounds.union(new THREE.Box3().setFromObject(this.villa.annex));
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    if (!targetBounds && !this.state.exploded) center.y = toM(floors[level].y + (level === 0 ? site.entranceRise : 0));
+    const height = Math.max(size.z, size.x / Math.max(.5, this.camera.aspect));
+    const distance = height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.2;
+    const direction = mode === "top" ? new THREE.Vector3(0, 1, -.0001) : new THREE.Vector3(.35, 1.5, -1).normalize();
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.camera.zoom = 1;
+    this.camera.updateProjectionMatrix();
+    this.camera.position.copy(center).addScaledVector(direction, distance);
+    this.controls.target.copy(center);
+    this.controls.update();
+    // 斜视时近侧墙角会比平面包络更靠屏边；用真实八角点补足留白。
+    for (let attempt = 0; attempt < 5; attempt++) {
+      this.camera.updateMatrixWorld(true);
+      let overflow = 1;
+      for (const x of [bounds.min.x, bounds.max.x])
+        for (const y of [bounds.min.y, bounds.max.y])
+          for (const z of [bounds.min.z, bounds.max.z]) {
+            const corner = new THREE.Vector3(x, y, z).project(this.camera);
+            overflow = Math.max(overflow, Math.abs(corner.x) / .88, Math.abs(corner.y) / .78);
+          }
+      if (overflow <= 1.01) break;
+      this.camera.position.sub(center).multiplyScalar(overflow * 1.02).add(center);
+    }
+    this.controls.update();
+    this.controls.enableDamping = damping;
+    this.needsRender = true;
+  }
   setCamera(name: CameraName) {
     this.activeCamera = name;
     const roadside = surroundings.roadsideVilla;
@@ -441,6 +500,7 @@ export class VillaViewer {
     this.needsRender = true;
   }
   setState(next: Partial<ViewState>) {
+    const wasExploded = this.state.exploded;
     Object.assign(this.state, next);
     const s = this.state;
     if (s.roofStyle !== this.builtRoofStyle) this.setRoofFenShui(this.fenPending ?? this.fenShui);
@@ -448,7 +508,7 @@ export class VillaViewer {
     this.land.existing.visible = s.existing;
     this.land.neighborDeck.visible = !s.existing && !s.garage;
     this.land.proposed.visible = !s.existing;
-    this.villa.group.visible = !s.existing && !s.garage;
+    this.villa.group.visible = !s.existing && !s.garage && !this.floorEditorRoot;
     this.land.context.visible = s.context && s.floor === null;
     this.land.sideNeighbor.visible = s.sideNeighbor;
     this.land.rearNeighbor.visible = s.rearNeighbor;
@@ -498,7 +558,7 @@ export class VillaViewer {
     const eaveY = floors[0].height + floors[1].height + floors[2].height;
     this.villa.roof.position.y = s.exploded ? (eaveY / 10500) * 13500 : 0;
     this.villa.balcony.position.y = s.exploded ? floors[2].y * explodeGap : 0;
-    if (s.exploded) {
+    if (s.exploded && !wasExploded) {
       const pos = new THREE.Vector3(37, 29, -34);
       const target = new THREE.Vector3(12, 10, 3);
       this.shiftFrameLeft(pos, target);
@@ -802,7 +862,7 @@ export class VillaViewer {
     const saved = { ...this.state };
     this.setState({ ...defaultView, balcony: saved.balcony });
     this.scene.updateMatrixWorld(true);
-    const probes = southWindowProbes();
+    const probes = southWindowProbes(this.layoutLive);
     const meshes: THREE.Object3D[] = [];
     for (const root of [
       this.villa.group,

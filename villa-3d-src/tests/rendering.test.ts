@@ -2,13 +2,36 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { batchStatic, removeCoplanarOverlap, visibleSurfaceMeshes } from "../src/render-geometry";
-import { architecturalGlass, box } from "../src/primitives";
+import { architecturalGlass, box, wallWithOpenings, type Mats } from "../src/primitives";
+import { facades } from "../src/facades";
+import { floors, site } from "../src/data";
 
 function hits(root: THREE.Object3D, x: number, z: number) {
   root.updateMatrixWorld(true);
   return new THREE.Raycaster(new THREE.Vector3(x, 8, z), new THREE.Vector3(0, -1, 0))
     .intersectObject(root, true).filter((h) => (h.object as THREE.Mesh).isMesh && Math.abs(h.point.y - 1) < 1e-5);
 }
+
+test("主辅楼四向墙角、墙顶和门窗洞口各面的贴图保留真实二维尺寸", () => {
+  const material = new THREE.MeshStandardMaterial();
+  const mat = new Proxy({} as Mats, { get: () => material });
+  for (const floor of [0, 1, 2, 3]) for (const facade of facades(floor)) {
+    const group = wallWithOpenings(new THREE.Group(), facade.a, facade.b, 0,
+      floor === 3 ? site.annex.height : floors[floor].height, facade.openings, mat);
+    group.updateMatrixWorld(true);
+    const wall = group.children[0] as THREE.Mesh;
+    const position = wall.geometry.getAttribute("position"), uv = wall.geometry.getAttribute("uv");
+    for (let i = 0; i < position.count; i += 3) {
+      const [a, b, c] = [0, 1, 2].map(j => new THREE.Vector3().fromBufferAttribute(position, i + j).applyMatrix4(wall.matrixWorld));
+      const surfaceArea = b.sub(a).cross(c.sub(a)).length();
+      if (surfaceArea < .01) continue;
+      const [u, v, w] = [0, 1, 2].map(j => new THREE.Vector2().fromBufferAttribute(uv, i + j));
+      const textureArea = Math.abs(v.sub(u).cross(w.sub(u)));
+      assert.ok(Math.abs(textureArea / surfaceArea - 1) < 1e-5,
+        `${floor}层墙面贴图不应压成线或拉伸成条纹，实际面积比 ${textureArea / surfaceArea}`);
+    }
+  }
+});
 
 test("缩放碰撞忽略文字标签、路线和隐藏父组，仅命中可见实体", () => {
   const root = new THREE.Group(), hidden = new THREE.Group();
