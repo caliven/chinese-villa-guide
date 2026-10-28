@@ -160,7 +160,8 @@ test("通高窗窄洞单列、常规三列中宽、超宽增加固定列；框�
 });
 
 test("门厅大门、中段装饰板和二楼窗同宽，上窗用按尺寸分片的固定玻璃替代密花格", () => {
-  const villa = buildVilla(materials(), false, site.roofFenShui, "joined");
+  const mat = materials();
+  const villa = buildVilla(mat, false, site.roofFenShui, "joined");
   villa.group.updateMatrixWorld(true);
   const widthOf = (name: string) => {
     const object = villa.group.getObjectByName(name);
@@ -168,6 +169,10 @@ test("门厅大门、中段装饰板和二楼窗同宽，上窗用按尺寸分�
     const bounds = new THREE.Box3().setFromObject(object!);
     return bounds.max.x - bounds.min.x;
   };
+  const entryDoor = villa.group.getObjectByName("铸铝咖色大门") as THREE.Mesh;
+  assert.equal(entryDoor.material, mat.dark, "入户大门保留原有深色材质");
+  assert.ok(villa.group.getObjectByName("大门扇装饰线"));
+  assert.ok(villa.group.getObjectByName("大门执手"));
   const expected = widthOf("门厅中段棕色斜纹");
   assert.ok(Math.abs(widthOf("铸铝咖色大门") - expected) < 25, "大门应与中段装饰同宽");
   assert.ok(Math.abs(widthOf("门厅二楼门头玻璃") + 6 - expected) < 1, "上部玻璃两侧各留3毫米安装槽");

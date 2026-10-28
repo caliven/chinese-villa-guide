@@ -66,7 +66,7 @@ export function addEaveWash(
         uniform float brightness;
         void main() {
           #include <logdepthbuf_fragment>
-          float a = min(1.0, pow(1.0 - vUv.y, 2.2) * 0.60 * brightness);
+          float a = min(1.0, pow(1.0 - vUv.y, 1.3) * 0.78 * brightness);
           gl_FragColor = vec4(washColor, a);
         }`,
     }),
@@ -90,8 +90,8 @@ export function setEaveWashVisible(root: THREE.Object3D, visible: boolean) {
 }
 
 /** 修改所有灯带和光晕，保留夜景显示状态；重建后同样调用。 */
-export function setEaveWashAppearance(root: THREE.Object3D, color: string, brightness: number) {
-  const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : "#ffd99a";
+export function setEaveWashAppearance(root: THREE.Object3D, color: string, brightness: number, night = false) {
+  const hex = /^#[0-9a-f]{6}$/i.test(color) ? color : "#ff7030";
   const strength = THREE.MathUtils.clamp(Number.isFinite(brightness) ? brightness : 1, 0, 2);
   const rgb = Number.parseInt(hex.slice(1), 16);
   // 默认暖白灯管保留最初的暖琥珀色洗墙光；其他颜色按用户所选颜色呈现。
@@ -99,6 +99,10 @@ export function setEaveWashAppearance(root: THREE.Object3D, color: string, brigh
     ? [1, 0.56, 0.22]
     : [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255];
   root.traverse(object => {
+    if (object instanceof THREE.Mesh && object.material instanceof THREE.MeshStandardMaterial && object.material.userData.eaveLitCorbel) {
+      object.material.emissive.setRGB(glowColor[0], glowColor[1], glowColor[2]);
+      object.material.emissiveIntensity = night ? strength * 0.16 : 0;
+    }
     if (!object.userData.eaveWash) return;
     const strip = object.getObjectByName("暖白灯带") as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     const wash = object.getObjectByName("洗墙渐隐光晕") as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;

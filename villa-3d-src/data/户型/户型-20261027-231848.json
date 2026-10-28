@@ -1698,8 +1698,8 @@
       }
     },
     "portico": {
-      "x": 11200,
-      "w": 4500,
+      "x": 11100,
+      "w": 4600,
       "projection": 2000
     },
     "livingVoid": {
@@ -1730,7 +1730,7 @@
         "floor": 0,
         "facadeIndex": 0,
         "opening": {
-          "offset": 5212,
+          "offset": 5200,
           "width": 3200,
           "kind": "doubleDoor",
           "hinge": "start",
@@ -1778,7 +1778,7 @@
         "floor": 2,
         "facadeIndex": 0,
         "opening": {
-          "offset": 5189,
+          "offset": 5188.148148148148,
           "width": 3223.7037037037035,
           "kind": "slidingDoor",
           "hinge": "start",
@@ -1891,7 +1891,7 @@
         "floor": 1,
         "facadeIndex": 0,
         "opening": {
-          "offset": 5212,
+          "offset": 5200,
           "width": 3200,
           "kind": "window",
           "hinge": "start",

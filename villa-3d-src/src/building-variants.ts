@@ -1,6 +1,7 @@
 import { site, construction, frontElevation, type Point, type Room, type Floor, type Wall, type Furniture } from "./data";
 import { roomNetGeometry, polygonAreaMm2, roomLabelPoint } from "./room-geometry";
 import type { Facade } from "./facades";
+import { porticoColumnCenters } from "./frontage-geometry";
 
 export type PorticoStyle = "projecting" | "recessed";
 export type BuildingPlacement = "main-east" | "main-west";
@@ -16,6 +17,30 @@ export const porticoFrontZ = () => site.main.z - (recessedPortico() ? 0 : site.p
 export const porticoWallZ = (front = site.main.z) => front + (recessedPortico() ? site.portico.projection : 0);
 export const mainLocalX = (offset: number) => site.main.x + (mirroredBuildings() ? site.main.w - offset : offset);
 export const annexLocalX = (offset: number) => site.annex.x + (mirroredBuildings() ? site.annex.w - offset : offset);
+
+/** 当前户型的门厅柱、中央露台与官帽定位；平面及三维共用，计算不改写全局。 */
+export function porticoElevation(porch: { x: number; w: number; projection: number }) {
+  const elevation = frontElevation;
+  const columnXs = porticoColumnCenters(porch);
+  const columnZ = site.main.z - (recessedPortico() ? 0 : porch.projection);
+  const wallShift = recessedPortico() ? porch.projection - site.portico.projection : 0;
+  return {
+    ...elevation,
+    postXs: columnXs,
+    postZ: elevation.postZ + wallShift,
+    porticoColumnZ: columnZ,
+    porticoColumnWallGap: porch.projection - elevation.porticoColumnDepth / 2,
+    balustradePosts: elevation.balustradePosts.map((post, i) =>
+      i === 1 || i === 2 ? { ...post, x: columnXs[i - 1], z: columnZ } : post),
+    centerFront: columnZ,
+    terraceBack: elevation.terraceBack + wallShift,
+    sideTerraces: elevation.sideTerraces.map((terrace, i) => i === 0
+      ? { ...terrace, w: porch.x - terrace.x }
+      : { x: porch.x + porch.w, w: terrace.x + terrace.w - (porch.x + porch.w) }),
+    hatFront: site.main.z + (elevation.hatFront - site.main.z) * porch.projection / site.portico.projection,
+    hatWidth: porch.w + (elevation.hatWidth - site.portico.w),
+  };
+}
 
 /** 两翼没有露台时，原露台推拉门派生为窗；中央露台入口保留。 */
 export function thirdFloorWingIsClosed(floor: number, facadeIndex: number, at: number) {

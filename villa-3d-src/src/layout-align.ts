@@ -945,6 +945,9 @@ export function syncRoomsToMovedWalls(
       for (const edge of ROOM_EDGES) {
         if (!roomEdgeMeetsWall(originalRoom, edge, original)) continue;
         if (originalRoom.kind === "void") {
+          // 虚拟线只划分楼板上的普通房间，不是洞口的实体共墙。
+          // 尤其不能因 1 mm 邻接容差把 4199→4200 的对齐误判为修改挑空。
+          if (!isPhysicalWall(original) && !isPhysicalWall(next)) continue;
           return { ok: false, reason: `${originalRoom.name}为挑空，须通过专用几何编辑后再调整共墙` };
         }
         if (originalRoom.boundary && !roomIsRectangular(originalRoom)) continue;
@@ -1038,19 +1041,13 @@ export function syncInteriorWallsToRoom(
   return { ok: true };
 }
 
-/** 取一层中开间：优先堂屋，否则主楼面宽三等分的中跨。 */
-export function findMiddleBay(rooms: Room[]): { start: number; end: number; label: string } {
-  const hall =
-    rooms.find((r) => r.kind === "hall") ??
-    rooms.find((r) => r.name.includes("堂屋") || r.name.includes("堂"));
-  if (hall) {
-    return { start: hall.x, end: hall.x + hall.w, label: hall.name || "堂屋" };
-  }
-  const third = site.main.w / 3;
+/** 门厅居中以主楼中央控制区为准，室内堂屋宽度和偏移不改变立面中轴。 */
+export function findMiddleBay(_rooms: Room[]): { start: number; end: number; label: string } {
+  const center = site.main.x + site.main.w / 2;
   return {
-    start: site.main.x + third,
-    end: site.main.x + third * 2,
-    label: "主楼中开间",
+    start: center - site.portico.w / 2,
+    end: center + site.portico.w / 2,
+    label: "主楼中央控制区",
   };
 }
 

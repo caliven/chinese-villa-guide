@@ -29,6 +29,8 @@ import {
 } from "./data";
 import {
   roofGutterDesign,
+  annexRoofGutterDesign,
+  annexEaveTrimDesign,
   floatingHatDesign,
   eaveTrimDesign,
   roofTileInset,
@@ -98,6 +100,20 @@ export interface VillaParams {
   corbelCornerSpacing: number;
   /** 三眼皮最底层底面到下沿线上沿 */
   eyelidToFasciaGap: number;
+  /** 辅楼屋面独立控制；不包含官帽。 */
+  annexRoofFenShui: number;
+  annexGutterClearWidth: number;
+  annexGutterClearDepth: number;
+  annexGutterInnerDepth: number;
+  annexGutterOuterTopWidth: number;
+  annexGutterBedSlope: number;
+  annexGutterTileGap: number;
+  annexGutterTileOverhang: number;
+  annexGutterCopingSlope: number;
+  annexCorbelLength: number;
+  annexCorbelSpacing: number;
+  annexCorbelCornerSpacing: number;
+  annexEyelidToFasciaGap: number;
   floatingHatRidgeDrop: number;
   oldDepth: number;
   rearGap: number;
@@ -132,8 +148,8 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   thirdSetback: 1200,
   secondFrontEave: 800,
   thirdEave: 800,
-  /** 堂屋／门厅面宽及柱心距4500；另两翼为客厅4600、另一翼4500。 */
-  porticoWidth: 4500,
+  /** 门厅面宽及柱心距4600；两翼各4500，沿主楼中轴对称。 */
+  porticoWidth: 4600,
   porticoProjection: 2000,
   porticoColumnSize: 800,
   /** 派生：外伸 − 半柱；柱心在北沿时内侧到前墙＝外伸−半柱。 */
@@ -158,6 +174,19 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   corbelSpacing: 700,
   corbelCornerSpacing: 600,
   eyelidToFasciaGap: 300,
+  annexRoofFenShui: 4.5,
+  annexGutterClearWidth: 600,
+  annexGutterClearDepth: 200,
+  annexGutterInnerDepth: 250,
+  annexGutterOuterTopWidth: 300,
+  annexGutterBedSlope: 1,
+  annexGutterTileGap: 50,
+  annexGutterTileOverhang: 80,
+  annexGutterCopingSlope: 4,
+  annexCorbelLength: 500,
+  annexCorbelSpacing: 700,
+  annexCorbelCornerSpacing: 600,
+  annexEyelidToFasciaGap: 300,
   floatingHatRidgeDrop: 500,
   oldDepth: 10800,
   rearGap: 1200,
@@ -174,6 +203,23 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   /** 与自家东界外沿齐平后的派生值；应用时按院坪东端重算 */
   neighborYardBeyondCement: 8600,
 };
+
+/** 旧稿共用屋面字段到辅楼独立字段的对应关系；用于补齐和单位迁移后的继承。 */
+export const ANNEX_ROOF_PARAM_KEYS = {
+  roofFenShui: "annexRoofFenShui",
+  gutterClearWidth: "annexGutterClearWidth",
+  gutterClearDepth: "annexGutterClearDepth",
+  gutterInnerDepth: "annexGutterInnerDepth",
+  gutterOuterTopWidth: "annexGutterOuterTopWidth",
+  gutterBedSlope: "annexGutterBedSlope",
+  gutterTileGap: "annexGutterTileGap",
+  gutterTileOverhang: "annexGutterTileOverhang",
+  gutterCopingSlope: "annexGutterCopingSlope",
+  corbelLength: "annexCorbelLength",
+  corbelSpacing: "annexCorbelSpacing",
+  corbelCornerSpacing: "annexCorbelCornerSpacing",
+  eyelidToFasciaGap: "annexEyelidToFasciaGap",
+} as const;
 
 /** 门厅两柱柱心落在前沿两角，柱心距等于门厅面宽。 */
 export function porticoColumnSpacing(p: VillaParams) {
@@ -388,6 +434,20 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   } else if (p.gutterTileOverhang >= p.gutterClearWidth) {
     issues.push({ field: "gutterTileOverhang", message: "瓦边探入须小于天沟净宽，避免顶到外挡" });
   }
+  const annexFields = ANNEX_ROOF_PARAM_KEYS;
+  for (const main of ["roofFenShui", "gutterClearWidth", "gutterClearDepth", "gutterInnerDepth", "gutterOuterTopWidth", "corbelLength", "corbelSpacing", "corbelCornerSpacing", "eyelidToFasciaGap"] as const) {
+    const field = annexFields[main], value = p[field];
+    if (!Number.isFinite(value) || value <= 0) issues.push({ field, message: `辅楼 ${field} 须为正数` });
+  }
+  if (p.annexRoofFenShui < 1 || p.annexRoofFenShui > 10) issues.push({ field: "annexRoofFenShui", message: "辅楼分水须在 1～10" });
+  for (const field of ["annexGutterBedSlope", "annexGutterCopingSlope"] as const) {
+    if (!Number.isFinite(p[field]) || p[field] < 0 || p[field] > 15) issues.push({ field, message: "辅楼天沟坡度须在 0～15°" });
+  }
+  if (p.annexGutterInnerDepth <= p.annexGutterClearDepth) issues.push({ field: "annexGutterInnerDepth", message: "辅楼天沟内侧高度须大于外侧，满水才能外溢" });
+  if (p.annexCorbelLength > p.annexEave) issues.push({ field: "annexCorbelLength", message: "辅楼梁托长度不宜超过辅楼檐口挑出" });
+  if (p.annexCorbelCornerSpacing > p.annexCorbelSpacing) issues.push({ field: "annexCorbelCornerSpacing", message: "辅楼拐角梁托间距宜不大于同墙面间距" });
+  if (!Number.isFinite(p.annexGutterTileGap) || p.annexGutterTileGap < 0) issues.push({ field: "annexGutterTileGap", message: "辅楼瓦片至内侧天沟顶不能为负" });
+  if (!Number.isFinite(p.annexGutterTileOverhang) || p.annexGutterTileOverhang < 0 || p.annexGutterTileOverhang >= p.annexGutterClearWidth) issues.push({ field: "annexGutterTileOverhang", message: "辅楼瓦边探入须非负且小于辅楼天沟净宽" });
   if (p.courtyardMidFromEast >= LOCKED_SITE_WIDTH) {
     issues.push({ field: "courtyardMidFromEast", message: "中间取样距东界须小于总面宽" });
   }
@@ -435,28 +495,24 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
     }
   }
 
-  const tileInset = predictedTileInset(p);
-  const mainRoofW = p.mainWidth + 2 * p.thirdEave;
-  const mainRoofD = bodyDepth + 2 * p.thirdEave;
-  const annexRoofW = p.annexWidth + 2 * p.thirdEave;
-  const annexRoofD = p.annexDepth + 2 * p.thirdEave;
-  const mainRun = (Math.min(mainRoofW, mainRoofD) - 2 * tileInset) / 2;
-  const annexRun = (Math.min(annexRoofW, annexRoofD) - 2 * tileInset) / 2;
-  if (mainRun < MIN_ROOF_TILE_RUN || annexRun < MIN_ROOF_TILE_RUN) {
-    issues.push({
-      field: "gutterClearWidth",
-      message: `天沟／瓦边缩进后屋面净半跨过小（主楼 ${formatMm(mainRun)} mm、辅楼 ${formatMm(annexRun)} mm）；请减小天沟净宽或外边宽度`,
-    });
-  }
-
-  const bedDegOk = normalizeGutterBedSlopeDegrees(p.gutterBedSlope);
-  const halfSpan = Math.max(500, Math.min(annexRoofW, annexRoofD, mainRoofW, mainRoofD) / 2);
-  const bedRise = Math.tan((bedDegOk * Math.PI) / 180) * halfSpan;
-  if (bedRise >= p.gutterClearDepth - 20) {
-    issues.push({
-      field: "gutterBedSlope",
-      message: `天沟找坡 ${bedDegOk}° 在约 ${formatMm(halfSpan)} mm 跨度上抬升 ${formatMm(bedRise)} mm，将高过外挡 ${p.gutterClearDepth} mm；请减小找坡或加深外侧反坎`,
-    });
+  const roofChecks = [
+    { name: "主楼", w: p.mainWidth + 2 * p.thirdEave, d: bodyDepth + 2 * p.thirdEave,
+      inset: predictedTileInset(p), depth: p.gutterClearDepth, bed: p.gutterBedSlope,
+      widthField: "gutterClearWidth", bedField: "gutterBedSlope" },
+    { name: "辅楼", w: p.annexWidth + 2 * p.annexEave, d: p.annexDepth + 2 * p.annexEave,
+      inset: p.annexGutterOuterTopWidth + p.annexGutterClearWidth + GUTTER_INNER_WALL - p.annexGutterTileOverhang,
+      depth: p.annexGutterClearDepth, bed: p.annexGutterBedSlope,
+      widthField: "annexGutterClearWidth", bedField: "annexGutterBedSlope" },
+  ] as const;
+  for (const roof of roofChecks) {
+    const run = (Math.min(roof.w, roof.d) - 2 * roof.inset) / 2;
+    if (run < MIN_ROOF_TILE_RUN) issues.push({ field: roof.widthField,
+      message: `${roof.name}天沟／瓦边缩进后屋面净半跨过小（${formatMm(run)} mm）；请减小该楼天沟净宽或外边宽度` });
+    const bedDeg = normalizeGutterBedSlopeDegrees(roof.bed);
+    const halfSpan = Math.max(500, Math.min(roof.w, roof.d) / 2);
+    const bedRise = Math.tan((bedDeg * Math.PI) / 180) * halfSpan;
+    if (bedRise >= roof.depth - 20) issues.push({ field: roof.bedField,
+      message: `${roof.name}天沟找坡 ${bedDeg}° 在约 ${formatMm(halfSpan)} mm 跨度上抬升 ${formatMm(bedRise)} mm，将高过外挡 ${roof.depth} mm；请减小找坡或加深外侧反坎` });
   }
 
   const porticoClear = porticoColumnSpacing(p) - porticoColumnOuterWidth(p.porticoColumnSize);
@@ -663,11 +719,19 @@ let currentParams: VillaParams = { ...DEFAULT_VILLA_PARAMS };
  * 若载入的参数像旧米制稿（mainWidth<100），迁成毫米；已是毫米则原样返回副本。
  * 应用／记忆／保存前统一走这里，避免米制 JSON 直接进入毫米管线。
  */
-export function normalizeVillaParamsLengths(params: VillaParams): VillaParams {
-  if (isMeterLengthPayload(params, { mainWidth: params.mainWidth })) {
-    return { ...DEFAULT_VILLA_PARAMS, ...migrateVillaParamsToMm({ ...params }) };
+export function normalizeVillaParamsLengths(input: Partial<VillaParams>): VillaParams {
+  const raw = isMeterLengthPayload(input, { mainWidth: input.mainWidth })
+    ? migrateVillaParamsToMm({ ...input }) : { ...input };
+  const params = { ...DEFAULT_VILLA_PARAMS, ...raw };
+  const independent = Object.values(ANNEX_ROOF_PARAM_KEYS).some(key => raw[key] !== undefined);
+  for (const [main, annex] of Object.entries(ANNEX_ROOF_PARAM_KEYS) as [keyof typeof ANNEX_ROOF_PARAM_KEYS, typeof ANNEX_ROOF_PARAM_KEYS[keyof typeof ANNEX_ROOF_PARAM_KEYS]][]) {
+    if (raw[annex] === undefined) params[annex] = params[main];
   }
-  return { ...DEFAULT_VILLA_PARAMS, ...params };
+  // 旧 annexEave 曾被强制覆盖，按当时真正生效的主楼出檐恢复，避免旧稿外观突变。
+  if (!independent) params.annexEave = params.thirdEave;
+  params.gutterBedSlope = normalizeGutterBedSlopeDegrees(params.gutterBedSlope);
+  params.annexGutterBedSlope = normalizeGutterBedSlopeDegrees(params.annexGutterBedSlope);
+  return params;
 }
 
 export function getVillaParams(): VillaParams {
@@ -679,6 +743,7 @@ export function rememberVillaParams(input: VillaParams) {
   const params = normalizeVillaParamsLengths(input);
   currentParams = { ...params };
   site.roofFenShui = params.roofFenShui;
+  site.annexRoofFenShui = params.annexRoofFenShui;
 }
 
 /** 返回当前内存参数；文件加载由 scheme-store 负责。 */
@@ -701,14 +766,13 @@ export function applyVillaParams(input: VillaParams) {
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
 
   const base = ensureBaseline();
-  // 东墙／南墙锚定：西侧与辅楼内退由其余尺寸反推；辅楼飘檐锁 thirdEave。
+  // 东墙／南墙锚定：西侧与辅楼内退由其余尺寸反推；屋面参数分别应用。
   const westGap = derivedWestGap(params);
   const annexSetback = derivedAnnexSetback(params);
   const synced: VillaParams = {
     ...params,
     westGap,
     annexSetback,
-    annexEave: params.thirdEave,
     gutterBedSlope: normalizeGutterBedSlopeDegrees(params.gutterBedSlope),
   };
   currentParams = synced;
@@ -734,9 +798,10 @@ export function applyVillaParams(input: VillaParams) {
   site.rearGap = synced.rearGap;
   site.setback = effectiveThirdSetback(synced);
   site.thirdEave = synced.thirdEave;
-  site.eave = synced.thirdEave;
+  site.eave = synced.annexEave;
   site.secondFrontEave = synced.secondFrontEave;
   site.roofFenShui = params.roofFenShui;
+  site.annexRoofFenShui = params.annexRoofFenShui;
   site.entranceRise = params.entranceRise;
   site.main.x = mainX;
   site.main.z = mainZNext;
@@ -763,6 +828,17 @@ export function applyVillaParams(input: VillaParams) {
   eaveTrimDesign.corbelSpacing = params.corbelSpacing;
   eaveTrimDesign.corbelCornerSpacing = params.corbelCornerSpacing;
   eaveTrimDesign.eyelidToFascia = params.eyelidToFasciaGap;
+  Object.assign(annexRoofGutterDesign, {
+    clearWidth: params.annexGutterClearWidth, clearDepth: params.annexGutterClearDepth,
+    innerDepth: params.annexGutterInnerDepth, outerTopWidth: params.annexGutterOuterTopWidth,
+    bedSlope: gutterBedSlopeRatioFromDegrees(params.annexGutterBedSlope),
+    tileGap: params.annexGutterTileGap, tileOverhang: params.annexGutterTileOverhang,
+    copingSlopeDegrees: params.annexGutterCopingSlope,
+  });
+  Object.assign(annexEaveTrimDesign, {
+    corbelLength: params.annexCorbelLength, corbelSpacing: params.annexCorbelSpacing,
+    corbelCornerSpacing: params.annexCorbelCornerSpacing, eyelidToFascia: params.annexEyelidToFasciaGap,
+  });
   syncRoofTileInset();
   floatingHatDesign.ridgeDrop = params.floatingHatRidgeDrop;
   // 主楼四坡起高随四面统一 thirdEave 后的外包络半坡重算（与 roofPitch 一致）。
@@ -957,8 +1033,8 @@ function syncFrontElevation(params: VillaParams) {
   };
   frontElevation.balustradePosts = [westCorner, middleWest, middleEast, eastCorner];
 
-  // 露台北缘包住短柱外皮，与下层柱北缘对齐。
-  frontElevation.centerFront = middleWest.z - middleWest.w / 2;
+  // 飘檐／露台折角北缘落在门厅柱心：柱在下方承托整段下沿线，直角拐弯对柱顶中心。
+  frontElevation.centerFront = middleWest.z;
   frontElevation.terraceFront = Math.min(westCorner.z - westCorner.w / 2, eastCorner.z - eastCorner.w / 2);
   frontElevation.terraceBack = porticoWallZ(main.z + effectiveThirdSetback(params)) + 40;
   const cornerOffset = 180 * (params.mainWidth / DEFAULT_VILLA_PARAMS.mainWidth);

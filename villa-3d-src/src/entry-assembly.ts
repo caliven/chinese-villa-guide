@@ -4,7 +4,6 @@ import { facades } from "./facades";
 import type { ExteriorOpeningDraft } from "./layout-draft";
 import { box, type Mats } from "./primitives";
 import { moveWindowDesign, windowDesign } from "./window-design";
-import { doorModel } from "./door-model";
 
 export type EntryAssembly = { id: string; a: Point; b: Point; at: number; w: number; bottom: number; top: number; bandBottom: number; bandTop: number; sourceIndex?: number; upperSourceIndex?: number };
 type EntryLayout = { exteriorOpenings?: ExteriorOpeningDraft[]; portico?: { x: number; w: number } };
@@ -100,18 +99,11 @@ export function integratedEntry(parent: THREE.Object3D, entry: EntryAssembly, ma
   for (const part of entryAssemblyDesign(entry)) {
     const lo = Math.max(bottom, part.y), hi = Math.min(top, part.y + part.h);
     if (hi <= lo) continue;
-    if (part.role === "door") {
-      doorModel(group, { at: part.x + part.w / 2, sill: part.y - bottom, w: part.w, h: part.h, kind: "doubleDoor" }, mat,
-        { style: "bronze", open: false, frame: false, outward, z: outward * 140, bottom: 0, top: top - bottom });
-      continue;
-    }
-    // 立面的简化线条保留；三维用同一套凹入门芯和真实五金，避免两层装饰叠在一起。
-    if (part.name === "大门双扇中缝" || part.name === "大门扇装饰线" || part.role === "handle") continue;
-    const glass = part.role === "glass", base = part.role === "panel";
-    const material = glass ? mat.lowE : part.role === "relief" ? mat.bronzeDark : mat.dark;
+    const glass = part.role === "glass", base = part.role === "door" || part.role === "panel";
+    const material = glass ? mat.lowE : part.role === "handle" ? mat.bronze : part.role === "relief" ? mat.bronzeDark : mat.dark;
     const depth = glass ? 24 : base ? 50 : part.role === "frame" ? 100 : part.role === "bead" ? 10 : 30;
-    // 门窗在外墙皮前安装，装饰板覆盖层间楼板端头，不能被白色板边截断。
-    const z = outward * (glass ? 165 : base ? 140 : part.role === "bead" ? 240 : 185);
+    // 门窗在外墙皮前安装，装饰板覆盖层间楼板端头。
+    const z = outward * (glass ? 165 : base ? 140 : part.role === "handle" ? 215 : part.role === "bead" ? 240 : 185);
     if (part.outline) {
       const path = clipPart(clipPart(part.outline, 1, bottom, 1), 1, top, -1);
       if (path.length < 3) continue;

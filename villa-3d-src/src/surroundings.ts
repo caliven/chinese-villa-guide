@@ -34,8 +34,7 @@ const frontSpan = leftEdge - frontRight;
 // 屋后田原约1米。宽度按5/2压缩后为0.4米；房子朝道路反方向退0.6米，田埂外沿不动。
 const frontRearTerrace = 1000 * 2 / 5;
 const frontHouseSetback = 1000 - frontRearTerrace;
-// 整条西侧上田田埂相对原曲线向房前平移 2.5 米（先前只拉了靠屋几米）。折点间距不变，弧度不变。
-// 下方原田北沿仍贴地库外沿，因此这段下田比上田窄。
+// 保留上田靠屋端向房前伸出 2.5 米的口述定位；远田弧线按东西两侧航拍另行描画。
 const rightTerraceAdvance = 2500;
 // 左侧马路连续上坡，接到屋后第一层与东侧大平地的同一标高后停止，不再往南爬。
 const roadFrontZ = -26500;
@@ -90,8 +89,6 @@ export const surroundings = {
   rearThird: { front: 29500, back: 36000, y: 6800 },
   rightTerraceAdvance,
   rightStep: site.annex.z + (site.annex.d * 2) / 3 - rightTerraceAdvance,
-  // 浏览器标记 2 的近屋同线段；长度是建模范围，不是新增实测。
-  rightFrontAlignedWidth: 8000,
   forestStart: 36000,
   extent: { left: -32000, right: 55000, front: -30000, back: 36000 },
 };
@@ -174,48 +171,47 @@ export function syncRoadsideVillaPlacement() {
   rebuildVillageRoad();
 }
 
-// 俯瞰航拍里西侧田埂远离房子后朝南弯。整条上田田埂按这条原弧向北平移
-// rightTerraceAdvance，靠屋终点仍落在 rightStep。
+// 2026-10-28：对照西面 DJI 135142 与东面 IMG_5116，西侧两道坎远离房子后
+// 向南渐弯，近屋处逐渐放平；消除旧控制点先向北鼓、再向南折回的反弯。
+// 控制点是斜向照片估算，靠屋端继续使用院坪／辅楼的同源定位，不是测绘。
 const shiftedFar = (z: number) => z - rightTerraceAdvance;
 
 function buildRightTerraceBreak(): Point[] {
-  const zAtMinus6 = shiftedFar(5500);
   const zAtHouse = surroundings.rightStep;
   return smoothContour([
     [-55000, shiftedFar(21500)], [-44000, shiftedFar(18200)], [-34000, shiftedFar(14400)],
-    [-24000, shiftedFar(10600)], [-16000, shiftedFar(7800)],
-    [-10000, shiftedFar(6300)], [-6000, zAtMinus6],
-    [-2400, zAtMinus6 + (zAtHouse - zAtMinus6) * (3.6 / 6)],
+    [-24000, shiftedFar(10600)], [-16000, zAtHouse + 2700],
+    [-10000, zAtHouse + 1300], [-6000, zAtHouse + 550],
+    [-2400, zAtHouse + 100],
     [0, zAtHouse],
   ]);
 }
 
 function buildUnexcavatedFront(): Point[] {
-  // 取地库实际轮廓端点作为旁田基准。靠屋 8 米与地库外沿同线，再往西才朝南弯。
+  // 旁田与地库西端接在同一点，往西缓缓抬向南侧，不再在 -12000 处凹下后折回，
+  // 也不再把近屋 8 米做成僵直的横线。两级田的宽窄随各自弧线自然变化。
   const garageFrontZ = courtyardFront[0]?.[1] ?? 0;
   return smoothContour([
-    [-55000, 15200], [-44000, 11400], [-34000, 6800], [-24000, 2400], [-16000, -600], [-12000, -2100],
-    [-surroundings.rightFrontAlignedWidth, garageFrontZ],
-    [-5000, garageFrontZ], [-2500, garageFrontZ], [0, garageFrontZ],
+    [-55000, 15200], [-44000, 11400], [-34000, 6800], [-24000, 2400],
+    [-16000, garageFrontZ + 2400], [-10000, garageFrontZ + 2100],
+    [-6000, garageFrontZ + 1750], [-2400, garageFrontZ + 900], [0, garageFrontZ],
   ]);
 }
 
-// 地库下第一田外沿圆润前推，西端不收尖折回；接到砖房屋后田坎。
-// 用固定控制点拟合，不再借用院坪三点大圆——院坪圆半径过大时中点会甩到几百米外，把马路和蓝顶房前台地盖住。
-function basementOuterArc(): Point[] {
+function buildFrontLower(): Point[] {
   const lipX = surroundings.frontHouse.x;
   const lipZ = surroundings.frontHouse.z + surroundings.frontHouse.d + frontRearTerrace;
-  return smoothContour(
-    [
-      [-16000, -7100],
-      [-8000, -6350],
-      [0, -5700],
-      [8000, Math.min(-5100, lipZ + 900)],
-      [Math.max(lipX - 3000, 12000), lipZ + 200],
-      [lipX, lipZ],
-    ],
-    750,
-  );
+  // 地库下方田块的外沿是向砖房屋后渐收的长弧，不在主楼中部突然折成 S 弯。
+  // 西侧和正前方增加过渡长度；东端仍保留砖房屋后 400 的原定位。
+  const westZ = -11200;
+  const transition = (t: number): Point => [lipX * t, westZ + (lipZ - westZ) * (2 * t - t * t)];
+  // 直接拟合原始控制点一次，避免把已采样的局部弧再次拟合而固化急弯。
+  return smoothContour([
+    [-55000, 9200], [-44000, 5200], [-34000, 600], [-24000, -4200],
+    [-16000, -7100], [-8000, -9000], [0, westZ],
+    transition(.35), transition(.7), [lipX, lipZ],
+    [surroundings.road.x, lipZ],
+  ]);
 }
 
 function buildSharedFront(): Point[] {
@@ -240,15 +236,9 @@ function buildRearFirst(): Point[] {
 export const rightTerraceBreak = buildRightTerraceBreak();
 
 export const terraceContours = {
-  // 旁田近屋段与地库右端外沿同线；远处继续采用航拍估算曲线。
+  // 旁田与地库西端相接，三道近景田坎分别按航拍描画。
   sharedFront: buildSharedFront(),
-  frontLower: smoothContour([
-    [-55000, 9200], [-44000, 5200], [-34000, 600], [-24000, -4200],
-    // 靠屋外沿改成一条圆润圆弧，西端折角已往外拉齐。外偏接到砖房屋后田坎，不是新的测绘。
-    ...basementOuterArc(),
-    [24000, surroundings.frontHouse.z + surroundings.frontHouse.d + frontRearTerrace],
-    [surroundings.road.x, surroundings.frontHouse.z + surroundings.frontHouse.d + frontRearTerrace],
-  ]),
+  frontLower: buildFrontLower(),
   // 前坎停在院坪外沿以南约 4 米，远处不再朝北甩过这条线。
   leftPlatform: [] as Point[],
   rearFirst: buildRearFirst(),
@@ -300,6 +290,7 @@ export function rebuildTerraceLinkage() {
 
   replacePoints(rightTerraceBreak, buildRightTerraceBreak());
   replacePoints(terraceContours.sharedFront, buildSharedFront());
+  replacePoints(terraceContours.frontLower, buildFrontLower());
   replacePoints(terraceContours.rearFirst, buildRearFirst());
   replacePoints(terraceContours.leftPlatform, buildLeftPlatformContour());
 

@@ -85,6 +85,28 @@ test("侧墙移离楼梯可同步邻房，不联动楼梯框；挑空边墙仍�
   }
 });
 
+test("挑空旁虚拟分界可从4199对齐4200并退回，保持洞口不变", () => {
+  for (const horizontal of [false, true]) {
+    const transpose = (r: Room): Room => horizontal ? { ...r, x: r.z, z: r.x, w: r.d, d: r.w } : r;
+    const envelope = horizontal ? { x: 0, z: 0, w: 8000, d: 10000 } : body;
+    const originals = [transpose(room("普通房", 0, 0, 4199, 4500)), transpose(room("挑空", 4200, 0, 5800, 4500, "void"))];
+    const makeWall = (at: number): Wall => ({ a: horizontal ? [0, at] : [at, 0], b: horizontal ? [4500, at] : [at, 4500], role: "virtual" });
+    const rooms = structuredClone(originals);
+    assert.equal(syncRoomsToMovedWalls([makeWall(4199)], [makeWall(4200)], originals, rooms, envelope).ok, true);
+    assert.equal(horizontal ? rooms[0]!.d : rooms[0]!.w, 4200);
+    assert.deepEqual(rooms[1], originals[1]);
+    assert.equal(validateProtectedRoomOverlaps(originals, rooms).ok, true);
+    const aligned = structuredClone(rooms);
+    assert.equal(syncRoomsToMovedWalls([makeWall(4200)], [makeWall(4100)], aligned, rooms, envelope).ok, true);
+    assert.deepEqual(rooms[1], originals[1]);
+    // 穿入洞口仍由统一重叠保护拒绝，不能因为虚拟线放开而绕过。
+    const crossed = structuredClone(aligned);
+    assert.equal(syncRoomsToMovedWalls([makeWall(4200)], [makeWall(4300)], aligned, crossed, envelope).ok, true);
+    assert.equal(validateProtectedRoomOverlaps(aligned, crossed).ok, false);
+    assert.deepEqual(crossed[1], originals[1]);
+  }
+});
+
 test("矩形尺寸编辑拒绝非矩形轮廓，防止只改变外包络", () => {
   const selected = room("L", 1000, 1000, 5000, 5000);
   selected.outline = [[1000, 1000], [6000, 1000], [6000, 3000], [4000, 3000], [4000, 6000], [1000, 6000]];

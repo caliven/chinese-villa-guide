@@ -69,8 +69,8 @@ test("拆图后房间内偏120mm、墙端偏10mm不污染主楼外轮廓总宽�
   draft.floors[0]!.partitions[0]!.a[0] -= 10;
   const svg = floorPlan(0, false, false, {}, planSourceFromDraft(draft, 0));
   const main = buildingSvg(svg, "main");
-  // 尺寸链按世界X由西到东：客厅侧4600＋门厅柱心距4500＋另一翼4500。
-  assert.deepEqual(renderedChain(main, "north", "control"), [4600, 4500, 4500]);
+  // 尺寸链按世界X由西到东：两翼各4500＋门厅柱心距4600。
+  assert.deepEqual(renderedChain(main, "north", "control"), [4500, 4600, 4500]);
   assert.deepEqual(renderedChain(main, "north", "overall"), [13600]);
   // 总宽只标北侧，南侧不再重复。
   assert.ok(!main.includes('data-dim-side="south" data-dim-kind="overall"'));
@@ -140,7 +140,7 @@ test("接外墙内墙仍标墙距，换到另一控制线也更新；门厅柱�
   wall.a[0] = wall.b[0] = x(9100);
   assert.deepEqual(renderedChain(render(), "south", "walls"), [9100, 4500]);
   assert.deepEqual(renderedChain(render(), "north", "overall"), [13600]);
-  assert.deepEqual(renderedChain(render(), "north", "control"), [4600, 4500, 4500]);
+  assert.deepEqual(renderedChain(render(), "north", "control"), [4500, 4600, 4500]);
 });
 
 test("贯通实体墙在相交两侧均保留定位及闭合尺寸链", () => {
@@ -297,7 +297,7 @@ test("主辅楼总宽只标北、总进深只标东；接西墙的墙距仍在�
   // 接西外墙的水平内墙应出现在西侧墙线定位
   assert.ok(main.includes('data-dim-side="west" data-dim-kind="walls"'));
   assert.ok(annex.includes('data-dim-side="west" data-dim-kind="walls"'));
-  assert.deepEqual(renderedChain(main, "north", "control"), [4600, 4500, 4500]);
+  assert.deepEqual(renderedChain(main, "north", "control"), [4500, 4600, 4500]);
   assert.deepEqual(renderedChain(main, "north", "overall"), [13600]);
   assert.deepEqual(renderedChain(annex, "north", "overall"), [4000]);
   assert.ok(!main.includes('data-dim-side="south" data-dim-kind="overall"'));

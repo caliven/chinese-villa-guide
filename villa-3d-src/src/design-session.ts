@@ -4,7 +4,7 @@ import { projectMeta } from "./project-meta";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
 import { parseRoofStyle, type RoofStyle } from "./roof-options";
 import { isMeterLengthPayload, migrateVillaParamsToMm } from "./units";
-import { DEFAULT_VILLA_PARAMS, validateVillaParams, type VillaParams } from "./villa-params";
+import { DEFAULT_VILLA_PARAMS, normalizeVillaParamsLengths, validateVillaParams, type VillaParams } from "./villa-params";
 
 export const viewFlags = ["roof", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside", "explode", "chair-clearance", "room-clearance", "room-inside", "route-sweep", "route-clearance", "route-conflicts"] as const;
 export interface CameraPose { position: [number, number, number]; target: [number, number, number]; zoom: number }
@@ -78,12 +78,13 @@ export function validateMeetingView(value: unknown): MeetingView {
     const distance = Math.hypot(...pose.position.map((n, i) => n - pose!.target[i]));
     if (distance < .55 - 1e-8 || distance > 125 + 1e-8) throw new Error("机位与观察点间距超出范围");
   }
-  let villaParams: VillaParams = { ...DEFAULT_VILLA_PARAMS };
+  const fenShui = range(v.fenShui, 1, 10);
+  let villaParams = normalizeVillaParamsLengths({ roofFenShui: fenShui });
   if (v.villaParams != null) {
     const rawParams = object(v.villaParams);
     // 旧会议快照的方案尺寸为米：先整体迁成毫米，再叠到默认参数上。
     const raw = isMeterLengthPayload(rawParams, { mainWidth: rawParams.mainWidth }) ? migrateVillaParamsToMm(rawParams) : rawParams;
-    const next = { ...DEFAULT_VILLA_PARAMS };
+    const next = {} as VillaParams;
     for (const key of Object.keys(DEFAULT_VILLA_PARAMS) as (keyof VillaParams)[]) {
       if (typeof DEFAULT_VILLA_PARAMS[key] === "number" && typeof raw[key] === "number" && Number.isFinite(raw[key])) (next as unknown as Record<string, unknown>)[key] = raw[key];
       if ((key === "livingRailingStyle" || key === "stairRailingStyle") && isRailingStyle(raw[key])) next[key] = raw[key];
@@ -91,7 +92,8 @@ export function validateMeetingView(value: unknown): MeetingView {
       if (key === "buildingPlacement" && ["main-east", "main-west"].includes(raw[key] as string)) next.buildingPlacement = raw[key] as VillaParams["buildingPlacement"];
       if (key === "thirdFloorMode" && ["setback", "flush"].includes(raw[key] as string)) next.thirdFloorMode = raw[key] as VillaParams["thirdFloorMode"];
     }
-    villaParams = next;
+    // 旧快照顶层分水是实际探索值；缺辅楼字段时按该值恢复原共用屋面。
+    villaParams = normalizeVillaParamsLengths({ ...next, roofFenShui: fenShui });
   }
   if (validateVillaParams(villaParams).length) throw new Error("快照中的方案尺寸无效");
   return {
@@ -101,7 +103,7 @@ export function validateMeetingView(value: unknown): MeetingView {
     tab: choice(v.tab, ["model", "floor", "sun"]),
     camera: choice(v.camera, ["aerial", "north", "south", "courtyard", "garage", "top", "roadside"]),
     level, planMode: choice(v.planMode, ["2d", "3d"]), existing: bool(v.existing), balcony: bool(v.balcony),
-    fenShui: range(v.fenShui, 1, 10), roadY: range(legacyMm(v.roadY), -3800, 0), rampLength: range(legacyMm(v.rampLength), 3000, 10000),
+    fenShui, roadY: range(legacyMm(v.roadY), -3800, 0), rampLength: range(legacyMm(v.rampLength), 3000, 10000),
     progress: range(v.progress, 0, 100), sunDate: date(v.sunDate), sunTime: range(v.sunTime, 6, 18),
     dining: choice(v.dining, ["full", "daily"]), flags, pose, villaParams,
   };

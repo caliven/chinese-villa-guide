@@ -2,14 +2,16 @@ import { porticoFrontZ, porticoWallZ, recessedPortico, hasThirdFloorSideTerraces
 import { continuousGlazingGrid } from "./continuous-glazing";
 import { entryAssemblyDesign, entryPartOutline } from "./entry-assembly";
 import { moveWindowDesign, windowDesign, windowOpeningLine } from "./window-design";
-import { porticoColumnOuterWidth } from "./frontage-geometry";
+import { PORTICO_BEAM_DEPTH, porticoColumnOuterWidth } from "./frontage-geometry";
+import { porticoShoulderProfile, cornerShoulderProfile, upperCornerProfile, hatPierCrownProfile, hatPierDesign, type ColumnCourse } from "./column-profiles";
 import { Vector3 } from "three";
+import { floatingHatJunctions, hatJunctionFaces } from "./hat-junctions";
 import { elevationModel, type VillaLayoutLive } from "./architecture";
 import { construction, site, type Point } from "./data";
 import type { Facade } from "./facades";
 import { roofProjectedEdges } from "./roof-plan";
 import { subtractRoofPolygon, type RoofFace } from "./roof-surfaces";
-import { bayOutline, hatEaveRim, frontTerraceRailRuns, apronSupportOutline } from "./facade-details";
+import { bayOutline, hatEaveRim, frontTerraceRailRuns, apronSupportOutline, hatSupportInset } from "./facade-details";
 import { apronEaveDesign, frontApronSection, fasciaBottomY, gutterOuterWallTop, roofGutterDesign, roofTileEaveLift, roofTileInset, roofStyleLabels, type RoofStyle } from "./roof-options";
 
 export const elevationLabels = {
@@ -102,6 +104,14 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
       : side === 1 ? [[x, z], [x, z + d]] : [[x + w, z], [x + w, z + d]];
     face([new Vector3(p[0], y, p[1]), new Vector3(q[0], y, q[1]), new Vector3(q[0], y + h, q[1]), new Vector3(p[0], y + h, p[1])], cls);
   };
+  const columnCourses = (x: number, z: number, base: number, courses: ColumnCourse[]) => {
+    const at = (p: Point, y: number) => new Vector3(x + p[0], base + y, z + p[1]);
+    for (const c of courses) for (let i = 0; i < c.lower.length; i++) {
+      const j = (i + 1) % c.lower.length;
+      face([at(c.lower[i], c.bottom), at(c.lower[j], c.bottom), at(c.upper[j], c.top), at(c.upper[i], c.top)],
+        "el-trim", "", true, "column-shoulder");
+    }
+  };
   const wall = (facade: Facade, base: number, h: number) => {
     const { a, b } = facade, len = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const at = (distance: number, y: number) => new Vector3(a[0] + (b[0] - a[0]) * distance / len, base + y, a[1] + (b[1] - a[1]) * distance / len);
@@ -189,11 +199,14 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   const mainOutline = style === "joined" ? bayOutline(r.main.x, r.main.z, r.main.w, r.main.d, r.hat.x, r.hat.w, r.hat.z, 0) : rect(r.main.x, r.main.z, r.main.w, r.main.d);
   rim(mainOutline, r.main.eave - 350, 350 + gutterOuterWallTop(), "el-trim", r.frontTrimGap);
   owner = "annex";
-  rim(rect(r.annex.x, r.annex.z, r.annex.w, r.annex.d), r.annex.eave - 350, 350 + gutterOuterWallTop(), "el-trim");
+  rim(rect(r.annex.x, r.annex.z, r.annex.w, r.annex.d), r.annex.eave - 350, 350 + r.annexProfile.outerWallTop, "el-trim");
   owner = "main";
   if (style === "floating") {
     const end = Math.max(r.main.z, r.main.z + roofTileInset + (r.hat.eave + roofGutterDesign.clearDepth + 30 - r.main.eave - roofTileEaveLift()) / (r.pitch.fenShui / 10));
     rim(hatEaveRim(r.hat.x, r.hat.z, r.hat.w, 0, roofGutterDesign.outerTopWidth, end), r.hat.eave - 350, 350 + gutterOuterWallTop(), "el-trim");
+    for (const j of floatingHatJunctions(r.hat.z, r.hat.eave, r.main.eave, model.floors[2].front, hatSupportInset(), f))
+      for (const polygon of hatJunctionFaces(j))
+        face(polygon.map(p => new Vector3(...p)), "el-trim", "", true, "hat-junction");
   }
   const onSegment = (p: Vector3, a: Vector3, b: Vector3) => {
     const ab = b.clone().sub(a), t = p.clone().sub(a).dot(ab) / ab.lengthSq();
@@ -220,23 +233,32 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
 
   owner = "main";
   const y3 = model.floors[2].y, p = r.portico;
-  const top = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop).porticoTopY;
-  for (const post of f.balustradePosts.slice(1, 3)) box(post.x - post.w / 2, f.porticoColumnZ - f.porticoColumnDepth / 2, post.w, f.porticoColumnDepth, site.entranceRise - 20, top - (site.entranceRise - 20), "el-column");
+  const apronHeights = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop);
+  const capitalTop = apronHeights.columnTopY, fasciaBot = apronHeights.fasciaBottomY;
+  for (const post of f.balustradePosts.slice(1, 3)) {
+    box(post.x - post.w / 2, f.porticoColumnZ - f.porticoColumnDepth / 2, post.w, f.porticoColumnDepth,
+      site.entranceRise - 20, capitalTop - (site.entranceRise - 20), "el-column");
+    columnCourses(post.x, f.porticoColumnZ, 0, porticoShoulderProfile(post.w, f.porticoColumnDepth, capitalTop, fasciaBot));
+  }
   const [westColumn, eastColumn] = f.balustradePosts.slice(1, 3);
   const clearSpan = eastColumn.x - westColumn.x - westColumn.w;
-  box(westColumn.x + westColumn.w / 2 - 8, f.porticoColumnZ - f.porticoColumnDepth / 2 + 65, clearSpan + 16, 500, top - 670, 670, "el-trim");
-  for (const x of f.postXs) box(x - f.dividerWidth / 2, f.postZ - 180, f.dividerWidth, 360, y3, fasciaBottomY(r.hat.eave, 0) - y3, "el-column");
+  box(westColumn.x + westColumn.w / 2 - 8, f.porticoColumnZ - PORTICO_BEAM_DEPTH / 2,
+    clearSpan + 16, PORTICO_BEAM_DEPTH, fasciaBot - 670, 670, "el-trim");
+  for (const x of f.postXs) {
+    const height = fasciaBottomY(r.hat.eave, 0) - y3;
+    box(x - f.dividerWidth / 2, f.postZ - hatPierDesign.depth / 2, f.dividerWidth, hatPierDesign.depth,
+      y3, height - hatPierDesign.capHeight, "el-column");
+    columnCourses(x, f.postZ, y3, hatPierCrownProfile(f.dividerWidth, height));
+  }
   // 包角柱以 L 形两肢概括，保留当前突出量及与屋檐的高度关系。
   for (const [x, outward] of [[f.cornerWestX, -1], [f.cornerEastX, 1]]) {
     const x0 = x + (outward < 0 ? -f.cornerProject : -f.cornerLeg);
     const frontTop = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop).columnTopY;
     box(x0, m.z - 120 - f.cornerProject, f.cornerLeg + f.cornerProject, f.cornerProject + 20, 0, frontTop, "el-column");
     box(outward < 0 ? x - f.cornerProject : x - 20, m.z - 120, f.cornerProject + 20, f.cornerLeg, 0, frontTop, "el-column");
-    const neckTop = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop).fasciaBottomY;
-    box(x0 + 20, m.z - 120 - f.cornerProject + 20, f.cornerLeg + f.cornerProject - 40,
-      f.cornerProject, frontTop, neckTop - frontTop, "el-wall");
-    box(outward < 0 ? x - f.cornerProject + 20 : x - 20, m.z - 120,
-      f.cornerProject, f.cornerLeg - 20, frontTop, neckTop - frontTop, "el-wall");
+    columnCourses(x, m.z - 120, 0, cornerShoulderProfile(f.cornerProject, f.cornerLeg, outward, frontTop, fasciaBot));
+    columnCourses(x, model.floors[2].front, y3,
+      upperCornerProfile(f.cornerProject, f.cornerLeg, outward, fasciaBottomY(r.main.eave, 0) - y3));
   }
   const [west, east] = f.balustradePosts.slice(1, 3);
   const westOuter = west.x - west.w / 2, eastOuter = east.x + east.w / 2;
@@ -287,30 +309,23 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   const outer: Point[] = [[westEdge-e, apronBack], [westEdge-e, f.terraceFront-e], [p.x-e, f.terraceFront-e],
     [p.x-e, f.centerFront-e], [p.x+p.w+e, f.centerFront-e], [p.x+p.w+e, f.terraceFront-e],
     [eastEdge+e, f.terraceFront-e], [eastEdge+e, apronBack]];
-  const { fasciaOuter: fascia, beamBack, skirtInner } = apronSupportOutline(inner, outer);
+  const { fasciaOuter: fascia, beamBack, beamFace, outer: apronOuter } = apronSupportOutline(inner, outer,
+    [m.x - construction.outsideWall / 2, m.x + m.w + construction.outsideWall / 2]);
   const strips = (a: Point[], b: Point[]) => a.slice(0, -1).map((point, i) => [point, a[i + 1], b[i + 1], b[i]]);
-  const beamArea = strips(inner, beamBack);
-  const fasciaArea = strips(fascia, inner);
-  const skirtArea = strips(outer, skirtInner);
-  // 与三维同源：下沿线、封檐竖板、背梁与实心柱颈，闭合檐下悬浮空洞。
+  const beamArea = strips(beamFace, beamBack);
+  // 与三维同源：下沿线与背梁连续绕折角；柱位不另投实心块隔断梁托。
   for (const polygon of beamArea) rim(polygon, apron.fasciaBottomY, apron.soffitY - apron.fasciaBottomY, "el-trim", undefined, "apron-support");
-  for (const polygon of skirtArea) rim(polygon, apron.fasciaTopY, apron.soffitY - apron.fasciaTopY, "el-trim", undefined, "apron-support");
   for (const post of terracePosts) {
-    const foot = post.w + 80, extra = apronEaveDesign.postSeatOverhang;
+    const foot = post.w + 80;
     const footprint = rect(post.x - foot / 2, post.z - foot / 2, foot, foot);
-    const pad = rect(post.x - foot / 2 - extra, post.z - foot / 2 - extra, foot + 2 * extra, foot + 2 * extra);
-    const cutAway = (outline: Point[], cuts: Point[][]) => cuts.reduce((pieces, cut) => pieces.flatMap(piece => subtractRoofPolygon(piece, cut)), [outline]);
-    for (const polygon of cutAway(pad, fasciaArea))
-      rim(polygon, apron.fasciaBottomY, apron.fasciaTopY - apron.fasciaBottomY, "el-trim", undefined, "apron-support");
-    rim(footprint, apron.fasciaBottomY, apron.fasciaTopY - apron.fasciaBottomY, "el-column", undefined, "apron-support");
-    rim(footprint, apron.fasciaTopY, Math.max(y3, apron.soffitY) - apron.fasciaTopY, "el-column", undefined, "apron-support");
+    if (y3 > apron.soffitY) rim(footprint, apron.soffitY, y3 - apron.soffitY, "el-column", undefined, "apron-support");
   }
   for (let i = 0; i < fascia.length - 1; i++) {
     const [a, b] = [fascia[i], fascia[i + 1]];
     face([new Vector3(a[0], apron.fasciaBottomY, a[1]), new Vector3(b[0], apron.fasciaBottomY, b[1]),
-      new Vector3(b[0], apron.fasciaTopY, b[1]), new Vector3(a[0], apron.fasciaTopY, a[1])], "el-trim");
+      new Vector3(b[0], apron.fasciaTopY, b[1]), new Vector3(a[0], apron.fasciaTopY, a[1])], "el-trim", "", true, "apron-support");
   }
-  rim([[m.x - e, apronBack], [m.x - e, f.terraceFront - e], [p.x - e, f.terraceFront - e], [p.x - e, f.centerFront - e], [p.x + p.w + e, f.centerFront - e], [p.x + p.w + e, f.terraceFront - e], [m.x + m.w + e, f.terraceFront - e], [m.x + m.w + e, apronBack]], apron.soffitY, apronEaveDesign.boardThickness, "el-trim");
+  rim([...apronOuter, ...inner.slice().reverse()], apron.soffitY, apronEaveDesign.boardThickness, "el-trim");
   if (balcony) {
     const x = m.x + m.w * (12650 - 6800) / 13500, w = 2500 * m.w / 13500, z = m.z + m.d;
     box(x, z, w, 1200, y3 - 180, 180, "el-trim");

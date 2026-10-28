@@ -70,7 +70,7 @@ function wallAxes(body: Envelope, walls: Wall[]) {
   };
 }
 
-export function collectPlanDimensions(index: number, floor: Floor, annexWalls: Wall[], building: PlanBuilding = "main") {
+export function collectPlanDimensions(index: number, floor: Floor, annexWalls: Wall[], building: PlanBuilding = "main", porch = site.portico) {
   // 后墙来自外包络；不能用 floor.front + (main.d - setback)，旧稿前缘会把后墙算偏。
   const south = site.main.z + site.main.d;
   const main = { ...site.main, z: floor.front, d: south - floor.front };
@@ -83,9 +83,8 @@ export function collectPlanDimensions(index: number, floor: Floor, annexWalls: W
   // 楼梯只是模型，不是墙；其框边不参与外圈墙线定位，也不与自画侧墙拆出碎档。
   const northXs = bodyAxes.north;
   const southXs = bodyAxes.south;
-  // 主楼：堂屋两端分档线＋主楼西／东外皮；门头朝下默认4500＋4500＋4600。
+  // 主楼：堂屋两端分档线＋主楼西／东外皮；门头朝下默认4500＋4600＋4500。
   // 辅楼：无门厅控制档，controls 仅外皮两端。
-  const porch = site.portico;
   const controlBreaks =
     building === "main"
       ? axes([porch.x, porch.x + porch.w], lo, hi)

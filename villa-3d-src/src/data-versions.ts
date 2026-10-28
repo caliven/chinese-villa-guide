@@ -2,9 +2,8 @@
  * 尺寸／户型版本：写入仓库 data/尺寸、data/户型，三层户型一体存取。
  */
 import {
-  DEFAULT_VILLA_PARAMS,
   getVillaParams,
-  normalizeGutterBedSlopeDegrees,
+  normalizeVillaParamsLengths,
   type VillaParams,
   validateVillaParams,
 } from "./villa-params";
@@ -171,11 +170,7 @@ export function parseSizeVersionDocument(input: unknown): SizeVersionDocument {
           : input.courtyardDimLayout,
       }
     : input;
-  const villaParams = {
-    ...DEFAULT_VILLA_PARAMS,
-    ...(isRecord(raw.villaParams) ? raw.villaParams : {}),
-  } as VillaParams;
-  villaParams.gutterBedSlope = normalizeGutterBedSlopeDegrees(villaParams.gutterBedSlope);
+  const villaParams = normalizeVillaParamsLengths(isRecord(raw.villaParams) ? raw.villaParams : {});
   const issues = validateVillaParams(villaParams);
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
   return {

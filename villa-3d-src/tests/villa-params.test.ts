@@ -40,7 +40,7 @@ test("门厅改宽改深后全额计入首层一次，概览数据、事实和�
     assert.match(floorPlan(0, false, false), /门厅 5000×2200 · 计入首层合计/);
     assert.doesNotMatch(table + designBrief[0].text + floorPlan(0, false, false), /门厅[^<。]*另计/);
   } finally { resetVillaParams(); }
-  assert.equal(buildingAreas.total, 177);
+  assert.equal(buildingAreas.total, 177.2);
 });
 
 test("拆图后改宽深仍统一重算两栋坐标、草稿和各自标线", () => {
@@ -48,7 +48,7 @@ test("拆图后改宽深仍统一重算两栋坐标、草稿和各自标线", ()
   const draft = clonePublishedLayout();
   try {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, mainWidth: 14000, annexWidth: 4300, lane: 1600, mainDepth: 10600, annexDepth: 7500 });
-    assert.equal(buildingAreas.total.toFixed(2), "189.65");
+    assert.equal(buildingAreas.total.toFixed(2), "189.85");
     const scaled = scaleLayoutDraftToEnvelope(draft, envelopeFromSite());
     const shared = collectPlanSiteDimensions();
     assert.deepEqual(shared.widthSegmentsMm, [300, 4300, 1600, 14000, 800]);
@@ -224,7 +224,7 @@ test("屋后预留变化后通高玻璃与辅楼屋顶随楼体 Z 平移", async
   // rearGap=1000 → main.z = 10800−1000−10000 = −200；相对默认 −400 南移 200
   assert.ok(Math.abs(site.main.z - (-200)) < 1e-6);
   const roof = annexRoofFootprint();
-  // 辅楼四面与主楼同一 thirdEave。
+  // 默认主辅楼出檐数值相同，辅楼由 site.eave 独立控制。
   assert.ok(Math.abs(site.eave - site.thirdEave) < 1e-6);
   assert.ok(Math.abs(roof.z - (site.annex.z - site.thirdEave)) < 1e-6);
   assert.ok(Math.abs(roof.d - (site.annex.d + 2 * site.thirdEave)) < 1e-6);
@@ -352,7 +352,7 @@ test("无效几何组合被校验拒绝：北退、院坪共线、天沟净宽�
       courtyardEastTotal: 12000,
     }).some((i) => i.message.includes("共线")),
   );
-  assert.ok(validateVillaParams({ ...DEFAULT_VILLA_PARAMS, gutterClearWidth: 3000 }).some((i) => i.field === "gutterClearWidth"));
+  assert.ok(validateVillaParams({ ...DEFAULT_VILLA_PARAMS, gutterClearWidth: 5000 }).some((i) => i.field === "gutterClearWidth"));
   assert.ok(
     validateVillaParams({ ...DEFAULT_VILLA_PARAMS, porticoWidth: 1000, porticoColumnSize: 800 }).some(
       (i) => i.field === "porticoWidth",

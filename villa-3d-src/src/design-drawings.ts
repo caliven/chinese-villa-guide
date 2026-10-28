@@ -2,7 +2,7 @@ import { recessedPortico, porticoWallZ, mirroredBuildings } from "./building-var
 import { construction, courtyardFront, floors, frontElevation, site, stairLayout } from "./data";
 import { formatMm, toM } from "./units";
 import { contourAt } from "./contours";
-import { mainRoofFootprint, roofPitch } from "./architecture";
+import { mainRoofFootprint, annexRoofFootprint, roofPitch } from "./architecture";
 import { facades } from "./facades";
 import { garageLayout } from "./garage-layout";
 import { assessVehicleRoute, routeRanges, vehicleRoute } from "./vehicle-route";
@@ -170,7 +170,8 @@ function northElevation(options: DrawingOptions) {
   const roof = (left: number, right: number, eave: number, rise: number, run: number) => path(`M${x(right)} ${y(eave)} L${x(right - run)} ${y(eave + rise)} H${x(left + run)} L${x(left)} ${y(eave)} Z`, "roof");
   const mainRoof = mainRoofFootprint();
   content += roof(mainRoof.x, mainRoof.x + mainRoof.w, 10500, pitch.mainRise, pitch.mainRun);
-  content += roof(site.annex.x - 550, site.annex.x + site.annex.w + 550, 3600, pitch.annexRise, pitch.annexRun);
+  const annexRoof = annexRoofFootprint();
+  content += roof(annexRoof.x, annexRoof.x + annexRoof.w, annexRoof.eave, pitch.annexRise, pitch.annexRun);
   for (const post of frontElevation.balustradePosts.slice(1, 3))
     content += rect(x(post.x + frontElevation.porticoColumnDepth / 2), y(7200), toM(frontElevation.porticoColumnDepth) * 35, 7.2 * scaleY, "wall");
   for (const h of [0, site.entranceRise, 3600, 7200, 10500])

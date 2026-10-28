@@ -13,17 +13,17 @@ test("普通官帽加宽有效瓦面、前侧等坡，天沟改宽不挤占瓦�
   resetVillaParams();
   try {
     const ordinary = roofPlanModel("joined"), floating = roofPlanModel("floating");
-    assert.equal(ordinary.hat.w, 7000);
-    assert.equal(ordinary.hat.w - 2 * roofTileInset, 5250);
-    assert.equal(ordinary.hat.ridgeFront - ordinary.hat.z - roofTileInset, 2625);
+    assert.equal(ordinary.hat.w, 7100);
+    assert.equal(ordinary.hat.w - 2 * roofTileInset, 5350);
+    assert.equal(ordinary.hat.ridgeFront - ordinary.hat.z - roofTileInset, 2675);
     assert.equal(ordinary.hat.eave, ordinary.main.eave);
     assert.equal(ordinary.hat.peak, ordinary.mainPeak);
     const rise = ordinary.hat.peak - ordinary.hat.eave - roofTileEaveLift();
-    assert.ok(Math.atan(rise / 2625) * 180 / Math.PI < 37, "默认前坡从原先约53度舒展至约36.6度");
+    assert.ok(Math.atan(rise / 2675) * 180 / Math.PI < 37, "默认前坡从原先约53度舒展至约36度");
     assert.equal(floating.hat.w, DEFAULT_VILLA_PARAMS.porticoWidth + 1040);
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, gutterClearWidth: 800 });
     const wideGutter = roofPlanModel("joined");
-    assert.equal(wideGutter.hat.w - 2 * roofTileInset, 5250);
+    assert.equal(wideGutter.hat.w - 2 * roofTileInset, 5350);
     assert.equal(wideGutter.hat.w, ordinary.hat.w + 400);
     assert.ok(wideGutter.hat.ridgeFront > ordinary.hat.ridgeFront);
   } finally { resetVillaParams(); }
@@ -90,8 +90,8 @@ test("两种官帽同用主辅楼控制尺寸，原有同脊、悬浮落脊，�
   assert.equal(joined.hat.peak, joined.mainPeak);
   assert.equal(floating.mainPeak - floating.hat.peak, DEFAULT_VILLA_PARAMS.floatingHatRidgeDrop);
   assert.equal(joined.frontTrimGap, undefined);
-  assert.deepEqual(floating.frontTrimGap, [frontElevation.postXs[0] - frontElevation.dividerWidth / 2 - 40,
-    frontElevation.postXs[1] + frontElevation.dividerWidth / 2 + 40]);
+  assert.deepEqual(floating.frontTrimGap, [frontElevation.postXs[0] - frontElevation.dividerWidth / 2,
+    frontElevation.postXs[1] + frontElevation.dividerWidth / 2]);
   assert.match(roofPlanSvg("floating", "floating"), /clip-path="url\(#roof-floating-main-trim\)"/);
   assert.doesNotMatch(roofPlanSvg("joined", "joined"), /main-trim/);
   assert.ok(joined.mainFaces.some(f => f.owner === 1));

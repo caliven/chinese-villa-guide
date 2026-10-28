@@ -1223,11 +1223,11 @@ export function buildSite(mat: Mats) {
   dim(scheme, site.setback > 0 ? `三楼北退 ${formatMm(site.setback)}` : "三楼不内退 · 前墙齐平", 8600, 7600, -2600, 0.68);
   dim(scheme, `屋后留 ${formatMm(site.rearGap)}`, 17400, 3600, 9200, 0.68);
   dim(scheme, `${recessedPortico() ? "凹入式" : "凸出式"}门厅 ${formatMm(site.portico.w)}×${formatMm(site.portico.projection)} · 计入首层合计`, site.portico.x + site.portico.w / 2, 3400, -5400, 0.72);
-  dim(scheme, `二楼前檐 ${formatMm(site.secondFrontEave)} · 顶檐 ${formatMm(site.thirdEave)} · 同构造`, 17600, 4200, -4600, 0.68);
+  dim(scheme, `二楼前檐 ${formatMm(site.secondFrontEave)} · 主楼顶檐 ${formatMm(site.thirdEave)} · 辅楼顶檐 ${formatMm(site.eave)}`, 17600, 4200, -4600, 0.68);
   dim(scheme, "前通道约 2000", 2800, 1600, -2500, 0.66);
   dim(scheme, `侧道 ${formatMm(site.sideGap)}`, 450, 1800, 6400, 0.64);
   dim(scheme, `地库 ${formatMm(site.garageFloor)} · 净高目标 ${formatMm(site.garageClear)}`, 16200, 2000, -7600, 0.7);
-  dim(scheme, `右侧上田整体再向前 ${formatMm(surroundings.rightTerraceAdvance)}`, -4200, 1500, 2200, 0.68);
+  dim(scheme, `右侧上田靠屋前伸 ${formatMm(surroundings.rightTerraceAdvance)}`, -4200, 1500, 2200, 0.68);
   span(scheme, p(main.x, main.z, 350), p(main.x, main.z + main.d, 350));
   dim(scheme, `进深 ${formatMm(main.d)}`, 4600, 4200, -1200, 0.68);
   for (const x of [main.x + main.w, main.x + main.w / 2, main.x]) {

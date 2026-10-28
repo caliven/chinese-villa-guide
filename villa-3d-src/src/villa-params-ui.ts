@@ -1,6 +1,7 @@
 import { porticoStyleLabels, buildingPlacementLabels, thirdFloorModeLabels } from "./building-variants";
 import {
   DEFAULT_VILLA_PARAMS,
+  ANNEX_ROOF_PARAM_KEYS,
   LOCKED_SITE_WIDTH,
   derivedAnnexSetback,
   derivedWestGap,
@@ -30,7 +31,7 @@ const DERIVED_PARAM_KEYS = new Set<keyof VillaParams>([
   "neighborYardBeyondCement",
 ]);
 
-type ParamSection = { heading: string; note?: string; fields: Field[] };
+type ParamSection = { heading: string; note?: string; fields: Field[]; roofStyle?: boolean };
 
 type ParamGroup = {
   id: string;
@@ -38,9 +39,66 @@ type ParamGroup = {
   note?: string;
   fields?: Field[];
   sections?: ParamSection[];
-  /** 跟在本页后面的即时选项（官帽／铺装） */
-  extras?: "roof-style" | "courtyard-finish";
+  /** 跟在本页后面的即时铺装选项 */
+  extras?: "courtyard-finish";
 };
+
+function roofSections(annex = false): ParamSection[] {
+  const sections: ParamSection[] = [
+    {
+      heading: "坡度与官帽",
+      roofStyle: true,
+      fields: [
+        { key: "roofFenShui", label: "四坡分水", min: 1, max: 10 },
+        { key: "floatingHatRidgeDrop", label: "悬浮官帽落脊", min: 0 },
+      ],
+    },
+    {
+      heading: "飘檐与三眼皮",
+      note: "顶檐「飘檐挑出」＝最上层出檐（默认 800）；中层＝挑出−100、最下层＝挑出−200；级差 100 固定。「二楼前檐」为三楼栏杆下无天沟瓦挑檐，挑出单独可调（默认 800），不套用屋顶三眼皮。",
+      fields: [
+        { key: "thirdEave", label: "顶檐挑出（最上层）" },
+        { key: "secondFrontEave", label: "二楼前檐挑出" },
+      ],
+    },
+    {
+      heading: "天沟",
+      note: "以下参数用于主楼屋顶及官帽的天沟，不影响二楼无天沟瓦挑檐。",
+      fields: [
+        { key: "gutterClearWidth", label: "天沟净宽" },
+        { key: "gutterClearDepth", label: "外边反坎高" },
+        { key: "gutterInnerDepth", label: "内侧反坎高" },
+        { key: "gutterOuterTopWidth", label: "外边反坎顶宽" },
+        { key: "gutterBedSlope", label: "天沟找坡", unit: "°", min: 0, max: 15 },
+        { key: "gutterTileGap", label: "瓦片至内侧天沟顶" },
+        { key: "gutterTileOverhang", label: "瓦边探入天沟" },
+        { key: "gutterCopingSlope", label: "压顶顶面内倾", unit: "°", min: 0, max: 15 },
+      ],
+    },
+    {
+      heading: "梁托与下沿线",
+      note: "梁托长度、间距由顶檐与二楼挑檐共用，默认500×200×160；「三眼皮至下沿线」仅作用于屋顶，二楼挑檐按独立薄檐板收口。",
+      fields: [
+        { key: "corbelLength", label: "梁托长度" },
+        { key: "corbelSpacing", label: "梁托中心间距" },
+        { key: "corbelCornerSpacing", label: "拐角梁托中心距" },
+        { key: "eyelidToFasciaGap", label: "三眼皮至下沿线" },
+      ],
+    },
+  ];
+  if (!annex) return sections;
+  return sections.map((section, index) => ({
+    ...section,
+    heading: index === 0 ? "屋面坡度" : section.heading,
+    roofStyle: false,
+    note: index === 1 ? "辅楼四面独立出檐；三眼皮中层＝挑出−100、最下层＝挑出−200。"
+      : index === 2 ? "独立设置辅楼屋顶的排水与瓦檐构造。"
+      : index === 3 ? "仅控制辅楼屋顶的梁托与下沿线。" : undefined,
+    fields: section.fields.filter(field => field.key !== "floatingHatRidgeDrop" && field.key !== "secondFrontEave")
+      .map(field => ({ ...field, key: field.key === "thirdEave" ? "annexEave"
+        : ANNEX_ROOF_PARAM_KEYS[field.key as keyof typeof ANNEX_ROOF_PARAM_KEYS] })),
+  }));
+}
 
 const groups: ParamGroup[] = [
   {
@@ -57,6 +115,7 @@ const groups: ParamGroup[] = [
   {
     id: "main",
     title: "主楼",
+    sections: roofSections(),
     note: "进深加大向北扩；面宽分配按当前主辅楼位置重算。包角柱突出＝柱身比墙面外凸的距离（正面与侧面同值），默认 150。",
     fields: [
       { key: "mainWidth", label: "主楼面宽" },
@@ -81,58 +140,13 @@ const groups: ParamGroup[] = [
   {
     id: "annex",
     title: "辅楼",
+    sections: roofSections(true),
     note: "后墙与主楼齐平；改进深只动前墙，内退＝主楼进深−辅楼进深（自动）。面宽按当前主辅楼位置分配。",
     fields: [
       { key: "annexWidth", label: "辅楼面宽" },
       { key: "annexDepth", label: "辅楼进深" },
       { key: "annexHeight", label: "辅楼一层高度" },
       { key: "annexSetback", label: "相对主楼前墙内退（自动）", min: 0, readonly: true },
-    ],
-  },
-  {
-    id: "roof",
-    title: "屋面",
-    note: "主辅楼屋顶采用天沟与三眼皮。二楼顶部（三楼栏杆下）是无天沟瓦挑檐：瓦铺至檐边，下方薄檐板与梁托承托，独立收口。",
-    sections: [
-      {
-        heading: "坡度与官帽",
-        fields: [
-          { key: "roofFenShui", label: "四坡分水", min: 1, max: 10 },
-          { key: "floatingHatRidgeDrop", label: "悬浮官帽落脊", min: 0 },
-        ],
-      },
-      {
-        heading: "飘檐与三眼皮",
-        note: "顶檐「飘檐挑出」＝最上层出檐（默认 800）；中层＝挑出−100、最下层＝挑出−200；级差 100 固定。「二楼前檐」为三楼栏杆下无天沟瓦挑檐，挑出单独可调（默认 800），不套用屋顶三眼皮。",
-        fields: [
-          { key: "thirdEave", label: "顶檐挑出（最上层）" },
-          { key: "secondFrontEave", label: "二楼前檐挑出" },
-        ],
-      },
-      {
-        heading: "天沟",
-        note: "以下参数仅用于主辅楼屋顶及官帽的天沟，不影响二楼无天沟瓦挑檐。",
-        fields: [
-          { key: "gutterClearWidth", label: "天沟净宽" },
-          { key: "gutterClearDepth", label: "外边反坎高" },
-          { key: "gutterInnerDepth", label: "内侧反坎高" },
-          { key: "gutterOuterTopWidth", label: "外边反坎顶宽" },
-          { key: "gutterBedSlope", label: "天沟找坡", unit: "°", min: 0, max: 15 },
-          { key: "gutterTileGap", label: "瓦片至内侧天沟顶" },
-          { key: "gutterTileOverhang", label: "瓦边探入天沟" },
-          { key: "gutterCopingSlope", label: "压顶顶面内倾", unit: "°", min: 0, max: 15 },
-        ],
-      },
-      {
-        heading: "梁托与下沿线",
-        note: "梁托长度、间距由顶檐与二楼挑檐共用，默认500×200×160；「三眼皮至下沿线」仅作用于屋顶，二楼挑檐按独立薄檐板收口。",
-        fields: [
-          { key: "corbelLength", label: "梁托长度" },
-          { key: "corbelSpacing", label: "梁托中心间距" },
-          { key: "corbelCornerSpacing", label: "拐角梁托中心距" },
-          { key: "eyelidToFasciaGap", label: "三眼皮至下沿线" },
-        ],
-      },
     ],
   },
   {
@@ -243,28 +257,19 @@ function variantChoices(key: "porticoStyle" | "buildingPlacement" | "thirdFloorM
 }
 
 function paneBodyHtml(g: ParamGroup, params: VillaParams) {
-  const body = g.sections?.length
-    ? g.sections
-        .map(
-          (s) => `<div class="params-subgroup">
+  const body = fieldsGridHtml(g.fields ?? [], params) + (g.sections ?? [])
+    .map(s => `<div class="params-subgroup">
       <h3 class="params-subhead">${s.heading}</h3>
       ${s.note ? `<p class="micro">${s.note}</p>` : ""}
       ${fieldsGridHtml(s.fields, params)}
-    </div>`,
-        )
-        .join("")
-    : fieldsGridHtml(g.fields ?? [], params);
-  const extras =
-    g.extras === "roof-style"
-      ? roofStyleGroupHtml()
-      : g.extras === "courtyard-finish"
-        ? courtyardFinishGroupHtml()
-        : "";
+      ${s.roofStyle ? roofStyleGroupHtml() : ""}
+    </div>`).join("");
+  const extras = g.extras === "courtyard-finish" ? courtyardFinishGroupHtml() : "";
   const choices = g.id === "site" ? variantChoices("buildingPlacement", "主辅楼位置", buildingPlacementLabels, params)
     : g.id === "portico" ? variantChoices("porticoStyle", "门厅造型", porticoStyleLabels, params)
     : g.id === "main" ? variantChoices("thirdFloorMode", "三楼模式", thirdFloorModeLabels, params)
       + '<p class="micro">不内退：三楼两翼与二楼前墙齐平，取消两侧露台、栏杆和短柱，保留中央门厅露台。退台尺寸暂存，切回北向内退时恢复。</p>' : "";
-  return `${g.note ? `<p class="micro">${g.note}</p>` : ""}${g.id === "roof" ? roofStyleGroupHtml() : ""}${choices}${body}${extras}`;
+  return `${g.note ? `<p class="micro">${g.note}</p>` : ""}${choices}${body}${extras}`;
 }
 
 /**

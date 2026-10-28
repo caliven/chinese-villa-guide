@@ -548,8 +548,8 @@ input[type="range"] {
 }
 .scene-tools {
   position: absolute;
-  top: 23px;
-  right: 20px;
+  top: 12px;
+  right: 12px;
   display: flex;
   gap: 5px;
 }
@@ -573,7 +573,7 @@ input[type="range"] {
 }
 .camera-bar {
   position: absolute;
-  bottom: 28px;
+  bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
   background: #fbfaf4ed;
@@ -606,8 +606,8 @@ input[type="range"] {
 }
 .photo-strip {
   position: absolute;
-  bottom: 91px;
-  left: 24px;
+  bottom: 12px;
+  left: 12px;
   display: flex;
   gap: 7px;
 }
@@ -640,8 +640,8 @@ input[type="range"] {
 }
 .compass {
   position: absolute;
-  bottom: 29px;
-  right: 24px;
+  bottom: 12px;
+  right: 12px;
   text-align: center;
   color: #324e3b;
   pointer-events: none;
@@ -2714,7 +2714,7 @@ dialog .secondary-button {
     padding: 29px;
   }
   .photo-strip {
-    bottom: 28px;
+    bottom: 12px;
   }
   .camera-bar {
     left: 58%;

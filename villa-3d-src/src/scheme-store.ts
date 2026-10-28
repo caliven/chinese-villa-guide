@@ -5,7 +5,7 @@
 import {
   DEFAULT_VILLA_PARAMS,
   getVillaParams,
-  normalizeGutterBedSlopeDegrees,
+  normalizeVillaParamsLengths,
   type VillaParams,
   validateVillaParams,
 } from "./villa-params";
@@ -114,8 +114,7 @@ export function parseSchemeDocument(input: unknown): SchemeDocument {
   if (!isRecord(input)) throw new Error("方案文件不是对象");
   if (input.schema !== schemeSchema) throw new Error(`方案版本应为 ${schemeSchema}`);
   const raw = migrateSchemeRawToMm(input);
-  const villaParams = { ...DEFAULT_VILLA_PARAMS, ...(isRecord(raw.villaParams) ? raw.villaParams : {}) } as VillaParams;
-  villaParams.gutterBedSlope = normalizeGutterBedSlopeDegrees(villaParams.gutterBedSlope);
+  const villaParams = normalizeVillaParamsLengths(isRecord(raw.villaParams) ? raw.villaParams : {});
   const issues = validateVillaParams(villaParams);
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
 
@@ -366,7 +365,7 @@ export function migrateLegacyLocalStorage(): Partial<SchemeDocument> | null {
     if (paramsRaw) {
       const parsed = JSON.parse(paramsRaw) as Record<string, unknown>;
       const rawParams = isRecord(parsed) && isMeterLengthPayload(parsed) ? migrateVillaParamsToMm(parsed) : parsed;
-      const merged = { ...DEFAULT_VILLA_PARAMS, ...rawParams } as VillaParams;
+      const merged = normalizeVillaParamsLengths(rawParams);
       if (validateVillaParams(merged).length === 0) out.villaParams = merged;
     }
     const layoutRaw = localStorage.getItem("anhua-villa-layout-draft-v1");

@@ -131,7 +131,7 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
   const mainOutline = (inset: number) => selected === "joined"
     ? bayOutline(m.x, m.z, m.w, m.d, h.x, h.w, h.z, inset)
     : box(m.x + inset, m.z + inset, m.w - 2 * inset, m.d - 2 * inset);
-  const gutter = (outline: (inset: number) => Point[]) => polygon(outline(0), "roof-gutter") + polygon(outline(gutterInnerLipInset()), "roof-gutter-inner");
+  const gutter = (outline: (inset: number) => Point[], inset = gutterInnerLipInset()) => polygon(outline(0), "roof-gutter") + polygon(outline(inset), "roof-gutter-inner");
   const mainGutter = () => {
     if (!model.frontTrimGap) return gutter(mainOutline);
     const [x0, x1] = model.frontTrimGap, z0 = m.z - 1000, z1 = floors[2].front + 8;
@@ -167,7 +167,7 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
       + vDim(site.annex.z, site.annex.z + site.annex.d, site.annex.x - 800, site.annex.x);
   } else {
     const floatingGutterEnd = Math.max(m.z, m.z + roofTileInset + (h.eave + roofGutterDesign.clearDepth + 30 - m.eave - roofTileEaveLift()) / (model.pitch.fenShui / 10));
-    drawing = terraceProjection + mainGutter() + gutter(inset => box(a.x + inset, a.z + inset, a.w - 2 * inset, a.d - 2 * inset))
+    drawing = terraceProjection + mainGutter() + gutter(inset => box(a.x + inset, a.z + inset, a.w - 2 * inset, a.d - 2 * inset), model.annexProfile.innerLipInset)
       + [...model.mainFaces.filter(f => f.owner === 0), ...model.annexFaces].map(f => polygon(f.points.map(p => [p.x, p.z]), "roof-face")).join("")
       + (selected === "floating" ? polygon(hatEaveRim(h.x, h.z, h.w, 0, gutterInnerLipInset(), floatingGutterEnd), "roof-gutter") : "")
       + model.mainFaces.filter(f => f.owner === 1).map(f => polygon(f.points.map(p => [p.x, p.z]), "roof-hat")).join("")
@@ -194,6 +194,6 @@ export function roofPlan(view: RoofDrawingView, style: RoofStyle, layout?: Villa
   const model = roofPlanModel(view === "slab" ? style : view, layout);
   const note = view === "slab"
     ? "顶板范围与三层露台投影分开表示；虚线为檐口或下层投影。楼梯沿用户户型止于三层，未设计上屋顶交通，也未新增屋顶房间。顶板厚度、配筋与承托待结构设计。"
-    : `蓝灰＝主辅楼瓦面，浅褐＝官帽，灰环＝天沟；粗绿线＝屋脊，褐色虚线＝谷线，灰色虚线＝下层墙体／露台投影，蓝箭头＝坡向。天沟净宽 ${n(roofGutterDesign.clearWidth)}；雨水口位置、天沟排水分区与防水节点待设计。`;
-  return `<div class="plan-sheets"><section class="plan-sheet roof-plan-sheet"><div class="plan-sheet-head"><h3>屋顶设计图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择屋顶图纸">${(Object.keys(roofDrawingLabels) as RoofDrawingView[]).map(key => `<button type="button" data-roof-drawing-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${roofDrawingLabels[key]}</button>`).join("")}<button type="button" id="download-roof-svg" class="secondary-button">下载 SVG</button></div></div><div class="roof-plan-meta"><span>长度／模型相对标高：mm</span><span>主／辅楼出檐 ${n(site.thirdEave)}</span><span>主楼瓦檐 ${height(model.main.eave + roofTileEaveLift())}</span><span>辅楼瓦檐 ${height(model.annex.eave + roofTileEaveLift())}</span><span>官帽瓦檐 ${height(model.hat.eave + roofTileEaveLift())}</span><span>方案示意 · 非施工图</span></div>${roofPlanSvg(view, style, layout)}<p class="roof-plan-note">${note}</p></section></div>`;
+    : `蓝灰＝主辅楼瓦面，浅褐＝官帽，灰环＝天沟；粗绿线＝屋脊，褐色虚线＝谷线，灰色虚线＝下层墙体／露台投影，蓝箭头＝坡向。天沟净宽：主楼 ${n(roofGutterDesign.clearWidth)}、辅楼 ${n(model.annexProfile.clearWidth)}；雨水口位置、天沟排水分区与防水节点待设计。`;
+  return `<div class="plan-sheets"><section class="plan-sheet roof-plan-sheet"><div class="plan-sheet-head"><h3>屋顶设计图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择屋顶图纸">${(Object.keys(roofDrawingLabels) as RoofDrawingView[]).map(key => `<button type="button" data-roof-drawing-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${roofDrawingLabels[key]}</button>`).join("")}<button type="button" id="download-roof-svg" class="secondary-button">下载 SVG</button></div></div><div class="roof-plan-meta"><span>长度／模型相对标高：mm</span><span>主楼出檐 ${n(site.thirdEave)}</span><span>辅楼出檐 ${n(site.eave)}</span><span>主楼瓦檐 ${height(model.main.eave + roofTileEaveLift())}</span><span>辅楼瓦檐 ${height(model.annex.eave + model.annexProfile.tileLift)}</span><span>官帽瓦檐 ${height(model.hat.eave + roofTileEaveLift())}</span><span>方案示意 · 非施工图</span></div>${roofPlanSvg(view, style, layout)}<p class="roof-plan-note">${note}</p></section></div>`;
 }

@@ -7,6 +7,8 @@ import { setEaveWashAppearance, setEaveWashVisible } from "../src/eave-lighting"
 import { visibleSurfaceMeshes, batchStatic } from "../src/render-geometry";
 import { frontApronSection, apronFasciaBottom, eaveTrimDesign, roofTileInset, roofTileEaveLift } from "../src/roof-options";
 import type { Mats } from "../src/primitives";
+import { floatingHatJunctions } from "../src/hat-junctions";
+import { floors } from "../src/data";
 
 const mat = new Proxy({} as Mats, {
   get(target, key: keyof Mats) { return target[key] ??= new THREE.MeshPhysicalMaterial() as never; },
@@ -70,10 +72,14 @@ test("悬浮官帽前檐和两侧灯带接角并延伸到线脚与主屋坡面�
   const front = h.z + hatSupportInset();
   const sides = groups.filter(g => Math.abs((g.getObjectByName("暖白灯带") as THREE.Mesh).rotation.y) > 1);
   assert.equal(sides.length, 2);
-  for (const side of sides) {
+  const joints = floatingHatJunctions(h.z, h.eave, m.eave, floors[2].front, hatSupportInset());
+  for (const [i, side] of sides.entries()) {
     const ends = endpoints(side, "暖白灯带").map(p => p.z).sort((a,b) => a-b);
     assert.ok(ends[0] < front, "侧灯带与前灯带在转角外侧相接");
     assert.ok(Math.abs(ends[1] - end) < .01, "侧灯带应伸至下沿线与正屋坡面的交接处");
+    const strip = side.getObjectByName("暖白灯带") as THREE.Mesh;
+    const outerX = i === 0 ? joints[0].x - 2 : joints[1].x + joints[1].width + 2;
+    assert.ok(Math.abs(strip.position.x - outerX) < .01, "灯带须贴新封闭梁外皮，不能埋在梁内");
   }
 });
 

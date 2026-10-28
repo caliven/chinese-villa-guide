@@ -2,7 +2,7 @@
   "schema": "anhua-villa-户型-v1",
   "units": "mm",
   "id": "户型-20261017-233620",
-  "title": "户型-楼梯在北侧的",
+  "title": "户型-楼梯在东侧",
   "savedAt": "2026-10-23T17:33:00+08:00",
   "layoutDraft": {
     "schema": 1,
@@ -1017,11 +1017,7 @@
         "x": 13100,
         "z": 5640,
         "w": 2900,
-        "d": 3917,
-        "label": [
-          14550,
-          7598.5
-        ]
+        "d": 3917
       },
       "x": 13220,
       "z": 5640,
@@ -1124,7 +1120,7 @@
         "floor": 2,
         "facadeIndex": 0,
         "opening": {
-          "offset": 5339.259259259259,
+          "offset": 5188.148148148148,
           "width": 3223.7037037037035,
           "kind": "slidingDoor",
           "hinge": "start",
@@ -1234,7 +1230,7 @@
         "floor": 1,
         "facadeIndex": 0,
         "opening": {
-          "offset": 6065,
+          "offset": 6050,
           "width": 1500,
           "kind": "window",
           "hinge": "start",

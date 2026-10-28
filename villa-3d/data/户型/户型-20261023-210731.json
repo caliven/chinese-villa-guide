@@ -3,11 +3,11 @@
   "units": "mm",
   "id": "户型-20261023-210731",
   "title": "户型-楼梯在南侧",
-  "savedAt": "2026-10-27T23:22:04+08:00",
+  "savedAt": "2026-10-28T21:36:26+08:00",
   "layoutDraft": {
     "schema": 1,
     "revision": "沟通方案 05",
-    "updatedAt": "2026-10-27T15:22:04.491Z",
+    "updatedAt": "2026-10-28T13:36:26.562Z",
     "note": "布局草稿 · 设计建议 · 非施工图。二、三层动线修订：起居大空间；主卧并入西侧过道；楼梯北端折跑处西墙不开到外墙、井道洞口拉通；门扇开进所服务房间；三层东南卧自楼梯间独立进门。一层与 stairLayout 定位未改。",
     "floors": [
       {
@@ -773,6 +773,21 @@
               "key": "exterior:south|exterior:west|wall-10:west|wall-15:south",
               "status": "enclosed"
             }
+          },
+          {
+            "id": "room3",
+            "name": "房间1",
+            "x": 11500,
+            "z": -400,
+            "w": 4200,
+            "d": 4500,
+            "kind": "living",
+            "note": "按三面墙生成的开敞分区，未补实体墙；面积为模型分区参考，房间用途待确认。",
+            "label": [
+              13600,
+              1850
+            ],
+            "purposeStatus": "pending"
           }
         ],
         "partitions": [
@@ -930,6 +945,30 @@
               "hinge": "start",
               "side": "out"
             }
+          },
+          {
+            "a": [
+              11500,
+              -280
+            ],
+            "b": [
+              11500,
+              4100
+            ],
+            "id": "wall-28",
+            "role": "virtual"
+          },
+          {
+            "a": [
+              11500,
+              4100
+            ],
+            "b": [
+              6720,
+              4100
+            ],
+            "id": "wall-29",
+            "role": "virtual"
           }
         ],
         "furniture": [
@@ -1128,12 +1167,12 @@
             "name": "阳台",
             "x": 6600,
             "z": 800,
-            "w": 4600,
+            "w": 4900,
             "d": 3300,
             "kind": "living",
             "note": "按实际墙线闭合生成；面积为模型分区参考，房间用途待确认。",
             "label": [
-              8900,
+              9050,
               2450
             ],
             "purposeStatus": "pending",
@@ -1183,14 +1222,14 @@
           {
             "id": "room5",
             "name": "北主卧梳妆衣帽间",
-            "x": 11200,
+            "x": 11500,
             "z": 800,
-            "w": 4500,
+            "w": 4200,
             "d": 3300,
             "kind": "living",
             "note": "按实际墙线闭合生成；面积为模型分区参考，房间用途待确认。",
             "label": [
-              13450,
+              13600,
               2450
             ],
             "purposeStatus": "pending",
@@ -1274,11 +1313,11 @@
         "partitions": [
           {
             "a": [
-              11200,
+              11500,
               800
             ],
             "b": [
-              11200,
+              11500,
               4100
             ],
             "id": "wall-26",
@@ -1305,7 +1344,7 @@
           },
           {
             "a": [
-              11200,
+              11500,
               4100
             ],
             "b": [
@@ -1337,7 +1376,7 @@
           {
             "a": [
               15700,
-              720
+              800
             ],
             "b": [
               15700,
@@ -1346,7 +1385,7 @@
             "id": "wall-31",
             "role": "bearing",
             "door": {
-              "offset": 1090,
+              "offset": 840,
               "width": 1500,
               "kind": "passage",
               "hinge": "start",
@@ -1421,7 +1460,7 @@
               4100
             ],
             "b": [
-              11200,
+              11500,
               4100
             ],
             "id": "wall-35",
@@ -1524,7 +1563,7 @@
           },
           {
             "kind": "fp-wardrobe",
-            "x": 12590,
+            "x": 12890,
             "z": 3660,
             "w": 2500,
             "d": 600,
@@ -1533,7 +1572,7 @@
           },
           {
             "kind": "fp-dresser",
-            "x": 11565,
+            "x": 11865,
             "z": 1960,
             "w": 1800,
             "d": 450,
@@ -1578,7 +1617,7 @@
           },
           {
             "kind": "fp-chair",
-            "x": 12192,
+            "x": 12552,
             "z": 1960,
             "w": 450,
             "d": 480,
@@ -1833,8 +1872,8 @@
       }
     },
     "portico": {
-      "x": 11200,
-      "w": 4500,
+      "x": 11100,
+      "w": 4600,
       "projection": 2000
     },
     "livingVoid": {
@@ -1852,10 +1891,10 @@
         "floor": 0,
         "facadeIndex": 0,
         "opening": {
-          "offset": 800,
+          "offset": 950,
           "width": 3000,
           "kind": "window",
-          "height": 5900,
+          "height": 5600,
           "sill": 450,
           "hinge": "start",
           "side": "out"
@@ -1865,7 +1904,7 @@
         "floor": 0,
         "facadeIndex": 0,
         "opening": {
-          "offset": 5212,
+          "offset": 5200,
           "width": 3200,
           "kind": "doubleDoor",
           "hinge": "start",
@@ -1879,7 +1918,7 @@
           "offset": 10150,
           "width": 2400,
           "kind": "window",
-          "height": 2700,
+          "height": 2400,
           "sill": 450,
           "hinge": "start",
           "side": "out"
@@ -1889,7 +1928,7 @@
         "floor": 0,
         "facadeIndex": 1,
         "opening": {
-          "offset": 10445,
+          "offset": 10510,
           "width": 1800,
           "kind": "window",
           "height": 1800,
@@ -1902,7 +1941,7 @@
         "floor": 2,
         "facadeIndex": 0,
         "opening": {
-          "offset": 750,
+          "offset": 890,
           "width": 3000,
           "kind": "slidingDoor",
           "hinge": "start",
@@ -1913,8 +1952,8 @@
         "floor": 2,
         "facadeIndex": 0,
         "opening": {
-          "offset": 5189,
-          "width": 3223.7037037037035,
+          "offset": 5600,
+          "width": 2400,
           "kind": "slidingDoor",
           "hinge": "start",
           "side": "out"
@@ -1924,8 +1963,8 @@
         "floor": 2,
         "facadeIndex": 0,
         "opening": {
-          "offset": 10124.444444444443,
-          "width": 2417.7777777777774,
+          "offset": 10124,
+          "width": 2400,
           "kind": "slidingDoor",
           "hinge": "start",
           "side": "out"
@@ -1948,7 +1987,7 @@
         "floor": 2,
         "facadeIndex": 3,
         "opening": {
-          "offset": 10450,
+          "offset": 10510,
           "width": 1800,
           "kind": "window",
           "height": 1800,
@@ -1962,9 +2001,9 @@
         "facadeIndex": 0,
         "opening": {
           "offset": 1200,
-          "width": 1600,
+          "width": 1800,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -1974,10 +2013,10 @@
         "floor": 3,
         "facadeIndex": 1,
         "opening": {
-          "offset": 1530,
-          "width": 1500,
+          "offset": 950,
+          "width": 1800,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -1987,8 +2026,8 @@
         "floor": 3,
         "facadeIndex": 1,
         "opening": {
-          "offset": 4890,
-          "width": 1500,
+          "offset": 4920,
+          "width": 1800,
           "kind": "window",
           "height": 1500,
           "sill": 900,
@@ -2013,10 +2052,10 @@
         "floor": 1,
         "facadeIndex": 0,
         "opening": {
-          "offset": 10150,
+          "offset": 10210,
           "width": 2400,
           "kind": "window",
-          "height": 2520,
+          "height": 2400,
           "sill": 450,
           "hinge": "start",
           "side": "out"
@@ -2026,9 +2065,11 @@
         "floor": 1,
         "facadeIndex": 0,
         "opening": {
-          "offset": 5212,
+          "offset": 5200,
           "width": 3200,
           "kind": "window",
+          "height": 2400,
+          "sill": 320,
           "hinge": "start",
           "side": "out"
         }
@@ -2037,10 +2078,10 @@
         "floor": 1,
         "facadeIndex": 1,
         "opening": {
-          "offset": 10450,
+          "offset": 10510,
           "width": 1800,
           "kind": "window",
-          "height": 1800,
+          "height": 2000,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -2063,10 +2104,10 @@
         "floor": 2,
         "facadeIndex": 3,
         "opening": {
-          "offset": 2700,
+          "offset": 2670,
           "width": 1500,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 700,
           "hinge": "start",
           "side": "out"
@@ -2076,10 +2117,10 @@
         "floor": 2,
         "facadeIndex": 3,
         "opening": {
-          "offset": 600,
+          "offset": 570,
           "width": 800,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 700,
           "hinge": "start",
           "side": "out"
@@ -2089,10 +2130,10 @@
         "floor": 0,
         "facadeIndex": 1,
         "opening": {
-          "offset": 5948,
+          "offset": 6100,
           "width": 1800,
           "kind": "window",
-          "height": 1800,
+          "height": 2000,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -2116,7 +2157,7 @@
           "offset": 4517,
           "width": 1000,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -2126,10 +2167,10 @@
         "floor": 1,
         "facadeIndex": 1,
         "opening": {
-          "offset": 2699,
+          "offset": 2670,
           "width": 1500,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -2139,10 +2180,10 @@
         "floor": 1,
         "facadeIndex": 1,
         "opening": {
-          "offset": 600,
+          "offset": 570,
           "width": 800,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -2155,7 +2196,7 @@
           "offset": 4740,
           "width": 900,
           "kind": "window",
-          "height": 1200,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -2168,7 +2209,7 @@
           "offset": 3310,
           "width": 1000,
           "kind": "window",
-          "height": 1950,
+          "height": 1500,
           "sill": 550,
           "hinge": "start",
           "side": "out"
@@ -2181,7 +2222,7 @@
           "offset": 3540,
           "width": 900,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 450,
           "hinge": "start",
           "side": "out"
@@ -2205,7 +2246,7 @@
           "offset": 2670,
           "width": 1500,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -2218,7 +2259,7 @@
           "offset": 570,
           "width": 800,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"
@@ -2231,7 +2272,7 @@
           "offset": 4740,
           "width": 900,
           "kind": "window",
-          "height": 1800,
+          "height": 1500,
           "sill": 900,
           "hinge": "start",
           "side": "out"

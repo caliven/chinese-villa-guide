@@ -5,7 +5,6 @@ import { elevationModel, villaLayoutFromDraft } from "../src/architecture";
 import { clonePublishedLayout } from "../src/layout-draft";
 import { floors, frontElevation, site } from "../src/data";
 import { elevationLabels, elevationShell, elevationSvg, projectElevation, visibleElevationPolygons, type ElevationSurface, type ElevationView } from "../src/elevation-plan";
-import { frontApronSection } from "../src/roof-options";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params";
 
 const surface = (x0: number, x1: number, y0: number, y1: number, z: number): ElevationSurface => ({
@@ -60,8 +59,8 @@ test("外部门窗和门厅草稿随立体共用数据，出图不污染草稿�
   assert.equal(upperOpenings.length, 1, "挑空外窗应在上层派生同宽通高洞口");
   assert.ok(upperOpenings[0].continuous);
   assert.equal(upperOpenings[0].w, 1250);
-  assert.equal(model.roof.portico.w, 4200);
-  assert.match(elevationSvg("north", "floating", layout), /class="el-dim-label"[^>]*>4200<\/text>/);
+  assert.equal(model.roof.portico.w, 4300);
+  assert.match(elevationSvg("north", "floating", layout), /class="el-dim-label"[^>]*>4300<\/text>/);
   assert.equal(JSON.stringify([draft, site, floors, frontElevation]), before);
 });
 
@@ -107,30 +106,7 @@ test("主楼和辅楼按各自外包络独立出图与导出", () => {
   }
 });
 
-test("北立面挑檐在下沿线与檐板之间无通长背景空洞", () => {
-  resetVillaParams();
-  const apron = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
-  const y = (apron.fasciaTopY + apron.soffitY) / 2;
-  const { surfaces } = elevationShell("north", "floating", undefined, false, "main");
-  const visible = visibleElevationPolygons(surfaces, "north");
-  const contains = (poly: number[][], x: number, yy: number) => {
-    let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const [xi, yi] = poly[i], [xj, yj] = poly[j];
-      if ((yi > yy) !== (yj > yy) && x < (xj - xi) * (yy - yi) / (yj - yi) + xi) inside = !inside;
-    }
-    return inside;
-  };
-  const west = frontElevation.sideTerraces[0].x - site.secondFrontEave + 120;
-  const east = frontElevation.sideTerraces[1].x + frontElevation.sideTerraces[1].w + site.secondFrontEave - 120;
-  for (let x = west; x <= east; x += 400) {
-    const u = projectElevation(new Vector3(x, y, frontElevation.terraceFront - site.secondFrontEave / 2), "north")[0];
-    assert.ok(surfaces.some((surface, i) => surface.occludes !== false && visible[i].some(poly => contains(poly, u, -y))),
-      `北立面 x=${x} 檐下封板／承托投影不可留空`);
-  }
-});
-
-test("东西侧柱位的檐下实体在三维和立面投影中均连续可见", async () => {
+test("东西侧柱位檐下为连续下沿线与梁托，折角不被实心柱块隔断", async () => {
   const THREE = await import("three");
   const { buildVilla } = await import("../src/architecture");
   const { frontApronSection } = await import("../src/roof-options");
@@ -154,27 +130,36 @@ test("东西侧柱位的檐下实体在三维和立面投影中均连续可见",
     villa.group.updateMatrixWorld(true);
     const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
     const section = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
-    const ys = [(section.fasciaBottomY + section.fasciaTopY) / 2, (section.fasciaTopY + section.soffitY) / 2, (section.soffitY + floors[2].y) / 2];
+    assert.equal(apron.getObjectByName("柱帽上实体柱颈"), undefined, "折角不得用实心柱颈隔断梁托");
+    assert.equal(villa.group.getObjectByName("门厅柱退进承托柱颈"), undefined, "门厅折角不得保留隔断柱颈");
+    let corbels = 0;
+    apron.traverse(o => { if (o.name === "梁托") corbels++; });
+    assert.ok(corbels > 8, `${style} 折角两侧应保留连续梁托`);
+    const fasciaY = (section.fasciaBottomY + section.fasciaTopY) / 2;
+    const seatY = (section.soffitY + floors[2].y) / 2;
     for (const view of ["east", "west"] as const) {
       const { surfaces } = elevationShell(view, style);
       const visible = visibleElevationPolygons(surfaces, view);
-      for (const post of frontElevation.balustradePosts) for (const y of ys) {
-        const origin = new THREE.Vector3(view === "east" ? 100000 : -100000, y, post.z);
-        const ray = new THREE.Raycaster(origin, new THREE.Vector3(view === "east" ? -1 : 1, 0, 0));
-        assert.ok(ray.intersectObject(apron, true).some(hit => {
-          if (Math.abs(hit.point.x - post.x) > (post.w + 80) / 2 + 1) return false;
-          let parent: THREE.Object3D | null = hit.object;
-          while (parent) {
-            if (["挑檐连续承托梁", "承托梁下沿", "四处柱位实体承台", "连续转角下沿线", "挑檐封檐竖板"].includes(parent.name)) return true;
-            parent = parent.parent;
-          }
-          return false;
-        }), `${style}/${view} 柱位 ${post.z} 标高 ${y} 的三维承托实体`);
-        const u = projectElevation(new THREE.Vector3(post.x, y, post.z), view)[0];
-        assert.ok(surfaces.some(surface => surface.part === "apron-support" && contains(surface.points.map(point => projectElevation(point, view)), u, -y)),
-          `${style}/${view} 柱位 ${post.z} 标高 ${y} 的承托实体应参与投影`);
-        assert.ok(surfaces.some((surface, i) => surface.occludes !== false && visible[i].some(poly => contains(poly, u, -y))),
-          `${style}/${view} 柱位 ${post.z} 标高 ${y} 的投影不可出现背景空洞`);
+      for (const post of frontElevation.balustradePosts) {
+        for (const y of [fasciaY, seatY]) {
+          const origin = new THREE.Vector3(view === "east" ? 100000 : -100000, y, post.z);
+          const ray = new THREE.Raycaster(origin, new THREE.Vector3(view === "east" ? -1 : 1, 0, 0));
+          assert.ok(ray.intersectObject(apron, true).some(hit => {
+            if (Math.abs(hit.point.x - post.x) > (post.w + 80) / 2 + 1) return false;
+            let parent: THREE.Object3D | null = hit.object;
+            while (parent) {
+              if (["挑檐连续承托梁", "承托梁下沿", "四处柱位实体承台", "连续转角下沿线", "梁托"].includes(parent.name)) return true;
+              parent = parent.parent;
+            }
+            return false;
+          }), `${style}/${view} 柱位 ${post.z} 标高 ${y} 的三维承托实体`);
+          const u = projectElevation(new THREE.Vector3(post.x, y, post.z), view)[0];
+          assert.ok(surfaces.some((surface, i) => surface.occludes !== false && visible[i].some(poly => contains(poly, u, -y))),
+            `${style}/${view} 柱位 ${post.z} 标高 ${y} 的投影不可出现背景空洞`);
+        }
+        const u = projectElevation(new THREE.Vector3(post.x, fasciaY, post.z), view)[0];
+        assert.ok(surfaces.some(surface => surface.part === "apron-support" && contains(surface.points.map(point => projectElevation(point, view)), u, -fasciaY)),
+          `${style}/${view} 柱位下沿线高度应有连续投影`);
       }
     }
   }

@@ -23,13 +23,13 @@ import { diningClearance } from "../src/plan";
 import type { Mats } from "../src/primitives";
 import { cornerPilasterTopY, eyelidFixed, fasciaBottomY, frontApronSection } from "../src/roof-options";
 
-test("首层含门厅177平方米，21米内包含两侧过道和子孙道，辅楼内退2米", () => {
+test("首层含门厅177.2平方米，21米内包含两侧过道和子孙道，辅楼内退2米", () => {
   assert.equal(areaM2(site.main.w, site.main.d), 136);
   assert.equal(areaM2(site.annex.w, site.annex.d), 32);
   assert.equal(site.annex.d, 8000);
   assert.equal(site.annex.z - site.main.z, 2000);
-  assert.equal(buildingAreas.portico, 9);
-  assert.equal(buildingAreas.total, 177);
+  assert.equal(buildingAreas.portico, 9.2);
+  assert.equal(buildingAreas.total, 177.2);
   assert.ok(Math.abs(buildingAreas.total - buildingAreas.main - buildingAreas.annex - buildingAreas.portico) < 1e-9);
   assert.equal(site.width, 21000);
   const eastGap = site.width - site.main.x - site.main.w;
@@ -263,12 +263,13 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   );
   const midFloor = ray.intersectObject(villa.levels[1], true);
   assert.ok(midFloor.length > 0 && midFloor[0].point.y > 3400 && midFloor[0].point.y < 3610);
-  // 新外伸区同样必须在二层为空、三层有真正可踩的楼板。
-  const porchProbeZ = site.main.z - site.portico.projection;
-  ray.set(new THREE.Vector3(13700, 4000, porchProbeZ), new THREE.Vector3(0, -1, 0));
+  // 新外伸区：挑檐悬挑段二层为空；折角以南的门厅平台三层有可踩楼板。
+  const overhangProbeZ = frontElevation.centerFront - site.secondFrontEave / 2;
+  const porchDeckZ = frontElevation.centerFront + 250;
+  ray.set(new THREE.Vector3(13700, 4000, overhangProbeZ), new THREE.Vector3(0, -1, 0));
   ray.far = 800;
   assert.equal(ray.intersectObject(villa.group, true).length, 0);
-  ray.set(new THREE.Vector3(13700, 7300, porchProbeZ), new THREE.Vector3(0, -1, 0));
+  ray.set(new THREE.Vector3(13700, 7300, porchDeckZ), new THREE.Vector3(0, -1, 0));
   assert.ok(Math.abs(ray.intersectObject(villa.levels[2], true)[0].point.y - 7200) < 0.01);
   const approach = villa.group.getObjectByName("门厅柱间三步与两侧坡道")!;
   const approachBounds = new THREE.Box3().setFromObject(approach);
@@ -300,8 +301,9 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   assert.ok(fromAbove.intersectObject(eastRamp, true).length > 0, "东侧坡道顶面应封闭");
   assert.ok(Math.abs(approachBounds.max.y - site.entranceRise) < 30);
   const porch = villa.levels[2].getObjectByName("外伸门厅三楼平台")!;
-  // 平台北缘与门厅柱／中间短柱同轴后的露台外皮对齐。
+  // 平台北缘与门厅柱心／飘檐折角对齐（不再取柱北皮）。
   assert.ok(Math.abs(new THREE.Box3().setFromObject(porch).min.z - frontElevation.centerFront) < 0.01);
+  assert.equal(frontElevation.centerFront, frontElevation.porticoColumnZ);
   const lowerEave = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
   // 前凸门厅同样出檐；外缘线脚和瓦垄另有不到5cm的建模厚度。
   const lowerEaveBounds = new THREE.Box3().setFromObject(lowerEave);

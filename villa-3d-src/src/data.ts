@@ -1,6 +1,6 @@
 import { smoothContour } from "./contours";
 import { placeRoadsideVilla } from "./roadside-villa-layout";
-import { roofGutterDesign, roofTileInset } from "./roof-options";
+import { roofGutterDesign, annexRoofGutterDesign, roofTileInset } from "./roof-options";
 import { areaM2 } from "./units";
 import { porticoColumnCenters } from "./frontage-geometry";
 import { getFloorplanFurniture, type FloorplanFurnitureId } from "./floorplan-catalog";
@@ -212,14 +212,15 @@ export const site = {
   setback: 1200,
   // 页面可改。4.5 是当前默认，不是测绘。（分水比例，非长度，不换算毫米）
   roofFenShui: 4.5,
+  annexRoofFenShui: 4.5,
   // 主楼四坡默认起高：天沟外轮廓进深随 thirdEave（前退台＋后檐各 800 → 进深 9800）。
   // site.eave 仅表示辅楼四面挑出（默认与主楼同为 800），勿再当作主楼后檐。
   roofRise: 0.45 * (9800 - 2 * roofTileInset) / 2,
   eave: 800,
   secondFrontEave: 800,
   thirdEave: 800,
-  // 西侧客厅4600＋堂屋4500＋东翼4500；门厅前沿两角为柱心。
-  portico: { x: 11200, w: 4500, projection: 2000 },
+  // 主楼门头4500＋4600＋4500对称；门厅前沿两角为柱心。
+  portico: { x: 11100, w: 4600, projection: 2000 },
   // 设计建议：室内一楼比院坪高三步。每步 150mm，不是测绘。面对房子时左侧为东。
   entranceRise: 450,
   rearField: 2500,
@@ -304,8 +305,8 @@ export const frontElevation = {
   // 露台北缘随后由 syncFrontElevation 按柱位重算；此处与默认柱位一致。
   terraceFront: site.main.z - 120 - 75 - 300,
   terraceBack: site.main.z + site.setback + 40,
-  // 中间露台北缘＝门厅柱北皮。
-  centerFront: site.main.z - site.portico.projection - 400,
+  // 中间露台／飘檐折角北缘＝门厅柱心（syncFrontElevation 按柱位重算）。
+  centerFront: site.main.z - site.portico.projection,
   sideTerraces: [
     { x: site.main.x + 180, w: site.portico.x - (site.main.x + 180) },
     {
@@ -884,11 +885,14 @@ export const facts: Fact[] = [
     label: "梁板与屋脊",
     value: "示意构件",
     source: "设计建议",
-    note: "院坪结构占用暂0.45米，主楼檐口10.5米。主楼、辅楼四坡默认4.5分水，当前探索值见分水控件及导出图册；这是设计坡度，不是测绘。默认使用按2026-10-15用户参考图近似的悬浮官帽，帽脊默认低于主脊约50厘米，纵脊直接接入正屋前坡，前斜脊与主屋两侧斜脊平行，檐底贴近屋面；后侧及两侧后段融入正屋。普通官帽作为可选造型，与正屋同脊高、檐口相连，瓦面独立加宽、前部起脊点后移。正屋与辅楼的檐口和主体尺寸不随造型切换改变。天沟净宽、净深及挡墙顶面找坡按用户要求设置；其他屋脊、抬高量与构件仍为造型示意，非实测或结构施工尺寸。",
+    note: "院坪结构占用暂0.45米，主楼檐口10.5米。主楼、辅楼四坡默认4.5分水，主辅楼可在各自尺寸面板独立调整，当前探索值见面板及导出图册；这是设计坡度，不是测绘。默认使用按2026-10-15用户参考图近似的悬浮官帽，帽脊默认低于主脊约50厘米，纵脊直接接入正屋前坡，前斜脊与主屋两侧斜脊平行，檐底贴近屋面；后侧及两侧后段融入正屋。普通官帽作为可选造型，与正屋同脊高、檐口相连，瓦面独立加宽、前部起脊点后移。正屋与辅楼的檐口和主体尺寸不随造型切换改变。天沟净宽、净深及挡墙顶面找坡按用户要求设置；其他屋脊、抬高量与构件仍为造型示意，非实测或结构施工尺寸。",
   },
   {
     label: "天沟净尺寸与挡墙顶面",
-    value: `净宽${roofGutterDesign.clearWidth * 1000}mm、外边反坎高${roofGutterDesign.clearDepth * 1000}mm、内侧反坎高${roofGutterDesign.innerDepth * 1000}mm、外边顶宽${roofGutterDesign.outerTopWidth * 1000}mm、找坡${Math.round((Math.atan(roofGutterDesign.bedSlope) * 180) / Math.PI)}°、瓦至内挡顶${roofGutterDesign.tileGap * 1000}mm、瓦边探入${roofGutterDesign.tileOverhang * 1000}mm，压顶内倾${roofGutterDesign.copingSlopeDegrees}°`,
+    get value() {
+      const describe = (g: typeof roofGutterDesign) => `净宽${g.clearWidth}、外边反坎高${g.clearDepth}、内侧反坎高${g.innerDepth}、外边顶宽${g.outerTopWidth}、找坡${Math.round(Math.atan(g.bedSlope) * 180 / Math.PI)}°、瓦至内挡顶${g.tileGap}、瓦边探入${g.tileOverhang}，压顶内倾${g.copingSlopeDegrees}°`;
+      return `主楼：${describe(roofGutterDesign)}；辅楼：${describe(annexRoofGutterDesign)}（长度 mm）`;
+    },
     source: "用户提供",
     note: "净宽600、外边反坎高200、内侧250、外边顶宽300、槽底找坡默认1°、压顶外飘三眼皮20毫米来自本轮方案；外边反坎立面与压顶、三眼皮同为英国棕。瓦至内挡顶与瓦边探入沿用前轮。内挡厚55毫米为模型取值。三眼皮出檐与级高、下沿线凸出／高度为固定造型。",
   },

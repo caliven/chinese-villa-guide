@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { frontElevation } from "./data";
 import { box, type Mats } from "./primitives";
-import { PORTICO_COLUMN_MAX_TRIM } from "./frontage-geometry";
+import { PORTICO_BEAM_DEPTH, PORTICO_COLUMN_MAX_TRIM } from "./frontage-geometry";
+import { cornerOutline, cornerShoulderProfile, upperCornerProfile, type ColumnCourse } from "./column-profiles";
 
 type XY = [number, number];
 
@@ -193,8 +194,9 @@ function pendant(parent: THREE.Object3D, top: number, w: number, h: number, mat:
   }
 }
 
-function shaftFace(parent: THREE.Object3D, bottom: number, top: number, w: number, mat: Mats, entry: boolean) {
+function shaftFace(parent: THREE.Object3D, bottom: number, top: number, w: number, mat: Mats, entry: boolean, recess = 0) {
   const g = group(parent, entry ? "门厅柱长槽与垂花" : "包角柱单黑线柱身");
+  g.position.z = recess;
   const h = top - bottom, y = (top + bottom) / 2;
   frame(g, 0, y, w * .89, h, -16, mat.carvedStone, 23);
   frame(g, 0, y, w * .78, h - 90, -21, mat.carvingInset, 6);
@@ -268,6 +270,11 @@ function solidCourse(parent: THREE.Object3D, y0: number, y1: number, lower: XY[]
   mesh.position.y = y0;
   mesh.castShadow = mesh.receiveShadow = true;
   parent.add(mesh);
+  return mesh;
+}
+
+export function columnProfileMeshes(parent: THREE.Object3D, profile: ColumnCourse[], mat: Mats) {
+  return profile.map(c => solidCourse(parent, c.bottom, c.top, c.lower, c.upper, c.dark ? mat.british : mat.carvedStone));
 }
 
 function octagonalCourse(parent: THREE.Object3D, y0: number, y1: number, w: number, d: number, mat: THREE.Material,
@@ -304,7 +311,16 @@ export function referencePorticoColumn(parent: THREE.Object3D, x: number, z: num
   const g = group(parent, "参考图通高门厅雕花柱");
   g.position.set(x,base,z);
   const s = Math.min(1, width/800, height/4000);
-  octagonalCourse(g, 0, height, width, depth, mat.carvedStone);
+  // 中段实心柱芯退进32，边框及原雕花保留，形成有实体底面的浅凹槽。
+  const shaftBottom = 1240*s, shaftTop = height - 1215*s, recess = 32;
+  octagonalCourse(g, 0, shaftBottom, width, depth, mat.carvedStone);
+  octagonalCourse(g, shaftBottom, shaftTop, width-recess*2, depth-recess*2, mat.carvedStone);
+  octagonalCourse(g, shaftTop, height, width, depth, mat.carvedStone);
+  const shaftH = shaftTop - shaftBottom;
+  for (const sign of [-1, 1]) {
+    box(g, sign*(width/2-24), (shaftTop+shaftBottom)/2, 0, 48, shaftH, depth, mat.carvedStone);
+    box(g, 0, (shaftTop+shaftBottom)/2, sign*(depth/2-24), width-96, shaftH, 48, mat.carvedStone);
+  }
   for (const [lo,hi,lip,tone,topLip=lip] of courses(height,s))
     octagonalCourse(g,lo,hi,width+lip*2,depth+lip*2,
       tone === "brown" ? mat.british : tone === "dark" ? mat.carvingDark : mat.carvedStone,
@@ -314,7 +330,7 @@ export function referencePorticoColumn(parent: THREE.Object3D, x: number, z: num
     face.rotation.y = rotation;
     face.position.set(-Math.sin(rotation)*offset,0,-Math.cos(rotation)*offset);
     const top = capitalFace(face,height,span-70,s,mat,true);
-    shaftFace(face,1240*s,top,span-70,mat,true);
+    shaftFace(face,1240*s,top,span-70,mat,true,recess);
     const plinth = group(face,"柱脚深底团寿花板");
     plinth.position.z = -27;
     const size = Math.min(span-180,440*s);
@@ -334,16 +350,15 @@ export function referenceCornerPilaster(parent: THREE.Object3D, cornerX: number,
   g.position.set(cornerX,base,cornerZ);
   const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg, s = .82;
   const outer = outward*project, inner = -outward*leg;
-  const outline = (v: number): XY[] => [[inner-outward*v,-project-v],[outer+outward*v,-project-v],
-    [outer+outward*v,leg+v],[-outward*20,leg+v],[-outward*20,20],[inner-outward*v,20]];
+  const outline = (v: number) => cornerOutline(project, leg, outward, v);
   const placeL = (y0: number,y1: number,lip: number,material: THREE.Material,topLip=lip) => {
     // 两段轮廓合成一块L形柱箍，转角不留对穿或重叠的接缝。
     solidCourse(g,y0,y1,outline(lip),outline(topLip),material);
   };
   if (bearingTop > base + height) {
-    const neck = group(parent, "包角柱退进承托柱颈");
-    neck.position.copy(g.position);
-    solidCourse(neck, height, bearingTop - base, outline(-20), outline(-20), mat.sand);
+    const shoulder = group(parent, "包角柱外展斜肩");
+    shoulder.position.copy(g.position);
+    columnProfileMeshes(shoulder, cornerShoulderProfile(project, leg, outward, height, bearingTop - base), mat);
   }
   placeL(0,height,0,mat.carvedStone);
   for (const [lo,hi,lip,tone,topLip=lip] of courses(height,s))
@@ -364,6 +379,30 @@ export function referenceCornerPilaster(parent: THREE.Object3D, cornerX: number,
   side.position.set(outer,0,leg/2);
   side.rotation.y=outward>0?-Math.PI/2:Math.PI/2;
   dress(side,leg-60);
+  return g;
+}
+
+/** 保留二楼包角柱的纹样及顺序，只压缩柱身长度，避免把柱冠花纹挤成细小符号。 */
+export function upperColumnFace(parent: THREE.Object3D, height: number, w: number, mat: Mats) {
+  const top = capitalFace(parent, height, w, .72, mat, false);
+  shaftFace(parent, 420, top, w, mat, false);
+  cloudPanel(parent, 275, w * .78, 150, mat);
+}
+
+/** 三楼包角与中央官帽柱共用团寿、深底回纹、单黑线及下段卷草。 */
+export function referenceUpperCornerPilaster(parent: THREE.Object3D, x: number, z: number,
+  base: number, height: number, outward: number, mat: Mats) {
+  const g = group(parent, "三楼包角柱");
+  g.position.set(x, base, z);
+  const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg;
+  columnProfileMeshes(g, upperCornerProfile(project, leg, outward, height), mat);
+  const front = group(g, "三楼包角柱正面");
+  front.position.set(outward*(project-leg)/2, 0, -project);
+  upperColumnFace(front, height, leg+project-70, mat);
+  const side = group(g, "三楼包角柱侧面");
+  side.position.set(outward*project, 0, leg/2);
+  side.rotation.y = outward > 0 ? -Math.PI/2 : Math.PI/2;
+  upperColumnFace(side, height, leg-60, mat);
   return g;
 }
 
@@ -391,7 +430,7 @@ export function referencePorticoBeam(parent: THREE.Object3D, center: number, fro
   // 横梁留在既有柱头净空内：上方方块饰、中央花板、下沿连续回纹。
   // 梁体止于柱内皮并少量嵌接，不再横穿整块柱头；饰面只布置在柱间净跨内。
   const clear=span-columnWidth-120, w=span-columnWidth+16, h=670;
-  box(g,0,-h/2,250,w,h,500,mat.carvedStone).name="门厅柱间横梁实体";
+  box(g,0,-h/2,PORTICO_BEAM_DEPTH/2,w,h,PORTICO_BEAM_DEPTH,mat.carvedStone).name="门厅柱间横梁实体";
   box(g,0,-35,245,w,70,510,mat.carvedStone).name="门厅横梁上沿线";
   const squares=Math.max(5,Math.round((clear-120)/310)), pitch=(clear-120)/squares;
   for(let i=0;i<squares;i++) {
@@ -425,15 +464,17 @@ export function referencePorticoBeam(parent: THREE.Object3D, center: number, fro
   }
   strokes(g,paths,12,-33,mat.carvingInset);
   for(const y of [-525,-635]) box(g,0,y,-21,keyW+40,18,36,mat.carvedStone);
-  // 两侧阶梯托角从柱子内缘开始，随阶数向中间收短。
+  // 两侧阶梯及竖向托角沿柱截面中线居中，从柱子内缘开始向跨中收短。
   for(const side of [-1,1]) {
     const inner=side*(span/2-columnWidth/2);
     for(let i=0;i<4;i++) {
       const width=300-i*67;
-      box(g,inner-side*width/2,-700-i*55,230,width,60,430,mat.carvedStone);
+      box(g,inner-side*width/2,-700-i*55,PORTICO_BEAM_DEPTH/2,width,60,430,mat.carvedStone)
+        .name="门廊阶梯托角";
     }
     const bracket=polygon([[0,0],[side*120,0],[side*120,-390],[side*55,-350],[0,-120]]);
-    const mesh=carvedShape(g,bracket,35,380,mat.carvedStone,2);
+    const mesh=carvedShape(g,bracket,(PORTICO_BEAM_DEPTH-380)/2,380,mat.carvedStone,2);
+    mesh.name="门廊竖向托角";
     mesh.position.x=inner; mesh.position.y=-720;
   }
   return g;

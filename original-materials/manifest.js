@@ -213,6 +213,10 @@ window.originalMaterials = [
     "bytes": 183017
   },
   {
+    "path": "新中式参考图/新中式外观参考.MP4",
+    "bytes": 100308611
+  },
+  {
     "path": "新中式参考图/新中式洗墙灯效果参考.png",
     "bytes": 1555276
   },

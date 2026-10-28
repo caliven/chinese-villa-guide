@@ -157,14 +157,14 @@ export function mainFrontOpeningX(at0: number) {
 }
 
 // 平面图和3D使用同一组墙体/洞口。坐标位于墙厚中心线。
-export function facades(index: number): Facade[] {
-  const faces = unmirroredFacades(index);
+export function facades(index: number, frontage = frontElevation): Facade[] {
+  const faces = unmirroredFacades(index, frontage);
   if (!mirroredBuildings()) return faces;
   const body = index === 3 ? site.annex : site.main;
   return faces.map(f => mirrorFacade(f, body.x * 2 + body.w));
 }
 
-function unmirroredFacades(index: number): Facade[] {
+function unmirroredFacades(index: number, frontage: typeof frontElevation): Facade[] {
   if (index === 3) {
     const ax = site.annex.x;
     const aw = site.annex.w;
@@ -362,8 +362,11 @@ function unmirroredFacades(index: number): Facade[] {
         })();
 
   if (index === 2)
-    for (const x of frontElevation.postXs)
-      out.push(wall([x, frontElevation.postZ + 120], [x, front + 120]));
+    for (const axis of frontage.postXs) {
+      // 柱心已是世界坐标；此处转回未镜像坐标，避免主辅楼换位时再反射一次。
+      const x = mirroredBuildings() ? site.main.x * 2 + site.main.w - axis : axis;
+      out.push(wall([x, frontage.postZ + 120], [x, front + 120]));
+    }
 
   const thirdMax = index === 2 ? thirdFloorMaxOpeningHead() : Infinity;
   const bay = mw / 3; // 三开间等分示意（4.5 / 13.5）

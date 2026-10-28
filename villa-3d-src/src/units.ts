@@ -38,6 +38,9 @@ export function formatMm(value: number): string {
 /** VillaParams 中非长度字段（勿 ×1000）。 */
 export const VILLA_PARAM_NON_LENGTH = new Set([
   "roofFenShui",
+  "annexRoofFenShui",
+  "annexGutterBedSlope",
+  "annexGutterCopingSlope",
   "gutterBedSlope",
   "gutterCopingSlope",
 ]);

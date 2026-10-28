@@ -52,7 +52,7 @@ export const defaultView: ViewState = {
   existing: false,
   roof: true,
   night: false,
-  eaveLightColor: "#ffd99a",
+  eaveLightColor: "#ff7030",
   eaveLightBrightness: 1.5,
   dimensions: false,
   context: true,
@@ -444,8 +444,8 @@ export class VillaViewer {
         [16, 2.5, 3],
       ],
       north: [
-        [13.5, 9, -37],
-        [13.5, 4, 1],
+        [19.5, 9.5, -44],
+        [19.5, 4, 1],
       ],
       south: [
         [13.5, 28, 34],
@@ -453,8 +453,8 @@ export class VillaViewer {
       ],
       // 站在院坪北侧外沿之外，俯看整块铺装和前檐，不再贴着门厅柱。
       courtyard: [
-        [10.5, 15, -42],
-        [10.5, 1.6, -3.5],
+        [19.5, 24.5, -48],
+        [19.5, 1.6, -3.5],
       ],
       garage: [
         [48, 30, -43],
@@ -482,7 +482,7 @@ export class VillaViewer {
         .multiplyScalar(1 / Math.max(0.6, this.camera.aspect))
         .add(target);
     // 画面左侧较空，右侧蓝顶邻房贴边。镜头平移后整组模型靠左，场地坐标不动。
-    if (name !== "roadside" && name !== "garage") this.shiftFrameLeft(pos, target);
+    if (name !== "roadside" && name !== "garage" && name !== "north" && name !== "courtyard") this.shiftFrameLeft(pos, target);
     this.controls.target.copy(target);
     this.camera.position.copy(pos);
     this.camera.up.set(0, 1, 0);
@@ -514,7 +514,7 @@ export class VillaViewer {
     const s = this.state;
     this.applyLighting();
     setEaveWashVisible(this.villa.group, s.night);
-    setEaveWashAppearance(this.villa.group, s.eaveLightColor, s.eaveLightBrightness);
+    setEaveWashAppearance(this.villa.group, s.eaveLightColor, s.eaveLightBrightness, s.night);
     if (s.roofStyle !== this.builtRoofStyle) this.setRoofFenShui(this.fenPending ?? this.fenShui);
     setCourtyardFinishes(this.mat, s.courtyardFinish, s.neighborCourtyardFinish);
     this.land.existing.visible = s.existing;
@@ -625,7 +625,7 @@ export class VillaViewer {
       }
       disposeDetached(created, this.scene, keep);
       setEaveWashVisible(this.villa.group, this.state.night);
-      setEaveWashAppearance(this.villa.group, this.state.eaveLightColor, this.state.eaveLightBrightness);
+      setEaveWashAppearance(this.villa.group, this.state.eaveLightColor, this.state.eaveLightBrightness, this.state.night);
       this.renderer.shadowMap.needsUpdate = true;
       this.needsRender = true;
     });
@@ -950,7 +950,7 @@ export class VillaViewer {
     ctx.font = `${font}px system-ui,sans-serif`;
     const lines = [
       `安化山居 · ${projectMeta.revision} / ${projectMeta.date} · 当前${this.state.existing ? "现状" : "新建"}模型 · 机位 ${this.activeCamera}`,
-      `${projectMeta.datum} · ${roofStyleLabels[this.state.roofStyle]} · 分水${this.fenShui.toFixed(1)} · 自家${courtyardFinishLabels[this.state.courtyardFinish]}／邻居${courtyardFinishLabels[this.state.neighborCourtyardFinish]} · 非测绘／施工图`,
+      `${projectMeta.datum} · ${roofStyleLabels[this.state.roofStyle]} · 主楼${this.fenShui.toFixed(1)}／辅楼${site.annexRoofFenShui.toFixed(1)}分水 · 自家${courtyardFinishLabels[this.state.courtyardFinish]}／邻居${courtyardFinishLabels[this.state.neighborCourtyardFinish]} · 非测绘／施工图`,
       this.state.garage ? "车辆通行未确认；道路与最低梁底待测；拟切口协商待确认" : "结构、净高、通行与排水待专业设计核实；周边含照片估算",
     ];
     lines.forEach((label, i) => ctx.fillText(label, font, source.height + font * (1.4 + i * 1.4), canvas.width - font * 2));

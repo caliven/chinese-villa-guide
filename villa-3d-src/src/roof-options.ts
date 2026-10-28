@@ -11,7 +11,7 @@ export const roofStylePreferenceKey = "anhua-villa-roof-style-v1";
 export const gutterBedTop = 30;
 
 /**
- * 天沟设计参数（毫米、度）。可由方案尺寸「屋面」改写。
+ * 天沟设计参数（毫米、度）。可由方案尺寸「主楼／辅楼」改写。
  * - clearDepth：外边反坎高度（槽底以上）
  * - innerDepth：内侧反坎高度，默认高于外侧，满水时外溢
  * - outerTopWidth：外边反坎顶部宽度（不含压顶外飘）
@@ -21,7 +21,7 @@ export const gutterBedTop = 30;
  * - bedSlope：槽底从高点到排水口的坡度（小数＝tan(度)；面板存整数度）
  * - copingSlopeDegrees：外挡压顶顶面内倾（石材压顶）
  */
-export const roofGutterDesign = {
+export let roofGutterDesign = {
   clearWidth: 600,
   clearDepth: 200,
   innerDepth: 250,
@@ -53,14 +53,14 @@ export const eyelidFixed = {
 };
 
 /**
- * 檐下梁托／下沿线间距等动态参数（毫米）。可由「屋面」改写。
+ * 檐下梁托／下沿线间距等动态参数（毫米）。可由「主楼／辅楼」改写。
  * - eyelidToFascia：三眼皮最底层底面到下沿线上沿
  *
  * 出挑关系（相对该墙面屋面外皮出挑 O）：
  * 最上层＝O，中层＝O−step，最下层＝O−2×step。
  * 梁托为独立成品尺寸，默认长 500／高 200／宽 160mm，不随各面出檐缩放。
  */
-export const eaveTrimDesign = {
+export let eaveTrimDesign = {
   /** 梁托出挑，用户指定 500mm；各墙面共用，仅由「梁托长度」主动改写 */
   corbelLength: 500,
   corbelSpacing: 700,
@@ -71,6 +71,35 @@ export const eaveTrimDesign = {
   /** 梁托贴墙高度，款式07落款：200 */
   corbelHeight: 200,
 };
+
+/** 辅楼持有独立参数；主楼及官帽沿用默认上下文。 */
+export const annexRoofGutterDesign = { ...roofGutterDesign };
+export const annexEaveTrimDesign = { ...eaveTrimDesign };
+
+/**
+ * 几何生成是同步的：在辅楼生成范围内选择其屋面构造，结束或抛错均恢复。
+ * 复用同一套天沟、梁托和灯带算法，避免主辅楼形成两套造型实现。
+ * 回调不得异步执行；生成的网格不在后续渲染中读取此上下文。
+ */
+export function withAnnexRoofDesign<T>(build: () => T): T {
+  const gutter = roofGutterDesign, trim = eaveTrimDesign, inset = roofTileInset;
+  roofGutterDesign = annexRoofGutterDesign;
+  eaveTrimDesign = annexEaveTrimDesign;
+  syncRoofTileInset();
+  try { return build(); }
+  finally {
+    roofGutterDesign = gutter;
+    eaveTrimDesign = trim;
+    roofTileInset = inset;
+  }
+}
+
+export function annexRoofProfile() {
+  return withAnnexRoofDesign(() => ({
+    tileInset: roofTileInset, tileLift: roofTileEaveLift(), clearWidth: roofGutterDesign.clearWidth,
+    innerLipInset: gutterInnerLipInset(), outerWallTop: gutterOuterWallTop(),
+  }));
+}
 
 /** @deprecated 兼容旧名：外挡厚度现为 outerTopWidth */
 Object.defineProperty(roofGutterDesign, "wallThickness", {
@@ -106,7 +135,7 @@ export const apronEaveDesign = {
   parapetThickness: 280,
   /** 柱位承台每侧比短柱脚多出60，与下沿线连成完整节点。 */
   postSeatOverhang: 60,
-  /** 两侧次要柱冠比门厅主柱下收，空出的层次由退进柱颈连续衔接。 */
+  /** 雕花柱冠与下沿线之间的外展斜肩高度，不占梁托空档。 */
   cornerCapitalDrop: 180,
 };
 

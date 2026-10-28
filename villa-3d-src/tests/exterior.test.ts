@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { contains, floors, frontElevation, site, type Point } from "../src/data";
+import { construction, contains, floors, frontElevation, site, type Point } from "../src/data";
 import { attachRoofs, floatingHatLayout, joinedHatLayout, mainRoofFootprint, annexRoofFootprint, roofPitch } from "../src/architecture";
 import { corbelCentersOnEdge, gutteredRoof, hatSupportInset, meander, tiledApron } from "../src/facade-details";
 import { addTiledRoof, hatRoofSurfaces, hipRoofSurfaces, joinRoofFaces } from "../src/roof-surfaces";
@@ -303,10 +303,11 @@ test("悬浮官帽柱比原有官帽更高，正面装饰造型共用", async ()
   assert.ok(floatingPier.getObjectByName("官帽柱正面装饰"), "悬浮官帽柱共用同一正面装饰");
   const h = floatingHatLayout(4.5);
   assert.ok(Math.abs(floatingBox.max.y - fasciaBottomY(h.eave, 0)) < .1, "悬浮柱顶收至下沿线底");
-  const decorTop = fasciaBottomY(h.eave, 0) - 100;
   const decor = floatingPier.getObjectByName("官帽柱正面装饰")!;
   const decorBox = new THREE.Box3().setFromObject(decor);
-  assert.ok(Math.abs(decorBox.max.y - decorTop) < 80, "装饰上沿在悬浮下沿线底以下约 10 cm");
+  assert.ok(decorBox.max.y < fasciaBottomY(h.eave, 0) - 150, "团寿花纹收在柱冠浅色腹部，不穿入顶盖或下沿线");
+  for (const name of ["圆形几何团寿浮雕", "包角柱深底回纹带", "包角柱单黑线柱身", "下段回折卷草花板"])
+    assert.ok(decor.getObjectByName(name), `官帽柱保留二楼包角柱的${name}`);
 });
 
 test("露台折线瓦檐的内外转角单层相接，柱脚处留精确切口", () => {
@@ -769,33 +770,40 @@ test("门厅团花及柱身垂花按实际尺寸倒角，不扩成穿出横梁�
   }
 });
 
-test("门厅柱帽、梁托及下沿线不穿插，柱顶与横梁承托标高一致", async () => {
+test("门厅柱帽下收、折角梁托与下沿线连续，横梁接到下沿线底", async () => {
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
   const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
   const section = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
   const columns: THREE.Object3D[] = [], corbels: THREE.Object3D[] = [];
-  villa.group.traverse(o => { if (o.name === "参考图通高门厅雕花柱") columns.push(o); });
+  let porticoNecks = 0;
+  villa.group.traverse(o => {
+    if (o.name === "参考图通高门厅雕花柱") columns.push(o);
+    if (o.name === "门厅柱退进承托柱颈") porticoNecks++;
+  });
   apron.traverse(o => { if (o.name === "梁托") corbels.push(o); });
   assert.equal(columns.length, 2);
+  assert.equal(porticoNecks, 0, "折角上方不得保留隔断梁托的实心柱颈");
   const fascia = new THREE.Box3().setFromObject(apron.getObjectByName("连续转角下沿线")!);
   const beam = villa.group.getObjectByName("参考图门厅雕花横梁")!;
   assert.equal(beam.position.y, fascia.min.y, "雕花横梁顶与檐下承托标高应一致");
   for (const column of columns) {
     const bounds = new THREE.Box3().setFromObject(column);
-    assert.ok(Math.abs(bounds.max.y - fascia.min.y) < .1, "柱帽顶须接下沿线底，不能穿进檐下排布区");
+    assert.ok(Math.abs(bounds.max.y - section.columnTopY) < .1, "雕花柱帽须下收，不占用梁托／下沿线高度");
+    assert.ok(bounds.max.y < section.fasciaBottomY - 1, "柱帽顶须低于下沿线，折角线脚连续");
     for (const corbel of corbels) {
       const overlap = bounds.clone().intersect(new THREE.Box3().setFromObject(corbel)).getSize(new THREE.Vector3());
       assert.ok(overlap.x * overlap.y * overlap.z < 1, "梁托不能穿入门厅柱帽");
     }
   }
+  assert.ok(corbels.length > 8, "折角两侧应有连续梁托，不被柱位挖空");
   const support = apron.getObjectByName("挑檐连续承托梁")!;
   assert.ok(support, "梁托背面应有连续实体承托梁，不能只剩孤立下沿线");
   for (const corbel of corbels) {
     const point = new THREE.Vector3(12, eaveTrimDesign.corbelHeight * .5, 0).applyMatrix4(corbel.matrixWorld);
     const direction = new THREE.Vector3(-1, 0, 0).transformDirection(corbel.matrixWorld);
-    const hits = new THREE.Raycaster(point, direction).intersectObject(support);
+    const hits = new THREE.Raycaster(point, direction).intersectObject(support, true);
     assert.ok(hits.length && hits[0].distance < 16, "梁托背面要贴连续梁，不得悬空");
   }
 });
@@ -840,10 +848,9 @@ test("二楼飘檐下沿线与柱位连续，柱间灯带上方不被柱颈遮�
   villa.group.updateMatrixWorld(true);
   const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
   const fascia = apron.getObjectByName("连续转角下沿线")!;
-  const skirt = apron.getObjectByName("挑檐封檐竖板")!;
   const seats = apron.getObjectByName("四处柱位实体承台")!;
   const e = frontElevation, s = frontApronSection(floors[2].y + e.eaveParapet, e.tiledEaveDrop);
-  const west = e.sideTerraces[0].x, east = e.sideTerraces[1].x + e.sideTerraces[1].w;
+  const west = site.main.x - construction.outsideWall / 2, east = site.main.x + site.main.w + construction.outsideWall / 2;
   const cw = site.portico.x, ce = cw + site.portico.w, d = site.secondFrontEave;
   const inner: Point[] = [[west,e.terraceBack],[west,e.terraceFront],[cw,e.terraceFront],
     [cw,e.centerFront],[ce,e.centerFront],[ce,e.terraceFront],[east,e.terraceFront],[east,e.terraceBack]];
@@ -854,7 +861,7 @@ test("二楼飘檐下沿线与柱位连续，柱间灯带上方不被柱颈遮�
     return Math.abs(x - post.x) <= half && Math.abs(z - post.z) <= half;
   });
   assert.ok(fascia, "连续转角下沿线须存在");
-  assert.ok(skirt, "挑檐外缘须有封檐竖板闭合檐下通缝");
+  assert.equal(apron.getObjectByName("挑檐封檐竖板"), undefined, "外缘不得另加封檐竖板遮罩");
   assert.ok(seats, "四处柱位实体承台须存在");
   for (let i = 0; i < inner.length - 1; i++) for (const t of [.05, .25, .5, .75, .95]) {
     const lerp = (points: Point[], axis: 0 | 1) => points[i][axis] * (1-t) + points[i+1][axis] * t;
@@ -946,14 +953,15 @@ test("一二层檐下各净段等分、门厅梁托镜像，阴阳角不设斜�
       assert.ok(Math.max(...gaps) < eaveTrimDesign.corbelSpacing * 1.2, "净段中距不能出现大空档");
     }
   }
-  const west = frontElevation.balustradePosts[0];
+  // 折角梁托连续绕过柱位，不再按柱脚挖空起排；西翼前檐第一件落在翼端折角内收处。
+  const wingX0 = site.main.x - construction.outsideWall / 2;
   const front = corbels.filter(c => Math.abs(c.position.z - frontElevation.terraceFront - 8) < .1 && c.position.x < site.portico.x);
   const first = Math.min(...front.map(c => c.position.x));
-  assert.ok(Math.abs(first - eaveTrimDesign.corbelWidth / 2 - (west.x + (west.w + 80) / 2) - 40) < .1,
-    "第一件梁托按柱脚实体边缘排起，不能沿用删除后剩余的远端模块");
+  assert.ok(Math.abs(first - (wingX0 + eaveTrimDesign.corbelCornerSpacing / 2)) < .1,
+    "西翼前檐第一件梁托应从翼端折角内收起连续排布");
 });
 
-test("三楼正面窗侧不残留横槽，次要柱冠下收后仍经实体柱颈连续承托", async () => {
+test("三楼正面窗侧不残留横槽，包角柱外展斜肩止于连续下沿线底", async () => {
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
@@ -961,18 +969,19 @@ test("三楼正面窗侧不残留横槽，次要柱冠下收后仍经实体柱�
   for (const part of grooves.children) {
     const b = new THREE.Box3().setFromObject(part), size = b.getSize(new THREE.Vector3());
     if (size.x > 160 && size.z < 20) assert.ok(b.min.z >= floors[2].front - 1,
-      "删除三楼正面包角柱后，正面窗边不能残留独立横槽");
+      "三楼正面窗边不能残留独立横槽");
   }
   assert.ok(villa.levels[1].getObjectByName("水包砂凹槽")!.children.length > 0, "下层原有墙面分缝保留");
   const outer = villa.portico.children.filter(o => o.name === "包角柱" && o.position.z < site.main.z);
-  const necks = villa.portico.children.filter(o => o.name === "包角柱退进承托柱颈");
-  assert.equal(outer.length, 2); assert.equal(necks.length, 2);
+  const shoulders = villa.portico.children.filter(o => o.name === "包角柱外展斜肩");
+  assert.equal(villa.portico.getObjectByName("包角柱退进承托柱颈"), undefined);
+  assert.equal(outer.length, 2); assert.equal(shoulders.length, 2);
   const top = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop).porticoTopY;
   for (const column of outer) {
     const b = new THREE.Box3().setFromObject(column);
-    const neck = new THREE.Box3().setFromObject(necks.find(o => o.position.x === column.position.x)!);
-    assert.ok(Math.abs(top - b.max.y - 180) < .1 && Math.abs(b.max.y - neck.min.y) < .1 && Math.abs(neck.max.y - top) < .1);
-    assert.ok(neck.getSize(new THREE.Vector3()).x < b.getSize(new THREE.Vector3()).x, "承托柱颈应退进柱冠轮廓");
+    const shoulder = new THREE.Box3().setFromObject(shoulders.find(o => o.position.x === column.position.x)!);
+    assert.ok(Math.abs(top - b.max.y - 180) < .1 && Math.abs(b.max.y - shoulder.min.y) < .1 && Math.abs(shoulder.max.y - top) < .1);
+    assert.ok(shoulder.getSize(new THREE.Vector3()).x > b.getSize(new THREE.Vector3()).x, "斜肩应向外舒展，且不越过下沿线底");
   }
 });
 

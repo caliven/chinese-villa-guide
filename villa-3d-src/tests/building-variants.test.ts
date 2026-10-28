@@ -73,11 +73,11 @@ test("凹入门厅：柱退至主楼前沿、门墙与三层官帽联动、主�
   assert.equal(porticoWallZ(), site.main.z + 2000);
   assert.equal(frontElevation.porticoColumnZ, site.main.z);
   assert.equal(frontElevation.postZ, site.main.z + 2250);
-  assert.equal(buildingAreas.main, 127);
-  assert.equal(buildingAreas.portico, 9);
+  assert.equal(buildingAreas.main, 126.8);
+  assert.equal(buildingAreas.portico, 9.2);
   assert.equal(buildingAreas.total, 168);
   const outline = recessedFootprint(floors[0].front);
-  assert.equal(polygonAreaMm2(outline), 127000000);
+  assert.equal(polygonAreaMm2(outline), 126800000);
   assert.equal(polygonContainsPoint(outline, [site.portico.x + 1000, site.main.z + 1000]), false);
   const walls = resolveLayoutFacades().facades[0];
   assert.ok(walls.some(w => w.openings.some(o => o.door) && w.a[1] === porticoWallZ() + 120));
@@ -96,7 +96,7 @@ test("凹口派生房间、隔墙与家具，不改用户源稿；切回原造�
   const parts = shown.partitions.filter(w => w.sourceIndex === draft.floors[0].partitions.length - 1);
   assert.equal(parts.length, 2);
   assert.equal(parts[0].b[0], x);
-  assert.equal(parts[1].a[0], x + 4500);
+  assert.equal(parts[1].a[0], x + site.portico.w);
   assert.ok(shown.rooms.every(r => !polygonContainsPoint(r.outline ?? [], [x + 2300, z + 500])));
   resetVillaParams();
   assert.deepEqual(recessedFloor(draft.floors[0]), draft.floors[0]);
