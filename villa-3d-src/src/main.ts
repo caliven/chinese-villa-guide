@@ -1317,7 +1317,7 @@ function drawPlan() {
     document.querySelector<HTMLElement>(".layout-version-label")!.hidden = false;
     $("floor-summary-title").textContent = elevation ? elevationLabels[elevationView] : roofDrawingLabels[roofDrawingView];
     $("floor-summary").textContent = elevation
-      ? "四向立面采用正投影，北侧为正门。展示当前主辅楼、外部门窗、门厅、三楼退台模式、露台、屋面与烟囱，标注层高、控制尺寸及相对标高。图纸与当前尺寸及户型草稿联动，细部简化，非施工图。"
+      ? "四向立面采用正投影，主楼与辅楼分别出图，北侧为正门。展示当前外部门窗、门厅、三楼退台模式、露台、屋面与烟囱，标注层高、控制尺寸及相对标高。图纸与当前尺寸及户型草稿联动，细部简化，非施工图。"
       : "三层为现有顶层；屋顶层图补充三层顶板与下层露台的关系，两种官帽图显示外露坡面和真实交线。图纸随当前尺寸与门厅草稿联动，可下载 SVG。屋面排水、防水及结构仍需专业深化。";
     $("plan-orient-hint").textContent = elevation ? "正投影 · 单位 mm" : "南 ↑ · 西 →";
     $("plan-orient-hint").title = elevation ? "四向建筑立面 · 当前方案" : "屋面设计图 · 单位 mm · 门头朝下";
@@ -2178,14 +2178,15 @@ document.addEventListener("click", (event) => {
     if (roofDrawingView !== "slab") roofStyle = roofDrawingView;
     updateScene();
   }
-  if (el.id === "download-roof-svg" || el.id === "download-elevation-svg") {
-    const elevation = el.id === "download-elevation-svg";
-    const svg = $("plan-drawing").querySelector<SVGSVGElement>(elevation ? "svg.elevation-svg" : "svg.roof-svg");
+  if (el.id === "download-roof-svg" || el.dataset.downloadElevation) {
+    const building = el.dataset.downloadElevation;
+    const elevation = building === "main" || building === "annex";
+    const svg = $("plan-drawing").querySelector<SVGSVGElement>(elevation ? `svg.elevation-svg[data-building="${building}"]` : "svg.roof-svg");
     if (svg) {
       const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml;charset=utf-8" }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `安化山居-${elevation ? elevationLabels[elevationView] : roofDrawingLabels[roofDrawingView]}.svg`;
+      link.download = `安化山居-${elevation ? `${building === "main" ? "主楼" : "辅楼"}-${elevationLabels[elevationView]}` : roofDrawingLabels[roofDrawingView]}.svg`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }

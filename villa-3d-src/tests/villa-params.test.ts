@@ -242,7 +242,7 @@ test("屋后预留变化后通高玻璃与辅楼屋顶随楼体 Z 平移", async
   resetVillaParams();
 });
 
-test("三楼短柱与门厅柱、包角柱同轴，改门厅参数后一起挪", () => {
+test("三楼短柱与门厅柱同轴、包角柱外皮对齐，改门厅参数后一起挪", () => {
   resetVillaParams();
   const e = frontElevation;
   const [west, midW, midE, east] = e.balustradePosts;
@@ -258,7 +258,7 @@ test("三楼短柱与门厅柱、包角柱同轴，改门厅参数后一起挪",
   const project = e.cornerProject, leg = e.cornerLeg;
   assert.ok(Math.abs(west.x - (e.cornerWestX - (project - leg) / 2)) < 1e-6);
   assert.ok(Math.abs(east.x - (e.cornerEastX + (project - leg) / 2)) < 1e-6);
-  assert.ok(Math.abs(west.z - (site.main.z - 120 - project / 2)) < 1e-6);
+  assert.ok(Math.abs((west.z - west.w / 2) - (site.main.z - 120 - project)) < 1e-6);
   // 官帽柱／构造柱北皮贴一层前墙外皮。
   assert.ok(Math.abs(e.postZ - 250 - site.main.z) < 1e-6);
 
@@ -281,7 +281,7 @@ test("三楼短柱与门厅柱、包角柱同轴，改门厅参数后一起挪",
   applyVillaParams({ ...DEFAULT_VILLA_PARAMS, cornerProject: 220 });
   assert.equal(frontElevation.cornerProject, 220);
   const [west2] = frontElevation.balustradePosts;
-  assert.ok(Math.abs(west2.z - (site.main.z - 120 - 220 / 2)) < 1e-6);
+  assert.ok(Math.abs((west2.z - west2.w / 2) - (site.main.z - 120 - 220)) < 1e-6);
   resetVillaParams();
   assert.equal(frontElevation.cornerProject, DEFAULT_VILLA_PARAMS.cornerProject);
 });

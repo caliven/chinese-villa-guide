@@ -185,6 +185,22 @@ window.originalMaterials = [
     "bytes": 16994
   },
   {
+    "path": "立面图参考/IMG_6184.PNG",
+    "bytes": 373547
+  },
+  {
+    "path": "立面图参考/IMG_6185.PNG",
+    "bytes": 532342
+  },
+  {
+    "path": "立面图参考/IMG_6186.PNG",
+    "bytes": 269240
+  },
+  {
+    "path": "立面图参考/IMG_6187.PNG",
+    "bytes": 271168
+  },
+  {
     "path": "新中式参考图/参考户型图1楼.JPG",
     "bytes": 239652
   },
@@ -195,6 +211,10 @@ window.originalMaterials = [
   {
     "path": "新中式参考图/参考户型图3楼.JPG",
     "bytes": 183017
+  },
+  {
+    "path": "新中式参考图/新中式洗墙灯效果参考.png",
+    "bytes": 1555276
   },
   {
     "path": "新中式参考图/新中式效果图1.jpeg",

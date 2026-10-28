@@ -214,7 +214,9 @@ test("导出图册转义会议内容，参数变化更新图纸，未知工程�
   assert.match(html, /首层建筑面积合计（含门厅）/);
   assert.match(html, /136\.0＋32\.0＋9\.0＝177\.0㎡/);
   assert.doesNotMatch(html, /门厅[^<。]*另计/);
-  assert.equal(html.match(/data-elevation="/g)?.length, 4);
+  assert.equal(html.match(/data-elevation="/g)?.length, 8);
+  assert.equal(html.match(/data-building="main"/g)?.length, 4);
+  assert.equal(html.match(/data-building="annex"/g)?.length, 4);
   assert.match(html, /北立面（正立面）/);
   assert.ok(!/https?:\/\//.test(html.replaceAll('xmlns="http://www.w3.org/2000/svg"', "")));
   const base = designDrawings(options), changed = designDrawings({ ...options, fenShui: 6, roadY: -2500 });

@@ -86,3 +86,13 @@ test("门厅净宽按两柱相向的半截面扣减，过窄拒绝且面积仍�
   assert.equal(buildingAreas.portico, 3.6);
   assert.equal(buildingAreas.total, 171.6);
 });
+
+test("两侧露台短柱外皮对齐下层包角柱外皮，改突出量后仍联动", () => {
+  try {
+    for (const cornerProject of [100, 150, 250]) {
+      applyVillaParams({ ...DEFAULT_VILLA_PARAMS, cornerProject });
+      for (const post of [frontElevation.balustradePosts[0], frontElevation.balustradePosts[3]])
+        assert.equal(post.z - post.w / 2, site.main.z - 120 - cornerProject);
+    }
+  } finally { resetVillaParams(); }
+});

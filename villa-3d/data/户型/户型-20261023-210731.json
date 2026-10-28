@@ -2,12 +2,12 @@
   "schema": "anhua-villa-户型-v1",
   "units": "mm",
   "id": "户型-20261023-210731",
-  "title": "户型-楼梯在西侧",
-  "savedAt": "2026-10-27T22:46:21+08:00",
+  "title": "户型-楼梯在南侧",
+  "savedAt": "2026-10-27T23:22:04+08:00",
   "layoutDraft": {
     "schema": 1,
     "revision": "沟通方案 05",
-    "updatedAt": "2026-10-27T14:46:21.887Z",
+    "updatedAt": "2026-10-27T15:22:04.491Z",
     "note": "布局草稿 · 设计建议 · 非施工图。二、三层动线修订：起居大空间；主卧并入西侧过道；楼梯北端折跑处西墙不开到外墙、井道洞口拉通；门扇开进所服务房间；三层东南卧自楼梯间独立进门。一层与 stairLayout 定位未改。",
     "floors": [
       {
@@ -352,7 +352,8 @@
             "w": 1000,
             "d": 1559,
             "rotation": 3.141592653589793,
-            "label": "淋浴房"
+            "label": "淋浴房",
+            "showerDoorSide": "right"
           },
           {
             "kind": "fp-bed-double-1800",
@@ -595,7 +596,8 @@
             "w": 1595,
             "d": 1621,
             "rotation": -1.5707963267948966,
-            "label": "淋浴房"
+            "label": "淋浴房",
+            "showerDoorSide": "left"
           },
           {
             "kind": "fp-toilet",
@@ -956,7 +958,8 @@
             "w": 1874,
             "d": 1651,
             "rotation": -1.5707963267948966,
-            "label": "淋浴房"
+            "label": "淋浴房",
+            "showerDoorSide": "left"
           },
           {
             "kind": "fp-wardrobe",
@@ -1064,7 +1067,8 @@
             "w": 1000,
             "d": 1547,
             "rotation": 3.141592653589793,
-            "label": "淋浴房"
+            "label": "淋浴房",
+            "showerDoorSide": "right"
           },
           {
             "kind": "fp-toilet",
@@ -1470,7 +1474,8 @@
             "w": 1560,
             "d": 1653,
             "rotation": -1.5707963267948966,
-            "label": "淋浴房"
+            "label": "淋浴房",
+            "showerDoorSide": "left"
           },
           {
             "kind": "fp-toilet",
@@ -1614,7 +1619,8 @@
             "w": 1500,
             "d": 1580,
             "rotation": 3.141592653589793,
-            "label": "淋浴房"
+            "label": "淋浴房",
+            "showerDoorSide": "right"
           },
           {
             "kind": "fp-toilet",
@@ -1788,9 +1794,19 @@
         "d": 600,
         "rotation": 0,
         "label": "橱柜台面"
+      },
+      {
+        "kind": "fp-sideboard",
+        "x": 4290,
+        "z": 7607,
+        "w": 2300,
+        "d": 500,
+        "rotation": 1.5707963267948966,
+        "label": "餐边柜"
       }
     ],
     "stairLayout": {
+      "railingStyle": "glass",
       "room": {
         "x": 8600,
         "z": 5600,
@@ -1840,7 +1856,7 @@
           "width": 3000,
           "kind": "window",
           "height": 5900,
-          "sill": 0,
+          "sill": 450,
           "hinge": "start",
           "side": "out"
         }
@@ -1864,7 +1880,7 @@
           "width": 2400,
           "kind": "window",
           "height": 2700,
-          "sill": 300,
+          "sill": 450,
           "hinge": "start",
           "side": "out"
         }
@@ -1877,7 +1893,7 @@
           "width": 1800,
           "kind": "window",
           "height": 1800,
-          "sill": 450,
+          "sill": 900,
           "hinge": "start",
           "side": "out"
         }
@@ -1949,7 +1965,7 @@
           "width": 1600,
           "kind": "window",
           "height": 1800,
-          "sill": 450,
+          "sill": 900,
           "hinge": "start",
           "side": "out"
         }
@@ -1962,7 +1978,7 @@
           "width": 1500,
           "kind": "window",
           "height": 1800,
-          "sill": 450,
+          "sill": 900,
           "hinge": "start",
           "side": "out"
         }
@@ -1975,7 +1991,7 @@
           "width": 1500,
           "kind": "window",
           "height": 1500,
-          "sill": 550,
+          "sill": 900,
           "hinge": "start",
           "side": "out"
         }
@@ -2001,7 +2017,7 @@
           "width": 2400,
           "kind": "window",
           "height": 2520,
-          "sill": 320,
+          "sill": 450,
           "hinge": "start",
           "side": "out"
         }
@@ -2077,7 +2093,7 @@
           "width": 1800,
           "kind": "window",
           "height": 1800,
-          "sill": 450,
+          "sill": 900,
           "hinge": "start",
           "side": "out"
         }
@@ -2186,7 +2202,7 @@
         "floor": 0,
         "facadeIndex": 1,
         "opening": {
-          "offset": 2818,
+          "offset": 2670,
           "width": 1500,
           "kind": "window",
           "height": 1800,
@@ -2199,7 +2215,7 @@
         "floor": 0,
         "facadeIndex": 1,
         "opening": {
-          "offset": 600,
+          "offset": 570,
           "width": 800,
           "kind": "window",
           "height": 1800,

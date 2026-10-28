@@ -704,6 +704,7 @@ function placeCorbelEdges(
   fascia = true,
   cutouts: Point[][] = [],
   lightTop?: number,
+  lightEdges: CorbelEdge[] = edges,
 ) {
   const trim = new THREE.Group();
   trim.name = "檐下梁托与下沿线";
@@ -729,8 +730,6 @@ function placeCorbelEdges(
     cornerInsets.set(`${b.index}:${b.t}`, clearance);
   }
 
-  const lightSpans = eaveLightSpans(edges, p, p + 2);
-  const glowSpans = eaveLightSpans(edges, p, p + 4);
   for (const [index, edge] of edges.entries()) {
     const len = edge.to - edge.from;
     if (len < 50) continue;
@@ -761,7 +760,6 @@ function placeCorbelEdges(
       for (const center of centers)
         addStyle07Corbel(trim, edge.along, edge.face, edge.sign, center, corbelTop, L, sand);
     }
-    addEaveWash(trim, edge, lightTop ?? fasciaTop, corbelTop, p, lightSpans[index], glowSpans[index]);
     if (!fascia) continue;
     // 下沿线两端各伸出凸出量，与邻边在拐角外方咬合，不留缺口。
     const fasciaFrom = edge.fasciaFrom ?? edge.from - p;
@@ -776,6 +774,10 @@ function placeCorbelEdges(
       box(trim, xMid, fasciaY, (fasciaFrom + fasciaTo) / 2, p, fh, span, sand);
     }
   }
+  const lightSpans = eaveLightSpans(lightEdges, p, p + 2);
+  const glowSpans = eaveLightSpans(lightEdges, p, p + 4);
+  for (const [index, edge] of lightEdges.entries())
+    addEaveWash(trim, edge, lightTop ?? fasciaTop, corbelTop, p, lightSpans[index], glowSpans[index]);
   return trim;
 }
 
@@ -796,6 +798,19 @@ function addCorbelsAndFascia(
     { along: "z", face: wall.x, from: wall.z, to: wall.z + wall.d, sign: -1 },
     { along: "z", face: wall.x + wall.w, from: wall.z, to: wall.z + wall.d, sign: 1 },
   ], stackTop - eyelidStackHeight(), mat);
+}
+
+/** 挑檐下沿线、封檐竖板与承托梁的平面边界，供三维实体和立面投影共用。 */
+export function apronSupportOutline(wallPts: Point[], outerPts: Point[]) {
+  const projection = polylineProjection(outerPts, wallPts);
+  const fasciaOuter = insetToward(outerPts, wallPts, projection - apronEaveDesign.fasciaProtrusion);
+  const skirtDepth = Math.min(80, Math.max(40, projection * 0.1));
+  const skirtInner = insetToward(outerPts, wallPts, skirtDepth);
+  const beamBack = wallPts.map((p, i): Point => [
+    p[0] - (outerPts[i][0] - p[0]) * apronEaveDesign.supportDepth / projection,
+    p[1] - (outerPts[i][1] - p[1]) * apronEaveDesign.supportDepth / projection,
+  ]);
+  return { fasciaOuter, beamBack, skirtInner, projection };
 }
 
 /** 无天沟挑檐的梁托贴住水平檐底，下沿线采用独立收口高度。 */
@@ -866,31 +881,41 @@ function addPolylineCorbelsAndFascia(
     }
     return group;
   };
-  // 相邻带共用转角边，柱位断开并接入整圈承台，不把线脚横穿柱颈。
-  const projection = polylineProjection(outerPts, wallPts);
-  const outer = insetToward(outerPts, wallPts, projection - apronEaveDesign.fasciaProtrusion);
+  // 线脚、外圈封檐与背梁沿折线连续；柱位实心贯通，避免檐板在立面中呈悬浮空洞。
+  const { fasciaOuter: outer, beamBack, skirtInner } = apronSupportOutline(wallPts, outerPts);
   band("连续转角下沿线", outer, wallPts, section.fasciaTopY,
-    apronEaveDesign.fasciaHeight, postSeatY === undefined ? [] : seatPads);
+    apronEaveDesign.fasciaHeight, []);
+  // 外缘封檐竖板把檐板底接到下沿线顶，闭合挑出区的通缝；近墙灯带仍可上洗。
+  band("挑檐封檐竖板", outerPts, skirtInner, section.soffitY,
+    section.soffitY - section.fasciaTopY, []);
   // 前脸与下沿线内皮在墙线处直接相接，不留下8毫米的透缝。
-  const beamBack = wallPts.map((p, i): Point => [
-    p[0] - (outerPts[i][0] - p[0]) * apronEaveDesign.supportDepth / projection,
-    p[1] - (outerPts[i][1] - p[1]) * apronEaveDesign.supportDepth / projection,
-  ]);
   const beam = band("挑檐连续承托梁", wallPts, beamBack, section.soffitY,
-    section.soffitY - section.fasciaTopY, postSeatY === undefined ? [] : postCutouts);
+    section.soffitY - section.fasciaTopY, []);
   const lowerBeam = band("承托梁下沿", wallPts, beamBack, section.fasciaTopY,
-    apronEaveDesign.fasciaHeight, postSeatY === undefined ? [] : seatPads);
+    apronEaveDesign.fasciaHeight, []);
   beam.add(lowerBeam);
   if (postSeatY !== undefined) {
     const seats = new THREE.Group();
     seats.name = "四处柱位实体承台";
     parent.add(seats);
+    const strips = (a: Point[], b: Point[]) => a.slice(0, -1)
+      .map((point, i) => [point, a[i + 1], b[i + 1], b[i]]);
+    const fasciaArea = strips(outer, wallPts);
+    const fillOutside = (node: THREE.Object3D, outline: Point[], cuts: Point[][],
+      top: number, thick: number, name: string) => {
+      let pieces = [outline];
+      for (const cut of cuts) pieces = pieces.flatMap(piece => subtractRoofPolygon(piece, cut));
+      for (const piece of pieces) slab(node, piece, top, thick, mat.sand).name = name;
+    };
     postCutouts.forEach((foot, i) => {
       const node = new THREE.Group();
       node.name = "柱位承台";
       seats.add(node);
-      slab(node, seatPads[i], section.fasciaTopY,
-        apronEaveDesign.fasciaHeight, mat.sand).name = "承台整圈收边";
+      // 线脚高度：外圈让出连续下沿线，柱脚印仍实心。
+      fillOutside(node, seatPads[i], fasciaArea, section.fasciaTopY,
+        apronEaveDesign.fasciaHeight, "线脚内侧柱位填充");
+      slab(node, foot, section.fasciaTopY, apronEaveDesign.fasciaHeight, mat.sand).name = "柱位线脚高度实心";
+      // 柱颈贯通檐下空隙到楼面／檐板，立面不再出现柱顶与檐板之间的空洞。
       slab(node, foot, postSeatY, postSeatY - section.fasciaTopY, mat.sand).name = "柱帽上实体柱颈";
     });
   }
@@ -1104,6 +1129,7 @@ function hatEaveSupport(
   parent: THREE.Object3D, x: number, z: number, w: number, base: number, end: number, mat: Mats,
   returnInset = eaveTrimDesign.corbelCornerSpacing / 2,
   finish?: (outline: (end: number) => Point[], top: number, thick: number, material: THREE.Material) => THREE.Mesh,
+  lightEnd = end,
 ) {
   const support = new THREE.Group();
   support.name = "官帽承托构件";
@@ -1128,7 +1154,12 @@ function hatEaveSupport(
     edges.push({ along: "z", face: east, from: front, to: end, sign: 1,
       endInset: returnInset });
   }
-  placeCorbelEdges(support, edges, base - eyelidStackHeight(), mat, false, hatPierCorbelCutouts());
+  const lightEdges: CorbelEdge[] = [{ along: "x", face: front, from: west, to: east, sign: -1 }];
+  if (lightEnd > front) {
+    lightEdges.push({ along: "z", face: west, from: front, to: lightEnd, sign: -1 });
+    lightEdges.push({ along: "z", face: east, from: front, to: lightEnd, sign: 1 });
+  }
+  placeCorbelEdges(support, edges, base - eyelidStackHeight(), mat, false, hatPierCorbelCutouts(), undefined, lightEdges);
 }
 
 // 抬高官帽只保留前檐及两侧外露段。各层后端沿正屋前坡斜切，
@@ -1213,7 +1244,8 @@ export function integratedHatEaves(
     mainTileFront - sidePad,
     endAt(supportBottom) - sidePad,
   );
-  hatEaveSupport(g, x, z, w, base, sideEnd, mat, undefined, finish);
+  hatEaveSupport(g, x, z, w, base, sideEnd, mat, undefined, finish,
+    endAt(supportBottom + eyelidFixed.fasciaHeight));
   return g;
 }
 

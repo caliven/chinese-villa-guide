@@ -648,7 +648,7 @@ function buildVillaInContext(
       const shortPosts = new THREE.Group();
       shortPosts.name = sideTerraces ? "四根露台短柱" : "中央露台两根短柱";
       g.add(shortPosts);
-      // 四根短柱立在 50 厘米挡墙顶上：中间两根与门厅柱同轴同截面，两侧与包角柱同轴。
+      // 四根短柱立在 50 厘米挡墙顶上：中间两根与门厅柱同轴，两侧外皮对齐包角柱。
       const parapet = elevation.eaveParapet;
       const postBase = base + parapet;
       for (const post of terracePosts) {
@@ -843,8 +843,8 @@ function buildVillaInContext(
       const hatLayout = roofStyle === "floating" ? floatingHatLayout(fenShui) : joinedHatLayout(fenShui);
       const hatEaveY = hatLayout.eave;
       const fasciaBot = fasciaBottomY(hatEaveY, 0);
-      // 柱盖贴实际三眼皮底面；不能继续伸进叠层檐板，留下共面闪线。
-      const pierTop = hatEaveY - eyelidStackHeight();
+      // 柱盖收至下沿线底，避免遮挡连续线脚及其上方灯带。
+      const pierTop = fasciaBot;
       const hatPosts = new THREE.Group();
       hatPosts.name = "三楼官帽柱";
       g.add(hatPosts);

@@ -936,10 +936,10 @@ function syncFrontElevation(params: VillaParams) {
   frontElevation.porticoColumnDepth = params.porticoColumnSize;
   frontElevation.porticoColumnZ = porticoFrontZ();
 
-  // 包角柱正面段中心（与下层 L 形柱身同轴）。
+  // 短柱外侧与下层包角柱外皮对齐；其余深度退向墙体。仅为外观示意，实际支承待结构设计。
   const cornerShaft = (cornerX: number, outward: number) => ({
     x: cornerX + (outward * (project - leg)) / 2,
-    z: main.z - 120 - project / 2,
+    z: main.z - 120 - project + shortW / 2,
     w: shortW,
   });
   const westCorner = cornerShaft(frontElevation.cornerWestX, -1);

@@ -1,4 +1,4 @@
-import { porticoFrontZ, porticoWallZ, recessedPortico, hasThirdFloorSideTerraces, frontTerracePosts } from "./building-variants";
+import { porticoFrontZ, porticoWallZ, recessedPortico, hasThirdFloorSideTerraces } from "./building-variants";
 import { continuousGlazingGrid } from "./continuous-glazing";
 import { entryAssemblyDesign, entryPartOutline } from "./entry-assembly";
 import { moveWindowDesign, windowDesign, windowOpeningLine } from "./window-design";
@@ -9,13 +9,14 @@ import { construction, site, type Point } from "./data";
 import type { Facade } from "./facades";
 import { roofProjectedEdges } from "./roof-plan";
 import { subtractRoofPolygon, type RoofFace } from "./roof-surfaces";
-import { bayOutline, hatEaveRim, frontTerraceRailRuns } from "./facade-details";
+import { bayOutline, hatEaveRim, frontTerraceRailRuns, apronSupportOutline } from "./facade-details";
 import { apronEaveDesign, frontApronSection, fasciaBottomY, gutterOuterWallTop, roofGutterDesign, roofTileEaveLift, roofTileInset, roofStyleLabels, type RoofStyle } from "./roof-options";
 
 export const elevationLabels = {
   north: "北立面（正立面）", south: "南立面（背立面）", east: "东立面", west: "西立面",
 } as const;
 export type ElevationView = keyof typeof elevationLabels;
+export type ElevationBuilding = "main" | "annex";
 const directions = {
   north: { u: new Vector3(-1, 0, 0), eye: new Vector3(0, 0, -1), side: 0, left: "东", right: "西" },
   south: { u: new Vector3(1, 0, 0), eye: new Vector3(0, 0, 1), side: 3, left: "西", right: "东" },
@@ -33,6 +34,7 @@ export interface ElevationSurface {
   cls: string;
   detail?: string;
   occludes?: boolean;
+  part?: string;
 }
 export function projectElevation(p: Vector3, view: ElevationView): Point {
   return [p.dot(directions[view].u), -p.y];
@@ -86,12 +88,13 @@ export function visibleElevationPolygons(surfaces: ElevationSurface[], view: Ele
   });
 }
 
-function shell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false) {
+export function elevationShell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false, building: ElevationBuilding = "main") {
   const model = elevationModel(style, layout), { main: m, annex: a, front: f, roof: r } = model;
   const surfaces: ElevationSurface[] = [];
+  let owner: ElevationBuilding = "main";
   const project = (p: Vector3) => projectElevation(p, view);
-  const face = (p: Vector3[], cls: string, detail = "", occludes = true) => {
-    if (area(p.map(project)) > 1) surfaces.push({ points: p, cls, detail, occludes });
+  const face = (p: Vector3[], cls: string, detail = "", occludes = true, part?: string) => {
+    if (owner === building && area(p.map(project)) > 1) surfaces.push({ points: p, cls, detail, occludes, part });
   };
   const box = (x: number, z: number, w: number, d: number, y: number, h: number, cls: string) => {
     const side = directions[view].side;
@@ -138,7 +141,9 @@ function shell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive |
       extra.forEach(w => wall(w, floor.y, floor.height));
     }
   });
+  owner = "annex";
   wall(outside(model.annexFacades), 0, a.height);
+  owner = "main";
 
   for (const panel of model.glazing) {
     const dx = panel.b[0] - panel.a[0], dz = panel.b[1] - panel.a[1], len = Math.hypot(dx, dz);
@@ -171,19 +176,21 @@ function shell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive |
   }
 
   // 檐口按真实折线挤出；雕花、瓦垄与细部节点在立面中简化表达。
-  const rim = (outline: Point[], y: number, h: number, cls: string, frontGap?: [number, number]) => {
+  const rim = (outline: Point[], y: number, h: number, cls: string, frontGap?: [number, number], part?: string) => {
     outline.forEach((p, i) => {
       const q = outline[(i + 1) % outline.length];
       const segments: [Point, Point][] = frontGap && i === 0
         ? [[p, [frontGap[0], p[1]]], [[frontGap[1], p[1]], q]] : [[p, q]];
       for (const [a, b] of segments)
-        face([new Vector3(a[0], y, a[1]), new Vector3(b[0], y, b[1]), new Vector3(b[0], y + h, b[1]), new Vector3(a[0], y + h, a[1])], cls, "", cls !== "el-glass-rail");
+        face([new Vector3(a[0], y, a[1]), new Vector3(b[0], y, b[1]), new Vector3(b[0], y + h, b[1]), new Vector3(a[0], y + h, a[1])], cls, "", cls !== "el-glass-rail", part);
     });
   };
   const rect = (x: number, z: number, w: number, d: number): Point[] => [[x, z], [x + w, z], [x + w, z + d], [x, z + d]];
   const mainOutline = style === "joined" ? bayOutline(r.main.x, r.main.z, r.main.w, r.main.d, r.hat.x, r.hat.w, r.hat.z, 0) : rect(r.main.x, r.main.z, r.main.w, r.main.d);
   rim(mainOutline, r.main.eave - 350, 350 + gutterOuterWallTop(), "el-trim", r.frontTrimGap);
+  owner = "annex";
   rim(rect(r.annex.x, r.annex.z, r.annex.w, r.annex.d), r.annex.eave - 350, 350 + gutterOuterWallTop(), "el-trim");
+  owner = "main";
   if (style === "floating") {
     const end = Math.max(r.main.z, r.main.z + roofTileInset + (r.hat.eave + roofGutterDesign.clearDepth + 30 - r.main.eave - roofTileEaveLift()) / (r.pitch.fenShui / 10));
     rim(hatEaveRim(r.hat.x, r.hat.z, r.hat.w, 0, roofGutterDesign.outerTopWidth, end), r.hat.eave - 350, 350 + gutterOuterWallTop(), "el-trim");
@@ -204,18 +211,21 @@ function shell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive |
       face(f.points, f.owner === 1 ? "el-hat" : "el-roof", detail);
     }
   };
-  roofs(r.mainFaces); roofs(r.annexFaces);
+  roofs(r.mainFaces);
+  owner = "annex";
+  roofs(r.annexFaces);
   const c = model.chimney;
   box(c.x - 230, c.z - 230, 460, 460, c.base - 400, c.capY - c.base + 400, "el-wall");
   box(c.x - 360, c.z - 360, 720, 720, c.capY, 120, "el-trim");
 
+  owner = "main";
   const y3 = model.floors[2].y, p = r.portico;
   const top = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop).porticoTopY;
   for (const post of f.balustradePosts.slice(1, 3)) box(post.x - post.w / 2, f.porticoColumnZ - f.porticoColumnDepth / 2, post.w, f.porticoColumnDepth, site.entranceRise - 20, top - (site.entranceRise - 20), "el-column");
   const [westColumn, eastColumn] = f.balustradePosts.slice(1, 3);
   const clearSpan = eastColumn.x - westColumn.x - westColumn.w;
   box(westColumn.x + westColumn.w / 2 - 8, f.porticoColumnZ - f.porticoColumnDepth / 2 + 65, clearSpan + 16, 500, top - 670, 670, "el-trim");
-  for (const x of f.postXs) box(x - f.dividerWidth / 2, f.postZ - 180, f.dividerWidth, 360, y3, r.hat.eave - 130 - y3, "el-column");
+  for (const x of f.postXs) box(x - f.dividerWidth / 2, f.postZ - 180, f.dividerWidth, 360, y3, fasciaBottomY(r.hat.eave, 0) - y3, "el-column");
   // 包角柱以 L 形两肢概括，保留当前突出量及与屋檐的高度关系。
   for (const [x, outward] of [[f.cornerWestX, -1], [f.cornerEastX, 1]]) {
     const x0 = x + (outward < 0 ? -f.cornerProject : -f.cornerLeg);
@@ -255,14 +265,13 @@ function shell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive |
     box(x, hasThirdFloorSideTerraces() ? f.terraceFront : f.centerFront, apronEaveDesign.parapetThickness, f.postZ - 250 - (hasThirdFloorSideTerraces() ? f.terraceFront : f.centerFront),
       y3, f.eaveParapet, "el-wall");
   const apron = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop);
-  for (const post of frontTerracePosts()) {
-    const foot = post.w + 80, pad = foot + 2 * apronEaveDesign.postSeatOverhang;
+  const terracePosts = hasThirdFloorSideTerraces() ? f.balustradePosts : f.balustradePosts.slice(1, 3);
+  for (const post of terracePosts) {
+    const foot = post.w + 80;
     const central = post.x >= p.x && post.x <= p.x + p.w;
     const capWidth = Math.min(post.w + 120, central ? porticoColumnOuterWidth(post.w) : Infinity);
-    box(post.x - pad / 2, post.z - pad / 2, pad, pad,
-      apron.fasciaBottomY, apronEaveDesign.fasciaHeight, "el-trim");
     box(post.x - foot / 2, post.z - foot / 2, foot, foot,
-      apron.fasciaTopY, y3 + f.eaveParapet + 130 - apron.fasciaTopY, "el-column");
+      y3, f.eaveParapet + 130, "el-column");
     box(post.x - post.w / 2, post.z - post.w / 2, post.w, post.w,
       y3 + f.eaveParapet + 130, f.balustradePostHeight - 130, "el-column");
     box(post.x - capWidth / 2, post.z - (post.w + 120) / 2, capWidth, post.w + 120,
@@ -271,6 +280,36 @@ function shell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive |
   // 二楼顶部仅为无天沟瓦挑檐，外缘按独立薄檐板高度概括，不套屋顶反坎或三眼皮。
   const e = site.secondFrontEave;
   const apronBack = hasThirdFloorSideTerraces() ? f.terraceBack : model.floors[2].front + 40;
+  const westEdge = f.sideTerraces[0].x, eastEdge = f.sideTerraces[1].x + f.sideTerraces[1].w;
+  const inner: Point[] = [[westEdge, apronBack], [westEdge, f.terraceFront], [p.x, f.terraceFront],
+    [p.x, f.centerFront], [p.x + p.w, f.centerFront], [p.x + p.w, f.terraceFront],
+    [eastEdge, f.terraceFront], [eastEdge, apronBack]];
+  const outer: Point[] = [[westEdge-e, apronBack], [westEdge-e, f.terraceFront-e], [p.x-e, f.terraceFront-e],
+    [p.x-e, f.centerFront-e], [p.x+p.w+e, f.centerFront-e], [p.x+p.w+e, f.terraceFront-e],
+    [eastEdge+e, f.terraceFront-e], [eastEdge+e, apronBack]];
+  const { fasciaOuter: fascia, beamBack, skirtInner } = apronSupportOutline(inner, outer);
+  const strips = (a: Point[], b: Point[]) => a.slice(0, -1).map((point, i) => [point, a[i + 1], b[i + 1], b[i]]);
+  const beamArea = strips(inner, beamBack);
+  const fasciaArea = strips(fascia, inner);
+  const skirtArea = strips(outer, skirtInner);
+  // 与三维同源：下沿线、封檐竖板、背梁与实心柱颈，闭合檐下悬浮空洞。
+  for (const polygon of beamArea) rim(polygon, apron.fasciaBottomY, apron.soffitY - apron.fasciaBottomY, "el-trim", undefined, "apron-support");
+  for (const polygon of skirtArea) rim(polygon, apron.fasciaTopY, apron.soffitY - apron.fasciaTopY, "el-trim", undefined, "apron-support");
+  for (const post of terracePosts) {
+    const foot = post.w + 80, extra = apronEaveDesign.postSeatOverhang;
+    const footprint = rect(post.x - foot / 2, post.z - foot / 2, foot, foot);
+    const pad = rect(post.x - foot / 2 - extra, post.z - foot / 2 - extra, foot + 2 * extra, foot + 2 * extra);
+    const cutAway = (outline: Point[], cuts: Point[][]) => cuts.reduce((pieces, cut) => pieces.flatMap(piece => subtractRoofPolygon(piece, cut)), [outline]);
+    for (const polygon of cutAway(pad, fasciaArea))
+      rim(polygon, apron.fasciaBottomY, apron.fasciaTopY - apron.fasciaBottomY, "el-trim", undefined, "apron-support");
+    rim(footprint, apron.fasciaBottomY, apron.fasciaTopY - apron.fasciaBottomY, "el-column", undefined, "apron-support");
+    rim(footprint, apron.fasciaTopY, Math.max(y3, apron.soffitY) - apron.fasciaTopY, "el-column", undefined, "apron-support");
+  }
+  for (let i = 0; i < fascia.length - 1; i++) {
+    const [a, b] = [fascia[i], fascia[i + 1]];
+    face([new Vector3(a[0], apron.fasciaBottomY, a[1]), new Vector3(b[0], apron.fasciaBottomY, b[1]),
+      new Vector3(b[0], apron.fasciaTopY, b[1]), new Vector3(a[0], apron.fasciaTopY, a[1])], "el-trim");
+  }
   rim([[m.x - e, apronBack], [m.x - e, f.terraceFront - e], [p.x - e, f.terraceFront - e], [p.x - e, f.centerFront - e], [p.x + p.w + e, f.centerFront - e], [p.x + p.w + e, f.terraceFront - e], [m.x + m.w + e, f.terraceFront - e], [m.x + m.w + e, apronBack]], apron.soffitY, apronEaveDesign.boardThickness, "el-trim");
   if (balcony) {
     const x = m.x + m.w * (12650 - 6800) / 13500, w = 2500 * m.w / 13500, z = m.z + m.d;
@@ -287,66 +326,68 @@ function dimension(a: number, b: number, y: number, from: number) {
   return `<path d="M${n(u0)} ${n(from)} V${n(y + 100)} M${n(u1)} ${n(from)} V${n(y + 100)} M${n(u0)} ${n(y)} H${n(u1)} M${n(u0 - 65)} ${n(y + 65)} l130 -130 M${n(u1 - 65)} ${n(y + 65)} l130 -130" class="el-dim"/>${text((u0 + u1) / 2, y - 170, String(n(u1 - u0)), "el-dim-label")}`;
 }
 export const elevationStyles = `
-.elevation-svg text{font-family:system-ui,sans-serif;fill:#3d5147;dominant-baseline:middle}
-.elevation-svg .el-label{font-size:250px}.elevation-svg .el-title{font-size:350px;font-weight:650}
-.elevation-svg .el-small{font-size:220px;fill:#788379}.elevation-svg .el-dim-label{font-size:250px;fill:#8a632e}
-.elevation-svg .el-wall{fill:#f3f0e8;stroke:#65746a;stroke-width:30px}
-.elevation-svg .el-column{fill:#e6dfd0;stroke:#7d7767;stroke-width:30px}
-.elevation-svg .el-trim{fill:#a79b83;stroke:#6b695e;stroke-width:24px}
-.elevation-svg .el-roof{fill:#d1dadd;stroke:none}.elevation-svg .el-hat{fill:#becbd0;stroke:none}
-.elevation-svg .el-roof-edge{fill:none;stroke:#526976;stroke-width:36px}
-.elevation-svg .el-window{fill:#dce8e9;stroke:#607c85;stroke-width:35px}
-.elevation-svg .el-glazing-frame{fill:#52616a;stroke:none}
-.elevation-svg .el-entry-frame{fill:#303638;stroke:none}
-.elevation-svg .el-entry-relief{fill:#716654;stroke:none}
-.elevation-svg .el-opening-sash{fill:none;stroke:#52616a;stroke-width:20px;stroke-dasharray:75 45}
-.elevation-svg .el-door{fill:#b8a692;stroke:#6b6053;stroke-width:35px}
-.elevation-svg .el-passage{fill:#fff;stroke:#6b6053;stroke-width:25px}
-.elevation-svg .el-glass-rail{fill:none;stroke:#6d8d91;stroke-width:38px}
-.elevation-svg .el-detail{fill:none;stroke:#6d8588;stroke-width:22px}
-.elevation-svg .el-dim{fill:none;stroke:#ac8d5e;stroke-width:20px}
-.elevation-svg .el-level{fill:none;stroke:#99a399;stroke-width:18px;stroke-dasharray:130 90}
-.elevation-svg .el-ground{fill:none;stroke:#4e6255;stroke-width:55px}
+.elevation-svg text{font-family:system-ui,sans-serif;fill:#333;dominant-baseline:middle}
+.elevation-svg .el-label{font-size:250px}.elevation-svg .el-title{font-size:350px;font-weight:600}
+.elevation-svg .el-small{font-size:220px;fill:#555}.elevation-svg .el-dim-label{font-size:250px;fill:#444}
+.elevation-svg .el-wall,.elevation-svg .el-column,.elevation-svg .el-trim{fill:#fff;stroke:#444;stroke-width:24px}
+.elevation-svg .el-roof,.elevation-svg .el-hat{fill:url(#elevation-tiles);stroke:#444;stroke-width:24px}
+.elevation-svg .el-roof-edge{fill:none;stroke:#333;stroke-width:30px}
+.elevation-svg .el-window{fill:#fff;stroke:#444;stroke-width:30px}
+.elevation-svg .el-glazing-frame,.elevation-svg .el-entry-frame{fill:#555;stroke:none}
+.elevation-svg .el-entry-relief{fill:#aaa;stroke:none}
+.elevation-svg .el-opening-sash{fill:none;stroke:#666;stroke-width:18px;stroke-dasharray:75 45}
+.elevation-svg .el-door,.elevation-svg .el-passage{fill:#fff;stroke:#444;stroke-width:25px}
+.elevation-svg .el-glass-rail{fill:none;stroke:#555;stroke-width:28px}
+.elevation-svg .el-detail{fill:none;stroke:#555;stroke-width:20px}
+.elevation-svg .el-dim{fill:none;stroke:#666;stroke-width:18px}
+.elevation-svg .el-level{fill:none;stroke:#777;stroke-width:18px;stroke-dasharray:130 90}
+.elevation-svg .el-ground{fill:none;stroke:#222;stroke-width:50px}
 `;
 
-export function elevationSvg(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false) {
-  const { model, surfaces } = shell(view, style, layout, balcony);
+export function elevationSvg(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false, building: ElevationBuilding = "main") {
+  const { model, surfaces } = elevationShell(view, style, layout, balcony, building);
   const visible = visibleElevationPolygons(surfaces, view);
   const all = surfaces.flatMap(s => s.points.map(p => projectElevation(p, view)));
   const min = Math.min(...all.map(p => p[0])), max = Math.max(...all.map(p => p[0]));
-  const peak = Math.max(model.roof.mainPeak, model.chimney.capY + 120);
+  const peak = building === "main" ? model.roof.mainPeak : Math.max(model.chimney.capY + 120, ...model.roof.annexFaces.flatMap(f => f.points.map(p => p.y)));
   const left = min - 3400, top = -peak - 900, width = max - min + 6800, bottom = 2350;
-  const id = `el-${view}-${style}`;
+  const id = `el-${view}-${style}-${building}`;
+  const buildingLabel = building === "main" ? "主楼" : "辅楼";
   const clip = visible.map((p, i) => `<clipPath id="${id}-${i}" clipPathUnits="userSpaceOnUse">${p.map(p => `<polygon points="${points(p)}"/>`).join("")}</clipPath>`).join("");
   const drawing = surfaces.map((s, i) => visible[i].length ? `<g clip-path="url(#${id}-${i})"><polygon points="${points(s.points.map(p => projectElevation(p, view)))}" class="${s.cls}"/>${s.detail ?? ""}</g>` : "").join("");
   const { main: m, annex: a, roof: r } = model;
   const u = (x: number, z: number) => projectElevation(new Vector3(x, 0, z), view)[0];
   let dimensions = "";
   if (view === "north" || view === "south") {
-    dimensions += dimension(u(a.x, 0), u(a.x + a.w, 0), 850, 0) + dimension(u(Math.min(a.x + a.w, m.x + m.w), 0), u(Math.max(a.x, m.x), 0), 850, 0) + dimension(u(m.x, 0), u(m.x + m.w, 0), 850, 0);
-    dimensions += dimension(u(Math.min(a.x, m.x), 0), u(Math.max(m.x + m.w, a.x + a.w), 0), 1500, 1100);
-    dimensions += text((u(Math.min(a.x, m.x), 0) + u(Math.max(m.x + m.w, a.x + a.w), 0)) / 2, 1780, "主辅楼外皮合计（含子孙道）", "el-small");
-    if (view === "north") dimensions += dimension(u(r.portico.x, 0), u(r.portico.x + r.portico.w, 0), -peak - 420, -r.hat.peak);
+    const b = building === "main" ? m : a;
+    dimensions += dimension(u(b.x, 0), u(b.x + b.w, 0), 850, 0);
+    if (building === "main" && view === "north") dimensions += dimension(u(r.portico.x, 0), u(r.portico.x + r.portico.w, 0), -peak - 420, -r.hat.peak);
   } else {
-    dimensions += dimension(u(0, m.z), u(0, m.z + m.d), 850, 0);
-    dimensions += dimension(u(0, porticoFrontZ()), u(0, porticoWallZ()), 850, 0);
-    if (view === "west") dimensions += dimension(u(0, a.z), u(0, a.z + a.d), 1500, 1100);
+    const b = building === "main" ? m : a;
+    dimensions += dimension(u(0, b.z), u(0, b.z + b.d), 850, 0);
+    if (building === "main") dimensions += dimension(u(0, porticoFrontZ()), u(0, porticoWallZ()), 850, 0);
   }
-  const levels: [string, number][] = [["院坪基准", 0], ["首层完成面", site.entranceRise], ["二层楼面", model.floors[1].y], ["三层楼面", model.floors[2].y], ["主楼屋面基准", r.main.eave], ["主楼瓦脊", r.mainPeak]];
+  const levels: [string, number][] = building === "main"
+    ? [["院坪基准", 0], ["首层完成面", site.entranceRise], ["二层楼面", model.floors[1].y], ["三层楼面", model.floors[2].y], ["主楼屋面基准", r.main.eave], ["主楼瓦脊", r.mainPeak]]
+    : [["院坪基准", 0], ["辅楼屋面基准", r.annex.eave], ["辅楼最高点", peak]];
   const labels = levels.map(([name, y], i) => {
     const x = min - 250, ty = -y + (i === 0 ? 100 : i === 1 ? -140 : 0);
-    return line([x, -y], [min, -y], "el-level") + `<path d="M${n(x)} ${n(-y)} l-110 -150 h220 Z" fill="#687c6e"/>` + text(x - 170, ty, `${name} ${height(y)}`, "el-label", "end");
+    return line([x, -y], [min, -y], "el-level") + `<path d="M${n(x)} ${n(-y)} l-110 -150 h220 Z" fill="#555"/>` + text(x - 170, ty, `${name} ${height(y)}`, "el-label", "end");
   }).join("");
   let heights = "";
-  for (const floor of model.floors) {
+  for (const floor of building === "main" ? model.floors : [{ y: 0, height: a.height }]) {
     const x = max + 500, y0 = -floor.y, y1 = -floor.y - floor.height;
     heights += line([max + 100, y0], [x + 120, y0], "el-dim") + line([max + 100, y1], [x + 120, y1], "el-dim") + line([x, y0], [x, y1], "el-dim") + text(x + 180, (y0 + y1) / 2, String(n(floor.height)), "el-dim-label", "start");
   }
-  const extra = text(max + 1100, -r.annex.eave, `辅楼基准 ${height(r.annex.eave)}`, "el-small", "start")
-    + text(max + 1100, -r.hat.peak, `官帽瓦脊 ${height(r.hat.peak)}`, "el-small", "start");
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="floor-svg elevation-svg" data-elevation="${view}" data-roof-style="${style}" viewBox="${n(left)} ${n(top)} ${n(width)} ${n(bottom - top)}" role="img" aria-label="${elevationLabels[view]}，当前方案正投影"><title>${elevationLabels[view]} · ${roofStyleLabels[style]} · 单位 mm</title><desc>左为${directions[view].left}，右为${directions[view].right}。当前模型的外墙、洞口、屋面、门厅与烟囱正投影，按深度消隐；雕花、栏杆及檐口细部简化。标高相对暂定院坪基准，非施工图。</desc><defs><style>${elevationStyles}</style>${clip}</defs><rect x="${n(left)}" y="${n(top)}" width="${n(width)}" height="${n(bottom - top)}" fill="#fbfaf6"/>${drawing}${line([min - 180, 0], [max + 180, 0], "el-ground")}${labels}${heights}${extra}${dimensions}${text((min + max) / 2, 2100, `${elevationLabels[view]}　｜　左：${directions[view].left} · 右：${directions[view].right}`, "el-title")}</svg>`;
+  const extra = building === "main" ? text(max + 1100, -r.hat.peak, `官帽瓦脊 ${height(r.hat.peak)}`, "el-small", "start") : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="floor-svg elevation-svg" data-elevation="${view}" data-building="${building}" data-roof-style="${style}" viewBox="${n(left)} ${n(top)} ${n(width)} ${n(bottom - top)}" role="img" aria-label="${buildingLabel}${elevationLabels[view]}，当前方案正投影"><title>${buildingLabel}${elevationLabels[view]} · ${roofStyleLabels[style]} · 单位 mm</title><desc>左为${directions[view].left}，右为${directions[view].right}。${buildingLabel}的外墙、洞口和屋面${building === "main" ? "及门厅" : "及烟囱"}正投影，按深度消隐；雕花、栏杆及檐口细部简化。标高相对暂定院坪基准，非施工图。</desc><defs><style>${elevationStyles.replaceAll("elevation-tiles", `${id}-tiles`)}</style><pattern id="${id}-tiles" width="240" height="120" patternUnits="userSpaceOnUse"><rect width="240" height="120" fill="white"/><path d="M0 0h240 M0 120h240 M0 0q30 0 30 60t30 60 M120 0q30 0 30 60t30 60" fill="none" stroke="#999" stroke-width="10"/></pattern>${clip}</defs><rect x="${n(left)}" y="${n(top)}" width="${n(width)}" height="${n(bottom - top)}" fill="#fff"/>${drawing}${line([min - 180, 0], [max + 180, 0], "el-ground")}${labels}${heights}${extra}${dimensions}${text((min + max) / 2, 2100, `${buildingLabel}${elevationLabels[view]}　｜　左：${directions[view].left} · 右：${directions[view].right}`, "el-title")}</svg>`;
 }
 
 export function elevationPlan(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false) {
-  return `<div class="plan-sheets"><section class="plan-sheet"><div class="plan-sheet-head"><h3>建筑立面图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择立面方向">${(Object.keys(elevationLabels) as ElevationView[]).map(key => `<button type="button" data-elevation-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${elevationLabels[key]}</button>`).join("")}<button type="button" id="download-elevation-svg" class="secondary-button">下载 SVG</button></div></div><div class="roof-plan-meta elevation-plan-meta"><span>正投影 · 长度／相对标高：mm</span><span>左：${directions[view].left} · 右：${directions[view].right}</span><span>当前屋面：${roofStyleLabels[style]}</span><div class="elevation-roof-switch" role="group" aria-label="立面官帽造型">${(Object.keys(roofStyleLabels) as RoofStyle[]).map(key => `<button type="button" data-roof-style="${key}" class="secondary-button${style === key ? " active" : ""}" aria-pressed="${style === key}">${roofStyleLabels[key]}</button>`).join("")}</div></div>${elevationSvg(view, style, layout, balcony)}<p class="roof-plan-note">北侧为正门，正立面左东右西。图纸随当前尺寸、户型外部门窗与门厅草稿联动，侧面按主辅楼实际前后关系消隐；三楼退台模式、门厅造型及烟囱沿用模型。雕花、瓦垄、栏杆与檐口细部简化；标高相对暂定院坪基准，方案示意，非施工图。</p></section></div>`;
+  const controls = `<section class="plan-sheet"><div class="plan-sheet-head"><h3>建筑立面图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择立面方向">${(Object.keys(elevationLabels) as ElevationView[]).map(key => `<button type="button" data-elevation-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${elevationLabels[key]}</button>`).join("")}</div></div><div class="roof-plan-meta elevation-plan-meta"><span>正投影 · 长度／相对标高：mm</span><span>左：${directions[view].left} · 右：${directions[view].right}</span><span>当前屋面：${roofStyleLabels[style]}</span><div class="elevation-roof-switch" role="group" aria-label="立面官帽造型">${(Object.keys(roofStyleLabels) as RoofStyle[]).map(key => `<button type="button" data-roof-style="${key}" class="secondary-button${style === key ? " active" : ""}" aria-pressed="${style === key}">${roofStyleLabels[key]}</button>`).join("")}</div></div></section>`;
+  const sheets = (["main", "annex"] as ElevationBuilding[]).map(building => {
+    const label = building === "main" ? "主楼" : "辅楼";
+    return `<section class="plan-sheet"><div class="plan-sheet-head"><h3>${label} · ${elevationLabels[view]}</h3><div class="roof-drawing-tabs"><button type="button" data-download-elevation="${building}" class="secondary-button">下载${label} SVG</button></div></div>${elevationSvg(view, style, layout, balcony, building)}<p class="roof-plan-note">${label}独立正投影，与当前方案的尺寸和外部门窗联动；雕花、瓦垄、栏杆与檐口细部简化，标高相对暂定院坪基准。方案示意，非施工图。</p></section>`;
+  }).join("");
+  return `<div class="plan-sheets">${controls}${sheets}</div>`;
 }

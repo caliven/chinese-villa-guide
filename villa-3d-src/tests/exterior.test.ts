@@ -7,6 +7,7 @@ import { corbelCentersOnEdge, gutteredRoof, hatSupportInset, meander, tiledApron
 import { addTiledRoof, hatRoofSurfaces, hipRoofSurfaces, joinRoofFaces } from "../src/roof-surfaces";
 import type { Mats } from "../src/primitives";
 import {
+  apronEaveDesign,
   apronFasciaBottom,
   frontApronSection,
   eaveTrimDesign,
@@ -301,7 +302,7 @@ test("悬浮官帽柱比原有官帽更高，正面装饰造型共用", async ()
   assert.ok(joinedPier.getObjectByName("官帽柱正面装饰"), "原有官帽柱有正面装饰");
   assert.ok(floatingPier.getObjectByName("官帽柱正面装饰"), "悬浮官帽柱共用同一正面装饰");
   const h = floatingHatLayout(4.5);
-  assert.ok(Math.abs(floatingBox.max.y - (h.eave - eyelidStackHeight())) < .1, "悬浮柱顶贴悬浮檐底");
+  assert.ok(Math.abs(floatingBox.max.y - fasciaBottomY(h.eave, 0)) < .1, "悬浮柱顶收至下沿线底");
   const decorTop = fasciaBottomY(h.eave, 0) - 100;
   const decor = floatingPier.getObjectByName("官帽柱正面装饰")!;
   const decorBox = new THREE.Box3().setFromObject(decor);
@@ -833,39 +834,39 @@ test("四根露台短柱的整块柱座落在实体承台上，不只以柱心�
   }
 });
 
-test("柱帽、承台收边、柱颈及短柱座逐层相接，线脚和梁托在柱位收口", async () => {
+test("二楼飘檐下沿线与柱位连续，柱间灯带上方不被柱颈遮住", async () => {
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
   const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+  const fascia = apron.getObjectByName("连续转角下沿线")!;
+  const skirt = apron.getObjectByName("挑檐封檐竖板")!;
   const seats = apron.getObjectByName("四处柱位实体承台")!;
-  assert.ok(seats, "必须有柱位承托节点");
-  const columns: THREE.Object3D[] = [];
-  villa.portico.traverse(o => { if (o.name === "参考图通高门厅雕花柱" ||
-    o.name === "包角柱" && o.position.z < site.main.z) columns.push(o); });
-  assert.equal(columns.length, 4);
-  const lowerNecks = villa.portico.children.filter(o => o.name === "包角柱退进承托柱颈");
-  assert.equal(lowerNecks.length, 2);
-  for (const node of seats.children) {
-    const neck = new THREE.Box3().setFromObject(node.getObjectByName("柱帽上实体柱颈")!);
-    const pad = new THREE.Box3().setFromObject(node.getObjectByName("承台整圈收边")!);
-    assert.ok(Math.abs(pad.max.y - neck.min.y) < .1 && Math.abs(neck.max.y - floors[2].y) < .1);
-    const center = pad.getCenter(new THREE.Vector3());
-    const column = columns.reduce((a, b) => Math.abs(a.position.x - center.x) < Math.abs(b.position.x - center.x) ? a : b);
-    const columnTop = new THREE.Box3().setFromObject(column).max.y;
-    if (column.name === "包角柱") {
-      const lower = lowerNecks.find(o => o.position.x === column.position.x)!;
-      const lowerBounds = new THREE.Box3().setFromObject(lower);
-      assert.ok(Math.abs(columnTop - lowerBounds.min.y) < .1 && Math.abs(lowerBounds.max.y - pad.min.y) < .1,
-        "下收的柱冠必须经实体柱颈接到承台");
-    } else assert.ok(Math.abs(columnTop - pad.min.y) < .1, "门厅柱帽应接触承台");
-    const cutters = [apron.getObjectByName("连续转角下沿线")!, apron.getObjectByName("挑檐连续承托梁")!];
-    apron.traverse(o => { if (o.name === "梁托") cutters.push(o); });
-    for (const obj of cutters) obj.traverse(o => {
-      if (!(o instanceof THREE.Mesh)) return;
-      const overlap = neck.clone().intersect(new THREE.Box3().setFromObject(o)).getSize(new THREE.Vector3());
-      assert.ok(overlap.x * overlap.y * overlap.z < 1, "线脚、承托梁及梁托不得穿过实体柱颈");
-    });
+  const e = frontElevation, s = frontApronSection(floors[2].y + e.eaveParapet, e.tiledEaveDrop);
+  const west = e.sideTerraces[0].x, east = e.sideTerraces[1].x + e.sideTerraces[1].w;
+  const cw = site.portico.x, ce = cw + site.portico.w, d = site.secondFrontEave;
+  const inner: Point[] = [[west,e.terraceBack],[west,e.terraceFront],[cw,e.terraceFront],
+    [cw,e.centerFront],[ce,e.centerFront],[ce,e.terraceFront],[east,e.terraceFront],[east,e.terraceBack]];
+  const outer: Point[] = [[west-d,e.terraceBack],[west-d,e.terraceFront-d],[cw-d,e.terraceFront-d],
+    [cw-d,e.centerFront-d],[ce+d,e.centerFront-d],[ce+d,e.terraceFront-d],[east+d,e.terraceFront-d],[east+d,e.terraceBack]];
+  const inPostFoot = (x: number, z: number) => e.balustradePosts.some(post => {
+    const half = (post.w + 80) / 2 + apronEaveDesign.postSeatOverhang;
+    return Math.abs(x - post.x) <= half && Math.abs(z - post.z) <= half;
+  });
+  assert.ok(fascia, "连续转角下沿线须存在");
+  assert.ok(skirt, "挑檐外缘须有封檐竖板闭合檐下通缝");
+  assert.ok(seats, "四处柱位实体承台须存在");
+  for (let i = 0; i < inner.length - 1; i++) for (const t of [.05, .25, .5, .75, .95]) {
+    const lerp = (points: Point[], axis: 0 | 1) => points[i][axis] * (1-t) + points[i+1][axis] * t;
+    const ix = lerp(inner,0), iz = lerp(inner,1), ox = lerp(outer,0), oz = lerp(outer,1);
+    const x = ix + (ox-ix) * 50 / d, z = iz + (oz-iz) * 50 / d;
+    const line = new THREE.Raycaster(new THREE.Vector3(x,s.fasciaTopY+1,z), new THREE.Vector3(0,-1,0))
+      .intersectObject(fascia, true);
+    assert.ok(line.length && Math.abs(line[0].point.y-s.fasciaTopY) < .1, `线脚在第${i}段不应断开`);
+    if (inPostFoot(x, z)) continue; // 柱位实心贯通；灯带只要求柱间净段不被遮挡
+    const blocking = new THREE.Raycaster(new THREE.Vector3(x,s.fasciaTopY+1,z), new THREE.Vector3(0,1,0))
+      .intersectObject(seats, true);
+    assert.ok(!blocking.length || blocking[0].point.y >= s.soffitY-.1, `第${i}段柱间灯带上方不能被柱颈遮挡`);
   }
 });
 

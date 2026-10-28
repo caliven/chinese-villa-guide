@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { annexRoofFootprint, attachRoofs } from "../src/architecture";
-import { tiledApron } from "../src/facade-details";
+import { annexRoofFootprint, attachRoofs, floatingHatLayout, mainRoofFootprint } from "../src/architecture";
+import { hatSupportInset, tiledApron } from "../src/facade-details";
 import { setEaveWashAppearance, setEaveWashVisible } from "../src/eave-lighting";
 import { visibleSurfaceMeshes, batchStatic } from "../src/render-geometry";
-import { frontApronSection, apronFasciaBottom, eaveTrimDesign } from "../src/roof-options";
+import { frontApronSection, apronFasciaBottom, eaveTrimDesign, roofTileInset, roofTileEaveLift } from "../src/roof-options";
 import type { Mats } from "../src/primitives";
 
 const mat = new Proxy({} as Mats, {
@@ -51,6 +51,29 @@ test("主楼两种官帽及辅楼四面屋檐均生成可切换的灯带", () =>
     assert.ok(washes(main).every(o => o.visible));
     setEaveWashVisible(main, false);
     assert.ok(washes(main).every(o => !o.visible));
+  }
+});
+
+test("悬浮官帽前檐和两侧灯带接角并延伸到线脚与主屋坡面交接", () => {
+  const main = new THREE.Group(), annex = new THREE.Group();
+  attachRoofs(main, annex, mat, 4.5, "floating");
+  main.updateMatrixWorld(true);
+  const support = main.getObjectByName("官帽承托构件")!;
+  const groups = washes(support);
+  assert.equal(groups.length, 3, "官帽前面和两侧各有灯带");
+  for (const name of ["暖白灯带", "洗墙渐隐光晕"])
+    assert.equal(joinedEnds(groups, name).filter(Boolean).length, 4, `${name} 在两个前转角接续`);
+  const h = floatingHatLayout(4.5), m = mainRoofFootprint();
+  const fasciaTop = apronFasciaBottom(h.eave, 0) - eaveTrimDesign.eyelidToFascia;
+  const mainTileFront = m.z + roofTileInset;
+  const end = Math.max(m.z, mainTileFront + (fasciaTop - m.eave - roofTileEaveLift()) / .45);
+  const front = h.z + hatSupportInset();
+  const sides = groups.filter(g => Math.abs((g.getObjectByName("暖白灯带") as THREE.Mesh).rotation.y) > 1);
+  assert.equal(sides.length, 2);
+  for (const side of sides) {
+    const ends = endpoints(side, "暖白灯带").map(p => p.z).sort((a,b) => a-b);
+    assert.ok(ends[0] < front, "侧灯带与前灯带在转角外侧相接");
+    assert.ok(Math.abs(ends[1] - end) < .01, "侧灯带应伸至下沿线与正屋坡面的交接处");
   }
 });
 
