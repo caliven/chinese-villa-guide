@@ -40,7 +40,7 @@ export function floorplanFurnitureSymbol(f: Furniture, pick = ""): string | unde
   if (!parts) return;
   const shapes = parts.map(part => {
     // 在目录规格下绘制，再按当前占地缩放；固定长度的细节不能在缩小时越出边框。
-    const svg = furnSVG(part.model.type, part.model.w, part.model.d, part.model.color)
+    const svg = furnSVG(part.model.type, part.model.w, part.model.d, part.model.color, f.showerDoorSide)
       .replace(/<(rect|ellipse|circle|path|line|polygon|polyline)\b/g, `<$1 class="floorplan-furniture-shape"${pick}`);
     return `<g transform="translate(${part.x} ${part.z}) rotate(180) scale(${part.w / part.model.w} ${part.d / part.model.d})">${svg}</g>`;
   }).join("");
@@ -68,7 +68,7 @@ export function floorplanFurnitureModel(f: Furniture, glass?: THREE.Material): T
   for (const part of parts) {
     const source = buildFurniture({
       type: part.model.type, color: part.model.color, w: part.model.w, d: part.model.d,
-      cx: f.x + part.x, cy: f.z + part.z,
+      cx: f.x + part.x, cy: f.z + part.z, showerDoorSide: f.showerDoorSide,
     }, glass);
     // 与二维共用目录原型和当前毫米宽深；旧稿也在重建时直接应用，不叠乘保存值。
     const model = new THREE.Group();

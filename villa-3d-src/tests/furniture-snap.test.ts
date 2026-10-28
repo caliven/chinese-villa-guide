@@ -29,6 +29,20 @@ test("未成房区域家具吸附实体墙面而非墙中线，承重和隔墙�
   }
 });
 
+test("新旧淋浴房在不同朝向均贴实实体墙和墙角，普通家具留缝不变", () => {
+  const walls: Wall[] = [
+    { a: [3000, 0], b: [3000, 5000], role: "bearing" },
+    { a: [3000, 0], b: [8000, 0], role: "partition" },
+  ];
+  for (const kind of ["shower", "fp-shower"] as const) for (const rotation of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+    const f: Furniture = { kind, x: 3000 + construction.outsideWall / 2 + 450 + 35, z: construction.partition / 2 + 450 + 35, w: 900, d: 900, rotation };
+    snap(f, walls);
+    const b = furnitureWorldBounds(f);
+    assert.ok(Math.abs(b.x0 - (3000 + construction.outsideWall / 2)) < .01);
+    assert.ok(Math.abs(b.z0 - construction.partition / 2) < .01);
+  }
+});
+
 test("墙带内拖动保留原侧，不将室内家具推出外墙", () => {
   const f = item(3100, 2000), previous = { x: 2000, z: 2000 };
   snap(f, [{ a: [3000, 0], b: [3000, 5000], role: "bearing" }], [], previous);
@@ -103,6 +117,21 @@ function editorDraft() {
   return draft;
 }
 
+test("二维与三维共用的移动入口将淋浴房吸到外墙内皮", () => {
+  for (const annex of [false, true]) for (const kind of ["shower", "fp-shower"] as const) {
+    const draft = editorDraft(), body = annex ? site.annex : site.main;
+    const list = annex ? draft.annexFurniture : draft.floors[0].furniture;
+    list.push({ kind, x: body.x + 1800, z: body.z + 2000, w: 900, d: 900 });
+    const editor = new LayoutEditor({ getFloor: () => 0, redraw: () => {}, toast: () => {} }, draft);
+    const selection = { kind: "furniture" as const, floor: 0, index: 0, annex };
+    const preview = editor.previewFurniturePosition(selection, body.x + construction.outsideWall + 480, body.z + 2000);
+    assert.equal(furnitureWorldBounds({ ...list[0]!, ...preview }).x0, body.x + construction.outsideWall);
+    editor.moveFurnitureTo(selection, body.x + construction.outsideWall + 480, body.z + 2000);
+    const saved = (annex ? editor.draft.annexFurniture : editor.draft.floors[0].furniture)[0]!;
+    assert.equal(furnitureWorldBounds(saved).x0, body.x + construction.outsideWall);
+  }
+});
+
 test("共享2D/3D移动入口包含主辅楼真实外墙厚度，撤销重做保留吸附位置", () => {
   for (const annex of [false, true]) {
     const draft = editorDraft(), body = annex ? site.annex : site.main;
@@ -130,6 +159,41 @@ test("关闭磁吸时保留手动移动语义，不强行重排家具", () => {
   editor.magnetSnap = false;
   editor.moveFurnitureTo({ kind: "furniture", floor: 0, index: 1 }, site.main.x + 2000, site.main.z + 2000);
   assert.equal(editor.draft.floors[0].furniture[1]!.x, site.main.x + 2000);
+});
+
+test("主辅楼编辑入口均支持家具接边和前沿对齐，旋转后碰撞避让一致", () => {
+  for (const annex of [false, true]) for (const rotation of [0, Math.PI / 4]) {
+    const draft = editorDraft(), body = annex ? site.annex : site.main;
+    const list = annex ? draft.annexFurniture : draft.floors[0].furniture;
+    list.push(item(body.x + 1600, body.z + 2800, rotation), item(body.x + 2800, body.z + 2800, -rotation));
+    const editor = new LayoutEditor({ getFloor: () => 0, redraw: () => {}, toast: () => {} }, draft);
+    editor.moveFurnitureTo({ kind: "furniture", floor: 0, annex, index: 1 },
+      body.x + (rotation ? 1680 : 2240), body.z + (rotation ? 2800 : 2860));
+    const [peer, moved] = annex ? editor.draft.annexFurniture : editor.draft.floors[0].furniture;
+    assert.ok(overlap(peer!, moved!) < .01, "同栋家具的真实旋转占地不能重叠");
+    if (!rotation) {
+      assert.equal(furnitureWorldBounds(moved!).x0, furnitureWorldBounds(peer!).x1);
+      assert.equal(furnitureWorldBounds(moved!).z0, furnitureWorldBounds(peer!).z0);
+    }
+  }
+});
+
+test("主辅楼均按房间净空吸附居中，暂停或关闭吸附时保留手动位置", () => {
+  for (const annex of [false, true]) {
+    const draft = editorDraft(), body = annex ? site.annex : site.main;
+    const room = { id: "snap-room", name: "测试房间", kind: "dining" as const,
+      x: body.x + 600, z: body.z + 600, w: 2600, d: 3200 };
+    if (annex) draft.annexRooms.push(room); else draft.floors[0].rooms.push(room);
+    (annex ? draft.annexFurniture : draft.floors[0].furniture).push(item(body.x + 1400, body.z + 1500));
+    const editor = new LayoutEditor({ getFloor: () => 0, redraw: () => {}, toast: () => {} }, draft);
+    const selection = { kind: "furniture" as const, floor: 0, annex, index: 0 };
+    const target = { x: body.x + 1940, z: body.z + 2240 };
+    assert.deepEqual(editor.previewFurniturePosition(selection, target.x, target.z),
+      { x: body.x + 1900, z: body.z + 2200 });
+    assert.deepEqual(editor.previewFurniturePosition(selection, target.x, target.z, false), target);
+    editor.magnetSnap = false;
+    assert.deepEqual(editor.previewFurniturePosition(selection, target.x, target.z), target);
+  }
 });
 
 test("主辅楼非承重墙均画在承重墙下方，排序不改原始点选与选中索引", () => {

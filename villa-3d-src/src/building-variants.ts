@@ -57,7 +57,8 @@ export function mirrorWall(w: Wall, sum: number): Wall {
     door: w.door ? { ...w.door, side: w.door.side === "in" ? "out" : "in" } : undefined };
 }
 export function mirrorFurniture(f: Furniture, sum: number): Furniture {
-  return { ...f, x: sum - f.x, ...(f.rotation == null ? {} : { rotation: f.rotation === 0 ? 0 : -f.rotation }) };
+  const showerDoorSide = f.showerDoorSide === "left" ? "right" : f.showerDoorSide === "right" ? "left" : f.showerDoorSide;
+  return { ...f, x: sum - f.x, ...(f.rotation == null ? {} : { rotation: f.rotation === 0 ? 0 : -f.rotation }), ...(showerDoorSide ? { showerDoorSide } : {}) };
 }
 /** 保留原立面序号和端点次序；洞口偏移仍相对同一端，开向反射。 */
 export function mirrorFacade(f: Facade, sum: number): Facade {

@@ -11,6 +11,8 @@ import { buildEditorModel, disposeEditorModel } from "../src/editor-model.ts";
 import { floorPlan, planSourceFromDraft } from "../src/plan.ts";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params.ts";
 import type { Mats } from "../src/primitives.ts";
+import { buildLayoutVersionDocument, parseLayoutVersionDocument } from "../src/data-versions.ts";
+import { buildSchemeDocument, parseSchemeDocument, schemeToJson } from "../src/scheme-store.ts";
 
 test.afterEach(resetVillaParams);
 function fixture() {
@@ -30,6 +32,72 @@ function fixture() {
 }
 const upperVoid = (editor: LayoutEditor) => editor.draft.floors[1]!.rooms.find(room => room.kind === "void")!;
 const assertSynchronized = (editor: LayoutEditor) => assert.deepEqual(voidBox(upperVoid(editor)), voidBox(editor.draft.livingVoid));
+
+test("栏杆造型在对应对象属性中独立修改，即时提交且支持撤销重做", () => {
+  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, livingRailingStyle: "brick", stairRailingStyle: "steel" });
+  const { editor, selectVoid, selectSource } = fixture();
+  assert.match(editor.inspectorHtml(), /data-edit-railing="living"/);
+  assert.match(editor.inspectorHtml(), /<option value="marble" selected>大理石栏杆<\/option>/);
+  assert.doesNotMatch(editor.inspectorHtml(), /value="brick"|data-edit-railing="stair"/);
+  assert.equal(editor.updateSelectedRailingStyle("wood"), true);
+  assert.equal(editor.draft.livingVoid.railingStyle, "wood");
+  assert.equal(editor.draft.stairLayout.railingStyle, undefined);
+  editor.undo();
+  assert.equal(editor.draft.livingVoid.railingStyle, undefined);
+  editor.redo();
+  assert.equal(editor.draft.livingVoid.railingStyle, "wood");
+  editor.selection = { kind: "stair" };
+  assert.match(editor.inspectorHtml(), /data-edit-railing="stair"/);
+  assert.match(editor.inspectorHtml(), /<option value="steel" selected>/);
+  assert.equal(editor.updateSelectedRailingStyle("glass"), true);
+  assert.equal(editor.draft.stairLayout.railingStyle, "glass");
+  assert.equal(editor.draft.livingVoid.railingStyle, "wood");
+  editor.undo();
+  assert.equal(editor.draft.stairLayout.railingStyle, undefined);
+  assert.equal(editor.draft.livingVoid.railingStyle, "wood");
+  editor.redo();
+  const before = draftToJson(editor.draft);
+  selectSource();
+  assert.doesNotMatch(editor.inspectorHtml(), /data-edit-railing/);
+  editor.updateSelectedRailingStyle("marble");
+  selectVoid();
+  editor.updateSelectedRailingStyle("unknown");
+  editor.selections.push({ kind: "stair" });
+  assert.doesNotMatch(editor.inspectorHtml(), /data-edit-railing/);
+  editor.updateSelectedRailingStyle("steel");
+  assert.equal(draftToJson(editor.draft), before, "普通房间、多选和非法值不能改栏杆");
+});
+
+test("对象栏杆随户型及完整方案保存，范围和楼梯模型调整后保留，非法文件值拒绝", () => {
+  const { editor, selectVoid } = fixture();
+  editor.updateSelectedRailingStyle("marble");
+  editor.updateSelectedNumber("w", 6000);
+  editor.updateLivingVoidField("mode", "follow");
+  assert.equal(editor.draft.livingVoid.railingStyle, "marble");
+  editor.selection = { kind: "stair" };
+  editor.updateSelectedRailingStyle("glass");
+  editor.setStairModel("triple");
+  assert.equal(editor.draft.stairLayout.railingStyle, "glass");
+  const layoutDoc = buildLayoutVersionDocument(editor.draft);
+  const layout = parseLayoutVersionDocument(JSON.parse(JSON.stringify(layoutDoc))).layoutDraft;
+  const scheme = parseSchemeDocument(JSON.parse(schemeToJson(buildSchemeDocument({ layoutDraft: layout }))));
+  for (const saved of [layout, scheme.layoutDraft!]) {
+    assert.equal(saved.livingVoid.railingStyle, "marble");
+    assert.equal(saved.stairLayout.railingStyle, "glass");
+  }
+  editor.loadDraft(layout);
+  selectVoid();
+  assert.match(editor.inspectorHtml(), /<option value="marble" selected>/);
+  for (const key of ["stairLayout", "livingVoid"] as const) {
+    const raw = JSON.parse(draftToJson(layout));
+    raw[key].railingStyle = "brick";
+    assert.equal(parseLayoutDraft(JSON.stringify(raw))[key].railingStyle, "brick", "兼容旧砖柱别名");
+    for (const invalid of ["unknown", null, 100]) {
+      raw[key].railingStyle = invalid;
+      assert.throws(() => parseLayoutDraft(JSON.stringify(raw)), /栏杆造型无效/);
+    }
+  }
+});
 
 test("旧稿按实际位置识别一楼客厅，二楼同开间默认跟随，既有跨开间范围保留", () => {
   const { editor } = fixture();

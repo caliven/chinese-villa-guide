@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
-import { site, type Room, type Wall } from "../src/data.ts";
+import { construction, site, type Room, type Wall } from "../src/data.ts";
 import { clonePublishedLayout, ensureStairRooms, removeStairFromDraft, type LayoutDraft } from "../src/layout-draft.ts";
 import { collectPlanDimensions, collectPlanSiteDimensions, planDimMm, planDimSpanMm } from "../src/plan-dimensions.ts";
 import { floorPlan, planSourceFromDraft } from "../src/plan.ts";
@@ -191,22 +191,44 @@ test("4700贯通横墙在三层主楼及辅楼两侧均输出定位尺寸", () =
   }
 });
 
-test("虚拟墙即使接到外墙也不拆外圈墙距；实体墙之间的墙距仍保留", () => {
+test("虚拟墙接外墙时在相交侧拆外圈尺寸，内部悬空虚拟墙不投线", () => {
   const draft = clonePublishedLayout();
   removeStairFromDraft(draft);
   draft.floors[0]!.partitions = [
     { a: [x(4500), z(7000)], b: [x(4500), z(10000)] }, // 实体，接南墙
     { a: [x(7000), z(0)], b: [x(7000), z(10000)], role: "virtual" }, // 虚拟，贯通南北
     { a: [x(0), z(5000)], b: [x(13600), z(5000)], role: "virtual" }, // 虚拟，贯通东西
+    { a: [x(9000), z(1000)], b: [x(9000), z(9000)], role: "virtual" }, // 完全在内部
   ];
   const result = dims(draft);
   assert.ok(result.southXs.includes(x(4500)));
-  assert.ok(!result.southXs.includes(x(7000)));
-  assert.ok(!result.northXs.includes(x(7000)));
-  assert.ok(!result.eastZs.includes(z(5000)));
-  assert.ok(!result.westZs.includes(z(5000)));
+  assert.ok(result.southXs.includes(x(7000)));
+  assert.ok(result.northXs.includes(x(7000)));
+  assert.ok(result.eastZs.includes(z(5000)));
+  assert.ok(result.westZs.includes(z(5000)));
+  assert.ok(!result.northXs.includes(x(9000)) && !result.southXs.includes(x(9000)));
   const svg = buildingSvg(floorPlan(0, false, false, {}, planSourceFromDraft(draft, 0)), "main");
-  assert.deepEqual(renderedChain(svg, "south", "walls"), [4500, 9100]);
+  assert.deepEqual(renderedChain(svg, "south", "walls"), [4500, 2500, 6600]);
+});
+
+test("虚拟墙只标接触的一侧，主辅楼与各层按各自外墙内皮判断", () => {
+  const draft = clonePublishedLayout();
+  for (let i = 0; i < 3; i++) {
+    const front = draft.floors[i]!.front, rear = site.main.z + site.main.d;
+    draft.floors[i]!.partitions = [
+      { a: [x(3100), front + construction.outsideWall], b: [x(3100), rear - 1000], role: "virtual" },
+      { a: [x(8000), front + construction.outsideWall + 5], b: [x(8000), rear - 1000], role: "virtual" },
+    ];
+    const result = collectPlanDimensions(i, draft.floors[i]!, [], "main");
+    assert.ok(result.northXs.includes(x(3100)));
+    assert.ok(!result.southXs.includes(x(3100)));
+    assert.ok(!result.northXs.includes(x(8000)));
+  }
+  const a = site.annex;
+  draft.annexPartitions = [{ a: [a.x + construction.outsideWall, a.z + 2300], b: [a.x + a.w - 1000, a.z + 2300], role: "virtual" }];
+  const result = collectPlanDimensions(0, draft.floors[0]!, draft.annexPartitions, "annex");
+  assert.ok(result.westZs.includes(a.z + 2300));
+  assert.ok(!result.eastZs.includes(a.z + 2300));
 });
 
 test("悬空内墙不标宽度；只有真正接到外墙的短墙才贴边定位", () => {

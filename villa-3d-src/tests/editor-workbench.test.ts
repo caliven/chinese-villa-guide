@@ -5,7 +5,7 @@ import { fitCanvasView, zoomCanvasView, measuredPoint } from "../src/plan-canvas
 import { buildEditorModel, disposeEditorModel, editorFloorGeometry, editorModelBounds } from "../src/editor-model.ts";
 import { clonePublishedLayout, removeStairFromDraft } from "../src/layout-draft.ts";
 import { floorPlan, planSourceFromDraft } from "../src/plan.ts";
-import { roomAreas } from "../src/design-data.ts";
+import { roomAreaLabels, roomAreas } from "../src/design-data.ts";
 import { site, type Point } from "../src/data.ts";
 import type { Mats } from "../src/primitives.ts";
 import { selectionBounds } from "../src/layout-scene.ts";
@@ -41,7 +41,8 @@ test("新版主辅楼共用一个真实坐标画布，标签沿用净空算法�
   assert.doesNotMatch(svg, /plan-sheet|plan-shared-dimensions/);
   assert.match(svg, /南向上，西向右/);
   const room = source.floor.rooms.find(room => room.kind !== "void")!;
-  assert.ok(svg.includes(`净空 ${roomAreas(room, 0, source.floor.partitions).interior.toFixed(2)}㎡`));
+  for (const label of roomAreaLabels(room, 0, source.floor.partitions)) assert.ok(svg.includes(label));
+  assert.ok(svg.includes(roomAreas(room, 0, source.floor.partitions).interior.toFixed(2)));
   assert.match(svg, /data-label-x=/);
   const upper = floorPlan(1, false, false, { editorCanvas: true }, planSourceFromDraft(draft, 1));
   assert.doesNotMatch(upper, /class="editor-building" data-plan-building="annex"/);
@@ -151,7 +152,7 @@ test("更新编辑模型时只释放旧资源，不销毁场地模型仍使用�
   assert.deepEqual([sharedDisposed, textureDisposed, ownDisposed, geometryDisposed], [0, 0, 1, 1]);
 });
 
-test("编辑模型双开门每扇取半宽，推拉门贴墙，门种类与开向均沿用草稿", () => {
+test("编辑模型双开门按净口分扇，推拉门双轨贴墙，门套及五金不改变草稿开向", () => {
   const draft = clonePublishedLayout();
   draft.floors[0].partitions = [
     { a: [8000, 1000], b: [14000, 1000], door: { offset: 1000, width: 1800, kind: "doubleDoor", hinge: "start", side: "in" } },
@@ -166,10 +167,10 @@ test("编辑模型双开门每扇取半宽，推拉门贴墙，门种类与开�
     if (selection?.kind === "door" && !selection.exterior) doors.set(selection.index, new THREE.Box3().setFromObject(object));
   });
   const double = doors.get(0)!, sliding = doors.get(1)!, outward = doors.get(2)!;
-  assert.ok(Math.abs(double.getSize(new THREE.Vector3()).z - 900) < 1);
-  assert.ok(sliding.getSize(new THREE.Vector3()).z < 100);
-  assert.ok(double.max.z <= 1001 && double.min.z < 1000);
-  assert.ok(outward.min.z >= 4999 && outward.max.z > 5800);
+  assert.ok(double.getSize(new THREE.Vector3()).z > 850 && double.getSize(new THREE.Vector3()).z < 1100, "双门扇扣除门框，单扇不能按整洞宽度伸出");
+  assert.ok(sliding.getSize(new THREE.Vector3()).z <= 200, "双轨及弯管拉手限制在墙两侧附近，不伸成平开门");
+  assert.ok(double.max.z <= 1120 && double.min.z < 200, "in仍向局部负Z开启；墙另一面只允许门套厚度");
+  assert.ok(outward.min.z >= 4880 && outward.max.z > 5800, "out仍向局部正Z开启，不能因加门套反向");
   assert.equal(model.levels[1].children.length, 0);
   disposeEditorModel(model.root, new THREE.Scene());
 });

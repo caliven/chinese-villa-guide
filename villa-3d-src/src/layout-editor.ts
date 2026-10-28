@@ -61,9 +61,11 @@ import {
 import { facades, openingFacade } from "./facades";
 import { exteriorWindowProfile, freezeExteriorWindowDimensions } from "./facade-layout";
 import { partitionProfile } from "./partition-geometry";
+import { exteriorWallTargets, normalizeConnectedWallEndpoints, normalizeDraftWallContacts, type WallContactTarget } from "./wall-contact-snap";
 import { recessedFloor, recessFrontFacades } from "./building-variants";
 import { roomAreas } from "./design-data";
 import { formatMm } from "./units";
+import { canonicalRailingStyle, isRailingStyle, railingStyleLabels, resolvedRailingStyle, type RailingStyle } from "./railing-options";
 import {
   applyRoomToEnclosedRegion,
   enclosedRoomRegions,
@@ -80,10 +82,9 @@ import {
   validateProtectedRoomOverlaps,
   syncRoomsToMovedWalls,
   alignWallToNearestSide,
-  bayAlongWall,
+  bayBetweenWalls,
   centerFurnitureAgainstNearestWall,
   centerOpeningInBay,
-  collectBayStations,
   collectCornerSnapPoints,
   collectRoomSnapAxes,
   findRoomContaining,
@@ -352,6 +353,8 @@ export class LayoutEditor {
     guideXs: number[];
     guideZs: number[];
     freeAngle: boolean;
+    displayAx?: number;
+    displayAz?: number;
   } | null = null;
   private wallPreviewAttached = false;
   /** 两张图仍共用同一草稿；重绘和 window 拖动按起始图纸恢复坐标系。 */
@@ -377,10 +380,14 @@ export class LayoutEditor {
       magnet ? WALL_EDGE_SNAP_GAP : 0,
       segs,
     );
+    const preview: Wall = { a: [this.wallDraft.ax, this.wallDraft.az], b: [end.x, end.z], role: this.wallRole };
+    if (magnet) normalizeConnectedWallEndpoints([preview], this.newWallContactTargets(this.host.getFloor(), this.activePlanBuilding === "annex"));
     this.wallDraft = {
       ...this.wallDraft,
-      bx: end.x,
-      bz: end.z,
+      bx: preview.b[0],
+      bz: preview.b[1],
+      displayAx: preview.a[0],
+      displayAz: preview.a[1],
       guideXs: end.guideXs,
       guideZs: end.guideZs,
       freeAngle: false,
@@ -396,7 +403,7 @@ export class LayoutEditor {
   constructor(host: LayoutEditorHost, draft?: LayoutDraft | null) {
     this.host = host;
     const stored = draft == null ? loadLayoutDraft() : null;
-    this.draft = ensureExteriorManaged(draft ?? stored ?? clonePublishedLayout());
+    this.draft = normalizeDraftWallContacts(ensureExteriorManaged(draft ?? stored ?? clonePublishedLayout()));
     this.draft.exteriorOpenings = alignedEntryOpenings(this.draft);
     freezeExteriorWindowDimensions(this.draft);
     initializeLivingVoid(this.draft);
@@ -527,7 +534,7 @@ export class LayoutEditor {
 
   /** 载入完整户型版本（一二三楼一体），重置撤销栈。 */
   loadDraft(draft: LayoutDraft) {
-    this.draft = ensureExteriorManaged(structuredClone(draft));
+    this.draft = normalizeDraftWallContacts(ensureExteriorManaged(structuredClone(draft)));
     this.draft.exteriorOpenings = alignedEntryOpenings(this.draft);
     freezeExteriorWindowDimensions(this.draft);
     initializeLivingVoid(this.draft);
@@ -738,6 +745,7 @@ export class LayoutEditor {
       const at = Math.max(body.z + inset, Math.min(body.z + body.d - inset, z));
       const walls = annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
       const placed: Wall = { a: [start, at], b: [start + length, at], role: kind };
+      if (this.magnetSnap) normalizeConnectedWallEndpoints([placed], this.newWallContactTargets(floor, annex));
       walls.push(placed);
       this.selection = { kind: "wall", index: walls.length - 1, floor, annex: annex || undefined };
       this.tool = "select";
@@ -1090,7 +1098,9 @@ export class LayoutEditor {
 
   getDrawGuide(): DrawGuide | null {
     if (this.wallDraft) {
-      const { ax, az, bx, bz, guideXs, guideZs } = this.wallDraft;
+      const { bx, bz, guideXs, guideZs } = this.wallDraft;
+      const ax = this.wallDraft.displayAx ?? this.wallDraft.ax;
+      const az = this.wallDraft.displayAz ?? this.wallDraft.az;
       const length = Math.hypot(bx - ax, bz - az);
       return {
         ax,
@@ -1155,7 +1165,7 @@ export class LayoutEditor {
     const walls: Wall[] = [
       ...data.partitions,
       ...annex,
-      ...facades(floor).map((f) => ({ a: [...f.a] as Point, b: [...f.b] as Point, role: "bearing" as const })),
+      ...recessFrontFacades(facades(floor), data.front).map((f) => ({ a: [...f.a] as Point, b: [...f.b] as Point, role: "bearing" as const })),
     ];
     if (floor === 0) {
       for (const f of facades(3)) {
@@ -1163,6 +1173,11 @@ export class LayoutEditor {
       }
     }
     return collectWallSnapSegs(walls);
+  }
+
+  private newWallContactTargets(floor: number, annex: boolean): WallContactTarget[] {
+    const parts = annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
+    return [...parts, ...exteriorWallTargets(annex ? 3 : floor, this.floorData(floor).front)];
   }
 
   private clientToMeter(svg: SVGSVGElement, clientX: number, clientY: number) {
@@ -1296,6 +1311,7 @@ export class LayoutEditor {
           role: this.wallRole,
         };
         forceOrthoWall(wall);
+        if (magnet) normalizeConnectedWallEndpoints([wall], this.newWallContactTargets(floor, building === "annex"));
         this.detachWallPreview();
         this.wallDraft = null;
         const midX = (wall.a[0] + wall.b[0]) / 2;
@@ -2007,7 +2023,7 @@ export class LayoutEditor {
   }
 
   /** 只取同栋建筑的其它墙；自身旧坐标及另一栋楼不能作为对齐目标。 */
-  private wallMagnetCandidates(floor: number, index: number, annex: boolean): Wall[] {
+  private wallMagnetCandidates(floor: number, index: number, annex: boolean): WallContactTarget[] {
     return this.wallAlignCandidates(floor, index, annex);
   }
 
@@ -2201,6 +2217,30 @@ export class LayoutEditor {
     return true;
   }
 
+  updateSelectedShowerDoorSide(value: string) {
+    const sel = this.selection;
+    if (sel?.kind !== "furniture" || !["front", "left", "right"].includes(value)) return;
+    const item = this.furnitureList(sel.floor, !!sel.annex)[sel.index];
+    if (!item || (item.kind !== "shower" && item.kind !== "fp-shower")) return;
+    if ((item.showerDoorSide ?? "front") === value) return;
+    item.showerDoorSide = value as NonNullable<Furniture["showerDoorSide"]>;
+    this.commit();
+  }
+
+  updateSelectedRailingStyle(value: string) {
+    if (!isRailingStyle(value) || this.selections.length !== 1) return;
+    const sel = this.selection;
+    let kind: "stair" | "living";
+    if (sel?.kind === "stair") kind = "stair";
+    else if (sel?.kind === "room" && sel.floor === 1 && !sel.annex && this.findRoomRef(sel.id, 1, false)?.room.kind === "void") kind = "living";
+    else return;
+    const target = kind === "stair" ? this.draft.stairLayout : this.draft.livingVoid;
+    const style = canonicalRailingStyle(value);
+    if (resolvedRailingStyle(target.railingStyle, kind) === style) return;
+    target.railingStyle = style;
+    return this.commit();
+  }
+
   updateLivingVoidField(field: string, value: string) {
     const sel = this.selection;
     if (sel?.kind !== "room" || sel.floor !== 1 || sel.annex || this.findRoomRef(sel.id, 1, false)?.room.kind !== "void") return;
@@ -2370,8 +2410,7 @@ export class LayoutEditor {
         const horizontal = wallAxis(old) === "h";
         const box = (w: Wall) => ({ x: Math.min(w.a[0], w.b[0]), z: Math.min(w.a[1], w.b[1]), w: Math.abs(w.b[0] - w.a[0]), d: Math.abs(w.b[1] - w.a[1]) });
         const proposed = box(wall);
-        const envelope = this.planBody(floor, !!sel.annex), inset = construction.outsideWall / 2;
-        const body = { x: envelope.x + inset, z: envelope.z + inset, w: envelope.w - 2 * inset, d: envelope.d - 2 * inset };
+        const body = this.planBody(floor, !!sel.annex);
         const anchored = anchorResizedBox(box(old), proposed, body, originals.filter((_, i) => i !== sel.index),
           { gap: this.magnetSnap ? 150 : 1, wallLines: true });
         if (!anchored) {
@@ -2590,7 +2629,7 @@ export class LayoutEditor {
     return { layoutFloor: floor, useAnnex: floor === 0 };
   }
 
-  private bayStationsForWall(a: Point, b: Point, floor: number, annex: boolean) {
+  private bayForWall(a: Point, b: Point, opening: WallOpening, floor: number, annex: boolean, hostThickness: number) {
     const { layoutFloor, useAnnex } = this.bayLayoutFloor(floor, annex);
     const data = this.draft.floors[layoutFloor];
     const partitions = [
@@ -2600,7 +2639,7 @@ export class LayoutEditor {
     const rooms = useAnnex
       ? [...(this.draft.floors[0]?.rooms ?? []), ...this.draft.annexRooms]
       : (data?.rooms ?? []);
-    return collectBayStations(a, b, partitions, rooms);
+    return bayBetweenWalls(a, b, opening, partitions, rooms, hostThickness);
   }
 
   getSelectedOpeningBay(): OpeningBay | null {
@@ -2613,8 +2652,9 @@ export class LayoutEditor {
       ? (this.draft.exteriorOpenings[sel.index]?.floor ?? this.selectionFloor())
       : sel.floor;
     const annex = !!sel.annex || floor === 3;
-    const stations = this.bayStationsForWall(wall.a, wall.b, floor, annex);
-    return bayAlongWall(wall.a, wall.b, opening, stations);
+    const selectedWall = sel.exterior ? null : (sel.annex ? this.draft.annexPartitions : this.draft.floors[sel.floor]?.partitions)?.[sel.index];
+    const thickness = selectedWall && wallRoleOf(selectedWall) !== "bearing" ? construction.partition : construction.outsideWall;
+    return this.bayForWall(wall.a, wall.b, opening, floor, annex, thickness);
   }
 
   getSelectedFurnitureMargins(): RoomMargins | null {
@@ -2697,6 +2737,10 @@ export class LayoutEditor {
       this.host.toast("无法计算当前开间");
       return;
     }
+    if (opening.width > bay.bayWidth) {
+      this.host.toast("当前开间净宽不足，无法居中");
+      return;
+    }
     opening.offset = centerOpeningInBay(bay, opening.width);
     this.commit();
     this.host.toast("已按开间居中");
@@ -2734,13 +2778,10 @@ export class LayoutEditor {
   }
 
   /** 当前层可对齐候选墙：其它隔墙＋外墙轮廓（不含自身）。 */
-  private wallAlignCandidates(floor: number, excludeIndex: number, annex: boolean): Wall[] {
+  private wallAlignCandidates(floor: number, excludeIndex: number, annex: boolean): WallContactTarget[] {
     const walls = annex ? this.draft.annexPartitions : this.floorData(floor).partitions;
-    const out = walls.filter((_, i) => i !== excludeIndex);
-    for (const facade of facades(annex ? 3 : floor)) {
-      out.push({ a: [...facade.a] as Point, b: [...facade.b] as Point, role: "bearing" });
-    }
-    return out;
+    return [...walls.filter((_, i) => i !== excludeIndex),
+      ...exteriorWallTargets(annex ? 3 : floor, this.floorData(floor).front)];
   }
 
   /** 数值定位与显式同线对齐共用墙体／房间事务，失败时完整回滚。 */
@@ -3142,6 +3183,8 @@ export class LayoutEditor {
       }</div>`;
     const field = (label: string, control: string) =>
       `<label class="select-label"><span class="layout-field-name">${label}</span>${control}</label>`;
+    const railingField = (kind: "stair" | "living", own?: RailingStyle) => field("栏杆造型",
+      `<select data-edit-railing="${kind}" aria-label="${kind === "stair" ? "楼梯" : "挑空客厅"}栏杆造型">${Object.entries(railingStyleLabels).map(([value, label]) => `<option value="${value}" ${resolvedRailingStyle(own, kind) === value ? "selected" : ""}>${label}</option>`).join("")}</select>`);
     // 用 text + inputmode=decimal：type=number 在部分键盘／输入法下打不出小数点。
     const num = (id: string, label: string, value: number, step = 1, angle = false) =>
       field(
@@ -3172,6 +3215,8 @@ export class LayoutEditor {
           .map(r => `<option value="${escapeHtml(r.id)}" ${r.id === source?.id ? "selected" : ""}>${escapeHtml(r.name)} · ${formatMm(r.w)}×${formatMm(r.d)}</option>`).join("");
         return `${head("二楼客厅挑空")}
           ${field("名称", `<input type="text" id="edit-model-name" value="${escapeHtml(room.name)}"/>`)}
+          ${railingField("living", v.railingStyle)}
+          <p class="layout-align-hint">造型即时更新，沿挑空临空边自动生成栏杆，避开墙体与楼梯通口。</p>
           ${field("范围方式", `<select data-void-field="mode"><option value="follow" ${v.mode === "follow" ? "selected" : ""}>跟随一楼客厅</option><option value="custom" ${v.mode !== "follow" ? "selected" : ""}>自定义范围</option></select>`)}
           ${field("一楼对应房间", `<select data-void-field="source"><option value="">请选择一楼客厅</option>${options}</select>`)}
           ${num("x", "X 东", v.x)}${num("z", "Z 南", v.z)}${num("w", "挑空宽", v.w)}${num("d", "挑空进深", v.d)}
@@ -3210,13 +3255,16 @@ export class LayoutEditor {
         item.kind === "bed"
           ? `<p class="layout-align-hint">宽／深为占地外轮廓，含两侧床头柜，与房间墙同比例 1:1</p>`
           : `<p class="layout-align-hint">宽／深为占地外轮廓，与房间墙同比例 1:1</p>`;
-      const facingHint = furnitureHasFacing(item.kind)
+      const facingHint = item.kind === "shower" || item.kind === "fp-shower"
+        ? `<p class="layout-align-hint">方位：后方为花洒侧，平面尖角指向前方；左、右随淋浴房旋转。</p>`
+        : furnitureHasFacing(item.kind)
         ? `<p class="layout-align-hint">方位：${escapeHtml(furnitureOrientationHint(item.kind))}。${escapeHtml(FURNITURE_LOCAL_FRAME)}。平面尖角＝前方（人坐／站／看的一侧）。</p>`
         : `<p class="layout-align-hint">方位：${escapeHtml(furnitureOrientationHint(item.kind))}（无固定前后）。</p>`;
       return `${head(`${sel.annex ? "辅楼家具" : "家具"} · ${escapeHtml(kindLabel)}`)}
         ${field("名称", `<input type="text" id="edit-model-name" value="${escapeHtml(displayName)}"/>`)}
         ${num("x", "X", item.x)}${num("z", "Z", item.z)}${num("w", "宽", item.w)}${num("d", "深", item.d)}
         ${num("rotationDeg", "旋转°", rotationToDeg(item.rotation ?? 0), 15, true)}
+        ${item.kind === "shower" || item.kind === "fp-shower" ? `${field("玻璃门位置", `<select data-shower-door-side><option value="front" ${(item.showerDoorSide ?? "front") === "front" ? "selected" : ""}>花洒对面</option><option value="left" ${item.showerDoorSide === "left" ? "selected" : ""}>花洒左侧</option><option value="right" ${item.showerDoorSide === "right" ? "selected" : ""}>花洒右侧</option></select>`)}<p class="layout-align-hint">左、右按淋浴房局部方向；花洒位置不变，选择后平面与三维同步。</p>` : ""}
         ${sizeHint}
         ${facingHint}
         <div class="layout-rotate-row">
@@ -3239,7 +3287,7 @@ export class LayoutEditor {
         <div class="layout-align-actions"><button type="button" class="layout-align-link" data-reset-window-height>恢复默认高度</button></div>` : "";
       const bay = this.getSelectedOpeningBay();
       const align = bay
-        ? `<p class="layout-align-hint">开间 ${formatMm(bay.bayWidth)}（按房间／隔墙）· 左 ${formatMm(bay.leftClear)} · 右 ${formatMm(bay.rightClear)} · 居中偏差 ${formatMm(bay.centerDelta)}</p>
+        ? `<p class="layout-align-hint">开间 ${formatMm(bay.bayWidth)}（按相接墙面）· 左 ${formatMm(bay.leftClear)} · 右 ${formatMm(bay.rightClear)} · 居中偏差 ${formatMm(bay.centerDelta)}</p>
           <div class="layout-align-actions"><button type="button" class="layout-align-link" data-align-center="opening">开间居中</button></div>`
         : "";
       return `${head(`${sel.exterior ? "外墙" : "隔墙"} · ${escapeHtml(openingLabels[o.kind!])}`)}
@@ -3286,6 +3334,7 @@ export class LayoutEditor {
           </select>`,
         )}
         ${num("length", "长度", wallLength(wall))}
+        ${role !== "virtual" ? '<p class="layout-align-hint">相接外墙按外皮，内墙按中心线定位墙端；未相接的墙端保留原位。</p>' : ""}
         ${num("wallPosition", axis === "h" ? "墙线 Z 定位" : "墙线 X 定位", wallLinePosition(wall))}
         ${distances.low ? num("wallDistanceLow", axis === "h" ? "距北侧墙线" : "距西侧墙线", distances.low.distance) : ""}
         ${distances.high ? num("wallDistanceHigh", axis === "h" ? "距南侧墙线" : "距东侧墙线", distances.high.distance) : ""}
@@ -3322,6 +3371,8 @@ export class LayoutEditor {
         well.z < this.floorData(this.host.getFloor()).front - 1 || well.z + well.d > site.main.z + site.main.d + 1;
       return `${head(s.model === "triple" ? "三跑楼梯" : "双跑楼梯", true)}
         ${field("楼梯模型", `<select data-stair-field="model"><option value="double" ${s.model !== "triple" ? "selected" : ""}>双跑楼梯</option><option value="triple" ${s.model === "triple" ? "selected" : ""}>三跑楼梯（U形）</option></select>`)}
+        ${railingField("stair", s.railingStyle)}
+        <p class="layout-align-hint">造型即时应用于各层梯段、平台和楼层洞口栏杆。</p>
         ${field(
           "下跑上行方向",
           `<select data-stair-field="direction">

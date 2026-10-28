@@ -58,6 +58,23 @@ test("上游符号全量可选中、坐标有效，朝向统一转换", () => {
   }
 });
 
+test("新旧淋浴房均只有进出侧一面玻璃，缩放后保持占地", () => {
+  for (const kind of ["shower", "fp-shower"]) {
+    const f = createFurniture(kind, 0, 0); f.w = 1200; f.d = 800;
+    const glass = new THREE.MeshBasicMaterial();
+    const group = floorplanFurnitureModel(f, glass)!;
+    const panes: THREE.Mesh[] = [];
+    group.traverse(object => { if (object instanceof THREE.Mesh && object.material instanceof THREE.MeshBasicMaterial) panes.push(object); });
+    assert.equal(panes.length, 1, kind);
+    group.updateMatrixWorld(true);
+    const pane = new THREE.Box3().setFromObject(panes[0]!, true);
+    assert.ok(pane.getSize(new THREE.Vector3()).x > 1100);
+    assert.ok(pane.getSize(new THREE.Vector3()).z < 30);
+    assertFootprint(group, f);
+    disposeFurniture(group);
+  }
+});
+
 test("全目录立体几何有限、尺度为毫米，返回模型独立持有材质", () => {
   let previousMaterials = new Set<THREE.Material>();
   for (const entry of floorplanFurniture) {
@@ -179,5 +196,25 @@ test("新旧床柜和厨卫家具均显示600毫米讨论留位，关闭图层�
   for (const kind of ["fp-rug", "fp-tv-65", "fp-plant"] as const) {
     draft.floors[0].furniture = [createFurniture(kind, 10000, 3000)];
     assert.doesNotMatch(floorPlan(0, false, false, { useZones: true, editorCanvas: true }, planSourceFromDraft(draft, 0)), /class="use-zone"/);
+  }
+});
+
+test("淋浴房玻璃门可单独选对面或两侧，二维三维和尺寸同步", () => {
+  for (const kind of ["shower", "fp-shower"] as const) for (const side of ["front", "left", "right"] as const) {
+    const f = { ...createFurniture(kind, 0, 0), w: 1200, d: 800, showerDoorSide: side };
+    const svg = floorplanFurnitureSymbol(f)!;
+    const expectedLine = side === "front" ? /<line[^>]*x1="-450" y1="450" x2="450" y2="450"/ : side === "left" ? /<line[^>]*x1="450" y1="-450" x2="450" y2="450"/ : /<line[^>]*x1="-450" y1="-450" x2="-450" y2="450"/;
+    assert.match(svg, expectedLine);
+    const group = floorplanFurnitureModel(f, new THREE.MeshBasicMaterial())!;
+    group.updateMatrixWorld(true);
+    const panes: THREE.Mesh[] = [];
+    group.traverse(o => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshBasicMaterial) panes.push(o); });
+    assert.equal(panes.length, 1);
+    const pane = new THREE.Box3().setFromObject(panes[0]);
+    const center = pane.getCenter(new THREE.Vector3()), size = pane.getSize(new THREE.Vector3());
+    if (side === "front") { assert.ok(center.z < -380); assert.ok(size.x > 1100); }
+    else { assert.ok(side === "left" ? center.x < -580 : center.x > 580); assert.ok(size.z > 750); }
+    assertFootprint(group, f);
+    disposeFurniture(group);
   }
 });

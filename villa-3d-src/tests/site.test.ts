@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { site, floors, frontFieldLevel, courtyardFront } from "../src/data";
 import { buildContextGround, buildRoad } from "../src/site-ground";
-import { buildSurroundingHouses, makeRamp, buildCourtyard, buildExistingHouses, neighborBayPlan } from "../src/terrain";
+import { buildSurroundingHouses, makeRamp, buildCourtyard, buildExistingHouses, neighborBayPlan, clipParkingLine } from "../src/terrain";
 import { surroundings as c, forestTrees, groundHeight, roadHeight, terraceContours } from "../src/surroundings";
 import { contourAt } from "../src/contours";
+import { garageLayout } from "../src/garage-layout";
 import type { Mats } from "../src/primitives";
 
 const mats = Object.fromEntries(
@@ -109,6 +110,23 @@ test("坡长调整后仍接到左侧道路，坡道与接入段不叠面", () =>
       );
     }
   }
+});
+
+test("坡道前缘收在地库矮墙内侧", () => {
+  const innerZ = Math.max(...garageLayout.outerWall.filter(([x]) => x >= site.width).map(([, z]) => z));
+  for (const roadY of [-4000, -2000, 0]) {
+    const ramp = makeRamp(new THREE.Group(), mats, roadY, 5000);
+    assert.equal(hits(ramp, site.width + 1000, innerZ - 10).length, 0);
+    assert.equal(hits(ramp, site.width + 1000, innerZ + 50).length, 1);
+  }
+});
+
+test("车位线按弯曲墙内边裁剪", () => {
+  const front: [number, number][] = [[0, 0], [1000, 500], [2000, 0]];
+  const clipped = clipParkingLine([0, 250], [2000, 250], front);
+  assert.equal(clipped.length, 2);
+  assert.deepEqual(clipped, [[[0, 250], [500, 250]], [[1500, 250], [2000, 250]]]);
+  assert.deepEqual(clipParkingLine([1000, -100], [1000, 800], front), [[[1000, 500], [1000, 800]]]);
 });
 
 test("辅楼右侧为两级田，后方木房落在第二田，左侧高地高于院坪", () => {

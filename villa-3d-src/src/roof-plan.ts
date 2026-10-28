@@ -8,7 +8,7 @@ import type { RoofFace } from "./roof-surfaces";
 
 export type RoofDrawingView = "slab" | RoofStyle;
 export const roofDrawingLabels: Record<RoofDrawingView, string> = {
-  slab: "屋顶层平面", joined: "原有官帽", floating: "悬浮官帽",
+  slab: "屋顶层平面", ...roofStyleLabels,
 };
 const n = (v: number) => Math.round(v);
 const pts = (p: Point[]) => p.map(([x, z]) => `${n(x)},${n(z)}`).join(" ");

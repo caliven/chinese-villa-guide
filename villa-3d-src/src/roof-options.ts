@@ -1,9 +1,10 @@
 export const roofStyleLabels = {
-  joined: "原有官帽",
   floating: "悬浮官帽",
+  joined: "普通官帽",
 } as const;
 
 export type RoofStyle = keyof typeof roofStyleLabels;
+export const DEFAULT_ROOF_STYLE: RoofStyle = "floating";
 export const roofStylePreferenceKey = "anhua-villa-roof-style-v1";
 
 /** 槽底相对屋面基准的抬高（毫米）；找坡以此为最低排水口标高。 */
@@ -197,7 +198,11 @@ export function maxOpeningTopY(eaveY: number, drop = 0) {
 // 极缓坡保留柱头净空及最小起坡；这些是造型建议，非实测或结构尺寸。
 export const floatingHatDesign = { ridgeDrop: 500, minEaveLift: 270, minRise: 50 };
 
+/** 普通官帽独立控制有效瓦宽；天沟向外增加，不再挤占瓦面。均为造型建议值。 */
+export const joinedHatDesign = { tileWidthExtra: 750, minWingWidth: 1000 };
+
 export function parseRoofStyle(value: unknown): RoofStyle {
+  // 缺字段是历史普通官帽稿；新建／初始化通过 DEFAULT_ROOF_STYLE 指定悬浮。
   if (value === undefined || value === "joined") return "joined";
   if (value === "floating") return "floating";
   throw new Error("官帽造型选项无效");

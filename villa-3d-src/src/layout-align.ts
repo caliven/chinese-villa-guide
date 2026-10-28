@@ -13,7 +13,8 @@ import {
 import { constrainWallEdits, type WallConstraintResult } from "./wall-constraints";
 import { polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomOutline } from "./room-geometry";
 import { polygonIntersectionAreaMm2 } from "./plan-regions";
-import { FURNITURE_WALL_FINISH, physicalFurnitureAnchors, resolveFurnitureCollisions } from "./furniture-placement";
+import { FURNITURE_WALL_FINISH, furnitureWallFinish, physicalFurnitureAnchors, resolveFurnitureCollisions } from "./furniture-placement";
+import type { WallContactTarget } from "./wall-contact-snap";
 
 /** 家具贴墙内皮后再留的示意缝（mm），避免色块压进墙线。 */
 export { FURNITURE_WALL_FINISH } from "./furniture-placement";
@@ -181,6 +182,36 @@ export function bayAlongWall(a: Point, b: Point, opening: WallOpening, stations:
   };
 }
 
+/** 按真正接触所在墙的垂直墙面确定净开间；虚拟墙仅作为零厚度分界。 */
+export function bayBetweenWalls(a: Point, b: Point, opening: WallOpening, walls: Wall[], rooms: Room[] = [], hostThickness = construction.outsideWall): OpeningBay {
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const ux = (b[0] - a[0]) / length, uz = (b[1] - a[1]) / length;
+  const dividers: { center: number; half: number }[] = [];
+  for (const wall of walls) {
+    const dx = wall.b[0] - wall.a[0], dz = wall.b[1] - wall.a[1];
+    const wallLength = Math.hypot(dx, dz);
+    if (wallLength < 1 || Math.abs((dx * ux + dz * uz) / wallLength) > 0.01) continue;
+    const cross = (p: Point) => (p[0] - a[0]) * -uz + (p[1] - a[1]) * ux;
+    const c0 = cross(wall.a), c1 = cross(wall.b), reach = hostThickness / 2 + 1;
+    if (Math.min(c0, c1) > reach || Math.max(c0, c1) < -reach) continue;
+    const center = stationAlongWall(a, b, wall.a[0], wall.a[1]);
+    if (center < -1 || center > length + 1) continue;
+    const half = !isPhysicalWall(wall) ? 0 : (wallRoleOf(wall) === "bearing" ? construction.outsideWall : construction.partition) / 2;
+    dividers.push({ center, half });
+  }
+  if (!dividers.length) return bayAlongWall(a, b, opening, collectBayStations(a, b, [], rooms));
+
+  const center = opening.offset + opening.width / 2;
+  let start = 0, end = length;
+  for (const divider of dividers) {
+    if (divider.center <= center) start = Math.max(start, divider.center + divider.half);
+    if (divider.center >= center) end = Math.min(end, divider.center - divider.half);
+  }
+  const bayWidth = Math.max(0, end - start);
+  return { bayStart: start, bayEnd: end, bayWidth, leftClear: opening.offset - start,
+    rightClear: end - opening.offset - opening.width, centerDelta: center - (start + end) / 2, wallLen: length };
+}
+
 /** 使洞口中心对齐开间中心，宽度不变，夹在开间内。 */
 export function centerOpeningInBay(bay: OpeningBay, width: number) {
   const w = Math.max(300, width);
@@ -323,7 +354,7 @@ export function pullFurnitureClearOfWalls(
   f: Furniture,
   room: Room,
   floorIndex: number,
-  finish = FURNITURE_WALL_FINISH,
+  finish = furnitureWallFinish(f),
   partitions?: Wall[],
 ) {
   if (!roomIsRectangular(room)) return f;
@@ -1120,7 +1151,7 @@ function nearAlong(value: number, a0: number, a1: number, pad = 350) {
 export function alignWallToNearestSide(
   wall: Wall,
   side: WallAlignSide,
-  candidates: Pick<Wall, "a" | "b">[],
+  candidates: WallContactTarget[],
   eps = 40,
 ): WallAlignResult {
   forceOrthoWall(wall);
@@ -1135,7 +1166,8 @@ export function alignWallToNearestSide(
     let best: number | null = null;
     for (const c of candidates) {
       if (wallAxis(c) !== "v") continue;
-      const cx = (c.a[0] + c.b[0]) / 2;
+      const cx = (c.a[0] + c.b[0]) / 2 +
+        (c.exterior && isPhysicalWall(wall) ? (side === "left" ? -1 : 1) * construction.outsideWall / 2 : 0);
       if (!nearAlong(z, c.a[1], c.b[1])) continue;
       if (side === "left") {
         if (cx < xLo - eps && (best == null || cx > best)) best = cx;
@@ -1161,7 +1193,8 @@ export function alignWallToNearestSide(
   let best: number | null = null;
   for (const c of candidates) {
     if (wallAxis(c) !== "h") continue;
-    const cz = (c.a[1] + c.b[1]) / 2;
+    const cz = (c.a[1] + c.b[1]) / 2 +
+      (c.exterior && isPhysicalWall(wall) ? (side === "up" ? -1 : 1) * construction.outsideWall / 2 : 0);
     if (!nearAlong(x, c.a[0], c.b[0])) continue;
     if (side === "up") {
       // 北＝Z 更小
@@ -1325,7 +1358,7 @@ export function collectWallMagnetAnchors(
 export function snapWallDuringDrag(
   wall: Wall,
   mode: "move" | "a" | "b",
-  candidates: Pick<Wall, "a" | "b" | "role">[],
+  candidates: WallContactTarget[],
   axisAnchors: { xs: number[]; zs: number[] },
   maxGap = MAGNET_SNAP_GAP,
 ): { guideXs: number[]; guideZs: number[] } {
@@ -1375,7 +1408,10 @@ export function snapWallDuringDrag(
         const lo = Math.min(candidate.a[normal], candidate.b[normal]);
         const hi = Math.max(candidate.a[normal], candidate.b[normal]);
         if (fixed[normal] < lo - 1 || fixed[normal] > hi + 1) continue;
-        targets.push((candidate.a[along] + candidate.b[along]) / 2);
+        const center = (candidate.a[along] + candidate.b[along]) / 2;
+        const farSide = candidate.exterior && isPhysicalWall(wall)
+          ? Math.sign(moving[along] - fixed[along]) * construction.outsideWall / 2 : 0;
+        targets.push(center + farSide);
       }
     }
     const wallTarget = nearestAnchor(moving[along], targets, edgeGap);
@@ -1461,6 +1497,7 @@ export function snapFurnitureDuringDrag(
   const centerGap = options?.centerGap ?? MAGNET_CENTER_GAP;
   const previewGap = options?.previewGap ?? MAGNET_GUIDE_PREVIEW_GAP;
   const floorIndex = options?.floorIndex ?? 0;
+  const finish = furnitureWallFinish(f);
   const partitions = options?.partitions;
   const physicalWalls = options?.collisionWalls ?? partitions ?? [];
   // 先退出实际墙带，再判断房间归属，避免指针刚越过墙中线便被邻房净空拉到墙另一侧。
@@ -1480,6 +1517,7 @@ export function snapFurnitureDuringDrag(
   if (room && roomIsRectangular(room)) {
     const anchors = collectFurnitureRoomAnchors(room, floorIndex, {
       partitions,
+      finish,
       furniture: options?.furniture,
       excludeFurnitureIndex: options?.excludeFurnitureIndex,
     });
@@ -1619,9 +1657,9 @@ export function snapFurnitureDuringDrag(
       const wall = nearestRoomWall(f, room, floorIndex, partitions);
       if (Math.abs(wall.alongDelta) <= centerGap) {
         const before = { x: f.x, z: f.z };
-        centerFurnitureAgainstNearestWall(f, room, floorIndex, FURNITURE_WALL_FINISH, partitions);
+        centerFurnitureAgainstNearestWall(f, room, floorIndex, finish, partitions);
         if (Math.abs(f.x - before.x) > 1e-6 || Math.abs(f.z - before.z) > 1e-6) {
-          const clear = roomFurnitureClearRect(room, floorIndex, FURNITURE_WALL_FINISH, partitions);
+          const clear = roomFurnitureClearRect(room, floorIndex, finish, partitions);
           if (wall.side === "west" || wall.side === "east") {
             pushGuideX(wall.side === "west" ? clear.x0 : clear.x1);
             pushGuideZ((clear.z0 + clear.z1) / 2);
@@ -1649,11 +1687,11 @@ export function snapFurnitureDuringDrag(
   }
 
   // 松手前再钳出墙厚，避免吸附抖动后仍压线。
-  if (room) pullFurnitureClearOfWalls(f, room, floorIndex, FURNITURE_WALL_FINISH, partitions);
+  if (room) pullFurnitureClearOfWalls(f, room, floorIndex, finish, partitions);
 
   resolveFurnitureCollisions(f, {
     walls: physicalWalls, furniture: options?.furniture ?? [], exclude: options?.excludeFurnitureIndex,
-    clear: room && roomIsRectangular(room) ? roomFurnitureClearRect(room, floorIndex, FURNITURE_WALL_FINISH, partitions) : undefined,
+    clear: room && roomIsRectangular(room) ? roomFurnitureClearRect(room, floorIndex, finish, partitions) : undefined,
     previous: options?.previous,
   });
   // 碰撞避让可能取消一次贴边吸附，只保留最终位置实际命中的引导线。

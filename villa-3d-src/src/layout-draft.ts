@@ -27,11 +27,15 @@ import {
 import { projectMeta } from "./project-meta";
 import { snapMm } from "./units";
 import { reconcileWallOpening } from "./wall-constraints";
+import { parseOptionalRailingStyle, type RailingStyle } from "./railing-options";
+import { normalizeDraftWallContacts } from "./wall-contact-snap";
 
 export const layoutDraftKey = "anhua-villa-layout-draft-v1";
 export const layoutDraftSchema = 1 as const;
 
 export type StairDraft = {
+  /** 缺省时兼容旧方案的 stairRailingStyle。 */
+  railingStyle?: RailingStyle;
   /** 旧稿缺省仍为双跑。 */
   model?: "double" | "triple";
   room: { x: number; z: number; w: number; d: number };
@@ -54,6 +58,8 @@ export type StairDraft = {
 
 export type PorticoDraft = { x: number; w: number; projection: number };
 export type VoidDraft = {
+  /** 缺省时兼容旧方案的 livingRailingStyle。 */
+  railingStyle?: RailingStyle;
   x: number; z: number; w: number; d: number;
   /** 缺省为旧稿；接管时按一楼客厅匹配，旧自定义范围保持原位。 */
   mode?: "follow" | "custom";
@@ -316,6 +322,10 @@ function parseFurniture(value: unknown, i: number): Furniture {
     item.rotation = normalizeRotation(num(value.rotation, `家具 ${i} 旋转`, -1e6, 1e6));
   }
   if (value.label !== undefined) item.label = str(value.label, `家具 ${i} 标签`, 40);
+  if (value.showerDoorSide !== undefined) {
+    if ((kind !== "shower" && kind !== "fp-shower") || !["front", "left", "right"].includes(String(value.showerDoorSide))) throw new Error(`家具 ${i} 淋浴门位置无效`);
+    item.showerDoorSide = value.showerDoorSide as Furniture["showerDoorSide"];
+  }
   return item;
 }
 
@@ -353,6 +363,7 @@ function parseStair(value: unknown): StairDraft {
   const axis = value.axis === "z" ? "z" : value.axis === "x" ? "x" : null;
   if (!axis) throw new Error("楼梯方向应为 x 或 z");
   return {
+    ...(value.railingStyle !== undefined ? { railingStyle: parseOptionalRailingStyle(value.railingStyle, "楼梯") } : {}),
     room: {
       x: num(value.room.x, "楼梯房间 x"),
       z: num(value.room.z, "楼梯房间 z"),
@@ -394,7 +405,7 @@ export function envelopeFromSite(): LayoutEnvelope {
 }
 
 export function clonePublishedLayout(): LayoutDraft {
-  return ensureExteriorManaged({
+  return normalizeDraftWallContacts(ensureExteriorManaged({
     schema: layoutDraftSchema,
     revision: projectMeta.revision,
     updatedAt: new Date().toISOString(),
@@ -411,7 +422,7 @@ export function clonePublishedLayout(): LayoutDraft {
     exteriorOpenings: [],
     exteriorManaged: false,
     envelope: envelopeFromSite(),
-  });
+  }));
 }
 
 /** 任一楼层仍有 kind=stair 的房间框，即视为本方案含楼梯模型。 */
@@ -763,6 +774,7 @@ export function parseLayoutDraft(raw: string): LayoutDraft {
       const mode = value.livingVoid.mode;
       if (mode != null && mode !== "follow" && mode !== "custom") throw new Error("挑空跟随方式无效");
       return {
+        ...(value.livingVoid.railingStyle !== undefined ? { railingStyle: parseOptionalRailingStyle(value.livingVoid.railingStyle, "挑空客厅") } : {}),
         x: num(value.livingVoid.x, "挑空 x"),
         z: num(value.livingVoid.z, "挑空 z"),
         w: num(value.livingVoid.w, "挑空 w", value.livingVoid.w === 0 && value.livingVoid.d === 0 ? 0 : 1000, 40000),

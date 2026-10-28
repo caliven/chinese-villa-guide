@@ -228,7 +228,7 @@ test("编辑任一层入口宽度与位置双向同步，可撤销恢复，普�
   assert.deepEqual(alignedEntryOpenings(editor.draft), editor.draft.exteriorOpenings);
 });
 
-test("通高门跟随凸凹门厅、主辅楼位置和尺寸；编辑全高分离不重复，剖切只裁原构件", () => {
+test("通高门跟随凸凹门厅、主辅楼位置和尺寸；全高分离不重复，剖切保留整门并裁上窗", () => {
   try {
     for (const buildingPlacement of ["main-east", "main-west"] as const) for (const porticoStyle of ["projecting", "recessed"] as const) {
       applyVillaParams({ ...DEFAULT_VILLA_PARAMS, buildingPlacement, porticoStyle, mainWidth: 14000 });
@@ -243,7 +243,10 @@ test("通高门跟随凸凹门厅、主辅楼位置和尺寸；编辑全高分�
         assert.equal(entries.length, 1);
         const bounds = new THREE.Box3().setFromObject(entries[0]);
         if (cut === "full") { assert.ok(Math.abs(bounds.min.y - entry.bottom) < 1); assert.ok(Math.abs(bounds.max.y - entry.top) < 1); }
-        else assert.ok(bounds.max.y <= (floors?.[0] === 1 ? draft.floors[1].y : entry.bottom) + 1200 + 1);
+        else {
+          const expectedTop = floors?.[0] === 1 ? draft.floors[1].y + 1200 : Math.max(entry.bottom + 1200, entry.bandBottom + 40);
+          assert.ok(Math.abs(bounds.max.y - expectedTop) < 1, "下层门扇及门顶横框完整，上层玻璃仍按1200剖切");
+        }
         disposeEditorModel(model.root, new THREE.Scene());
       }
     }

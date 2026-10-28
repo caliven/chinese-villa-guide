@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { contains, floors, frontElevation, site, type Point } from "../src/data";
-import { attachRoofs, floatingHatLayout, mainRoofFootprint, annexRoofFootprint, roofPitch } from "../src/architecture";
+import { attachRoofs, floatingHatLayout, joinedHatLayout, mainRoofFootprint, annexRoofFootprint, roofPitch } from "../src/architecture";
 import { corbelCentersOnEdge, gutteredRoof, hatSupportInset, meander, tiledApron } from "../src/facade-details";
 import { addTiledRoof, hatRoofSurfaces, hipRoofSurfaces, joinRoofFaces } from "../src/roof-surfaces";
 import type { Mats } from "../src/primitives";
@@ -185,12 +185,13 @@ test("主辅楼天沟外边反坎高200、净宽600、压顶内倾与瓦边探�
 test("官帽与正屋在1、4.5、10分水均只有一层外露坡面，交线两侧没有透缝或埋入瓦面", () => {
   const m = mainRoofFootprint(), e = m.eave + roofTileEaveLift(), center = site.portico.x + site.portico.w / 2;
   const x0 = m.x + inset, z0 = m.z + inset, w = m.w - 2 * inset, d = m.d - 2 * inset;
-  const left = center - frontElevation.hatWidth / 2 + inset, right = 2 * center - left;
-  const front = frontElevation.hatFront + inset, peakFront = frontElevation.hatFront + frontElevation.hatWidth * 0.42;
+  const h = joinedHatLayout();
+  const left = h.x + inset, right = h.x + h.w - inset;
+  const front = h.z + inset, peakFront = h.ridgeFront;
   for (const pitch of [1, 4.5, 10]) {
     const rise = roofPitch(pitch).mainRise, peak = e + rise;
     const main = hipRoofSurfaces(x0, z0, w, d, e, rise);
-    const hat = hatRoofSurfaces(center, frontElevation.hatFront, frontElevation.hatWidth, m.z + m.d / 2, e, peak);
+    const hat = hatRoofSurfaces(center, h.z, h.w, h.joinZ, e, peak, 1, h.ridgeFront);
     const group = new THREE.Group();
     addTiledRoof(group, joinRoofFaces([...main.faces, ...hat.faces]), mat.villaRoof, mat.villaRoofJoint);
     for (let x = left + 37; x < right - 10; x += 193) for (let z = front + 61; z < m.z + m.d / 2; z += 217) {
@@ -334,7 +335,8 @@ test("陡坡、缓坡的筒瓦整个圆截面都收在本坡范围内，不穿�
   for (const pitch of [1,10]) {
     const eave = m.eave + roofTileEaveLift(), rise = roofPitch(pitch).mainRise;
     const main = hipRoofSurfaces(m.x+inset,m.z+inset,m.w-2*inset,m.d-2*inset,eave,rise);
-    const hat = hatRoofSurfaces(center,frontElevation.hatFront,frontElevation.hatWidth,m.z+m.d/2,eave,eave+rise);
+    const h = joinedHatLayout(pitch);
+    const hat = hatRoofSurfaces(center, h.z, h.w, h.joinZ, eave, h.peak, 1, h.ridgeFront);
     const joined = joinRoofFaces([...main.faces,...hat.faces]);
     for (const owner of [0,1]) {
       const faces = joined.filter(face => face.owner === owner), group = new THREE.Group();
@@ -360,10 +362,8 @@ test("两种官帽裁切后同坡瓦垄连续，人工分片线两侧没有漏�
   for (const style of ["joined", "floating"] as const) for (const pitch of [1, 4.5, 10]) {
     const eave = m.eave + roofTileEaveLift(), rise = roofPitch(pitch).mainRise;
     const main = hipRoofSurfaces(m.x + inset, m.z + inset, m.w - 2 * inset, m.d - 2 * inset, eave, rise);
-    const h = floatingHatLayout(pitch);
-    const hat = style === "joined"
-      ? hatRoofSurfaces(center, frontElevation.hatFront, frontElevation.hatWidth, m.z + m.d / 2, eave, eave + rise)
-      : hatRoofSurfaces(center, h.z, h.w, h.joinZ, h.eave + roofTileEaveLift(), h.peak, 1, h.ridgeFront);
+    const h = style === "joined" ? joinedHatLayout(pitch) : floatingHatLayout(pitch);
+    const hat = hatRoofSurfaces(center, h.z, h.w, h.joinZ, h.eave + roofTileEaveLift(), h.peak, 1, h.ridgeFront);
     const original = [...main.faces, ...hat.faces], visible = joinRoofFaces(original);
     for (const owner of [0, 1]) {
       const group = new THREE.Group(), faces = visible.filter(face => face.owner === owner);
@@ -466,8 +466,9 @@ test("梁托背面贴三楼墙皮；主辅楼统一500×200×160，不随出檐�
   assert.ok(corbels.length > 10, "主楼四周应有梁托");
   const { frontElevation } = await import("../src/data");
   const under = hatSupportInset();
-  const hatWest = site.portico.x + site.portico.w / 2 - frontElevation.hatWidth / 2 + under;
-  const hatEast = site.portico.x + site.portico.w / 2 + frontElevation.hatWidth / 2 - under;
+  const hat = joinedHatLayout();
+  const hatWest = hat.x + under;
+  const hatEast = hat.x + hat.w - under;
   const hatFrontFace = frontElevation.hatFront + under;
   // 官帽前／侧梁托挂在檐下内侧，不要求贴退台墙皮；其余仍须贴墙。
   for (const c of corbels) {

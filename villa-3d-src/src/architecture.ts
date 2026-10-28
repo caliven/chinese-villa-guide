@@ -20,12 +20,14 @@ import {
 import { ensureFurnitureWallClearance } from "./layout-align";
 import type { ExteriorOpeningDraft, LayoutDraft, PorticoDraft, StairDraft, VoidDraft } from "./layout-draft";
 import { facadeOpeningToWallOpening, floorsHaveStair } from "./layout-draft";
-import { stairOpeningBounds, stairOpeningRails, fitStairToRoom } from "./stair-geometry";
+import { stairOpeningBounds, fitStairToRoom } from "./stair-geometry";
+import { interiorRailingLayout } from "./interior-railing";
+import { interiorRailing } from "./railing-options";
 import { continuousGlazing } from "./continuous-glazing";
 import { integratedEntry } from "./entry-assembly";
 import { frontOpeningsChanged, resolveLayoutFacades } from "./facade-layout";
 import { FRONT_OPENING } from "./openings";
-import { partitionProfile } from "./partition-geometry";
+import { joinedWallSpan, partitionProfile, wallJunctionPeers } from "./partition-geometry";
 import {
   eastTransomBand,
   facades,
@@ -46,6 +48,8 @@ import {
   eyelidStackHeight,
   fasciaBottomY,
   floatingHatDesign,
+  joinedHatDesign,
+  DEFAULT_ROOF_STYLE,
   roofTileEaveLift,
   roofTileInset,
   type RoofStyle,
@@ -502,7 +506,7 @@ export function buildVilla(
   mat: Mats,
   withLabels = true,
   fenShui = site.roofFenShui,
-  roofStyle: RoofStyle = "joined",
+  roofStyle: RoofStyle = DEFAULT_ROOF_STYLE,
   layout?: VillaLayoutLive | null,
   reuse?: VillaModel,
 ): VillaModel {
@@ -522,11 +526,12 @@ function buildVillaInContext(
   const annexFurn = layout?.annexFurniture ?? annexFurniture;
   const resolved = resolveLayoutFacades(layout);
   const layoutFacades = resolved.facades;
+  const railings = interiorRailingLayout(floorList, stairGeom, livingVoid, layoutFacades, stairPresent);
   const customFront = frontOpeningsChanged(layout);
   const signatures: VillaModel["signatures"] = {
     structure: JSON.stringify([site, frontElevation, construction, circulation, floors.map(f => [f.y, f.height, f.front]), fenShui, roofStyle]),
     levels: floorList.map((floor, index) => JSON.stringify([
-      floor, withLabels, stairPresent, stairGeom, index === 1 ? livingVoid : null, layoutFacades[index], index < 2 && customFront,
+      floor, withLabels, stairPresent, stairGeom, index === 1 ? livingVoid : null, layoutFacades[index], index < 2 && customFront, interiorRailing, railings.floorSignature(index),
     ])),
     annex: JSON.stringify([annexParts, annexFurn, layoutFacades[3]]),
     front: JSON.stringify([customFront, layoutFacades[0][0].openings, layoutFacades[1][0].openings, resolved.glazing, resolved.entries]),
@@ -601,8 +606,9 @@ function buildVillaInContext(
       g.add(floorSlab);
     } else slab(g, floorOutline, base + (index === 0 ? site.entranceRise : 0), construction.floorSlab, mat.floor, holes);
     const floorWalls = layoutFacades[index];
+    const wallPeers = wallJunctionPeers(floor.partitions, floorWalls);
     for (const facade of floorWalls)
-      wallWithOpenings(g, facade.a, facade.b, base, h, facade.openings, mat, construction.outsideWall, false, mat.sand);
+      wallWithOpenings(g, facade.a, facade.b, base, h, facade.openings, mat, construction.outsideWall, false, mat.sand, joinedWallSpan(facade, wallPeers).join);
     // 三楼下沿线以上（梁托空档）不再画水包砂横槽，避免檐下多一道细线。
     const grooveCap = index === 2
       ? fasciaBottomY(mainRoofFootprint().eave, 0) - 20
@@ -723,9 +729,10 @@ function buildVillaInContext(
     };
     for (const part of floor.partitions) {
       if (!isPhysicalWall(part)) continue;
-      const a = bury(part.a),
-        b = bury(part.b),
-        pulled = Math.hypot(a[0] - part.a[0], a[1] - part.a[1]);
+      const span = joinedWallSpan(part, wallPeers);
+      const a = bury(span.a), b = bury(span.b);
+      const length = Math.hypot(part.b[0] - part.a[0], part.b[1] - part.a[1]);
+      const pulled = length ? ((a[0] - part.a[0]) * (part.b[0] - part.a[0]) + (a[1] - part.a[1]) * (part.b[1] - part.a[1])) / length : 0;
       const profile = partitionProfile(part, stairStoryH, stairPresent && index < floorList.length - 1 ? stairSoffit : undefined);
       const opening = profile.opening;
       const op: Opening[] = opening
@@ -774,7 +781,9 @@ function buildVillaInContext(
         mat,
         stairGeom.axis,
         stairGeom,
+        false,
       );
+    railings.render(g, railings.stories[index]);
     if (stairPresent && index > 0) {
       // 单层剖看仍显示下层通来的实体梯段；全楼与分离视图关闭，避免重叠。
       const incoming = new THREE.Group();
@@ -783,12 +792,16 @@ function buildVillaInContext(
       const prev = floorList[index - 1];
       const riseBase = index === 1 ? site.entranceRise : 0;
       stairs(incoming, stairGeom.x, stairGeom.z, prev.y + riseBase,
-        prev.height - riseBase, mat, stairGeom.axis, stairGeom);
+        prev.height - riseBase, mat, stairGeom.axis, stairGeom, false);
+      railings.render(incoming, railings.stories[index - 1]);
       g.add(incoming);
     }
-    // 挑空边栏杆不再写死：南缘默认墙体，东缘等用家具「栏杆」自画。
+    if (index === 1) {
+      const guard = new THREE.Group(); guard.name = "挑空自动栏杆"; g.add(guard);
+      railings.render(guard, railings.livingGuards[index]);
+    }
     if (stairPresent && index > 0) {
-      for (const [a, b] of stairOpeningRails(stairGeom)) railing(g, a, b, base, mat);
+      railings.render(g, railings.stairGuards[index]);
     }
     if (index === 0 && !customFront) {
       const sw = site.main.w / 13500;
@@ -827,8 +840,8 @@ function buildVillaInContext(
       // 三楼左右墙角不再做装饰包角柱，直接露水包砂墙面。
       const eaveY = mainRoofFootprint().eave;
       // 悬浮官帽檐口更高，柱身与正面装饰随其上抬；原有官帽仍贴正屋檐口。
-      const hatLayout = roofStyle === "floating" ? floatingHatLayout(fenShui) : null;
-      const hatEaveY = hatLayout?.eave ?? eaveY;
+      const hatLayout = roofStyle === "floating" ? floatingHatLayout(fenShui) : joinedHatLayout(fenShui);
+      const hatEaveY = hatLayout.eave;
       const fasciaBot = fasciaBottomY(hatEaveY, 0);
       // 柱盖贴实际三眼皮底面；不能继续伸进叠层檐板，留下共面闪线。
       const pierTop = hatEaveY - eyelidStackHeight();
@@ -860,11 +873,11 @@ function buildVillaInContext(
       }
       // 回纹贴在官帽实际承托梁的下沿线，纹高收进线脚；不再浮在后方门窗上方。
       const fasciaMid = fasciaBot + eyelidFixed.fasciaHeight / 2;
-      const hatWest = site.portico.x + site.portico.w / 2 - frontElevation.hatWidth / 2;
+      const hatWest = hatLayout.x;
       const supportInset = hatSupportInset();
       meander(g, hatWest + supportInset + 120, fasciaMid,
         frontElevation.hatFront + supportInset - eyelidFixed.fasciaProtrusion,
-        frontElevation.hatWidth - 2 * supportInset - 240, mat, 70);
+        hatLayout.w - 2 * supportInset - 240, mat, 70);
     }
     // 屋后一二层、二三层交界的白条已去掉。三楼檐口下这一道留在瓦下。
     if (index === 2)
@@ -927,8 +940,9 @@ function buildVillaInContext(
     const annexH = a.height;
     slab(annex, rect(a.x, a.z, a.w, a.d), site.entranceRise, 180, mat.floor);
     const annexWalls = layoutFacades[3];
+    const wallPeers = wallJunctionPeers(annexParts, annexWalls);
     for (const facade of annexWalls)
-      wallWithOpenings(annex, facade.a, facade.b, 0, annexH, facade.openings, mat, construction.outsideWall, false, mat.sand);
+      wallWithOpenings(annex, facade.a, facade.b, 0, annexH, facade.openings, mat, construction.outsideWall, false, mat.sand, joinedWallSpan(facade, wallPeers).join);
     sandGrooves(
       annex,
       annexWalls.map((facade) => ({
@@ -956,8 +970,10 @@ function buildVillaInContext(
       return [x, z];
     };
     for (const p of annexParts) {
-      const aa = buryAnnex(p.a), bb = buryAnnex(p.b);
-      const pulled = Math.hypot(aa[0] - p.a[0], aa[1] - p.a[1]);
+      const span = joinedWallSpan(p, wallPeers);
+      const aa = buryAnnex(span.a), bb = buryAnnex(span.b);
+      const length = Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]);
+      const pulled = length ? ((aa[0] - p.a[0]) * (p.b[0] - p.a[0]) + (aa[1] - p.a[1]) * (p.b[1] - p.a[1])) / length : 0;
       const profile = partitionProfile(p, annexH - site.entranceRise, undefined, 200), opening = profile.opening;
       wallWithOpenings(annex, aa, bb, site.entranceRise, profile.height,
         opening ? [{ at: opening.offset - pulled + opening.width / 2, w: opening.width, sill: opening.sill, h: opening.height,
@@ -1042,6 +1058,24 @@ export function roofPitch(fenShui: number) {
   };
 }
 
+/** 普通官帽与正屋同檐同脊；前／侧等坡，宽度不受天沟内收挤压。 */
+export function joinedHatLayout(fenShui = site.roofFenShui) {
+  const main = mainRoofFootprint(), center = site.portico.x + site.portico.w / 2;
+  const z = frontElevation.hatFront, joinZ = main.z + main.d / 2;
+  // 保留两翼及接脊长度；草稿偏移、窄主楼或深凹入门厅也不能穿出正屋。
+  const maxWidth = Math.min(
+    2 * Math.min(center - main.x, main.x + main.w - center) - 2 * joinedHatDesign.minWingWidth,
+    2 * (joinZ - z - 50),
+  );
+  const w = Math.min(site.portico.w + joinedHatDesign.tileWidthExtra + 2 * roofTileInset, maxWidth);
+  const run = (w - 2 * roofTileInset) / 2;
+  return {
+    x: center - w / 2, z, w, d: joinZ - z, eave: main.eave,
+    peak: main.eave + roofTileEaveLift() + roofPitch(fenShui).mainRise,
+    joinZ, ridgeFront: z + roofTileInset + run,
+  };
+}
+
 export function floatingHatLayout(fenShui = site.roofFenShui) {
   const main = mainRoofFootprint(), pitch = roofPitch(fenShui), slope = fenShui / 10;
   const w = frontElevation.hatWidth, run = (w - 2 * roofTileInset) / 2;
@@ -1073,14 +1107,7 @@ export function roofPlanModel(style: RoofStyle, layout?: VillaLayoutLive | null,
     const lift = roofTileEaveLift(), inset = roofTileInset;
     const hip = (r: typeof main, rise: number) => hipRoofSurfaces(r.x + inset, r.z + inset, r.w - 2 * inset, r.d - 2 * inset, r.eave + lift, rise);
     const mainHip = hip(main, pitch.mainRise), annexHip = hip(annex, pitch.annexRise);
-    const floating = floatingHatLayout(fenShui);
-    const hat = style === "floating" ? floating : {
-      x: site.portico.x + site.portico.w / 2 - frontElevation.hatWidth / 2,
-      z: frontElevation.hatFront, w: frontElevation.hatWidth,
-      eave: main.eave, peak: main.eave + lift + pitch.mainRise,
-      joinZ: main.z + main.d / 2,
-      ridgeFront: frontElevation.hatFront + frontElevation.hatWidth * .42,
-    };
+    const hat = style === "floating" ? floatingHatLayout(fenShui) : joinedHatLayout(fenShui);
     const hatFaces = hatRoofSurfaces(hat.x + hat.w / 2, hat.z, hat.w, hat.joinZ, hat.eave + lift, hat.peak, 1, hat.ridgeFront);
     return {
       main, annex, hat: { ...hat }, pitch,
@@ -1147,16 +1174,11 @@ export function attachRoofs(
   annexRoof: THREE.Object3D,
   mat: Mats,
   fenShui = site.roofFenShui,
-  roofStyle: RoofStyle = "joined",
+  roofStyle: RoofStyle = DEFAULT_ROOF_STYLE,
 ) {
   const main = mainRoofFootprint();
   const pitch = roofPitch(fenShui);
-  const hatCenter = site.portico.x + site.portico.w / 2;
-  const bay = {
-    x: hatCenter - frontElevation.hatWidth / 2,
-    w: frontElevation.hatWidth,
-    z: frontElevation.hatFront,
-  };
+  const bay = joinedHatLayout(fenShui);
   // 梁托／下沿线贴三楼外墙皮：北墙在退台后的 floors[2].front，不是一层前墙。
   const mainWall = {
     x: site.main.x,

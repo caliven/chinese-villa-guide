@@ -57,7 +57,7 @@ test("虚拟墙与实体墙重合时不因虚线重复划区", () => {
   assert.deepEqual(virtualWallRegions(b, [physical, virtual]), []);
 });
 
-test("平面拖入虚拟墙：细灰虚线与分区尺寸仍画，但不参与外圈墙距", () => {
+test("平面拖入虚拟墙：细灰虚线与分区尺寸仍画，外墙接触点参与外圈定位", () => {
   const draft = clonePublishedLayout();
   removeStairFromDraft(draft); // 去掉梯间档，避免与虚线测试混淆
   const x0 = site.main.x;
@@ -73,14 +73,14 @@ test("平面拖入虚拟墙：细灰虚线与分区尺寸仍画，但不参与�
   assert.match(html, /virtual-wall-hit/);
   assert.match(html, /virtual-region-size/);
   assert.match(html, /虚线分间 \d+×\d+/);
-  // 主楼仅虚线时外圈不应出现 walls 分档（辅楼另有实体墙，勿用整页断言）。
+  // 主楼虚线接到外墙时出现 walls 分档。
   const main = html.match(/<svg data-plan-building="main"[\s\S]*?<\/svg>/)?.[0] ?? "";
   assert.ok(main);
-  assert.ok(!main.includes('data-dim-kind="walls"'));
+  assert.ok(main.includes('data-dim-kind="walls"'));
 
   const dims = collectPlanDimensions(0, draft.floors[0]!, draft.annexPartitions, "main");
-  assert.ok(!dims.northXs.includes(x0 + w / 2) && !dims.southXs.includes(x0 + w / 2));
-  assert.ok(!dims.westZs.includes(z0 + d / 2) && !dims.eastZs.includes(z0 + d / 2));
+  assert.ok(dims.northXs.includes(x0 + w / 2) && dims.southXs.includes(x0 + w / 2));
+  assert.ok(dims.westZs.includes(z0 + d / 2) && dims.eastZs.includes(z0 + d / 2));
 });
 
 test("改角色为虚拟墙时去掉门洞，且不进入立体墙体", () => {

@@ -205,7 +205,7 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   const mats = Object.fromEntries(
     keys.map((key) => [key, new THREE.MeshStandardMaterial()]),
   ) as Mats;
-  const villa = buildVilla(mats, false);
+  const villa = buildVilla(mats, false, site.roofFenShui, "joined");
   villa.group.updateMatrixWorld(true);
   const v = new THREE.Vector3(),
     transform = new THREE.Matrix4(),
@@ -352,7 +352,7 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   const pitch = roofPitch(site.roofFenShui);
   assert.ok(Math.abs(pitch.mainRise - site.roofRise) < 1e-6);
   assert.ok(bounds.max.y > 10500 + pitch.mainRise);
-  const steeper = buildVilla(mats, false, 6);
+  const steeper = buildVilla(mats, false, 6, "joined");
   assert.ok(new THREE.Box3().setFromObject(steeper.roof).max.y > bounds.max.y + 500);
   assert.ok(Math.abs(crownBounds.max.y - bounds.max.y) < 30, `官帽脊 ${crownBounds.max.y} 与正屋脊 ${bounds.max.y} 未齐平`);
   assert.ok(crownBounds.min.z < floors[2].front - 800 - 1000, "官帽瓦面应比两侧前檐更靠前");

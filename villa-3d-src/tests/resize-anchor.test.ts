@@ -82,7 +82,7 @@ test("墙长输入锁住原靠墙端，正反端序及洞口保留，过长不�
     const { editor, draft, messages } = setup();
     const x = site.main.x, z = site.main.z;
     const a: [number, number] = [x + site.main.w - 3000, z + 4000];
-    const b: [number, number] = [x + site.main.w - construction.outsideWall / 2, z + 4000];
+    const b: [number, number] = [x + site.main.w, z + 4000];
     draft.floors[0].partitions = [{ a: reverse ? b : a, b: reverse ? a : b, door: { offset: 300, width: 900, kind: "door" } }];
     editor.selection = { kind: "wall", floor: 0, index: 0 };
     editor.updateSelectedNumber("length", 5000);

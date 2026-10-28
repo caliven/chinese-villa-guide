@@ -1016,11 +1016,13 @@ export function buildSite(mat: Mats) {
   slab(existing, site.field, site.originalField, 300, mat.grass);
   buildExistingHouses(existing, mat);
   // 新地库顶板与楼下空间。木屋前的地下室也按自家地库铺装。
-  slab(garage, site.field, site.garageFloor, 150, mat.paving);
+  // 地坪前沿收进矮墙厚度内，避免铺装边缘从墙面穿出。
+  const floorFront = contourSection(insetContour(courtyardFront, 130), 0, site.width);
+  slab(garage, [[0, 0], [site.width, 0], ...floorFront.slice().reverse()], site.garageFloor, 150, mat.paving);
   const woodFront = surroundings.sideHouse.z;
   slab(
     garage,
-    rect(site.width, yard.z, surroundings.road.x - site.width, woodFront - yard.z),
+    rect(site.width, yard.z + 130, surroundings.road.x - site.width, woodFront - yard.z - 130),
     site.garageFloor,
     150,
     mat.paving,
@@ -1071,13 +1073,13 @@ export function buildSite(mat: Mats) {
     [l9x, l9z, "理想 L9 Max · 黑"],
     [xyx, xyz, "吉利星愿 · 银"],
   ] as [number, number, string][]) {
-    line(
-      garage,
-      [...rect(x - 1350, z - 2750, 2700, 5500), [x - 1350, z - 2750]].map(
-        ([xx, zz]) => new THREE.Vector3(xx, site.garageFloor + 20, zz),
-      ),
-      0xc8bfa4,
-    );
+    const outline = rect(x - 1350, z - 2750, 2700, 5500);
+    const innerFront = insetContour(courtyardFront, 260);
+    for (let i = 0; i < outline.length; i++) {
+      for (const segment of clipParkingLine(outline[i], outline[(i + 1) % outline.length], innerFront)) {
+        line(garage, segment.map(([xx, zz]) => new THREE.Vector3(xx, site.garageFloor + 20, zz)), 0xc8bfa4);
+      }
+    }
     tag(garage, name, x, -1900, z, "#685b40", 0.7);
   }
   box(garage, 3700, -2250, -850, 3600, 1300, 800, mat.wood);
@@ -1269,6 +1271,26 @@ export function buildSite(mat: Mats) {
   };
 }
 
+/** 车位线只画在弧形矮墙的内侧，按田坎采样点和真实交点裁剪。 */
+export function clipParkingLine(a: Point, b: Point, front: Point[]): Point[][] {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const cuts = [0, 1, ...(dx === 0 ? [] : front.map(([x]) => (x - a[0]) / dx).filter((t) => t > 0 && t < 1))].sort((x, y) => x - y);
+  const point = (t: number): Point => [a[0] + dx * t, a[1] + dz * t];
+  const distance = (t: number) => { const p = point(t); return p[1] - contourAt(front, p[0]); };
+  const result: Point[][] = [];
+  for (let i = 1; i < cuts.length; i++) {
+    let start = cuts[i - 1], end = cuts[i];
+    const da = distance(start), db = distance(end);
+    if (da < 0 && db < 0) continue;
+    if (da * db < 0) {
+      const crossing = start + (end - start) * da / (da - db);
+      if (da < 0) start = crossing; else end = crossing;
+    }
+    if (end - start > 1e-9) result.push([point(start), point(end)]);
+  }
+  return result;
+}
+
 export function makeRamp(
   parent: THREE.Group,
   mat: Mats,
@@ -1279,7 +1301,10 @@ export function makeRamp(
     endX = site.width;
   const g = new THREE.Group();
   parent.add(g);
-  const z0 = garageLayout.entry.z, z1 = z0 + garageLayout.entry.d, strips = 5;
+  const z1 = garageLayout.entry.z + garageLayout.entry.d, strips = 5;
+  // 矮墙南侧的坡面会切穿墙体；保留原入口终点，起点收至墙内侧。
+  const wallInnerZ = Math.max(...garageLayout.outerWall.filter(([x]) => x >= site.width).map(([, z]) => z));
+  const z0 = Math.max(garageLayout.entry.z, Math.min(z1, wallInnerZ + 5));
   const surface = (z: number) =>
     roadHeight(z) + roadY - surroundings.road.entryY;
   const material = mat.paving.clone();

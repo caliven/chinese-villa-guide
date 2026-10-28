@@ -14,7 +14,7 @@ import {
 } from "./layout-draft";
 import type { CourtyardDimLayout } from "./courtyard-dim-drag";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
-import { parseRoofStyle, type RoofStyle } from "./roof-options";
+import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options";
 import { formatSavedAt, makeVersionId } from "./scheme-store";
 import {
   LENGTH_UNITS,
@@ -125,7 +125,7 @@ export function buildSizeVersionDocument(input?: {
     savedAt: formatSavedAt(now),
     villaParams: getVillaParams(),
     courtyardDimLayout: input?.courtyardDimLayout ?? {},
-    roofStyle: input?.roofStyle ?? "joined",
+    roofStyle: input?.roofStyle ?? DEFAULT_ROOF_STYLE,
     courtyardFinish: input?.courtyardFinish ?? "concrete",
     neighborCourtyardFinish: input?.neighborCourtyardFinish ?? "concrete",
   };

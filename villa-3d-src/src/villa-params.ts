@@ -41,12 +41,15 @@ import { mainEaveY } from "./facades";
 import { ensureFurnitureWallClearance } from "./layout-align";
 import { formatMm, isMeterLengthPayload, migrateVillaParamsToMm } from "./units";
 import { porticoColumnCenters, porticoColumnOuterWidth, porticoWestOffset } from "./frontage-geometry";
+import { interiorRailing, isRailingStyle, type RailingStyle } from "./railing-options";
 
 export const LOCKED_SITE_WIDTH = 21000;
 /** @deprecated 已改存 scheme 文件，仅供旧迁移识别。 */
 export const villaParamsPreferenceKey = "anhua-villa-params-v1";
 
 export interface VillaParams {
+  livingRailingStyle: RailingStyle;
+  stairRailingStyle: RailingStyle;
   porticoStyle: PorticoStyle;
   buildingPlacement: BuildingPlacement;
   thirdFloorMode: ThirdFloorMode;
@@ -113,6 +116,8 @@ export interface VillaParams {
 }
 
 export const DEFAULT_VILLA_PARAMS: VillaParams = {
+  livingRailingStyle: "glass",
+  stairRailingStyle: "wood",
   porticoStyle: "projecting",
   buildingPlacement: "main-east",
   thirdFloorMode: "setback",
@@ -290,6 +295,9 @@ export function buildingDepthLimits(p: VillaParams) {
 
 export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   const issues: VillaParamsIssue[] = [];
+  for (const field of ["livingRailingStyle", "stairRailingStyle"] as const) {
+    if (p[field] !== undefined && !isRailingStyle(p[field])) issues.push({ field, message: "栏杆造型无效" });
+  }
   if (p.porticoStyle !== undefined && !["projecting", "recessed"].includes(p.porticoStyle)) issues.push({ field: "porticoStyle", message: "门厅造型无效" });
   if (p.buildingPlacement !== undefined && !["main-east", "main-west"].includes(p.buildingPlacement)) issues.push({ field: "buildingPlacement", message: "主辅楼位置无效" });
   if (p.thirdFloorMode !== undefined && !["setback", "flush"].includes(p.thirdFloorMode)) issues.push({ field: "thirdFloorMode", message: "三楼模式无效" });
@@ -704,6 +712,8 @@ export function applyVillaParams(input: VillaParams) {
     gutterBedSlope: normalizeGutterBedSlopeDegrees(params.gutterBedSlope),
   };
   currentParams = synced;
+  interiorRailing.living = synced.livingRailingStyle;
+  interiorRailing.stair = synced.stairRailingStyle;
 
   // 南墙＝屋后界 − 预留；东墙＝总宽 − 东侧。改面宽／进深只动西墙与北墙。
   const mainSouth = synced.oldDepth - synced.rearGap;

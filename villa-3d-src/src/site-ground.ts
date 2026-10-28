@@ -141,6 +141,9 @@ export function buildContextGround(mat: Mats) {
   band("地库外侧弯曲低田", edges.frontLower, edges.sharedFront, left, c.road.x, frontFieldLevel, true, true);
   band("前方砖房及蓝顶邻房台地", villageBack, edges.frontLower, left, c.road.x, c.frontHouse.y, false, true);
   riser(group, edges.frontLower, frontFieldLevel, c.frontHouse.y, mat);
+  // 砖房后墙距田坎有一段窄田，路侧也要封住这段高差；否则从道路侧
+  // 可以透过空心台地看到低于田面的白色房墙。
+  riser(group, [[c.road.x, c.frontHouse.z + c.frontHouse.d], [c.road.x, contourAt(edges.frontLower, c.road.x)]], frontFieldLevel, c.frontHouse.y, mat);
   // 木屋前院坪已与两侧拉平。屋基和前坪用同一块铺装，关掉整栋后不会露出一块褐色补丁。
   surface(group, "左侧邻居木房地基", betweenContours(levelLine(c.sideHouse.z), edges.rearFirst, site.width, c.road.x), 0, mat.paving);
   // 木屋前地下室属于自家。土坎只留在地库地面以下，上面留给地库外墙，避免把外侧封死。

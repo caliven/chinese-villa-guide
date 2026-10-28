@@ -5,6 +5,7 @@ type Point = { x: number; z: number };
 type Bounds = { x0: number; x1: number; z0: number; z1: number };
 type Obstacle = { polygon: Point[]; bounds: Bounds; wall: boolean };
 export const FURNITURE_WALL_FINISH = 20;
+export const furnitureWallFinish = (f: Furniture) => f.kind === "shower" || f.kind === "fp-shower" ? 0 : FURNITURE_WALL_FINISH;
 
 function footprint(f: Furniture): Point[] {
   const b = furnitureLocalBounds(f);
@@ -24,7 +25,7 @@ function obstacles(f: Furniture, walls: Wall[], peers: Furniture[], exclude?: nu
     const dx = wall.b[0] - wall.a[0], dz = wall.b[1] - wall.a[1], len = Math.hypot(dx, dz);
     if (len < 1) continue;
     const ux = dx / len, uz = dz / len;
-    const finish = FURNITURE_WALL_FINISH;
+    const finish = furnitureWallFinish(f);
     const half = (wallRoleOf(wall) === "bearing" ? construction.outsideWall : construction.partition) / 2 + finish;
     const polygon = [[-finish, -half], [len + finish, -half], [len + finish, half], [-finish, half]]
       .map(([along, across]) => ({ x: wall.a[0] + along! * ux - across! * uz, z: wall.a[1] + along! * uz + across! * ux }));

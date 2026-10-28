@@ -187,13 +187,13 @@ export class PlanCanvas {
     this.svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
     const scale = Math.max(.001, this.svg.getBoundingClientRect().width / view.w);
     this.svg.style.setProperty("--editor-name-size", `${Math.max(290, 12 / scale)}px`);
-    this.svg.style.setProperty("--editor-area-size", `${Math.max(215, 10 / scale)}px`);
+    this.svg.style.setProperty("--editor-area-size", `${Math.max(170, 8 / scale)}px`);
     this.svg.style.setProperty("--editor-dim-size", `${Math.max(220, 9 / scale)}px`);
     for (const label of this.svg.querySelectorAll<SVGGElement>(".room-label[data-label-x]")) {
       const x = Number(label.dataset.labelX), z = Number(label.dataset.labelZ);
       const gap = Math.max(180, 7 / scale);
       for (const [index, text] of Array.from(label.querySelectorAll("text")).entries()) {
-        const y = z + (index === 0 ? gap : -gap);
+        const y = z + (index === 0 ? gap : -gap - (index - 1) * Math.max(300, 13 / scale));
         text.setAttribute("y", String(y));
         text.setAttribute("transform", `rotate(180 ${x} ${y})`);
       }

@@ -50,7 +50,7 @@ export function planDesignerHtml(floorNames: string[]) {
     </div>
     <div id="layout-edit-bar" class="layout-edit-bar" hidden>
       <div class="layout-tools" role="toolbar" aria-label="布局编辑类别">${tool("select", "选择")}${tool("wall", "隔墙")}${tool("room", "房间")}${tool("door", "门窗")}${tool("furniture", "家具")}</div>
-      <div class="designer-history"><button type="button" id="layout-magnet-snap" class="active" aria-pressed="true" title="墙体拖近同向墙线120以内水平／垂直对齐；相接墙端同步校正；Shift拖动暂时关闭">吸附对齐</button><button type="button" id="layout-undo">${designerIcon("undo")}撤销</button><button type="button" id="layout-redo">${designerIcon("redo")}重做</button><button type="button" id="layout-save" class="layout-save-btn">${designerIcon("save")}保存</button></div>
+        <div class="designer-history"><button type="button" id="layout-magnet-snap" class="active" aria-pressed="true" title="墙体拖近同向墙线时对齐；墙端接外墙外皮或内墙中心线；Shift拖动暂时关闭">吸附对齐</button><button type="button" id="layout-undo">${designerIcon("undo")}撤销</button><button type="button" id="layout-redo">${designerIcon("redo")}重做</button><button type="button" id="layout-save" class="layout-save-btn">${designerIcon("save")}保存</button></div>
       <div class="designer-layers" role="group" aria-label="图纸显示图层">${[
         ["dims", "尺寸"],
         ["labels", "房间名"],
@@ -82,18 +82,29 @@ export function planDesignerHtml(floorNames: string[]) {
             <button type="button" data-canvas-tool="select" aria-pressed="true" class="active" title="选择对象（V）">${designerIcon("select")}选择</button>
             <button type="button" data-canvas-tool="pan" aria-pressed="false" title="平移画布（H），也可按住空格或鼠标中键拖动">${designerIcon("pan")}平移</button>
             <button type="button" data-canvas-tool="measure" aria-pressed="false" title="临时测距（M）">${designerIcon("measure")}测距</button>
+            <details class="editor-room-menu"><summary>自动成房 ${designerIcon("chevron")}</summary><div><button type="button" data-auto-rooms="main">生成／更新主楼房间</button><button type="button" data-auto-rooms="annex" id="editor-auto-annex">生成／更新辅楼房间</button></div></details>
           </div>
-          <details class="editor-room-menu"><summary>自动成房 ${designerIcon("chevron")}</summary><div><button type="button" data-auto-rooms="main">生成／更新主楼房间</button><button type="button" data-auto-rooms="annex" id="editor-auto-annex">生成／更新辅楼房间</button></div></details>
         </div>
         <p id="editor-mode-hint" class="editor-mode-hint" hidden></p>
         <div id="editor-plan-scale" class="editor-plan-scale"><span class="editor-north">南 ↑</span><span id="editor-scale-value">1000 mm</span><i id="editor-scale-line"></i></div>
         <div id="designer-scene" class="designer-scene" hidden>
           <div id="designer-scene-host" class="designer-scene-host"></div>
           <div class="designer-scene-tools" role="group" aria-label="三维视图设置">
-            <div><button type="button" data-designer-camera="orbit" class="active" aria-pressed="true">环绕视角</button><button type="button" data-designer-camera="top" aria-pressed="false">俯视</button></div>
+            <div><button type="button" data-designer-camera="orbit" class="active" aria-pressed="true">环绕视角</button><button type="button" data-designer-camera="top" aria-pressed="false">俯视</button><button type="button" id="designer-walk" aria-pressed="false">漫游</button><button type="button" id="designer-night" aria-pressed="false">夜景</button></div>
             <div><button type="button" data-editor-wall-height="1200" class="active" aria-pressed="true">剖切墙</button><button type="button" data-editor-wall-height="full" aria-pressed="false">全高墙</button><span class="editor-tool-separator"></span><button type="button" id="designer-explode" aria-pressed="false">楼层分离</button><button type="button" id="designer-scene-export">保存图片</button></div>
           </div>
           <p class="designer-scene-hint">拖动空白处旋转 · 右键平移 · 滚轮缩放 · 点选家具后可拖动摆放</p>
+          <p id="designer-walk-hint" class="designer-walk-hint" hidden>WASD / 方向键 移动 · 拖动鼠标转向 · Shift 快走 · Esc 退出</p>
+          <div id="designer-walk-intro" class="designer-walk-intro" hidden>
+            <section class="designer-walk-card" role="dialog" aria-labelledby="designer-walk-title" aria-describedby="designer-walk-description">
+              <h2 id="designer-walk-title">漫游模式</h2>
+              <p id="designer-walk-description">从当前楼层进入，选中房间时从该房间出发</p>
+              <p><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> 或方向键移动 · 拖动鼠标转向</p>
+              <p><kbd>Shift</kbd> 快走 · <kbd>Esc</kbd> 退出</p>
+              <div class="designer-walk-actions"><button type="button" id="designer-walk-cancel">取消</button><button type="button" id="designer-walk-start">开始漫游</button></div>
+            </section>
+          </div>
+          <button type="button" id="designer-walk-exit" class="designer-walk-exit" hidden>退出漫游</button>
         </div>
         <div id="editor-selection-bar" class="editor-selection-bar" role="toolbar" aria-label="选中对象快捷操作" hidden>
           <strong id="editor-selection-title"></strong><span class="editor-tool-separator"></span>
@@ -107,7 +118,7 @@ export function planDesignerHtml(floorNames: string[]) {
         <section class="designer-property-section"><div class="designer-section-heading"><h2>属性</h2><button type="button" id="designer-inspector-float" aria-pressed="false" title="将属性切换为可拖动浮窗">浮动</button></div><div id="designer-inspector-empty" class="designer-empty-selection">${designerIcon("select")}<span>选择画布中的对象以编辑属性</span></div><div id="layout-inspector" class="layout-inspector" hidden></div></section>
         <section><div class="designer-section-heading"><h2>房间面积</h2><span>净空 · ㎡</span></div><div id="designer-room-list"></div><p class="designer-note">按当前房间轮廓与模型墙厚计算，未扣柱梁、装修与设备；非建筑面积认定。</p></section>
         <section><h2>方案统计</h2><div id="designer-plan-stats" class="designer-plan-stats"></div><p id="designer-building-area" class="designer-note"></p></section>
-        <section class="designer-display-options"><h2>显示设置</h2><button type="button" data-designer-display="chair-clearance" aria-pressed="true">餐厅拉椅范围</button><button type="button" data-designer-display="room-clearance" aria-pressed="false">家具使用讨论留位</button><label>辅楼前圆桌情景<select id="designer-dining-mode" aria-label="平面图辅楼圆桌情景"><option value="full">室外圆桌 · 6座</option><option value="daily">圆桌收起 · 日常</option></select></label><button type="button" data-design-issue="D08">记录房间深化意见 ↗</button></section>
+        <section class="designer-display-options"><h2>显示设置</h2><button type="button" data-designer-display="chair-clearance" aria-pressed="true" title="圆桌桌缘外550 mm的拉椅讨论留位；随桌子位置和直径变化">餐厅拉椅范围</button><button type="button" data-designer-display="room-clearance" aria-pressed="false">家具使用讨论留位</button><label>辅楼前圆桌情景<select id="designer-dining-mode" aria-label="平面图辅楼圆桌情景"><option value="full">室外圆桌 · 6座</option><option value="daily">圆桌收起 · 日常</option></select></label><button type="button" data-design-issue="D08">记录房间深化意见 ↗</button></section>
       </aside>
     </div>
     <div class="designer-status"><span id="plan-orient-hint">南 ↑ · 西 →</span><span>单位 mm</span><span>三层户型联动</span><span id="layout-save-status" class="layout-save-status" aria-live="polite"></span><span id="designer-status-hint" class="designer-status-hint">选择模型后拖入图纸 · Ctrl/⌘ + 滚轮缩放</span><span>概念方案 · 待实测与设计</span></div>

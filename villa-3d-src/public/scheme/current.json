@@ -54,7 +54,7 @@
   },
   "layoutDraft": null,
   "courtyardDimLayout": {},
-  "roofStyle": "joined",
+  "roofStyle": "floating",
   "courtyardFinish": "concrete",
   "neighborCourtyardFinish": "concrete",
   "units": "mm"

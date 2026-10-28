@@ -10,7 +10,7 @@ import {
   type VillaParams,
 } from "./villa-params";
 import { courtyardFinishLabels } from "./courtyard-finishes";
-import { roofStyleLabels } from "./roof-options";
+import { DEFAULT_ROOF_STYLE, roofStyleLabels } from "./roof-options";
 import { VILLA_PARAM_NON_LENGTH, formatMm } from "./units";
 
 type Field = {
@@ -217,14 +217,14 @@ function roofStyleGroupHtml() {
   const buttons = Object.entries(roofStyleLabels)
     .map(
       ([value, label]) =>
-        `<button type="button" data-roof-style="${value}" aria-pressed="${value === "joined"}" class="${value === "joined" ? "active" : ""}">${label}</button>`,
+        `<button type="button" data-roof-style="${value}" aria-pressed="${value === DEFAULT_ROOF_STYLE}" class="${value === DEFAULT_ROOF_STYLE ? "active" : ""}">${label}</button>`,
     )
     .join("");
   return `<div class="params-choice-block">
     <h3 class="params-subhead">官帽造型</h3>
     <p class="micro">即时生效，无需点「应用」。</p>
     <div class="segmented" role="group" aria-label="官帽造型">${buttons}</div>
-    <p class="micro" id="roof-style-note">官帽与正屋同脊高，檐口相连。</p>
+    <p class="micro" id="roof-style-note">悬浮官帽为默认方案；帽顶落差可调，纵脊接入正屋。</p>
   </div>`;
 }
 

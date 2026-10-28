@@ -16,7 +16,7 @@ import {
 } from "./layout-draft";
 import type { CourtyardDimLayout } from "./courtyard-dim-drag";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
-import { parseRoofStyle, type RoofStyle } from "./roof-options";
+import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options";
 import {
   LENGTH_UNITS,
   isMeterLayoutDraft,
@@ -104,7 +104,7 @@ export function createEmptyScheme(title = "当前方案"): SchemeDocument {
     villaParams: { ...DEFAULT_VILLA_PARAMS },
     layoutDraft: null,
     courtyardDimLayout: {},
-    roofStyle: "joined",
+    roofStyle: DEFAULT_ROOF_STYLE,
     courtyardFinish: "concrete",
     neighborCourtyardFinish: "concrete",
   };
@@ -168,7 +168,7 @@ export function buildSchemeDocument(input: {
     villaParams: getVillaParams(),
     layoutDraft: input.layoutDraft === undefined ? null : input.layoutDraft,
     courtyardDimLayout: input.courtyardDimLayout ?? {},
-    roofStyle: input.roofStyle ?? "joined",
+    roofStyle: input.roofStyle ?? DEFAULT_ROOF_STYLE,
     courtyardFinish: input.courtyardFinish ?? "concrete",
     neighborCourtyardFinish: input.neighborCourtyardFinish ?? "concrete",
   };

@@ -56,7 +56,14 @@ test("主辅楼、三层内墙和四种门窗在户型三维与房屋模型中�
           const finish = floor === 3 || floor === 0 ? site.entranceRise : draft.floors[floor].y;
           const opening = bounds(actual.children.slice(1));
           close(opening.min.y, finish + (part.door!.kind === "window" ? 900 : 0), "门窗底标高");
-          close(opening.max.y - opening.min.y, part.door!.kind === "window" ? 1500 : 2200, "门窗高度");
+          if (part.door!.kind === "window") close(opening.max.y - opening.min.y, 1500, "窗高");
+          else {
+            const models: THREE.Object3D[] = []; actual.traverse(o => { if (o.userData.doorDimensions) models.push(o); });
+            assert.equal(models.length, 1);
+            assert.equal(models[0].userData.doorDimensions.height, 2200, "洞口高度不含贴墙门套");
+            assert.equal(models[0].userData.doorDimensions.width, part.door!.width);
+            assert.ok(opening.max.y <= finish + 2250, "门套只在原洞口上沿外包，不把洞高扩大");
+          }
         });
       }
       assert.deepEqual(draft, before, "重建不能改写已保存草稿");

@@ -2,11 +2,12 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { getPosition } from "suncalc";
+import { setEaveWashAppearance, setEaveWashVisible } from "./eave-lighting";
 import { floors, site } from "./data";
 import { MM_PER_M, toM } from "./units";
 import { materials, line, tag, setCourtyardFinishes } from "./primitives";
 import { courtyardFinishLabels, type CourtyardFinish } from "./courtyard-finishes";
-import { roofStyleLabels, type RoofStyle } from "./roof-options";
+import { DEFAULT_ROOF_STYLE, roofStyleLabels, type RoofStyle } from "./roof-options";
 import { buildVilla, attachLayoutRoofs, type VillaLayoutLive } from "./architecture";
 import { buildL9 } from "./cars";
 import { buildSite, makeRamp } from "./terrain";
@@ -27,6 +28,9 @@ export interface ViewState {
   neighborCourtyardFinish: CourtyardFinish;
   existing: boolean;
   roof: boolean;
+  night: boolean;
+  eaveLightColor: string;
+  eaveLightBrightness: number;
   dimensions: boolean;
   context: boolean;
   balcony: boolean;
@@ -42,11 +46,14 @@ export interface ViewState {
   annexBuilding: boolean;
 }
 export const defaultView: ViewState = {
-  roofStyle: "joined",
+  roofStyle: DEFAULT_ROOF_STYLE,
   courtyardFinish: "concrete",
   neighborCourtyardFinish: "concrete",
   existing: false,
   roof: true,
+  night: false,
+  eaveLightColor: "#ffd99a",
+  eaveLightBrightness: 1.5,
   dimensions: false,
   context: true,
   balcony: false,
@@ -152,6 +159,8 @@ export class VillaViewer {
   land = buildSite(this.mat);
   sun = new THREE.DirectionalLight(0xfff6e9, 3);
   ambient = new THREE.HemisphereLight(0xe3edf2, 0x898578, 2.1);
+  private daySunIntensity = 3;
+  private dayAmbientIntensity = 0.8;
   state: ViewState = { ...defaultView };
   activeCamera: CameraName = "aerial";
   /**
@@ -320,7 +329,7 @@ export class VillaViewer {
     this.renderer.setAnimationLoop(() => {
       if (document.hidden || host.clientWidth === 0) return;
       // 跟随屏幕刷新率更新拖动和阻尼，不再强制隔 32ms 才画一帧。静止时不重复绘制。
-      if (this.controls.update() || this.needsRender) {
+      if ((this.controls.enabled && this.controls.update()) || this.needsRender) {
         this.renderer.render(this.scene, this.camera);
         this.needsRender = false;
       }
@@ -503,6 +512,9 @@ export class VillaViewer {
     const wasExploded = this.state.exploded;
     Object.assign(this.state, next);
     const s = this.state;
+    this.applyLighting();
+    setEaveWashVisible(this.villa.group, s.night);
+    setEaveWashAppearance(this.villa.group, s.eaveLightColor, s.eaveLightBrightness);
     if (s.roofStyle !== this.builtRoofStyle) this.setRoofFenShui(this.fenPending ?? this.fenShui);
     setCourtyardFinishes(this.mat, s.courtyardFinish, s.neighborCourtyardFinish);
     this.land.existing.visible = s.existing;
@@ -584,7 +596,7 @@ export class VillaViewer {
   }
   private fenFrame = 0;
   private fenPending: number | null = null;
-  private builtRoofStyle: RoofStyle = "joined";
+  private builtRoofStyle: RoofStyle = DEFAULT_ROOF_STYLE;
   setRoofFenShui(fenShui: number) {
     this.fenPending = fenShui;
     if (this.fenFrame) return;
@@ -612,6 +624,8 @@ export class VillaViewer {
         batch(root);
       }
       disposeDetached(created, this.scene, keep);
+      setEaveWashVisible(this.villa.group, this.state.night);
+      setEaveWashAppearance(this.villa.group, this.state.eaveLightColor, this.state.eaveLightBrightness);
       this.renderer.shadowMap.needsUpdate = true;
       this.needsRender = true;
     });
@@ -728,15 +742,25 @@ export class VillaViewer {
     disposeDetached(created, this.scene, keep);
     this.setState({});
   }
+  private applyLighting() {
+    const night = this.state.night;
+    this.scene.background = new THREE.Color(night ? 0x111a2c : 0xdce5df);
+    this.scene.environmentIntensity = night ? 0.14 : 0.4;
+    this.sun.intensity = night ? 0.28 : this.daySunIntensity;
+    this.ambient.intensity = night ? 0.45 : this.dayAmbientIntensity;
+    this.ambient.color.set(night ? 0x8b9fc4 : 0xe3edf2);
+    this.ambient.groundColor.set(night ? 0x242633 : 0x898578);
+  }
   setSun(date: string, hour: number) {
     const result = sunDirection(date, hour);
     this.sun.position
       .copy(this.sun.target.position)
       .addScaledVector(result.vector, 85);
-    this.sun.intensity =
+    this.daySunIntensity =
       result.altitude > 0 ? 2.9 * Math.min(1, result.altitude / 12) : 0;
     this.sun.color.set(result.altitude < 12 ? 0xffd3a0 : 0xfff1dc);
-    this.ambient.intensity = result.altitude > 0 ? 0.8 : 0.25;
+    this.dayAmbientIntensity = result.altitude > 0 ? 0.8 : 0.25;
+    this.applyLighting();
     this.renderer.shadowMap.needsUpdate = true;
     this.needsRender = true;
     return result;

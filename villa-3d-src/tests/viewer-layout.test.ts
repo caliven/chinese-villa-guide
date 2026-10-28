@@ -27,7 +27,7 @@ function fixture() {
   viewer.fenShui = site.roofFenShui;
   viewer.state = { ...defaultView };
   viewer.layoutLive = villaLayoutFromDraft(draft);
-  viewer.villa = buildVilla(mat, true, site.roofFenShui, "joined", viewer.layoutLive);
+  viewer.villa = buildVilla(mat, true, site.roofFenShui, viewer.state.roofStyle, viewer.layoutLive);
   viewer.livingGlass = viewer.villa.group.getObjectByName("挑空客厅一二层通高玻璃")!;
   viewer.entryBay = viewer.villa.group.getObjectByName("门厅一二层通高门")!;
   viewer.eastBand = viewer.villa.group.getObjectByName("烤火房回纹横披")!;

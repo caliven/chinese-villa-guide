@@ -1,4 +1,7 @@
 import * as THREE from "three";
+import { resolvedRailingStyle } from "./railing-options";
+import { railingNetwork } from "./railing-network";
+import { stairRailingSections } from "./stair-railing";
 import { stairLayout, site, type Point, type Furniture } from "./data";
 import type { CourtyardFinish } from "./courtyard-finishes";
 import { bedLayout } from "./furniture-catalog";
@@ -8,6 +11,7 @@ import { fitFurnitureFootprint, floorplanFurnitureModel } from "./floorplan-furn
 import type { OpeningKind } from "./openings";
 import { moveWindowDesign, windowDesign, windowInteriorSide } from "./window-design";
 import { windowModel } from "./window-model";
+import { doorFinishMaterials, doorModel, type DoorMaterials } from "./door-model";
 
 export const palette = {
   wall: 0xe6dfd0,
@@ -286,6 +290,7 @@ export function materials() {
     envMapIntensity: 0.15,
   });
   return {
+    ...doorFinishMaterials(),
     wall: std(palette.wall, wallMap),
     trim: finishLayer(std(palette.trim), 3),
     stone: finishLayer(std(palette.stone, stoneMap), 2),
@@ -592,36 +597,7 @@ export function bronzeEntryDoor(
   h: number,
   mat: Mats,
 ) {
-  const g = new THREE.Group();
-  g.name = "铸铝咖色大门";
-  g.position.set(x, sill, z);
-  parent.add(g);
-  const leaf = w / 2 - 20;
-  const out = -28;
-  for (const sign of [-1, 1] as const) {
-    const cx = sign * (leaf / 2 + 14);
-    box(g, cx, h / 2, 0, leaf, h, 32, mat.bronze);
-    box(g, cx - sign * (leaf / 2 - 28), h / 2, out, 40, h, 14, mat.bronzeDark);
-    box(g, cx + sign * (leaf / 2 - 26), h / 2, out, 32, h, 12, mat.bronzeDark);
-    box(g, cx, 40, out, leaf, 50, 12, mat.bronzeDark);
-    box(g, cx, h - 40, out, leaf, 50, 12, mat.bronzeDark);
-    box(g, cx - sign * leaf * 0.16, h * 0.48, out - 10, 28, h * 0.42, 14, mat.bronzeDark);
-  }
-  box(g, 0, h / 2, out - 4, 26, h, 14, mat.bronzeDark);
-  // 门扇四周一圈小回字，仍是棕色，不另做浅色角花。
-  const hui = (ox: number, oy: number) => {
-    const s = 85;
-    const t = 11;
-    box(g, ox, oy, out - 16, s, t, 8, mat.bronzeDark);
-    box(g, ox, oy, out - 16, t, s, 8, mat.bronzeDark);
-    box(g, ox, oy, out - 22, s * 0.46, t, 6, mat.bronzeDark);
-    box(g, ox, oy, out - 22, t, s * 0.46, 6, mat.bronzeDark);
-  };
-  const edgeX = w / 2 - 100;
-  for (const sx of [-1, 1])
-    for (const sy of [140, h / 2, h - 140]) hui(sx * edgeX, sy);
-  for (const tx of [-420, 0, 420])
-    for (const sy of [140, h - 140]) hui(tx, sy);
+  return doorModel(parent, { at: x, sill, w, h, kind: "doubleDoor" }, mat, { style: "bronze", open: false, frame: false, z });
 }
 
 export interface Opening {
@@ -646,7 +622,7 @@ export interface Opening {
 }
 
 /** 室内门窗按洞口毫米规格建模；编辑剖切与房屋视图复用同一份实体。 */
-export function interiorOpeningModel(parent: THREE.Object3D, o: Opening, mat: { wood: THREE.Material; glass: THREE.Material; dark: THREE.Material }, cut = Infinity) {
+export function interiorOpeningModel(parent: THREE.Object3D, o: Opening, mat: DoorMaterials, cut = Infinity, thickness = 200) {
   const g = new THREE.Group(); parent.add(g);
   g.name = "室内门窗";
   if (o.kind === "passage") return g;
@@ -656,25 +632,15 @@ export function interiorOpeningModel(parent: THREE.Object3D, o: Opening, mat: { 
     windowModel(g, moveWindowDesign(windowDesign(o.w, o.h), o.at - o.w / 2, o.sill), mat, { top: cut });
     return g;
   }
-  if (o.door && o.kind !== "slidingDoor") {
-    const width = o.w / (o.kind === "doubleDoor" ? 2 : 1), side = o.side === "in" ? -1 : 1;
-    for (const end of o.kind === "doubleDoor" ? [false, true] : [o.hinge === "end"]) {
-      const mesh = box(g, o.at + (end ? 1 : -1) * o.w / 2, (bottom + top) / 2, side * width / 2, 45, top - bottom, width, mat.wood);
-      mesh.castShadow = false;
-    }
-  } else {
-    const sliding = o.kind === "slidingDoor", count = sliding ? 2 : 1, frame = 50;
-    for (let i = 0; i < count; i++) {
-      const width = o.w / count, x = o.at - o.w / 2 + width * (i + .5), z = sliding ? (i ? 25 : -25) : 0;
-      const glassBottom = bottom + frame - 10, glassTop = Math.min(top, bottom + o.h - frame + 10);
-      if (glassTop > glassBottom) box(g, x, (glassBottom + glassTop) / 2, z, Math.max(1, width - 2 * frame + 20), glassTop - glassBottom, 24, mat.glass, false);
-      const depth = sliding ? 40 : 55;
-      for (const sign of [-1, 1]) box(g, x + sign * (width - frame) / 2, (bottom + top) / 2, z, frame, top - bottom, depth, mat.dark);
-      if (top > bottom + frame) box(g, x, bottom + frame / 2, z, width - 2 * frame, frame, depth, mat.dark);
-      if (top >= bottom + o.h) box(g, x, top - frame / 2, z, width - 2 * frame, frame, depth, mat.dark);
-    }
-  }
+  doorModel(g, o, mat, { thickness, top: cut });
   return g;
+}
+
+/** 外门与户型编辑共用造型；仅内门保持平面符号对应的90度开启表达。 */
+export function exteriorDoorModel(parent: THREE.Object3D, o: Opening, mat: DoorMaterials, intoRoom: number, cut = Infinity, thickness = 240) {
+  const sliding = o.kind ? o.kind === "slidingDoor" : o.pattern === "sliding" || o.glazed;
+  return doorModel(parent, { ...o, kind: sliding ? "slidingDoor" : o.kind ?? (o.w >= 1400 ? "doubleDoor" : "door") }, mat,
+    { style: sliding ? "glazed" : "bronze", open: false, thickness, outward: -intoRoom, top: cut });
 }
 export function wallWithOpenings(
   parent: THREE.Object3D,
@@ -687,8 +653,10 @@ export function wallWithOpenings(
   thickness = 240,
   interior = false,
   skin?: THREE.Material,
+  join: { start: number; end: number } = { start: 0, end: 0 },
 ) {
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const start = -join.start, end = len + join.end;
   const g = new THREE.Group();
   g.position.set(a[0], base, a[1]);
   g.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
@@ -698,7 +666,7 @@ export function wallWithOpenings(
   const doors = openings
     .filter((o) => o.sill <= 1)
     .sort((p, q) => p.at - q.at);
-  shape.moveTo(0, 0);
+  shape.moveTo(start, 0);
   for (const o of doors) {
     const x0 = Math.max(0, o.at - o.w / 2),
       x1 = Math.min(len, o.at + o.w / 2),
@@ -709,8 +677,8 @@ export function wallWithOpenings(
     shape.lineTo(x1, top);
     shape.lineTo(x1, 0);
   }
-  shape.lineTo(len, 0);
-  shape.lineTo(len, height);
+  shape.lineTo(end, 0);
+  shape.lineTo(end, height);
   // 通高玻璃从墙顶向下开到窗台，不能用内孔，内孔贴到外轮廓时挤出会破。
   for (const o of openings.filter((item) => item.span === "lower").sort((p, q) => q.at - p.at)) {
     const x0 = Math.max(0, o.at - o.w / 2),
@@ -722,7 +690,7 @@ export function wallWithOpenings(
     shape.lineTo(x0, y0);
     shape.lineTo(x0, height);
   }
-  shape.lineTo(0, height);
+  shape.lineTo(start, height);
   shape.closePath();
   for (const o of openings) {
     if (o.sill <= 1 || o.span === "lower") continue;
@@ -760,7 +728,7 @@ export function wallWithOpenings(
   for (const o of openings) {
     if (o.continuous || o.entryAssembly || o.kind === "passage") continue;
     if (interior) {
-      interiorOpeningModel(g, o, mat, height);
+      interiorOpeningModel(g, o, mat, height, thickness);
       continue;
     }
     // 玻璃靠室内一侧，框料彼此只相接、不叠面，避免窗角和横档发暗闪。
@@ -772,23 +740,12 @@ export function wallWithOpenings(
       box(g, o.at, o.sill - 50, 0, o.w + 220, 100, 350, mat.trim);
       continue;
     }
+    if (o.door && !o.open && !o.span) {
+      exteriorDoorModel(g, o, mat, intoRoom, height, thickness);
+      continue;
+    }
     const clear = o.w - 120;
-    // 玻璃边缘收在框槽后面，覆盖框内口10毫米，避免原来四边各留一条透空线。
-    const glassBottom = o.span === "upper" ? o.sill : o.sill + 50;
-    const glassTop = o.span === "lower" ? o.sill + o.h : o.sill + o.h - 50;
-    if (o.door && !o.glazed && !o.open && !o.span)
-      bronzeEntryDoor(g, o.at, o.sill, -intoRoom * 15, o.w - 100, o.h, mat);
-    else if (!o.open && !o.span && o.pattern !== "sliding") box(
-      g,
-      o.at,
-      (glassBottom + glassTop) / 2,
-      intoRoom * 45,
-      o.w - 100,
-      glassTop - glassBottom,
-      20,
-      mat.glass,
-      false,
-    );
+    // 一体通高窗由专用模型补齐；这里仅保留分层墙洞及开敞口的边框。
     for (const x of [o.at - o.w / 2 + 30, o.at + o.w / 2 - 30])
       box(g, x, o.sill + o.h / 2, 0, 60, o.h, 100, mat.dark);
     for (const y of [o.sill, o.sill + o.h]) {
@@ -796,32 +753,7 @@ export function wallWithOpenings(
       if (o.span === "upper" && y === o.sill) continue;
       box(g, o.at, y === o.sill ? y + 30 : y - 30, 0, clear, 60, 100, mat.dark);
     }
-    if (o.open) continue;
-    if (!o.span && o.pattern === "sliding") {
-      // 两扇玻璃错台 4 厘米，中间叠 8 厘米，表示推拉。拉手在靠外那扇的交接边上。
-      const y0 = o.sill + 40;
-      const y1 = o.sill + o.h - 40;
-      const midY = (y0 + y1) / 2;
-      const leafH = y1 - y0;
-      const drawLeaf = (x0: number, x1: number, z: number) => {
-        const cx = (x0 + x1) / 2;
-        const lw = x1 - x0;
-        box(g, cx, midY, z, lw - 30, leafH - 25, 16, mat.glass, false);
-        box(g, x0, midY, z, 45, leafH, 40, mat.dark);
-        box(g, x1, midY, z, 45, leafH, 40, mat.dark);
-        box(g, cx, y1, z, lw, 40, 40, mat.dark);
-        box(g, cx, y0, z, lw, 40, 40, mat.dark);
-      };
-      drawLeaf(o.at - o.w / 2 + 30, o.at + 40, intoRoom * 40);
-      drawLeaf(o.at - 40, o.at + o.w / 2 - 30, intoRoom * 80);
-      box(g, o.at - 20, o.sill + 1050, intoRoom * 110, 18, 260, 12, mat.dark);
-    } else if (!o.span) {
-      box(g, o.at, o.sill + o.h / 2, 0, 45, o.h - 80, 75, mat.dark);
-    }
-    if (o.door && o.glazed && o.pattern !== "sliding")
-      for (const x of [o.at - 120, o.at + 120])
-        box(g, x, o.sill + 1100, -intoRoom * 80, 24, 320, 40, mat.gold);
-    if (!o.door && o.span !== "upper")
+    if (!o.open && !o.door && o.span !== "upper")
       box(g, o.at, o.sill - 50, 0, o.w + 220, 100, 350, mat.trim);
   }
   return g;
@@ -1213,13 +1145,11 @@ export function furnish(
       box(g, 0, 860, 0, f.w * 0.7, 40, f.d * 0.55, mat.metal);
     }
   } else if (f.kind === "shower") {
-    // 托盘＋三面矮玻（前方开口）；示意用，非卫浴施工详图。
+    // 托盘及单面玻璃；示意用，非卫浴施工详图。
     box(g, 0, 50, 0, f.w, 100, f.d, mat.inside);
     const glassH = 1850;
     const t = 30;
     box(g, 0, glassH / 2, f.d / 2 - t / 2, f.w, glassH, t, mat.glass);
-    box(g, -f.w / 2 + t / 2, glassH / 2, 0, t, glassH, f.d, mat.glass);
-    box(g, f.w / 2 - t / 2, glassH / 2, 0, t, glassH, f.d, mat.glass);
   } else {
     box(g, 0, 400, 0, f.w, 800, f.d, mat.wood);
   }
@@ -1310,6 +1240,7 @@ export function stairs(
   mat: Mats,
   axis: "x" | "z" = "z",
   geometry: StairShapeInput = { ...stairLayout, x, z, axis },
+  withRailings = true,
 ) {
   // x、z 始终为包络最小角；实体、栏杆和板底共用上行方向变换。
   // 踏步用薄板（踏面＋踢面），不做从地面堆高的实心楔块。
@@ -1333,19 +1264,16 @@ export function stairs(
       box(parent, point.x, base + y, point.z, acrossSize, ySize, alongSize, mat.paving);
     else box(parent, point.x, base + y, point.z, alongSize, ySize, acrossSize, mat.paving);
   };
+  if (withRailings) railingNetwork(stairRailingSections({ ...geometry, x, z, axis }, base, height, resolvedRailingStyle(geometry.railingStyle, "stair"))).render(parent);
   if (shape.model === "triple") {
-    const rail = (a: number[], b: number[], radius = 20) => {
-      const p = shape.point(a[0], a[2]), q = shape.point(b[0], b[2]);
-      cylinder(parent, new THREE.Vector3(p.x, base + a[1], p.z), new THREE.Vector3(q.x, base + b[1], q.z), radius, mat.metal);
-    };
-    for (const [index, f] of shape.flights.entries()) {
+    for (const f of shape.flights) {
       const tread = f.tread;
       const length = f.axis === "along" ? f.alongSize : f.crossSize;
-      const pos = (distance: number, y: number, edge = false) => {
+      const pos = (distance: number, y: number) => {
         const along = f.sign > 0 ? distance : length - distance;
         return f.axis === "along"
-          ? [f.cross + (edge ? index === 0 ? (shape.lowerSide === "min" ? flight - 60 : 60) : (shape.lowerSide === "min" ? 60 : flight - 60) : flight / 2), y, f.along + along]
-          : [f.cross + along, y, f.along + (edge ? 60 : flight / 2)];
+          ? [f.cross + flight / 2, y, f.along + along]
+          : [f.cross + along, y, f.along + flight / 2];
       };
       for (let i = 0; i < f.risers - 1; i++) {
         const p = pos((i + .5) * tread, 0);
@@ -1358,29 +1286,9 @@ export function stairs(
         const last = i === f.risers - 1 ? pos(i * tread - riserThick / 2, 0) : p;
         put(last[0], rise * (f.startRiser + i + .5), last[2], f.axis === "along" ? flight : riserThick, rise, f.axis === "along" ? riserThick : flight);
       }
-      const startY = rise * f.startRiser, endY = rise * (f.startRiser + f.risers);
-      rail(pos(0, startY + 950, true), pos(length, endY + 950, true));
-      const posts = Math.max(1, Math.ceil(length / 100));
-      for (let i = 0; i <= posts; i++) {
-        const distance = length * i / posts;
-        const y = rise * (f.startRiser + Math.min(f.risers, Math.floor(distance / tread) + 1));
-        rail(pos(distance, y, true), pos(distance, startY + (endY - startY) * distance / length + 950, true), 12);
-      }
     }
-    for (const [i, p] of shape.platforms.entries()) {
+    for (const p of shape.platforms) {
       put(p.cross + geometry.landing / 2, rise * p.riser - STAIR_LANDING_THICK / 2, p.along + geometry.landing / 2, geometry.landing, STAIR_LANDING_THICK, geometry.landing);
-      const outer = i === 0 ? shape.lowerAcross : shape.upperAcross;
-      const cross = outer + (outer === 0 ? flight - 60 : 60), along = shape.length - flight + 60;
-      const end = p.cross + (outer === 0 ? geometry.landing : 0), y = rise * p.riser;
-      const a = [cross, y + 950, shape.run], b = [cross, y + 950, along], c = [end, y + 950, along];
-      rail(a, b); rail(b, c);
-      for (const [from, to] of [[a, b], [b, c]]) {
-        const count = Math.max(1, Math.ceil(Math.hypot(to[0] - from[0], to[2] - from[2]) / 100));
-        for (let j = 0; j <= count; j++) {
-          const x = from[0] + (to[0] - from[0]) * j / count, z = from[2] + (to[2] - from[2]) * j / count;
-          rail([x, y, z], [x, y + 950, z], 12);
-        }
-      }
     }
     return;
   }
@@ -1407,22 +1315,4 @@ export function stairs(
     STAIR_LANDING_THICK,
     geometry.landing,
   );
-  for (const side of [0, 1]) {
-    const offset = side === 0 ? shape.lowerAcross : shape.upperAcross;
-    const across = offset + (offset === 0 ? flight - 60 : 60);
-    const reverse = side === 1;
-    const rail = (aAlong: number, aY: number, bAlong: number, bY: number, radius: number) => {
-      const a = shape.point(across, aAlong), b = shape.point(across, bAlong);
-      const pa = new THREE.Vector3(a.x, base + aY, a.z);
-      const pb = new THREE.Vector3(b.x, base + bY, b.z);
-      cylinder(parent, pa, pb, radius, mat.metal);
-    };
-    const mid = rise * shape.lowerRisers;
-    rail(0, (reverse ? height : 0) + 950, shape.run, mid + 950, 20);
-    for (let i = 0; i < 7; i++) {
-      const along = i * shape.run / 6,
-        y0 = reverse ? height - i * (height - mid) / 6 : i * mid / 6;
-      rail(along, y0, along, y0 + 950, 12);
-    }
-  }
 }

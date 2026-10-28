@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { addEaveWash, eaveLightSpans } from "./eave-lighting";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { box, slab, rect, type Mats } from "./primitives";
 import { addTiledRoof, hipRoofSurfaces, hatRoofSurfaces, joinRoofFaces, cutRoofOpenings, subtractRoofPolygon, roofHeight, type RoofFace } from "./roof-surfaces";
@@ -702,6 +703,7 @@ function placeCorbelEdges(
   mat: Mats,
   fascia = true,
   cutouts: Point[][] = [],
+  lightTop?: number,
 ) {
   const trim = new THREE.Group();
   trim.name = "檐下梁托与下沿线";
@@ -727,6 +729,8 @@ function placeCorbelEdges(
     cornerInsets.set(`${b.index}:${b.t}`, clearance);
   }
 
+  const lightSpans = eaveLightSpans(edges, p, p + 2);
+  const glowSpans = eaveLightSpans(edges, p, p + 4);
   for (const [index, edge] of edges.entries()) {
     const len = edge.to - edge.from;
     if (len < 50) continue;
@@ -757,6 +761,7 @@ function placeCorbelEdges(
       for (const center of centers)
         addStyle07Corbel(trim, edge.along, edge.face, edge.sign, center, corbelTop, L, sand);
     }
+    addEaveWash(trim, edge, lightTop ?? fasciaTop, corbelTop, p, lightSpans[index], glowSpans[index]);
     if (!fascia) continue;
     // 下沿线两端各伸出凸出量，与邻边在拐角外方咬合，不留缺口。
     const fasciaFrom = edge.fasciaFrom ?? edge.from - p;
@@ -842,7 +847,7 @@ function addPolylineCorbelsAndFascia(
     }
   }
   const trim = placeCorbelEdges(parent, edges, section.soffitY, mat, false,
-    postSeatY === undefined ? [] : postCutouts);
+    postSeatY === undefined ? [] : postCutouts, section.fasciaTopY);
   // 柱位承台占据的实心节点不再排梁托，避免梁托穿进柱颈。
   const seatPads = postCutouts.map(points => {
     const xs = points.map(p => p[0]), zs = points.map(p => p[1]);
@@ -1216,13 +1221,13 @@ export function gutteredRoof(
   parent: THREE.Object3D,
   x: number, z: number, w: number, d: number,
   base: number, rise: number, mat: Mats,
-  bay?: { x: number; w: number; z: number },
+  bay?: { x: number; w: number; z: number; ridgeFront?: number },
   wall?: WallFootprint,
 ) {
   const g = roofEaves(parent, x, z, w, d, base, mat, bay, wall);
   const eaveY = base + roofTileEaveLift();
   const main = hipRoofSurfaces(x + roofTileInset, z + roofTileInset, w - 2 * roofTileInset, d - 2 * roofTileInset, eaveY, rise);
-  const hat = bay ? hatRoofSurfaces(bay.x + bay.w / 2, bay.z, bay.w, z + d / 2, eaveY, eaveY + rise) : null;
+  const hat = bay ? hatRoofSurfaces(bay.x + bay.w / 2, bay.z, bay.w, z + d / 2, eaveY, eaveY + rise, 1, bay.ridgeFront) : null;
   const original = [...main.faces, ...(hat?.faces ?? [])];
   const visible = hat ? joinRoofFaces(original) : original;
   addTiledRoof(g, visible.filter(face => face.owner === 0), mat.villaRoof, mat.villaRoofJoint, main.ridges, original);

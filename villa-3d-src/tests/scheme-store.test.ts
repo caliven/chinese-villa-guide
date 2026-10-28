@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createEmptyScheme,
+  buildSchemeDocument,
+  resetSchemeDocument,
   isMeterSchemePayload,
   migrateSchemeRawToMm,
   formatSavedAt,
@@ -15,6 +17,25 @@ import {
 import { clonePublishedLayout } from "../src/layout-draft";
 import { LENGTH_UNITS, VILLA_PARAM_NON_LENGTH } from "../src/units";
 import { DEFAULT_VILLA_PARAMS, LOCKED_SITE_WIDTH } from "../src/villa-params";
+import { buildSizeVersionDocument, parseSizeVersionDocument } from "../src/data-versions";
+import { DEFAULT_ROOF_STYLE, roofStyleLabels } from "../src/roof-options";
+
+test("新建与初始化默认悬浮，普通官帽可选；历史显式及缺字段的普通官帽稿保持原选项", () => {
+  assert.equal(DEFAULT_ROOF_STYLE, "floating");
+  assert.deepEqual(Object.keys(roofStyleLabels), ["floating", "joined"]);
+  assert.equal(roofStyleLabels.joined, "普通官帽");
+  for (const doc of [createEmptyScheme(), resetSchemeDocument(), buildSchemeDocument({}), buildSizeVersionDocument()])
+    assert.equal(doc.roofStyle, "floating");
+  for (const roofStyle of ["floating", "joined"] as const) {
+    const doc = buildSchemeDocument({ roofStyle });
+    assert.equal(parseSchemeDocument(JSON.parse(schemeToJson(doc))).roofStyle, roofStyle);
+    assert.equal(parseSizeVersionDocument(buildSizeVersionDocument({ roofStyle })).roofStyle, roofStyle);
+  }
+  const { roofStyle: _style, ...legacy } = createEmptyScheme();
+  assert.equal(parseSchemeDocument(legacy).roofStyle, "joined");
+  const { roofStyle: _sizeStyle, ...legacySize } = buildSizeVersionDocument();
+  assert.equal(parseSizeVersionDocument(legacySize).roofStyle, "joined");
+});
 
 /** 把毫米稿还原成旧米制 JSON（长度 ÷1000；角度／序号／踏步数保持原值）。 */
 const KEEP_AS_IS = new Set(["schema", "rotation", "floor", "facadeIndex", "risers", ...VILLA_PARAM_NON_LENGTH]);

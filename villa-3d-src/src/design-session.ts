@@ -1,3 +1,4 @@
+import { isRailingStyle } from "./railing-options";
 import { designIssues } from "./design-data";
 import { projectMeta } from "./project-meta";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
@@ -85,6 +86,7 @@ export function validateMeetingView(value: unknown): MeetingView {
     const next = { ...DEFAULT_VILLA_PARAMS };
     for (const key of Object.keys(DEFAULT_VILLA_PARAMS) as (keyof VillaParams)[]) {
       if (typeof DEFAULT_VILLA_PARAMS[key] === "number" && typeof raw[key] === "number" && Number.isFinite(raw[key])) (next as unknown as Record<string, unknown>)[key] = raw[key];
+      if ((key === "livingRailingStyle" || key === "stairRailingStyle") && isRailingStyle(raw[key])) next[key] = raw[key];
       if (key === "porticoStyle" && ["projecting", "recessed"].includes(raw[key] as string)) next.porticoStyle = raw[key] as VillaParams["porticoStyle"];
       if (key === "buildingPlacement" && ["main-east", "main-west"].includes(raw[key] as string)) next.buildingPlacement = raw[key] as VillaParams["buildingPlacement"];
       if (key === "thirdFloorMode" && ["setback", "flush"].includes(raw[key] as string)) next.thirdFloorMode = raw[key] as VillaParams["thirdFloorMode"];

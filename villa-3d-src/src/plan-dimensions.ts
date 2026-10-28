@@ -1,4 +1,4 @@
-import { construction, isPhysicalWall, site, type Floor, type Wall } from "./data";
+import { construction, site, type Floor, type Wall } from "./data";
 
 /** 图上统一到整数毫米端点；先取端点再相减，分段之和才能严格等于总尺寸。 */
 export const planDimMm = (value: number) => Math.round(value);
@@ -17,7 +17,7 @@ function axes(values: number[], lo: number, hi: number): number[] {
 }
 
 /**
- * 外圈墙距只来自实体墙（承重／隔墙）；虚拟分界不投线、不拆段。
+ * 外圈定位来自接触外墙的实体墙或虚拟分界；房屋内部悬空线不投线、不拆段。
  * 按实际相交侧分别投线：接北标北、接南标南；贯通墙在两端外墙均保留定位。
  * 当前编辑器的墙为正交墙，斜墙不冒充水平／竖直定位线。
  */
@@ -33,7 +33,6 @@ function wallAxes(body: Envelope, walls: Wall[]) {
     map.set(key, previous ? [Math.min(previous[0], lo), Math.max(previous[1], hi)] : [lo, hi]);
   };
   for (const wall of walls) {
-    if (!isPhysicalWall(wall)) continue;
     if (![...wall.a, ...wall.b].every(Number.isFinite)) continue;
     const wx0 = Math.min(wall.a[0], wall.b[0]), wx1 = Math.max(wall.a[0], wall.b[0]);
     const wz0 = Math.min(wall.a[1], wall.b[1]), wz1 = Math.max(wall.a[1], wall.b[1]);

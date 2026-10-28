@@ -18,6 +18,7 @@ import {
   PLAN_ENTRANCE_DOWN,
 } from "./plan";
 import { LayoutEditor } from "./layout-editor";
+import { normalizeDraftWallContacts } from "./wall-contact-snap";
 import { LayoutScene, selectionKey } from "./layout-scene";
 import { PlanCanvas } from "./plan-canvas";
 import { furniturePickerOrder, furnitureLabels } from "./furniture-catalog";
@@ -41,7 +42,7 @@ import { mountDesignReview } from "./design-review";
 import { viewFlags, type CameraPose, type MeetingView } from "./design-session";
 import { projectMeta, escapeHtml } from "./project-meta";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
-import { parseRoofStyle, type RoofStyle } from "./roof-options";
+import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options";
 import {
   bindCourtyardDimDrag,
   clearCourtyardDimLayout,
@@ -133,6 +134,17 @@ const icon = (name: string) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shapes[name] ?? shapes.info}</svg>`;
 const check = (id: string, label: string, checked = false) =>
   `<label class="toggle-row"><span>${label}</span><input type="checkbox" id="${id}" ${checked ? "checked" : ""}/><span class="switch" aria-hidden="true"></span></label>`;
+// 常用灯色色温与RGB氛围色只作屏幕近似；原始暖光保留为独立默认项。
+const eaveColorPresets = [
+  { label: "原始暖光", color: "#ffd99a" },
+  { label: "暖白 2700K", color: "#ffbf80" },
+  { label: "暖白 3000K", color: "#ffd2a0" },
+  { label: "自然白 4000K", color: "#ffe5cc" },
+  { label: "冷白 5000K", color: "#fff1e6" },
+  { label: "琥珀", color: "#ff9b38" },
+  { label: "冰蓝", color: "#70bdff" },
+  { label: "柔紫", color: "#bf8cff" },
+] as const;
 const cameraLabels: Record<string, string> = {
   aerial: "鸟瞰",
   north: "北立面",
@@ -207,7 +219,7 @@ document.querySelector("#app")!.innerHTML = `
       <div class="scene-heading" id="scene-heading"><h1 id="scene-title">新建方案</h1><p id="scene-subtitle">依据航拍与已知尺寸重建 · 周边为估算</p></div>
       <div id="model-controls">
         <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number" id="area-number">${buildingAreas.total.toFixed(1)}<span>m²</span></div><p class="area-caption" id="area-caption">主楼 ${buildingAreas.main.toFixed(1)}㎡ ＋ 辅楼 ${buildingAreas.annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡</p><p class="micro" id="area-micro">首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总</p><button type="button" class="secondary-button" id="open-params-from-inspector">打开尺寸设置</button></section>
-        <section><h2>模型显示</h2>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "主楼与地库重叠")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1200 mm</option></select></label></section>
+        <section><h2>模型显示</h2>${check("night-mode", "夜景模式")}<div id="eave-light-controls" class="eave-light-controls" hidden><div class="eave-preset-title">快捷灯色 <small>色温效果示意</small></div><div class="eave-presets" role="group" aria-label="洗墙灯快捷颜色">${eaveColorPresets.map(({ label, color }, i) => `<button type="button" class="eave-preset" data-eave-color="${color}" aria-pressed="${i === 0}"><span class="eave-swatch" style="background:${color}" aria-hidden="true"></span>${label}</button>`).join("")}</div><label class="eave-color-label" for="eave-light-color">洗墙灯颜色<input type="color" id="eave-light-color" value="#ffd99a"/></label><div class="range-heading"><label for="eave-light-brightness">洗墙灯亮度</label><output id="eave-light-brightness-output">150%</output></div><input type="range" id="eave-light-brightness" min="0" max="200" step="5" value="150"/></div>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "主楼与地库重叠")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1200 mm</option></select></label></section>
         <section><h2>屋面坡度</h2><p class="micro">分水＝水平10对应的升高。主辅楼同步调整，官帽按所选造型重画。</p><div class="range-heading"><label for="fen-shui">分水</label><output id="fen-shui-output">${site.roofFenShui.toFixed(1)}</output></div><input type="range" id="fen-shui" min="1" max="10" step="0.1" value="${site.roofFenShui}"/><label class="select-label">直接输入<input type="number" id="fen-shui-number" min="1" max="10" step="0.1" value="${site.roofFenShui}"/></label><p class="calculation" id="fen-shui-result"></p></section>
         <section><h2>关键尺寸</h2><dl class="metric-list" id="metric-list"></dl></section>
         <button class="notice notice-button" id="open-garage">${icon("info")}<span><strong>地库车辆路线待校核</strong><small>查看车身扫掠、净高待核区与柱墙潜在冲突。<br/>道路与梁底待测，切口协商待确认。</small></span><span>↗</span></button>
@@ -215,7 +227,7 @@ document.querySelector("#app")!.innerHTML = `
       <div id="floor-controls" hidden>
         <section><h2>分层户型</h2><div class="segmented"><button data-plan-mode="2d" class="active">平面图</button><button data-plan-mode="3d">立体剖看</button></div><div id="floor-room-options"><fieldset id="floor-select" class="floor-choices"><legend>选择楼层</legend><div>${floors.map((f, i) => `<label><input type="radio" name="floor" value="${i}" ${i === 0 ? "checked" : ""}/><span><strong>${f.name}</strong><small>${bedroomSummary(i)}</small></span></label>`).join("")}</div></fieldset>${check("explode", "楼层分离展示")}${check("chair-clearance", "餐厅拉椅范围", true)}${check("room-clearance", "家具使用讨论留位")}<label class="select-label">辅楼前圆桌情景<select id="dining-mode"><option value="full">室外圆桌 · 6座</option><option value="daily">圆桌收起 · 日常</option></select></label><button class="secondary-button" data-design-issue="D08">记录房间深化意见 ↗</button></div></section>
         <section><h2 id="floor-summary-title">一层 · 1间卧室＋1间用途待定</h2><p id="floor-summary" class="description"></p><div id="room-detail" class="room-detail" hidden></div></section>
-        <section id="dining-check"><h2>餐厅满座</h2><p class="description">圆桌12座＋小桌6座。</p><div class="notice"><span><strong>拉椅空间偏紧</strong><small id="dining-warning"></small></span></div></section>
+        <section id="dining-check"><h2>餐厅拉椅范围</h2><p class="description">虚线圈为圆桌桌缘外550 mm的拉椅讨论留位，随桌子移动和改尺寸更新。</p><div class="notice"><span><strong>距辅楼外轮廓的示意余量</strong><small id="dining-warning"></small></span></div></section>
       </div>
       <div id="sun-controls" hidden>
         <section><h2>四季日照</h2><p class="description">按真实朝北方向观察光线，重点比较南窗与屋后高田的遮挡。</p><div class="season-grid">${[
@@ -283,6 +295,7 @@ const designerScenePoses = new Map<number, CameraPose>();
 let designerSceneLevel = 0;
 let designerSceneActive = false;
 let designerCameraRevision = 0;
+let designerWalkIntro = false;
 let review: ReturnType<typeof mountDesignReview> | null = null;
 let lastViewingTab: MeetingView["tab"] = "model";
 let reviewPose: CameraPose | null = null;
@@ -293,10 +306,10 @@ let tab = "model",
 let camera: CameraName = "aerial",
   isExisting = false,
   balcony = false;
-let roofStyle: RoofStyle = "joined";
+let roofStyle: RoofStyle = DEFAULT_ROOF_STYLE;
 let drawingView: "floor" | "roof" | "elevation" = "floor";
 let elevationView: ElevationView = "north";
-let roofDrawingView: RoofDrawingView = "joined";
+let roofDrawingView: RoofDrawingView = DEFAULT_ROOF_STYLE;
 let toastTimer: ReturnType<typeof setTimeout>;
 let layoutEditing = false;
 let layoutEditor: LayoutEditor | null = null;
@@ -636,6 +649,7 @@ async function applySchemeDocument(doc: SchemeDocument, options?: { toastMsg?: s
   courtyardDimLayout = loadCourtyardDimLayout();
   replaceLayoutDraftMemory(doc.layoutDraft);
   roofStyle = doc.roofStyle;
+  if (roofDrawingView !== "slab") roofDrawingView = roofStyle;
   applyCourtyardFinishInputs(doc.courtyardFinish, doc.neighborCourtyardFinish);
   document.querySelectorAll<HTMLButtonElement>("[data-roof-style]").forEach((btn) => {
     const on = btn.dataset.roofStyle === roofStyle;
@@ -657,6 +671,7 @@ async function applySizeVersion(doc: SizeVersionDocument, options?: { toastMsg?:
   replaceCourtyardDimLayout(doc.courtyardDimLayout);
   courtyardDimLayout = loadCourtyardDimLayout();
   roofStyle = doc.roofStyle;
+  if (roofDrawingView !== "slab") roofDrawingView = roofStyle;
   applyCourtyardFinishInputs(doc.courtyardFinish, doc.neighborCourtyardFinish);
   document.querySelectorAll<HTMLButtonElement>("[data-roof-style]").forEach((btn) => {
     const on = btn.dataset.roofStyle === roofStyle;
@@ -675,10 +690,11 @@ async function applySizeVersion(doc: SizeVersionDocument, options?: { toastMsg?:
 }
 
 async function applyLayoutVersion(doc: LayoutVersionDocument, silent = false) {
-  replaceLayoutDraftMemory(doc.layoutDraft);
+  const draft = normalizeDraftWallContacts(structuredClone(doc.layoutDraft));
+  replaceLayoutDraftMemory(draft);
   if (layoutEditor) {
     layoutEditor.setTool("select");
-    layoutEditor.loadDraft(doc.layoutDraft);
+    layoutEditor.loadDraft(draft);
   }
   drawPlan();
   await applyLayoutDraftTo3d();
@@ -894,7 +910,7 @@ function syncFenShuiInputs(value: number) {
 function rescaleStoredLayoutDraft(): LayoutDraft | null {
   const draft = loadLayoutDraft();
   if (!draft) return null;
-  const next = scaleLayoutDraftToEnvelope(draft, envelopeFromSite());
+  const next = normalizeDraftWallContacts(scaleLayoutDraftToEnvelope(draft, envelopeFromSite()));
   saveLayoutDraft(next);
   if (layoutEditor) layoutEditor.loadDraft(next);
   return next;
@@ -1449,7 +1465,13 @@ function drawPlan() {
       : "当前草稿。切换楼层查看，点「编辑布局」修改，点「新增」建立空白户型，或点「复制」另存当前布局。";
   $("room-detail").hidden = true;
   $("room-detail").replaceChildren();
-  $("dining-check").hidden = level !== 0 || layoutEditing || !source.annexFurniture.some(item => item.kind === "roundTable");
+  const diningRanges = source.annexFurniture.flatMap(item => {
+    const range = diningClearance([item]);
+    return range ? [range] : [];
+  });
+  $("dining-check").hidden = level !== 0 || layoutEditing || !diningRanges.length || $<HTMLSelectElement>("dining-mode").value === "daily";
+  $("dining-warning").textContent = diningRanges.map((range, i) =>
+    `${diningRanges.length > 1 ? `圆桌${i + 1}：` : ""}西侧${formatMm(range.west)} mm、北侧${formatMm(range.north)} mm、东侧${formatMm(range.east)} mm。`).join(" ");
   $("layout-edit-bar").hidden = false;
   $("toggle-layout-edit").setAttribute("aria-pressed", String(layoutEditing));
   $("toggle-layout-edit").classList.toggle("active", layoutEditing);
@@ -1586,10 +1608,13 @@ function setLayoutEditing(on: boolean) {
   updateScene();
 }
 function updateScene() {
+  $("eave-light-controls").hidden = !checked("night-mode");
   document.body.classList.toggle("plan-designer", tab === "floor");
   const floor3d = tab === "floor" && planMode === "3d";
   if (floor3d && level < 0) level = 0;
-  if (designerSceneActive && viewer && !viewer.state.exploded) designerScenePoses.set(designerSceneLevel, viewer.cameraPose());
+  if (!floor3d || designerSceneLevel !== level || checked("explode")) designerWalkIntro = false;
+  if (layoutScene?.isWalking() && (!floor3d || designerSceneLevel !== level || checked("explode"))) layoutScene.setWalking(false);
+  if (designerSceneActive && viewer && !viewer.state.exploded && !layoutScene?.isWalking()) designerScenePoses.set(designerSceneLevel, viewer.cameraPose());
   const frameChanged = floor3d && (!designerSceneActive || designerSceneLevel !== level || viewer?.state.exploded !== checked("explode"));
   designerSceneActive = floor3d;
   designerSceneLevel = level;
@@ -1602,9 +1627,7 @@ function updateScene() {
   $("plan-drawing").hidden = floor3d;
   $("plan-panel").hidden = tab !== "floor";
   $("designer-explode").setAttribute("aria-pressed", String(checked("explode")));
-  document.querySelector<HTMLElement>(".designer-scene-hint")!.textContent = checked("explode")
-    ? "楼层分离展示 · 关闭分离后可在场景中点选和摆放模型"
-    : "拖动空白处旋转 · 右键平移 · 滚轮缩放 · 点选家具后可拖动摆放";
+  syncDesignerSceneModes();
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-designer-layer="dims"], #toggle-wall-width, [data-designer-display="chair-clearance"], [data-designer-display="room-clearance"]')) {
     button.disabled = floor3d;
     button.title = floor3d ? "此项用于二维图纸" : "";
@@ -1679,6 +1702,9 @@ function updateScene() {
     neighborCourtyardFinish: selectedCourtyardFinish("neighbor-courtyard-finish"),
     existing: isExisting && tab === "model",
     roof: checked("roof"),
+    night: tab === "model" && !garage && checked("night-mode"),
+    eaveLightColor: $<HTMLInputElement>("eave-light-color").value,
+    eaveLightBrightness: Number($<HTMLInputElement>("eave-light-brightness").value) / 100,
     dimensions: checked("dimensions"),
     context: checked("context"),
     balcony,
@@ -1699,8 +1725,8 @@ function updateScene() {
   $("roof-style-note").textContent = isExisting && tab === "model"
     ? "切换到新建方案，可比较两种官帽造型。"
     : roofStyle === "floating"
-      ? "默认帽顶低于主脊50cm，纵脊接入正屋，檐底贴近屋面。"
-      : "官帽与正屋同脊高，檐口相连。";
+      ? "悬浮官帽为默认方案；帽顶落差可调，纵脊接入正屋。"
+      : "普通官帽与正屋同脊高，瓦面加宽，檐口相连。";
   $("scene-title").textContent = garage
     ? "地库车辆路线与待核区"
     : floor3d
@@ -1740,6 +1766,20 @@ function updateScene() {
       layoutScene?.sync();
     });
   }
+}
+function syncDesignerSceneModes() {
+  const walking = layoutScene?.isWalking() ?? false;
+  active("[data-designer-camera]", button => !walking && button.dataset.designerCamera === designerSceneCamera);
+  $("designer-walk").setAttribute("aria-pressed", String(walking));
+  $("designer-night").setAttribute("aria-pressed", String(layoutScene?.isNight() ?? false));
+  $("designer-walk-exit").hidden = !walking;
+  $("designer-walk-hint").hidden = !walking && !designerWalkIntro;
+  $("designer-walk-intro").hidden = !designerWalkIntro;
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-editor-wall-height], #designer-explode, #plan-zoom-out, #plan-zoom-reset, #plan-zoom-in')) button.disabled = walking;
+  const hint = document.querySelector<HTMLElement>(".designer-scene-hint")!;
+  hint.hidden = walking || designerWalkIntro;
+  hint.textContent = checked("explode") ? "楼层分离展示 · 关闭分离后可在场景中点选和摆放模型"
+    : "拖动空白处旋转 · 右键平移 · 滚轮缩放 · 点选家具后可拖动摆放";
 }
 function switchTab(name: string) {
   const resumePose = tab === "design" && name === lastViewingTab ? reviewPose : null;
@@ -2026,9 +2066,35 @@ document.addEventListener("click", (event) => {
     return;
   }
   if (el.dataset.designerCamera === "orbit" || el.dataset.designerCamera === "top") {
+    layoutScene?.setWalking(false);
     designerSceneCamera = el.dataset.designerCamera;
     viewer?.setFloorCamera(designerSceneCamera);
     active("[data-designer-camera]", button => button.dataset.designerCamera === designerSceneCamera);
+    return;
+  }
+  if (el.id === "designer-walk" || el.id === "designer-walk-exit") {
+    if (checked("explode")) { toast("请先关闭楼层分离，再进入漫游"); return; }
+    designerCameraRevision++;
+    if (el.id === "designer-walk" && !layoutScene?.isWalking()) {
+      designerWalkIntro = true;
+    } else {
+      designerWalkIntro = false;
+      layoutScene?.setWalking(false);
+    }
+    syncDesignerSceneModes();
+    if (designerWalkIntro) $("designer-walk-start").focus();
+    return;
+  }
+  if (el.id === "designer-walk-start" || el.id === "designer-walk-cancel") {
+    designerWalkIntro = false;
+    if (el.id === "designer-walk-start") layoutScene?.setWalking(true);
+    syncDesignerSceneModes();
+    $("designer-walk").focus();
+    return;
+  }
+  if (el.id === "designer-night") {
+    layoutScene?.setNight(!layoutScene.isNight());
+    syncDesignerSceneModes();
     return;
   }
   if (el.id === "designer-explode") {
@@ -2277,8 +2343,22 @@ document.addEventListener("keydown", (e) => {
     el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   }
 });
-for (const id of ["roof", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside"])
+for (const id of ["roof", "night-mode", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside"])
   $(id).addEventListener("change", updateScene);
+function updateEaveLightControls() {
+  const color = $<HTMLInputElement>("eave-light-color").value.toLowerCase();
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-eave-color]"))
+    button.setAttribute("aria-pressed", String(button.dataset.eaveColor === color));
+  $("eave-light-brightness-output").textContent = `${$<HTMLInputElement>("eave-light-brightness").value}%`;
+  updateScene();
+}
+for (const id of ["eave-light-color", "eave-light-brightness"])
+  $(id).addEventListener("input", updateEaveLightControls);
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-eave-color]"))
+  button.addEventListener("click", () => {
+    $<HTMLInputElement>("eave-light-color").value = button.dataset.eaveColor!;
+    updateEaveLightControls();
+  });
 for (const id of ["courtyard-finish-concrete", "courtyard-finish-tile", "neighbor-courtyard-finish-concrete", "neighbor-courtyard-finish-tile"])
   $(id).addEventListener("change", () => {
     updateScene();
@@ -2473,6 +2553,16 @@ $("layout-inspector").addEventListener("change", (event) => {
     layoutEditor.updateSelectedName((el as HTMLInputElement).value);
     return;
   }
+  if (el.hasAttribute("data-shower-door-side") && el instanceof HTMLSelectElement) {
+    layoutEditor.updateSelectedShowerDoorSide(el.value);
+    refreshLayoutInspector(true);
+    return;
+  }
+  if (el.hasAttribute("data-edit-railing") && el instanceof HTMLSelectElement) {
+    layoutEditor.updateSelectedRailingStyle(el.value);
+    refreshLayoutInspector(true);
+    return;
+  }
   const voidField = el.getAttribute("data-void-field");
   if (voidField && el instanceof HTMLSelectElement) {
     layoutEditor.updateLivingVoidField(voidField, el.value);
@@ -2557,6 +2647,16 @@ document.addEventListener(
   "keydown",
   (event) => {
     if (planLoadingTasks || document.querySelector("dialog[open]")) return;
+    if (designerWalkIntro) {
+      if (event.code === "Escape") {
+        event.preventDefault();
+        designerWalkIntro = false;
+        syncDesignerSceneModes();
+        $("designer-walk").focus();
+      }
+      return;
+    }
+    if (layoutScene?.handleWalkKey(event)) return;
     if (layoutEditorTypingTarget(event.target)) return;
     if (tab === "floor" && planMode === "2d" && drawingView === "floor" && level >= 0 && !event.metaKey && !event.ctrlKey && !event.altKey) {
       const key = event.key.toLowerCase();
@@ -2914,9 +3014,6 @@ planCanvas = new PlanCanvas($("plan-drawing"), {
 renderFacts();
 drawPlan();
 updateFenShui();
-const clear = diningClearance();
-$("dining-warning").textContent =
-  `按当前拉椅包络，西侧余量${formatMm(clear.west)} mm、北侧${formatMm(clear.north)} mm；东侧仅${formatMm(clear.east)} mm。两桌拉椅包络局部相交，满座上菜需错让。`;
 
 // 先载入方案并对齐 site（含门厅居中），再创建 3D。
 // 否则首帧用 data.ts 占位，方案应用后门厅会左右弹一下再回正。
@@ -2971,6 +3068,7 @@ try {
       drawPlan();
     },
     toast,
+    walkChanged: syncDesignerSceneModes,
     layers: () => ({
       furniture: !$("plan-panel").classList.contains("designer-hide-furniture"),
       labels: !$("plan-panel").classList.contains("designer-hide-labels"),
@@ -2992,7 +3090,7 @@ try {
   };
   updateSun();
   updateRamp();
-  // 已有布局草稿时立体与平面一致（挑空边栏杆由家具「栏杆」自画）
+  // 已有布局草稿时立体与平面一致，挑空及楼梯栏杆随实际边界派生
   await applyLayoutDraftTo3d();
   updateScene();
   const initialView = new URLSearchParams(location.search).get("view");

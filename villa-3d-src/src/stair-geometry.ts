@@ -3,7 +3,7 @@ import { construction, floors, site, wallRoleOf, isPhysicalWall, type Floor } fr
 import type { StairDraft } from "./layout-draft";
 
 export type StairRect = { x: number; z: number; w: number; d: number };
-export type StairShapeInput = Pick<StairDraft, "model" | "x" | "z" | "axis" | "flight" | "gap" | "tread" | "middleTread" | "risers" | "landing" | "lowerSide" | "direction">;
+export type StairShapeInput = Pick<StairDraft, "model" | "x" | "z" | "axis" | "flight" | "gap" | "tread" | "middleTread" | "risers" | "landing" | "lowerSide" | "direction" | "railingStyle">;
 
 /** 毫米制实体梯段共用几何；南北向默认在图左（东侧）起步，返跑下方在图右。 */
 export function stairShape(s: StairShapeInput) {
@@ -58,7 +58,7 @@ export function stairStoryHeight(floorList: Floor[], index: number): number {
   return floorList[from].height - (from === 0 ? site.entranceRise : 0);
 }
 
-/** 洞口围栏在上跑到达端留出整跑宽入口，反向后入口随实体换边。 */
+/** 洞口围栏避开下跑起步及上跑到达的整跑宽通口，保留两者之间的梯井护栏。 */
 export function stairOpeningRails(s: StairDraft): [number, number][][] {
   const opening = stairOpeningBounds(s), shape = stairShape(s);
   const crossMin = s.axis === "x" ? opening.z : opening.x;
@@ -67,16 +67,23 @@ export function stairOpeningRails(s: StairDraft): [number, number][][] {
   const alongMax = alongMin + (s.axis === "x" ? opening.w : opening.d);
   const entry = shape.direction === "negative" ? alongMax : alongMin;
   const far = shape.direction === "negative" ? alongMin : alongMax;
-  const start = Math.max(crossMin, (s.axis === "x" ? s.z : s.x) + shape.upperAcross);
-  const end = Math.min(crossMax, start + s.flight);
+  const crossOrigin = s.axis === "x" ? s.z : s.x;
+  const passages = [shape.lowerAcross, shape.upperAcross]
+    .map(offset => [Math.max(crossMin, crossOrigin + offset), Math.min(crossMax, crossOrigin + offset + s.flight)])
+    .sort((a, b) => a[0] - b[0]);
   const point = (cross: number, along: number): [number, number] => s.axis === "x" ? [along, cross] : [cross, along];
-  return [
+  const rails: [number, number][][] = [
     [point(crossMin, entry), point(crossMin, far)],
     [point(crossMin, far), point(crossMax, far)],
     [point(crossMax, far), point(crossMax, entry)],
-    ...(start > crossMin ? [[point(crossMin, entry), point(start, entry)]] : []),
-    ...(end < crossMax ? [[point(end, entry), point(crossMax, entry)]] : []),
   ];
+  let cursor = crossMin;
+  for (const [start, end] of passages) {
+    if (start > cursor) rails.push([point(cursor, entry), point(start, entry)]);
+    cursor = Math.max(cursor, end);
+  }
+  if (cursor < crossMax) rails.push([point(cursor, entry), point(crossMax, entry)]);
+  return rails;
 }
 
 /**

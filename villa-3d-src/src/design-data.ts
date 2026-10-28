@@ -15,7 +15,7 @@ import {
 import { facades } from "./facades";
 import { resolveLayoutFacades, type FacadeLayout } from "./facade-layout";
 import { formatMm } from "./units";
-import { outlinePath, polygonAreaMm2, roomContainsPoint, roomLabelPoint, roomNetGeometry, roomOutline, type RoomNetGeometry } from "./room-geometry";
+import { outlinePath, physicalWallJoinExtensions, polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomLabelPoint, roomNetGeometry, roomOutline, type RoomNetGeometry } from "./room-geometry";
 
 export const floorFinish = (index: number) => floors[index].y + (index === 0 ? site.entranceRise : 0);
 export const bedroomSummary = (index: number, rooms: Room[] = floors[index].rooms) => {
@@ -62,6 +62,8 @@ export function roomEdgeInsets(
     ? site.annex
     : { ...site.main, z: floors[index].front, d: site.main.z + site.main.d - floors[index].front };
   const partitions = partitionsOverride ?? (annex ? annexPartitions : floors[index].partitions);
+  const peers = partitions.filter(isPhysicalWall).map(wall => ({ ...wall,
+    thick: wallRoleOf(wall) === "bearing" ? construction.outsideWall : construction.partition }));
   const near = (a: number, b: number) => Math.abs(a - b) < 15;
   const overlaps = (a: number, b: number, c: number, d: number) =>
     Math.min(a, b) < d - 10 && Math.max(a, b) > c + 10;
@@ -77,9 +79,12 @@ export function roomEdgeInsets(
     const at = [room.x, room.x + room.w, room.z, room.z + room.d][edge];
     const start = other === 0 ? room.x : room.z;
     const end = start + (other === 0 ? room.w : room.d);
-    const hit = partitions.find(
-      (p) => isPhysicalWall(p) && near(p.a[axis], at) && near(p.b[axis], at) && overlaps(p.a[other], p.b[other], start, end),
-    );
+    const hit = partitions.find((p) => {
+      if (!isPhysicalWall(p) || !near(p.a[axis], at) || !near(p.b[axis], at)) return false;
+      const join = physicalWallJoinExtensions(p, peers);
+      const direction = Math.sign(p.b[other] - p.a[other]);
+      return overlaps(p.a[other] - direction * join.start, p.b[other] + direction * join.end, start, end);
+    });
     if (!hit) return 0;
     // 承重内墙按外墙厚半分摊，隔墙按隔墙厚半；虚拟墙无厚度（上面已过滤）。
     return (wallRoleOf(hit) === "bearing" ? construction.outsideWall : construction.partition) / 2;
@@ -153,6 +158,21 @@ export function roomAreas(room: Room, index: number, partitionsOverride?: Wall[]
   };
 }
 
+/** 房间标注使用模型墙线及净空口径；非矩形尺寸仅为包络。 */
+export function roomAreaLabels(room: Room, index: number, partitionsOverride?: Wall[]) {
+  if (room.kind === "void") return ["挑空 · 无楼板"];
+  if (room.boundary?.status === "unbounded") return ["失去围合 · 面积待核"];
+  const areas = roomAreas(room, index, partitionsOverride);
+  const dims = (w: number, d: number) => `${Math.round(w)}×${Math.round(d)}`;
+  const buildingBounds = !roomIsRectangular(room) ? "包络 " : "";
+  const netBounds = Math.abs(areas.fill.w * areas.fill.d / 1_000_000 - areas.interior) > .001 ? "包络 " : "";
+  return [
+    `${buildingBounds}${dims(room.w, room.d)} · ${areas.building.toFixed(2)}㎡`,
+    `${netBounds}${dims(areas.fill.w, areas.fill.d)} · ${areas.interior.toFixed(2)}㎡`,
+    ...(room.boundary?.status === "open" ? ["开敞分区"] : []),
+  ];
+}
+
 // 只计算模型墙线内侧的矩形包络。门洞、部分隔墙与嵌套套卫不能据此认定为实用净面积。
 export function roomReference(room: Room, index: number, partitionsOverride?: Wall[], roomsOverride?: Room[]) {
   const cuts = roomEdgeInsets(room, index, partitionsOverride);
@@ -222,7 +242,7 @@ export const designIssues: DesignIssue[] = [
 
 export const designBrief = [
   { status: "保留意图", title: "主辅楼及生活分区", get text() { return `主楼${formatMm(site.main.w)}×${formatMm(site.main.d)} mm、辅楼${formatMm(site.annex.w)}×${formatMm(site.annex.d)} mm（前墙相对主楼内退${formatMm(site.annex.z - site.main.z)} mm）；首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡（主楼${buildingAreas.main.toFixed(1)}＋辅楼${buildingAreas.annex.toFixed(1)}＋门厅${buildingAreas.portico.toFixed(1)}），门厅全额计入一次（凹入式先扣主楼凹口）。主楼三层、厨房在辅楼；挑空客厅、茶室、楼梯及尊亲房随主辅楼位置镜像。`; } },
-  { status: "保留意图", title: "立面与院坪", get text() { return `新中式四坡五脊；保留与正屋同脊高的原有官帽，可切换抬高的悬浮官帽比较。保留通高门厅；${site.setback > 0 ? `三楼北向内退${formatMm(site.setback)} mm，三块露台分开` : "三楼不内退，两翼前墙与二楼齐平，仅保留中央门厅露台"}。辅楼前约2000 mm人行通道、原院坪中部不新增楼梯。造型须结合结构排水深化。`; } },
+  { status: "保留意图", title: "立面与院坪", get text() { return `新中式四坡五脊；默认悬浮官帽，普通官帽作为可选方案；普通官帽加宽瓦面、后移前部起脊点，与正屋同脊高。保留通高门厅；${site.setback > 0 ? `三楼北向内退${formatMm(site.setback)} mm，三块露台分开` : "三楼不内退，两翼前墙与二楼齐平，仅保留中央门厅露台"}。辅楼前约2000 mm人行通道、原院坪中部不新增楼梯。造型须结合结构排水深化。`; } },
   { status: "可协商深化", title: "舒适与使用优先", text: "希望保留地库少柱、2500 mm净高目标、双桌餐厅和老人房内卫。实际柱梁、家具、步行出口、坡道与设备位置由设计公司出备选比较；模型未指定可行结论。" },
   { status: "待业主确认", title: "人数、房间与预算", text: "常住／节庆人数、老人行动需求、七间卧室的刚性程度、待定房用途、餐厅日常方式、投资范围和地库优先级，需在会前补充。" },
   { status: "待实测与设计", title: "场地与工程条件", text: "界址、道路及保留梁底、邻房基础、挡土、管线、排水去向、切口协商和当地建设条件均需取得真实依据。红线轮廓、关系图和模型尺寸不替代相应成果。" },
