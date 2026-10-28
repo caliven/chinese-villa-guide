@@ -56,6 +56,16 @@ export function entryAssemblyDesign(entry: EntryAssembly) {
     for (const xx of [p.x - 12, p.x + p.w]) rect(xx, p.y - 12, 12, p.h + 24, "bead", "门厅上窗玻璃压条");
     for (const yy of [p.y - 12, p.y + p.h]) rect(p.x, yy, p.w, 12, "bead", "门厅上窗玻璃压条");
   }
+  // 上窗恢复中式回字花格，叠于玻璃外侧，并随洞口宽高缩放。
+  const lattice = 18, cellW = w / 6, cellH = glassH / 5;
+  for (let i = 1; i < 6; i++) rect(x + i * cellW - lattice / 2, glassBottom, lattice, glassH, "relief", "门厅上窗花格竖线");
+  for (let j = 1; j < 5; j++) rect(x, glassBottom + j * cellH - lattice / 2, w, lattice, "relief", "门厅上窗花格横线");
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) {
+    const inset = Math.min(cellW, cellH) * .22, left = x + i * cellW + inset, right = x + (i + 1) * cellW - inset;
+    const low = glassBottom + j * cellH + inset, high = glassBottom + (j + 1) * cellH - inset;
+    for (const xx of [left, right - lattice]) rect(xx, low, lattice, high - low, "relief", "门厅上窗回字花格");
+    for (const yy of [low, high - lattice]) rect(left, yy, right - left, lattice, "relief", "门厅上窗回字花格");
+  }
   for (const xx of [x - edge, x + w]) rect(xx, entry.bottom, edge, entry.top - entry.bottom, "frame", "门厅通高门头边框");
   for (const yy of [entry.bottom, entry.top - edge]) rect(x, yy, w, edge, "frame", "门厅通高门头横框");
   for (const yy of [doorTop, glassBottom - 40]) rect(x, yy, w, 40, "frame", "门厅通高门头横框");
