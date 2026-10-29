@@ -173,5 +173,5 @@ export function mountDesignReview(root: HTMLElement, api: ReviewAPI) {
 }
 
 const flagLabels: Record<string, string> = {
-  roof: "屋顶", dimensions: "尺寸", context: "周边", overlap: "主楼与地库重叠", "main-building": "主楼", "annex-building": "辅楼", "neighbor-side": "左邻房", "neighbor-rear": "后邻房", "neighbor-front": "前邻房", "neighbor-roadside": "蓝顶邻房", explode: "分层", "chair-clearance": "拉椅", "room-clearance": "家具留位", "room-inside": "内侧参考", "route-sweep": "扫掠", "route-clearance": "净高待核", "route-conflicts": "柱墙风险",
+  roof: "屋顶", dimensions: "尺寸", context: "周边", overlap: "显示主楼与地库重叠示意", "main-building": "主楼", "annex-building": "辅楼", "neighbor-side": "左邻房", "neighbor-rear": "后邻房", "neighbor-front": "前邻房", "neighbor-roadside": "蓝顶邻房", explode: "分层", "chair-clearance": "拉椅", "room-clearance": "家具留位", "room-inside": "内侧参考", "route-sweep": "扫掠", "route-clearance": "净高待核", "route-conflicts": "柱墙风险",
 };

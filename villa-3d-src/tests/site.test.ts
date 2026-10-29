@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { site, floors, frontFieldLevel, courtyardFront } from "../src/data";
 import { buildContextGround, buildRoad } from "../src/site-ground";
 import { buildSurroundingHouses, makeRamp, buildCourtyard, buildExistingHouses, neighborBayPlan, clipParkingLine } from "../src/terrain";
-import { surroundings as c, forestTrees, groundHeight, roadHeight, terraceContours } from "../src/surroundings";
+import { surroundings as c, forestTrees, groundHeight, roadHeight, rightTerraceBreak, terraceContours } from "../src/surroundings";
 import { contourAt } from "../src/contours";
 import { garageLayout } from "../src/garage-layout";
 import type { Mats } from "../src/primitives";
@@ -352,4 +352,43 @@ test("地库前第一田低2米，前方两层砖房所在台地再低1.5米", (
   const back = c.frontHouse.z + c.frontHouse.d;
   const lip = contourAt(terraceContours.frontLower, c.frontHouse.x + c.frontHouse.w / 2);
   assert.ok(Math.abs(lip - back - 400) < 80);
+});
+
+test("西侧田坎朝远田渐弯不折回，地库下方外沿无局部急折", () => {
+  for (const edge of [rightTerraceBreak, terraceContours.sharedFront, terraceContours.frontLower]) {
+    const west = edge.filter(([x]) => x <= 0);
+    for (let i = 1; i < west.length; i++) {
+      assert.ok(west[i][0] > west[i - 1][0], "田坎不能回绕或重复 X");
+      assert.ok(west[i][1] <= west[i - 1][1] + .01, "西侧不应先鼓向北再折回南侧");
+    }
+  }
+  const front = terraceContours.frontLower.filter(([x]) => x >= -16000 && x <= c.frontHouse.x);
+  for (let i = 1; i < front.length; i++) {
+    // 平面长弧的视觉回归阈值，不是田面坡度或施工标准。
+    const slope = (front[i][1] - front[i - 1][1]) / (front[i][0] - front[i - 1][0]);
+    assert.ok(slope <= .01 && slope > -.75, "下方田坎不应在短段内急折成 S 弯");
+  }
+  for (let x = -24000; x <= 0; x += 257) {
+    assert.ok(contourAt(rightTerraceBreak, x) > contourAt(terraceContours.sharedFront, x) + 1000);
+    assert.ok(contourAt(terraceContours.sharedFront, x) > contourAt(terraceContours.frontLower, x) + 1000);
+  }
+  assert.equal(contourAt(terraceContours.sharedFront, 0), courtyardFront[0][1]);
+});
+
+test("新田坎两侧各有唯一田面，渲染高度与地形查询相符", () => {
+  const surfaceNames = new Set([
+    "辅楼右侧上田·与院坪齐平", "辅楼右侧原田·未开挖",
+    "地库外侧弯曲低田", "前方砖房及蓝顶邻房台地",
+  ]);
+  for (const x of [-20170, -11370, -5630, -670]) {
+    for (const edge of [rightTerraceBreak, terraceContours.sharedFront, terraceContours.frontLower]) {
+      const bank = contourAt(edge, x);
+      for (const offset of [-123, 123]) {
+        const z = bank + offset;
+        const surfaces = hits(ground, x, z).filter(hit => surfaceNames.has(hit.object.name.split("·").slice(0, -1).join("·")) || surfaceNames.has(hit.object.name));
+        assert.equal(surfaces.length, 1, `田面缺口或叠面 @ ${x},${z}`);
+        assert.ok(Math.abs(surfaces[0].point.y - groundHeight(x, z)) < .01, `高度不同源 @ ${x},${z}`);
+      }
+    }
+  }
 });

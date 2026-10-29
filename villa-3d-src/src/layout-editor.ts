@@ -2364,8 +2364,19 @@ export class LayoutEditor {
         if (!profile) return;
         const height = field === "windowHeight" ? snapMeter(value) : profile.height;
         const sill = field === "windowSill" ? snapMeter(value) : profile.sill;
-        if (height < 200 || height > 20000 || sill < 0 || sill > profile.maxSill || sill + height > profile.maxTop) {
-          this.host.toast(`窗高至少200，窗台不得低于地面，窗顶不能超过${formatMm(profile.maxTop)}；已保留原尺寸`);
+        // 用候选尺寸重新识别挑空通高窗，避免新增普通窗被原单层高度锁死。
+        // 共用实体派生规则，仍要求整段窗宽对应挑空、上下墙面对齐且无冲突洞口。
+        let limits = profile;
+        if (sel.exterior && profile.mode === "ordinary") {
+          const candidate = exteriorWindowProfile({
+            ...this.draft,
+            exteriorOpenings: this.draft.exteriorOpenings.map(item => item.opening === profile.opening
+              ? { ...item, opening: { ...item.opening, height, sill } } : item),
+          }, sel.index);
+          if (candidate?.mode === "continuous" && candidate.sourceIndex === sel.index) limits = { ...candidate, opening: profile.opening };
+        }
+        if (height < 200 || height > 20000 || sill < 0 || sill > limits.maxSill || sill + height > limits.maxTop) {
+          this.host.toast(`窗高至少200，窗台不得低于地面，窗顶不能超过${formatMm(limits.maxTop)}；已保留原尺寸`);
           this.host.redraw();
           return;
         }

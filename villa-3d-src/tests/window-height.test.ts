@@ -141,6 +141,54 @@ test("普通外窗可逐扇改高，主辅楼窗台均从完成面起算；立�
   }
 });
 
+test("挑空侧墙新增普通窗可改为5500通高窗，并可退回单层；越过上层墙顶仍拒绝", () => {
+  const draft = clonePublishedLayout();
+  draft.exteriorOpenings = draft.exteriorOpenings.filter(o => o.facadeIndex !== 2 || o.floor > 1);
+  const index = draft.exteriorOpenings.length;
+  draft.exteriorOpenings.push({ floor: 0, facadeIndex: 2, opening: { ...createOpening("window", 3000), offset: 630, height: 1800, sill: 450 } });
+  const editor = exteriorEditor(index, draft);
+  assert.equal(exteriorWindowProfile(editor.draft, index)!.mode, "ordinary");
+  assert.equal(editor.updateSelectedNumber("windowHeight", 5500), true);
+  const profile = exteriorWindowProfile(editor.draft, index)!;
+  assert.equal(profile.mode, "continuous");
+  assert.equal(profile.height, 5500);
+  assert.equal(profile.sill, 450);
+  assert.match(editor.inspectorHtml(), /通高整窗/);
+  editor.undo();
+  assert.equal(exteriorWindowProfile(editor.draft, index)!.height, 1800);
+  editor.redo();
+  assert.equal(exteriorWindowProfile(editor.draft, index)!.height, 5500);
+  editor.selection = { kind: "door", floor: 0, index, exterior: true };
+  const resolved = resolveLayoutFacades(editor.draft), panel = resolved.glazing.find(p => p.sourceIndex === index)!;
+  assert.equal(panel.top - panel.bottom, 5500);
+  for (const floor of [0, 1]) assert.ok(resolved.facades[floor].some(f => f.openings.some(o => o.continuous === panel.id)));
+  const saved = parseLayoutDraft(draftToJson(editor.draft));
+  assert.equal(exteriorWindowProfile(saved, index)!.height, 5500);
+  const before = draftToJson(editor.draft);
+  editor.updateSelectedNumber("windowHeight", profile.maxTop - profile.sill + 1);
+  assert.equal(draftToJson(editor.draft), before);
+  editor.updateSelectedNumber("windowHeight", 1800);
+  assert.equal(exteriorWindowProfile(editor.draft, index)!.mode, "ordinary");
+  assert.equal(resolveLayoutFacades(editor.draft).glazing.some(p => p.sourceIndex === index), false);
+});
+
+test("不完整对应挑空或上层有冲突门洞的侧窗不能改成通高窗", () => {
+  for (const scenario of ["partial", "door", "no-void"] as const) {
+    const draft = clonePublishedLayout();
+    draft.exteriorOpenings = draft.exteriorOpenings.filter(o => o.facadeIndex !== 2 || o.floor > 1);
+    const index = draft.exteriorOpenings.length;
+    draft.exteriorOpenings.push({ floor: 0, facadeIndex: 2, opening: { ...createOpening("window", 3000), offset: 630, height: 1800, sill: 450 } });
+    if (scenario === "door") draft.exteriorOpenings.push({ floor: 1, facadeIndex: 2, opening: { ...createOpening("door", 900), offset: 1000 } });
+    else {
+      draft.floors.forEach(f => { f.rooms = f.rooms.filter(r => r.kind !== "void"); });
+      draft.livingVoid.d = scenario === "partial" ? 2000 : 0;
+    }
+    const editor = exteriorEditor(index, draft), before = draftToJson(editor.draft);
+    editor.updateSelectedNumber("windowHeight", 5500);
+    assert.equal(draftToJson(editor.draft), before, scenario);
+  }
+});
+
 test("通高窗的上下层选择均显示整窗尺寸，改高／窗台实际更新整窗并保留一组玻璃", () => {
   const draft = clonePublishedLayout(), original = resolveLayoutFacades(draft).glazing[0];
   assert.ok(original.upperSourceIndices!.length > 0);
