@@ -1545,11 +1545,14 @@ function isSceneVisible() {
   return !!viewer && (tab === "model" || tab === "sun" || (tab === "floor" && planMode === "3d"));
 }
 let sceneParamsKey = "";
+function currentSceneLayout() {
+  const draft = layoutEditor?.draft ?? loadLayoutDraft();
+  return draft ? villaLayoutFromDraft(draft) : null;
+}
 const sceneUpdates = new DeferredSceneUpdate({
   visible: isSceneVisible,
   capture: () => {
-    const draft = layoutEditor?.draft ?? loadLayoutDraft();
-    const layout = draft ? villaLayoutFromDraft(draft) : null;
+    const layout = currentSceneLayout();
     const params = getVillaParams();
     return { key: JSON.stringify({ params, layout }), value: { params, layout } };
   },
@@ -3050,7 +3053,7 @@ updateFenShui();
 
 await new Promise((resolve) => requestAnimationFrame(resolve));
 try {
-  viewer = new VillaViewer($("viewport"));
+  viewer = new VillaViewer($("viewport"), currentSceneLayout(), roofStyle);
   layoutScene = new LayoutScene(viewer, {
     active: () => tab === "floor" && planMode === "3d",
     floor: () => Math.max(0, level),

@@ -172,17 +172,47 @@ export function removeCoplanarOverlap(root: THREE.Object3D, skip = new Set<THREE
   return changed.size;
 }
 
+/** 编辑模型保留逐件拾取、拖动和显隐边界。 */
 export function batchStatic(root: THREE.Object3D, skip = new Set<THREE.Object3D>()) {
-  // 家具各自在内部合批，保留模型根节点，供 2D / 3D 共用选择和摆放。
+  batch(root, skip, true);
+}
+
+/** 场地模型按楼层及独立开关合批，家具无需单独绘制。 */
+export function batchScene(root: THREE.Object3D, skip = new Set<THREE.Object3D>()) {
+  batch(root, skip, false);
+}
+
+function batch(root: THREE.Object3D, skip: Set<THREE.Object3D>, preserveSelection: boolean) {
+  // 共面裁切始终以单件模型为界，编辑页另保留逐件合批边界。
   const selectable = new Set(skip);
+  const sceneSkip = new Set(skip);
+  const furnitureMaterials = new Map<THREE.Material, string>();
   root.traverse(obj => {
     if (obj !== root && obj.userData.layoutSelection && !skip.has(obj)) {
+      for (let parent = obj.parent; parent; parent = parent.parent) if (skip.has(parent)) return;
       selectable.add(obj);
-      batchStatic(obj);
+      if (preserveSelection || obj.userData.layoutSelection.kind !== "furniture") {
+        sceneSkip.add(obj);
+        batchStatic(obj, skip);
+      }
+      else {
+        // 仍在每件家具内裁切，避免跨家具或建筑裁掉完成面。
+        removeCoplanarOverlap(obj, skip);
+        obj.traverse(part => {
+          if (!eligible(part, skip, true)) return;
+          const material = part.material;
+          if (furnitureMaterials.has(material) || material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile
+            || material.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey) return;
+          // 家具库为每件模型创建独立材质；只在本次合批内共用完全相同的表面。
+          // 纹理身份、PBR 参数、深度和混合设置均参与比较，不改动原材质对象。
+          const { uuid, metadata, ...surface } = material.toJSON();
+          furnitureMaterials.set(material, JSON.stringify(surface));
+        });
+      }
     }
   });
-  skip = selectable;
-  removeCoplanarOverlap(root, skip);
+  removeCoplanarOverlap(root, selectable);
+  skip = preserveSelection ? selectable : sceneSkip;
   const inverse = root.matrixWorld.clone().invert();
   const groups = new Map<string, { material: THREE.Material; meshes: THREE.Mesh[]; geometry: THREE.BufferGeometry[] }>();
   root.traverse((obj) => {
@@ -199,7 +229,8 @@ export function batchStatic(root: THREE.Object3D, skip = new Set<THREE.Object3D>
     if (!geo.hasAttribute("uv"))
       geo.setAttribute("uv", new THREE.Float32BufferAttribute(new Float32Array(geo.getAttribute("position").count * 2), 2));
     const attrs = Object.keys(geo.attributes).sort().join(",");
-    const key = `${obj.material.uuid}:${obj.castShadow}:${obj.receiveShadow}:${attrs}`;
+    const materialKey = furnitureMaterials.get(obj.material) ?? obj.material.uuid;
+    const key = `${materialKey}:${obj.castShadow}:${obj.receiveShadow}:${obj.renderOrder}:${obj.layers.mask}:${attrs}`;
     if (!groups.has(key)) groups.set(key, { material: obj.material, meshes: [], geometry: [] });
     const entry = groups.get(key)!;
     entry.meshes.push(obj);
@@ -213,6 +244,8 @@ export function batchStatic(root: THREE.Object3D, skip = new Set<THREE.Object3D>
         mesh.name = `${root.name || "静态构件"}·${entry.material.name || entry.material.type}`;
         mesh.castShadow = entry.meshes[0].castShadow;
         mesh.receiveShadow = entry.meshes[0].receiveShadow;
+        mesh.renderOrder = entry.meshes[0].renderOrder;
+        mesh.layers.mask = entry.meshes[0].layers.mask;
         entry.meshes.forEach((m) => m.removeFromParent());
         root.add(mesh);
       }

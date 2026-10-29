@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { batchStatic, removeCoplanarOverlap, visibleSurfaceMeshes } from "../src/render-geometry";
+import { batchScene, batchStatic, removeCoplanarOverlap, visibleSurfaceMeshes } from "../src/render-geometry";
 import { architecturalGlass, box, wallWithOpenings, type Mats } from "../src/primitives";
+import { floorplanFurnitureModel } from "../src/floorplan-furniture";
 import { facades } from "../src/facades";
 import { floors, site } from "../src/data";
 
@@ -135,4 +136,73 @@ test("普通玻璃、Low-E 和栏板使用稳定深度，仍保留更亮的 Low-
   }
   assert.ok(lowE.color.getHSL({ h: 0, s: 0, l: 0 }).l > ordinary.color.getHSL({ h: 0, s: 0, l: 0 }).l);
   assert.ok(lowE.ior > ordinary.ior);
+});
+
+test("场地合批共用重复家具表面，编辑合批仍保留逐件选择与显隐", () => {
+  const fixture = () => {
+    const root = new THREE.Group();
+    root.position.set(3000, 1000, -2000);
+    root.rotation.y = .4;
+    for (let i = 0; i < 4; i++) {
+      const furniture = floorplanFurnitureModel({ kind: "chair", x: i * 1000, z: 0, w: 500, d: 500 })!;
+      furniture.position.x = i * 1000;
+      furniture.userData.layoutSelection = { kind: "furniture", floor: 0, index: i };
+      root.add(furniture);
+    }
+    return root;
+  };
+  const stats = (root: THREE.Object3D) => {
+    let meshes = 0, triangles = 0;
+    root.traverseVisible(obj => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      meshes++;
+      triangles += (obj.geometry.index?.count ?? obj.geometry.getAttribute("position").count) / 3;
+    });
+    return { meshes, triangles };
+  };
+  const scene = fixture(), editor = fixture();
+  const before = new THREE.Box3().setFromObject(scene, true);
+  batchScene(scene);
+  batchStatic(editor);
+  assert.equal(stats(scene).triangles, stats(editor).triangles, "不删减家具细节");
+  assert.ok(stats(scene).meshes <= stats(editor).meshes / 4, "相同家具材质合成一批");
+  const after = new THREE.Box3().setFromObject(scene, true);
+  assert.ok(after.min.distanceTo(before.min) < .01 && after.max.distanceTo(before.max) < .01, "变换后的占地与标高不变");
+  const count = stats(editor).meshes;
+  editor.children[0].visible = false;
+  assert.equal(stats(editor).meshes, count * 3 / 4, "编辑模型仍能逐件隐藏");
+  assert.equal(editor.children[0].userData.layoutSelection.index, 0);
+});
+
+test("场地合批保留独立开关、玻璃差异、表面参数及阴影边界", () => {
+  const root = new THREE.Group(), toggle = new THREE.Group();
+  const base = new THREE.MeshStandardMaterial({ color: 0x887766, roughness: .7 });
+  const glass = architecturalGlass();
+  const pair = (material: THREE.Material, castShadow = true) => {
+    for (let i = 0; i < 2; i++) {
+      const group = new THREE.Group();
+      group.userData.layoutSelection = { kind: "furniture", floor: 0, index: i };
+      root.add(group);
+      const cloned = material.clone(); cloned.onBeforeCompile = material.onBeforeCompile;
+      box(group, i * 2000, 1000, root.children.length * 2000, 500, 500, 500, cloned, castShadow);
+    }
+  };
+  pair(base);
+  const darker = base.clone(); darker.color.setHex(0x665544); pair(darker);
+  pair(base, false);
+  pair(glass); pair(architecturalGlass(true));
+  const custom = base.clone(); custom.onBeforeCompile = () => {}; pair(custom);
+  root.add(toggle);
+  const separate = box(toggle, 0, 1000, -2000, 500, 500, 500, base);
+  batchScene(root, new Set([toggle]));
+  const meshes = visibleSurfaceMeshes(root).filter(mesh => mesh !== separate);
+  // 两份自定义着色器不做材质等价合并，其余五种表面分别合成一批。
+  assert.equal(meshes.length, 7);
+  assert.equal(meshes.filter(mesh => mesh.castShadow && mesh.material instanceof THREE.MeshPhysicalMaterial).length, 0);
+  assert.equal(separate.parent, toggle);
+  const bounds = new THREE.Box3().setFromObject(separate);
+  toggle.visible = false;
+  assert.equal(visibleSurfaceMeshes(root).includes(separate), false);
+  toggle.visible = true;
+  assert.ok(new THREE.Box3().setFromObject(separate).equals(bounds));
 });

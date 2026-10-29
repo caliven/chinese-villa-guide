@@ -12,7 +12,7 @@ import { buildVilla, attachLayoutRoofs, type VillaLayoutLive } from "./architect
 import { buildL9 } from "./cars";
 import { buildSite, makeRamp } from "./terrain";
 import { surroundings } from "./surroundings";
-import { batchStatic as batch, visibleSurfaceMeshes } from "./render-geometry";
+import { batchScene as batch, visibleSurfaceMeshes } from "./render-geometry";
 import { roadsideToWorld } from "./roadside-villa-layout";
 import { assessVehicleRoute, inspectFootprint, routeHeight, routePose, vehicleRoute, type RouteAssessment } from "./vehicle-route";
 import { buildGarageRouteVisual, routeColors } from "./garage-route-visual";
@@ -150,11 +150,11 @@ export class VillaViewer {
   controls: OrbitControls;
   mat = materials();
   /** 平面布局草稿覆盖；null＝只用源码默认户型。 */
-  layoutLive: VillaLayoutLive | null = null;
-  villa = buildVilla(this.mat);
-  livingGlass = this.villa.group.getObjectByName("挑空客厅一二层通高玻璃")!;
-  entryBay = this.villa.group.getObjectByName("门厅一二层通高门")!;
-  eastBand = this.villa.group.getObjectByName("烤火房回纹横披")!;
+  layoutLive: VillaLayoutLive | null;
+  villa: ReturnType<typeof buildVilla>;
+  livingGlass: THREE.Object3D;
+  entryBay: THREE.Object3D;
+  eastBand: THREE.Object3D;
   fenShui = site.roofFenShui;
   land = buildSite(this.mat);
   sun = new THREE.DirectionalLight(0xfff6e9, 3);
@@ -187,7 +187,14 @@ export class VillaViewer {
   private zoomAnchor = new THREE.Vector3();
   private zoomDelta = new THREE.Vector3();
 
-  constructor(public host: HTMLElement) {
+  constructor(public host: HTMLElement, layout: VillaLayoutLive | null = null, roofStyle = DEFAULT_ROOF_STYLE) {
+    // 首次直接构建已载入的户型和屋面，避免先建默认模型再整栋替换。
+    this.layoutLive = layout;
+    this.state.roofStyle = this.builtRoofStyle = roofStyle;
+    this.villa = buildVilla(this.mat, true, this.fenShui, roofStyle, layout);
+    this.livingGlass = this.villa.group.getObjectByName("挑空客厅一二层通高玻璃")!;
+    this.entryBay = this.villa.group.getObjectByName("门厅一二层通高门")!;
+    this.eastBand = this.villa.group.getObjectByName("烤火房回纹横披")!;
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       // 毫米线脚与百米场地共存，近看和远看都保留足够的深度精度。
@@ -324,7 +331,7 @@ export class VillaViewer {
     this.observer.observe(host);
     this.resize();
     this.setCamera("aerial");
-    this.setState(defaultView);
+    this.setState({ ...defaultView, roofStyle });
     this.setSun("2026-09-23", 10.5);
     this.renderer.setAnimationLoop(() => {
       if (document.hidden || host.clientWidth === 0) return;
