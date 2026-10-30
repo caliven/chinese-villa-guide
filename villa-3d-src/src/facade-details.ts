@@ -7,6 +7,7 @@ import { frontElevation, site, type Point } from "./data";
 import { columnProfileMeshes, upperColumnFace } from "./entrance-carvings";
 import { hatPierCrownProfile, hatPierDesign } from "./column-profiles";
 import { floatingHatJunctions, type HatJunction } from "./hat-junctions";
+import { porticoEaveCornerOffset } from "./frontage-geometry";
 import {
   apronFasciaBottom,
   apronEaveDesign,
@@ -22,6 +23,53 @@ import {
   roofTileInset,
   roofTileThickness,
 } from "./roof-options";
+
+/**
+ * 三楼露台挡墙外缘、栏杆中线与四根将军柱心。
+ * 折角外移后挡墙仍从外缘起算固定厚度；栏杆立在挡墙中线；
+ * 将军柱心＝两向挡墙中线交点（露台直角对柱心，石板对中柱侧）。
+ */
+export function terraceParapetLayout(e = frontElevation, p = site.portico) {
+  const thick = apronEaveDesign.parapetThickness;
+  const half = thick / 2;
+  const flat = site.porticoStyle === "recessed";
+  const midW = e.porticoColumnDepth;
+  const shortW = e.shortPostWidth;
+  const westOffset = flat ? 0 : porticoEaveCornerOffset(midW, apronEaveDesign.fasciaProtrusion);
+  const eastOffset = flat ? 0 : porticoEaveCornerOffset(midW, apronEaveDesign.fasciaProtrusion);
+  const frontOffset = flat ? 0 : porticoEaveCornerOffset(midW, apronEaveDesign.fasciaProtrusion);
+  const westOuter = p.x - westOffset;
+  const eastOuter = p.x + p.w + eastOffset;
+  const middleOuter = e.centerFront - frontOffset;
+  const westEdge = e.sideTerraces[0].x;
+  const eastEdge = e.sideTerraces[1].x + e.sideTerraces[1].w;
+  const sideZ = e.terraceFront + half;
+  const middleZ = middleOuter + half;
+  const leftX = westOuter + half;
+  const rightX = eastOuter - half;
+  const wingWestX = westEdge + half;
+  const wingEastX = eastEdge - half;
+  return {
+    thick,
+    half,
+    westOuter,
+    eastOuter,
+    middleOuter,
+    sideZ,
+    middleZ,
+    leftX,
+    rightX,
+    wingWestX,
+    wingEastX,
+    /** 西翼／门厅西／门厅东／东翼外角：挡墙中线交点。 */
+    cornerPosts: [
+      { x: wingWestX, z: sideZ, w: shortW },
+      { x: leftX, z: middleZ, w: midW },
+      { x: rightX, z: middleZ, w: midW },
+      { x: wingEastX, z: sideZ, w: shortW },
+    ] as { x: number; z: number; w: number }[],
+  };
+}
 
 /** 槽底／内挡用同一水泥灰，略做 polygonOffset，减轻与压顶、瓦边共面闪线。 */
 function gutterCement(mat: Mats) {
@@ -391,15 +439,12 @@ export function recessedHatPier(
 }
 
 type RailJointOptions = { startReturn?: boolean; endReturn?: boolean; joints?: number[] };
-/** 段线按挡墙中线及交会轴线定位；T形交会共用立框，扶手按侧面收口。 */
+/** 段线按挡墙中线定位；门厅折角外侧为 L 形直角收口，不再往里做成 T 形多出一截。 */
 export function frontTerraceRailRuns(wallFront: number): ({ a: Point; b: Point } & RailJointOptions)[] {
   const e = frontElevation;
   const [west, middleWest, middleEast, east] = e.balustradePosts;
-  const half = apronEaveDesign.parapetThickness / 2;
+  const { sideZ, middleZ, leftX, rightX, wingWestX, wingEastX } = terraceParapetLayout();
   const clearance = (p: typeof west) => p.w / 2 + 60;
-  const sideZ = e.terraceFront + half;
-  const middleZ = e.centerFront + half;
-  const leftX = site.portico.x + half, rightX = site.portico.x + site.portico.w - half;
   const back = Math.min(wallFront, e.terraceBack) - 25, hatNorth = e.postZ - 250 - 25;
   if (site.setback <= 0) {
     const runs: { a: Point; b: Point }[] = [
@@ -409,18 +454,17 @@ export function frontTerraceRailRuns(wallFront: number): ({ a: Point; b: Point }
     ];
     return runs.filter(run => run.a[0] !== run.b[0] || run.b[1] > run.a[1] + 1);
   }
-  return [
+  // 段线沿挡墙中线，端头避让将军柱；折角外侧直角收口，中线延长线交于柱心。
+  const runs: ({ a: Point; b: Point } & RailJointOptions)[] = [
     { a: [west.x + clearance(west), sideZ], b: [leftX, sideZ], endReturn: true },
-    { a: [e.sideTerraces[0].x + half, west.z + clearance(west)], b: [e.sideTerraces[0].x + half, back] },
+    { a: [wingWestX, west.z + clearance(west)], b: [wingWestX, back] },
     { a: [rightX, sideZ], b: [east.x - clearance(east), sideZ], startReturn: true },
-    { a: [e.sideTerraces[1].x + e.sideTerraces[1].w - half, east.z + clearance(east)],
-      b: [e.sideTerraces[1].x + e.sideTerraces[1].w - half, back] },
+    { a: [wingEastX, east.z + clearance(east)], b: [wingEastX, back] },
     { a: [middleWest.x + clearance(middleWest), middleZ], b: [middleEast.x - clearance(middleEast), middleZ] },
-    { a: [leftX, middleWest.z + clearance(middleWest)], b: [leftX, hatNorth],
-      joints: [sideZ - middleWest.z - clearance(middleWest)] },
-    { a: [rightX, middleEast.z + clearance(middleEast)], b: [rightX, hatNorth],
-      joints: [sideZ - middleEast.z - clearance(middleEast)] },
+    { a: [leftX, middleWest.z + clearance(middleWest)], b: [leftX, sideZ] },
+    { a: [rightX, middleEast.z + clearance(middleEast)], b: [rightX, sideZ] },
   ];
+  return runs.filter(run => run.a[0] !== run.b[0] || run.b[1] > run.a[1] + 1);
 }
 
 export function glassBalustrade(

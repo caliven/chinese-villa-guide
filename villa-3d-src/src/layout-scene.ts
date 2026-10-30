@@ -4,7 +4,7 @@ import type { LayoutDraft } from "./layout-draft";
 import { selectionKey, type LayoutEditor, type Selection, type SelectionItem } from "./layout-editor";
 import { roundedRoomOutline } from "./room-geometry";
 import { roomLabelPosition } from "./design-data";
-import { advanceWalk, walkDirection } from "./scene-walk";
+import { advanceWalkOnSurfaces, walkDirection, walkEntryStart } from "./scene-walk";
 import type { CameraPose } from "./design-session";
 import { visibleSurfaceMeshes } from "./render-geometry";
 import { toM, MM_PER_M } from "./units";
@@ -100,14 +100,20 @@ export function layoutWallAt(draft: LayoutDraft, floor: number, point: Point, he
 
 type EditorLamp = { x: number; y: number; z: number; intensity: number; distance: number };
 
-/** 分离总览按建筑分区合并灯光；单层和漫游保留原有逐房间灯光。坐标为毫米。 */
-export function editorLampSpecs(draft: LayoutDraft, floor: number, exploded: boolean): EditorLamp[] {
+/** 分离总览与漫游按建筑分区合并灯光；单层编辑保留逐房间灯光。坐标为毫米。 */
+export function editorLampSpecs(
+  draft: LayoutDraft,
+  floor: number,
+  exploded: boolean,
+  walking = false,
+): EditorLamp[] {
   const lamps: EditorLamp[] = [];
+  const coalesce = exploded || walking;
   const add = (rooms: typeof draft.annexRooms, parts: typeof draft.annexPartitions, index: number, base: number, height: number, annex: boolean) => {
     const points = rooms.filter(room => room.kind !== "void" && room.kind !== "stair")
       .map(room => roomLabelPosition(room, index, parts));
     const y = base + Math.min(height - 250, 2600);
-    if (!exploded) {
+    if (!coalesce) {
       for (const [x, z] of points) lamps.push({ x, y, z, intensity: 16, distance: 7 });
       return;
     }
@@ -122,11 +128,12 @@ export function editorLampSpecs(draft: LayoutDraft, floor: number, exploded: boo
     }
   };
   for (const [index, data] of draft.floors.entries()) {
-    if (!exploded && index !== floor) continue;
+    if (!coalesce && index !== floor) continue;
     const rise = index === 0 ? site.entranceRise : 0;
+    // 漫游保持真实层高；分离总览才叠爆炸偏移。
     add(data.rooms, data.partitions, index, data.y + rise + (exploded ? data.y * 1.25 : 0), data.height - rise, false);
   }
-  if (floor === 0 || exploded) add(draft.annexRooms, draft.annexPartitions, 0, draft.floors[0].y + site.entranceRise, site.annex.height - site.entranceRise, true);
+  if (floor === 0 || coalesce) add(draft.annexRooms, draft.annexPartitions, 0, draft.floors[0].y + site.entranceRise, site.annex.height - site.entranceRise, true);
   return lamps;
 }
 
@@ -216,10 +223,18 @@ export class LayoutScene {
       const draft = this.host.draft();
       const floor = this.host.floor(), exploded = this.viewer.state.exploded;
       const cut = this.walking ? "full" : this.cut;
-      const key = JSON.stringify({ draft, cut, floor, exploded, main: site.main, annex: site.annex, rise: site.entranceRise, construction });
+      const key = JSON.stringify({
+        draft, cut, floor, exploded, walking: this.walking,
+        fenShui: this.viewer.fenShui, roofStyle: this.viewer.state.roofStyle,
+        main: site.main, annex: site.annex, rise: site.entranceRise, construction,
+      });
       if (key !== this.modelKey) {
         const previous = this.model;
-        this.model = buildEditorModel(draft, this.viewer.mat, cut, { floors: exploded ? undefined : [floor], overview: exploded });
+        this.model = buildEditorModel(draft, this.viewer.mat, cut, {
+          floors: exploded || this.walking ? undefined : [floor],
+          overview: exploded, walking: this.walking,
+          fenShui: this.viewer.fenShui, roofStyle: this.viewer.state.roofStyle,
+        });
         this.viewer.mmRoot.add(this.model.root);
         if (previous) disposeEditorModel(previous.root, this.viewer.scene);
         this.modelKey = key;
@@ -227,10 +242,10 @@ export class LayoutScene {
       }
       this.model!.root.visible = true;
       this.model!.levels.forEach((group, index) => {
-        group.visible = this.viewer.state.exploded || index === this.host.floor();
+        group.visible = this.walking || this.viewer.state.exploded || index === this.host.floor();
         group.position.y = this.viewer.state.exploded ? draft.floors[index].y * 1.25 : 0;
       });
-      this.model!.annex.visible = this.viewer.state.exploded || this.host.floor() === 0;
+      this.model!.annex.visible = this.walking || this.viewer.state.exploded || this.host.floor() === 0;
       this.viewer.floorEditorRoot = this.model!.root;
       this.viewer.floorEditorBounds = () => this.bounds();
       this.viewer.villa.group.visible = false;
@@ -317,7 +332,9 @@ export class LayoutScene {
   private updateLamps(draft: LayoutDraft, floor: number, exploded: boolean, key: string) {
     if (!this.night || this.lampsKey === key) return;
     this.lamps.clear();
-    for (const spec of editorLampSpecs(draft, floor, exploded)) {
+    // 漫游与楼层分离一样合并分区灯，避免全楼逐房间点光把帧率打穿。
+    const specs = editorLampSpecs(draft, floor, exploded, this.walking);
+    for (const spec of specs) {
       const light = new THREE.PointLight(0xffcd8d, spec.intensity, spec.distance, 2);
       light.position.set(toM(spec.x), toM(spec.y), toM(spec.z));
       this.lamps.add(light);
@@ -334,25 +351,13 @@ export class LayoutScene {
       this.walkFov = this.viewer.camera.fov;
       this.walking = true;
       this.sync();
-      const draft = this.host.draft(), floor = this.host.floor();
-      const selected = this.host.editor()?.selection;
-      const annex = selected?.kind === "room" && selected.annex && floor === 0;
-      const selectedRooms = annex ? draft.annexRooms : draft.floors[floor].rooms;
-      const selectedParts = annex ? draft.annexPartitions : draft.floors[floor].partitions;
-      const room = selected?.kind === "room" && selected.floor === floor
-        ? selectedRooms.find(item => item.id === selected.id && item.kind !== "void" && item.kind !== "stair")
-        : undefined;
-      const fallback = draft.floors[floor].rooms.find(item => item.kind === "living" || item.kind === "hall")
-        ?? draft.floors[floor].rooms.find(item => item.kind !== "void" && item.kind !== "stair");
-      const start = room ?? fallback;
-      const [x, z] = start ? roomLabelPosition(start, floor, room ? selectedParts : draft.floors[floor].partitions)
-        : [site.main.x + site.main.w / 2, site.main.z + site.main.d / 2];
+      const { x, z, directionX, directionZ } = walkEntryStart(this.host.draft());
       this.viewer.controls.enabled = false;
       this.viewer.camera.fov = 65;
       this.viewer.camera.zoom = 1;
       this.viewer.camera.updateProjectionMatrix();
       this.viewer.camera.position.set(toM(x), toM(this.floorY()) + 1.6, toM(z));
-      this.viewer.camera.lookAt(toM(x), toM(this.floorY()) + 1.6, toM(z) + 1);
+      this.viewer.camera.lookAt(toM(x) + directionX, toM(this.floorY()) + 1.6, toM(z) + directionZ);
       this.viewer.renderer.domElement.style.cursor = "grab";
     } else {
       this.walking = false;
@@ -391,7 +396,9 @@ export class LayoutScene {
     const direction = walkDirection(this.viewer.camera, this.walkKeys);
     if (direction.lengthSq()) {
       const speed = this.walkKeys.has("ShiftLeft") || this.walkKeys.has("ShiftRight") ? 2.6 : 1.4;
-      advanceWalk(this.viewer.camera.position, direction.multiplyScalar(speed * dt), this.walkWalls);
+      const draft = this.host.draft();
+      const maxStep = Math.max(.3, ...draft.floors.slice(0, -1).map(floor => toM(floor.height / Math.max(10, draft.stairLayout.risers)) + .01));
+      advanceWalkOnSurfaces(this.viewer.camera.position, direction.multiplyScalar(speed * dt), this.walkWalls, this.model?.walkSurfaces ?? [], 1.6, maxStep);
       this.viewer.invalidate();
     }
     if (this.walkKeys.size) this.walkFrame = requestAnimationFrame(next => this.walkStep(next));

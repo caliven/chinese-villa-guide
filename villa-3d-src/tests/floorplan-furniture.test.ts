@@ -10,6 +10,7 @@ import { floorPlan, planSourceFromDraft } from "../src/plan.ts";
 import type { Furniture } from "../src/data.ts";
 import { parseLayoutVersionDocument } from "../src/data-versions.ts";
 import { furnish, type Mats } from "../src/primitives.ts";
+import { isRitualTea } from "../src/ritual-tea-model.ts";
 
 function disposeFurniture(group: THREE.Object3D) {
   const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
@@ -30,18 +31,20 @@ function assertFootprint(group: THREE.Object3D, f: Pick<Furniture, "kind" | "w" 
   }
 }
 
-test("家具库完整保留上游 60 款、6 分类、独立规格与配色", () => {
-  assert.equal(floorplanFurniture.length, 60);
-  assert.equal(new Set(furniturePickerOrder).size, 60);
+test("家具库包含蹲便、神龛、供桌与功夫茶桌，按 6 分类展示", () => {
+  assert.equal(floorplanFurniture.length, 64);
+  assert.equal(new Set(furniturePickerOrder).size, 64);
   assert.deepEqual(furniturePickerOrder, floorplanFurniture.map(item => item.id));
-  assert.deepEqual(floorplanCategories.map(cat => floorplanFurniture.filter(item => item.category === cat).length), [12, 14, 11, 8, 9, 6]);
+  assert.deepEqual(floorplanCategories.map(cat => floorplanFurniture.filter(item => item.category === cat).length), [12, 16, 11, 9, 9, 7]);
+  const squat = floorplanFurniture.find(item => item.id === "fp-squat-toilet")!;
+  assert.deepEqual([squat.category, squat.w, squat.d], ["卫浴", 450, 600]);
   const beds = floorplanFurniture.filter(item => item.type === "bed");
   assert.deepEqual(beds.map(item => [item.w, item.d, item.color]), [[1800, 2000, "#c9d6df"], [1500, 2000, "#d8c7dc"], [1200, 2000, "#e8d5b5"]]);
 });
 
 test("全目录 JSON 往返保留型号、尺寸、名称和朝向，包括 80 厚电视", () => {
   const draft = clonePublishedLayout();
-  const items = floorplanFurniture.map((item, i) => ({ ...createFurniture(item.id, 7000, 18000), rotation: i * Math.PI / 60 }));
+  const items = floorplanFurniture.map((item, i) => ({ ...createFurniture(item.id, 7000, 18000), rotation: i * Math.PI / floorplanFurniture.length }));
   draft.floors[0]!.furniture = items;
   const loaded = parseLayoutDraft(draftToJson(draft));
   assert.deepEqual(loaded.floors[0]!.furniture, items);
@@ -53,7 +56,7 @@ test("全目录符号可选中、坐标有效，原生淋浴房与上游符号�
     const svg = floorplanFurnitureSymbol(createFurniture(entry.id, 0, 0), ' data-edit="furniture" data-index="3"');
     assert.ok(svg, entry.id);
     assert.doesNotMatch(svg, /NaN|Infinity|undefined/, entry.id);
-    if (entry.id === "fp-shower") assert.doesNotMatch(svg, /rotate\(180\)/, entry.id);
+    if (entry.id === "fp-shower" || isRitualTea(createFurniture(entry.id, 0, 0))) assert.doesNotMatch(svg, /rotate\(180\)/, entry.id);
     else assert.match(svg, /rotate\(180\)/, entry.id);
     assert.match(svg, /class="floorplan-furniture-shape" data-edit="furniture" data-index="3"/, entry.id);
   }
@@ -103,8 +106,9 @@ test("全目录立体几何有限、尺度为毫米，返回模型独立持有�
     assertFootprint(group, { ...entry, kind: entry.id });
     assert.ok(size.y > 0 && size.y < 3200, `${entry.id}: wrong height scale ${size.y}`);
     assert.ok(size.z > 0 && Number.isFinite(size.z), entry.id);
-    assert.equal(group.children[0]!.scale.x, entry.id === "fp-shower" ? 1 : 1000);
-    assert.equal(group.children[0]!.rotation.y, entry.id === "fp-shower" ? 0 : Math.PI);
+    const native = entry.id === "fp-shower" || isRitualTea(createFurniture(entry.id, 0, 0));
+    assert.equal(group.children[0]!.scale.x, native ? 1 : 1000);
+    assert.equal(group.children[0]!.rotation.y, native ? 0 : Math.PI);
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     previousMaterials = materials;
@@ -154,7 +158,13 @@ test("已有户型内全部主辅楼家具自动使用正确占地，保留自�
         assert.equal(group.position.x, f.x); assert.equal(group.position.z, f.z);
         assert.equal(group.position.y, 450); assert.equal(group.rotation.y, f.rotation ?? 0);
         group.position.set(0, 0, 0); group.rotation.y = 0;
-        assertFootprint(group, f);
+        if ((f.kind === "shower" || f.kind === "fp-shower") && f.showerShape === "open") {
+          // 开放式只画墙侧花洒；宽深是编辑避让范围，不是实体底盘。
+          const bounds = new THREE.Box3().setFromObject(group, true);
+          assert.ok(bounds.min.x >= -f.w / 2 && bounds.max.x <= f.w / 2);
+          assert.ok(bounds.min.z >= -f.d / 2 && bounds.max.z <= f.d / 2);
+          assert.ok(group.getObjectByName("花洒顶喷"));
+        } else assertFootprint(group, f);
         disposeFurniture(parent);
       }
       count++;
@@ -180,7 +190,7 @@ test("新旧床柜和厨卫家具均显示600毫米讨论留位，关闭图层�
   const kinds: Furniture["kind"][] = [
     "bed", "wardrobe", "cabinet", "toilet", "squatToilet", "basin", "sink", "stove", "hob", "dressingTable",
     "fp-bed-double-1800", "fp-bed-double-1500", "fp-bed-single", "fp-wardrobe", "fp-wardrobe-small",
-    "fp-sideboard", "fp-storage-cabinet", "fp-toilet", "fp-vanity", "fp-vanity-double", "fp-ksink", "fp-stove", "fp-dresser",
+    "fp-sideboard", "fp-storage-cabinet", "fp-toilet", "fp-squat-toilet", "fp-vanity", "fp-vanity-double", "fp-ksink", "fp-stove", "fp-dresser",
   ];
   const draft = clonePublishedLayout(); draft.annexFurniture = [];
   for (const kind of kinds) {

@@ -131,7 +131,7 @@ test("不内退组合支持两种门厅、主辅楼位置和官帽，撤销旧�
   for (const porticoStyle of ["projecting", "recessed"] as const) for (const buildingPlacement of ["main-east", "main-west"] as const) {
     applyVillaParams({ ...flush, porticoStyle, buildingPlacement });
     assert.equal(frontTerracePosts().length, 2);
-    assert.equal(frontTerraceRailRuns(floors[2].front).length, 3);
+    assert.equal(frontTerraceRailRuns(floors[2].front).length, porticoStyle === "recessed" ? 1 : 3);
     assert.ok(frontTerraceRailRuns(floors[2].front).slice(1).every(run => run.b[1] > run.a[1]));
     const layout = villaLayoutFromDraft(clonePublishedLayout());
     for (const style of ["joined", "floating"] as const) {

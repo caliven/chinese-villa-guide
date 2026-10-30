@@ -313,6 +313,10 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
     group.add(mesh);
   }
   const visibleRidges: [THREE.Vector3, THREE.Vector3][] = [];
+  // 斜脊筒瓦半径；檐口端须再收回，避免圆截面探进天沟、鸟瞰像瓦角穿模。
+  const ridgeRadius = 75;
+  const ridgeLift = 55;
+  const eaveY = Math.min(...originalFaces.flatMap(face => face.points.map(p => p.y)));
   for (const ridge of ridges) {
     const ts = [0, 1];
     const competing = originalFaces.filter(face => face.owner !== ridge.owner);
@@ -331,13 +335,21 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
       }
     }
     ts.sort((a, b) => a - b);
+    const ridgeLen = ridge.a.distanceTo(ridge.b);
+    const eavePull = ridgeLen > ridgeRadius * 2 + 80 ? (ridgeRadius + 20) / ridgeLen : 0;
     for (let i = 0; i < ts.length - 1; i++) {
       if (ts[i + 1] - ts[i] < epsilon) continue;
       const mid = ridge.a.clone().lerp(ridge.b, (ts[i] + ts[i + 1]) / 2);
       if (competing.some(face => contains(face, mid) && roofHeight(face, mid.x, mid.z) > mid.y + epsilon)) continue;
-      visibleRidges.push([ts[i], ts[i + 1]].map(t => ridge.a.clone().lerp(ridge.b, t).add(new THREE.Vector3(0, 55, 0))) as [THREE.Vector3, THREE.Vector3]);
+      let t0 = ts[i], t1 = ts[i + 1];
+      if (eavePull > 0) {
+        if (ridge.a.y <= eaveY + 120) t0 = Math.max(t0, eavePull);
+        if (ridge.b.y <= eaveY + 120) t1 = Math.min(t1, 1 - eavePull);
+      }
+      if (t1 - t0 < epsilon) continue;
+      visibleRidges.push([t0, t1].map(t => ridge.a.clone().lerp(ridge.b, t).add(new THREE.Vector3(0, ridgeLift, 0))) as [THREE.Vector3, THREE.Vector3]);
     }
   }
-  cylinders(visibleRidges, 75, 16, "相接直脊瓦");
+  cylinders(visibleRidges, ridgeRadius, 16, "相接直脊瓦");
   return group;
 }

@@ -25,6 +25,15 @@ const iconPaths: Record<string, string> = {
   pan: '<path d="M7 11V5a1.5 1.5 0 0 1 3 0v5-6a1.5 1.5 0 0 1 3 0v6-4a1.5 1.5 0 0 1 3 0v5-2a1.5 1.5 0 0 1 3 0v5c0 4-2 6-6 6-2 0-3-1-4-2l-4-5a1.5 1.5 0 0 1 2-2l2 2"/>',
   measure: '<path d="m3 13 10-10 5 5L8 18Zm3-3 2 2m1-5 2 2m1-5 2 2"/>',
   target: '<circle cx="10" cy="10" r="5"/><path d="M10 2v4m0 8v4M2 10h4m8 0h4"/>',
+  orbit: '<circle cx="10" cy="10" r="3"/><path d="M10 3a7 7 0 0 1 7 7M10 17a7 7 0 0 1-7-7"/><path d="m15.5 4.5 1.5 3 3-1.5M4.5 15.5l-1.5-3-3 1.5"/>',
+  topview: '<rect x="4" y="5" width="12" height="10" rx="1"/><path d="M10 2v3m0 10v3M7 17l3 2 3-2"/>',
+  walk: '<circle cx="10" cy="4.5" r="2"/><path d="m10 7.5-2.5 3.5 2 1.5L8 17m2-9.5 2.5 3.5-1.5 2L14 17"/>',
+  night: '<path d="M13 3.5A7 7 0 1 0 16.5 13 5.5 5.5 0 0 1 13 3.5Z"/>',
+  "walk-exit": '<path d="M4 4h7v12H4Zm7 6h6m-2.5-2.5L17 10l-2.5 2.5"/>',
+  "cut-wall": '<path d="M4 4h4v12H4Zm8 0h4v12h-4"/><path d="M10 5v2m0 3v2m0 3v2"/>',
+  "full-wall": '<rect x="5" y="3" width="10" height="14" rx="1"/><path d="M5 8h10M5 13h10"/>',
+  explode: '<rect x="4" y="3" width="12" height="4" rx="1"/><rect x="4" y="8" width="12" height="4" rx="1"/><rect x="4" y="13" width="12" height="4" rx="1"/>',
+  image: '<rect x="3" y="5" width="14" height="11" rx="1.5"/><circle cx="7.5" cy="9" r="1.5"/><path d="m9 14 2.5-3 2 2.5L16 10"/>',
 };
 
 export function designerIcon(name: string) {
@@ -42,7 +51,7 @@ export function planDesignerHtml(floorNames: string[]) {
       <div class="plan-toolbar-actions">
         <label class="layout-version-label"><span>选择户型</span><select id="layout-version-select" aria-label="选择已保存的户型版本（一二三楼一体）"><option value="">（当前草稿）</option></select></label>
         <details class="designer-file-menu"><summary>文件 ${designerIcon("chevron")}</summary><div class="designer-menu-pop">
-          <button type="button" id="layout-new-version">新增户型</button><button type="button" id="layout-copy-version" title="复制当前三层户型，包含未保存的编辑">复制户型</button><button type="button" id="layout-rename-version">重命名</button><button type="button" id="layout-delete-version" class="designer-danger">删除版本</button>
+          <button type="button" id="layout-new-version">新增户型</button><button type="button" id="layout-copy-version" title="复制当前三层户型，包含未保存的编辑">复制户型</button><button type="button" id="layout-rename-version">重命名</button><button type="button" id="layout-set-default" title="在当前浏览器中，刷新后自动载入此版本已保存的三层户型；未保存的编辑请先保存">设为默认户型</button><button type="button" id="layout-delete-version" class="designer-danger">删除版本</button>
           <hr/><button type="button" id="layout-export">导出定稿 JSON</button><label class="layout-file-button">导入 JSON<input type="file" id="layout-import" accept="application/json,.json"/></label><button type="button" id="layout-reset">恢复正式数据</button>
         </div></details>
         <button type="button" id="toggle-layout-edit" aria-pressed="false">编辑布局</button>
@@ -67,6 +76,7 @@ export function planDesignerHtml(floorNames: string[]) {
     </div>
     ${loadingOverlayHtml({ id: "plan-loading", text: "正在载入户型…", className: "plan-loading" })}
     <div class="plan-canvas-wrap">
+      <button type="button" id="designer-palette-edge" class="designer-palette-edge" aria-label="显示模型素材库" title="移到左侧显示模型素材库"><span aria-hidden="true"></span></button>
       <aside id="layout-palette" class="layout-palette" aria-label="模型素材库">
         <div class="layout-palette-head"><strong id="layout-palette-label">家具库</strong><span id="designer-library-count"></span></div>
         <label class="designer-search">${designerIcon("search")}<input id="designer-library-search" type="search" placeholder="搜索模型" aria-label="搜索模型" autocomplete="off"/></label>
@@ -89,22 +99,26 @@ export function planDesignerHtml(floorNames: string[]) {
         <div id="editor-plan-scale" class="editor-plan-scale"><span class="editor-north">南 ↑</span><span id="editor-scale-value">1000 mm</span><i id="editor-scale-line"></i></div>
         <div id="designer-scene" class="designer-scene" hidden>
           <div id="designer-scene-host" class="designer-scene-host"></div>
-          <div class="designer-scene-tools" role="group" aria-label="三维视图设置">
-            <div><button type="button" data-designer-camera="orbit" class="active" aria-pressed="true">环绕视角</button><button type="button" data-designer-camera="top" aria-pressed="false">俯视</button><button type="button" id="designer-walk" aria-pressed="false">漫游</button><button type="button" id="designer-night" aria-pressed="false">夜景</button></div>
-            <div><button type="button" data-editor-wall-height="1200" class="active" aria-pressed="true">剖切墙</button><button type="button" data-editor-wall-height="full" aria-pressed="false">全高墙</button><span class="editor-tool-separator"></span><button type="button" id="designer-explode" aria-pressed="false">楼层分离</button><button type="button" id="designer-scene-export">保存图片</button></div>
+          <div class="designer-scene-top">
+            <div class="designer-scene-tools" role="group" aria-label="三维视图设置">
+              <div class="designer-scene-tools-start">
+                <div class="editor-tool-group"><button type="button" data-designer-camera="orbit" class="active" aria-pressed="true">${designerIcon("orbit")}环绕视角</button><button type="button" data-designer-camera="top" aria-pressed="false">${designerIcon("topview")}俯视</button><button type="button" id="designer-walk" aria-pressed="false">${designerIcon("walk")}漫游</button><button type="button" id="designer-night" aria-pressed="false">${designerIcon("night")}夜景</button></div>
+                <div id="designer-walk-exit-wrap" class="editor-tool-group designer-walk-exit-wrap" hidden><button type="button" id="designer-walk-exit">${designerIcon("walk-exit")}退出漫游</button></div>
+              </div>
+              <div class="editor-tool-group"><button type="button" data-editor-wall-height="1200" class="active" aria-pressed="true">${designerIcon("cut-wall")}剖切墙</button><button type="button" data-editor-wall-height="full" aria-pressed="false">${designerIcon("full-wall")}全高墙</button><span class="editor-tool-separator"></span><button type="button" id="designer-explode" aria-pressed="false">${designerIcon("explode")}楼层分离</button><button type="button" id="designer-scene-export">${designerIcon("image")}保存图片</button></div>
+            </div>
+            <p id="designer-walk-hint" class="designer-walk-hint" hidden>WASD / 方向键 移动 · 拖动鼠标转向 · Shift 快走 · 通楼门已开启可进辅楼 · Esc 退出</p>
           </div>
           <p class="designer-scene-hint">拖动空白处旋转 · 右键平移 · 滚轮缩放 · 点选家具后可拖动摆放</p>
-          <p id="designer-walk-hint" class="designer-walk-hint" hidden>WASD / 方向键 移动 · 拖动鼠标转向 · Shift 快走 · Esc 退出</p>
           <div id="designer-walk-intro" class="designer-walk-intro" hidden>
             <section class="designer-walk-card" role="dialog" aria-labelledby="designer-walk-title" aria-describedby="designer-walk-description">
               <h2 id="designer-walk-title">漫游模式</h2>
-              <p id="designer-walk-description">从当前楼层进入，选中房间时从该房间出发</p>
+              <p id="designer-walk-description">从一楼中央大门内侧进入，可沿楼梯上下楼层</p>
               <p><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> 或方向键移动 · 拖动鼠标转向</p>
               <p><kbd>Shift</kbd> 快走 · <kbd>Esc</kbd> 退出</p>
               <div class="designer-walk-actions"><button type="button" id="designer-walk-cancel">取消</button><button type="button" id="designer-walk-start">开始漫游</button></div>
             </section>
           </div>
-          <button type="button" id="designer-walk-exit" class="designer-walk-exit" hidden>退出漫游</button>
         </div>
         <div id="editor-selection-bar" class="editor-selection-bar" role="toolbar" aria-label="选中对象快捷操作" hidden>
           <strong id="editor-selection-title"></strong><span class="editor-tool-separator"></span>
@@ -152,6 +166,7 @@ export function libraryCardsHtml(
         ? `${formatMm(f.w)}×${formatMm(f.d)}`
         : item.value === "stair-triple" ? "U形 · 三跑"
         : item.value === "stair" ? "双跑折返"
+        : category === "room" && item.value === "void" ? "二楼放置 · 自动生成栏杆"
         : category === "wall"
           ? item.value === "virtual"
             ? "无厚度 · 虚线分界"

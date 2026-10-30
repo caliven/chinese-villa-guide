@@ -13,6 +13,8 @@ import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src
 import type { Mats } from "../src/primitives.ts";
 import { buildLayoutVersionDocument, parseLayoutVersionDocument } from "../src/data-versions.ts";
 import { buildSchemeDocument, parseSchemeDocument, schemeToJson } from "../src/scheme-store.ts";
+import { blankLayoutDraft } from "../src/layout-version-management.ts";
+import { libraryCardsHtml } from "../src/plan-designer.ts";
 
 test.afterEach(resetVillaParams);
 function fixture() {
@@ -240,6 +242,63 @@ function hasFloorAt(mesh: THREE.Object3D, x: number, y: number, z: number) {
   mesh.updateMatrixWorld(true);
   return new THREE.Raycaster(new THREE.Vector3(x, y + 100, z), new THREE.Vector3(0, -1, 0), 0, 200).intersectObject(mesh, true).length > 0;
 }
+
+test("空白户型可从房间库新增挑空，保存、撤销、删除及重新添加一致", () => {
+  const draft = blankLayoutDraft(clonePublishedLayout()), messages: string[] = [];
+  let floor = 1;
+  const editor = new LayoutEditor({ getFloor: () => floor, redraw: () => {}, toast: m => messages.push(m) }, draft);
+  const x = site.main.x + 4000, z = editor.draft.floors[1]!.front + 4000;
+  assert.match(libraryCardsHtml("room", [{ value: "void", text: "挑空客厅", active: false }]), /二楼放置 · 自动生成栏杆/);
+  floor = 0; editor.placeAt(x, z, "room", "void");
+  assert.equal(editor.draft.livingVoid.w, 0);
+  assert.match(messages.at(-1)!, /二楼/);
+  floor = 1; editor.placeAt(x, z, "room", "void");
+  assert.deepEqual(voidBox(editor.draft.livingVoid), { x: x - 1500, z: z - 1500, w: 3000, d: 3000 });
+  assert.equal(editor.draft.livingVoid.mode, "custom"); assert.equal(editor.draft.livingVoid.sourceRoomId, undefined);
+  assertSynchronized(editor);
+  assert.match(editor.inspectorHtml(), /栏杆造型/);
+  assert.match(floorPlan(1, false, false, { editorCanvas: true }, planSourceFromDraft(editor.draft, 1)), /data-auto-guard="living"/);
+  const model = buildEditorModel(editor.draft, mat(), 1200, { floors: [1] });
+  assert.equal(hasFloorAt(model.levels[1]!, x, editor.draft.floors[1]!.y, z), false);
+  disposeEditorModel(model.root, new THREE.Scene());
+  assert.deepEqual(voidBox(parseLayoutDraft(draftToJson(editor.draft)).livingVoid), voidBox(editor.draft.livingVoid));
+  const placed = voidBox(editor.draft.livingVoid);
+  editor.placeAt(x + 3500, z, "room", "void");
+  assert.deepEqual(voidBox(editor.draft.livingVoid), placed);
+  assert.match(messages.at(-1)!, /已有挑空/);
+  editor.undo(); assert.equal(editor.draft.livingVoid.w, 0);
+  editor.redo(); assertSynchronized(editor);
+  editor.selection = { kind: "room", id: upperVoid(editor).id, floor: 1 };
+  editor.deleteSelection(); assert.equal(editor.draft.livingVoid.w, 0);
+  const closed = buildEditorModel(editor.draft, mat(), 1200, { floors: [1] });
+  assert.equal(hasFloorAt(closed.levels[1]!, x, editor.draft.floors[1]!.y, z), true);
+  disposeEditorModel(closed.root, new THREE.Scene());
+  editor.placeAt(x, z, "room", "void"); assertSynchronized(editor);
+});
+
+test("二楼空间较窄时自动从较小挑空范围开始", () => {
+  const draft = blankLayoutDraft(clonePublishedLayout());
+  const x = site.main.x + 4000, z = draft.floors[1]!.front + 4000;
+  draft.floors[1]!.rooms.push({ id: "bed", name: "卧室", kind: "bed", x: x + 700, z: z - 2000, w: 2000, d: 4000 });
+  const editor = new LayoutEditor({ getFloor: () => 1, redraw: () => {}, toast: () => {} }, draft);
+  editor.placeAt(x, z, "room", "void");
+  assert.equal(editor.draft.livingVoid.w, 1000);
+  assert.equal(editor.draft.livingVoid.d, 1000);
+});
+
+test("新增挑空拒绝越界及覆盖二楼房间和楼梯，失败不改草稿", () => {
+  const draft = blankLayoutDraft(clonePublishedLayout()), messages: string[] = [];
+  const x = site.main.x + 4000, z = draft.floors[1]!.front + 4000;
+  draft.floors[1]!.rooms.push({ id: "occupied", name: "卧室", kind: "bed", x: x - 1500, z: z - 1500, w: 3000, d: 3000 });
+  const editor = new LayoutEditor({ getFloor: () => 1, redraw: () => {}, toast: m => messages.push(m) }, draft);
+  const before = draftToJson(editor.draft);
+  editor.placeAt(x, z, "room", "void");
+  assert.equal(draftToJson(editor.draft), before); assert.match(messages.at(-1)!, /卧室/);
+  editor.draft.floors[1]!.rooms[0]!.kind = "stair";
+  editor.placeAt(x, z, "room", "void"); assert.equal(editor.draft.livingVoid.w, 0);
+  editor.placeAt(site.main.x - 1000, z, "room", "void");
+  assert.match(messages.at(-1)!, /主楼范围/); assert.equal(editor.draft.livingVoid.w, 0);
+});
 
 test("任意位置及跨开间挑空：完整三维和编辑三维开洞同源，原洞位置恢复楼板", () => {
   const { editor } = fixture();

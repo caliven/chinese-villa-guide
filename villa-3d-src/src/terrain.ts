@@ -1092,7 +1092,7 @@ export function buildSite(mat: Mats) {
     forceSinglePass: true,
   });
   slab(overlap, rect(site.main.x, site.main.z, site.main.w, 1000), 35, 25, overlapMat);
-  slab(overlap, rect(site.portico.x, porticoFrontZ(), site.portico.w, site.portico.projection), 35, 25, overlapMat);
+  if (!recessedPortico()) slab(overlap, rect(site.portico.x, porticoFrontZ(), site.portico.w, site.portico.projection), 35, 25, overlapMat);
   tag(overlap, "主楼前伸 1.0 m · 与地库重叠", 13550, 1400, -400, "#ffe566", 0.78, true);
   overlap.visible = false;
   const columnNotes = new THREE.Group();
@@ -1222,7 +1222,7 @@ export function buildSite(mat: Mats) {
   if (site.setback > 0) span(scheme, p(10000, main.z, 8400), p(10000, main.z + site.setback, 8400));
   dim(scheme, site.setback > 0 ? `三楼北退 ${formatMm(site.setback)}` : "三楼不内退 · 前墙齐平", 8600, 7600, -2600, 0.68);
   dim(scheme, `屋后留 ${formatMm(site.rearGap)}`, 17400, 3600, 9200, 0.68);
-  dim(scheme, `${recessedPortico() ? "凹入式" : "凸出式"}门厅 ${formatMm(site.portico.w)}×${formatMm(site.portico.projection)} · 计入首层合计`, site.portico.x + site.portico.w / 2, 3400, -5400, 0.72);
+  if (!recessedPortico()) dim(scheme, `凸出式门厅 ${formatMm(site.portico.w)}×${formatMm(site.portico.projection)} · 计入首层合计`, site.portico.x + site.portico.w / 2, 3400, -5400, 0.72);
   dim(scheme, `二楼前檐 ${formatMm(site.secondFrontEave)} · 主楼顶檐 ${formatMm(site.thirdEave)} · 辅楼顶檐 ${formatMm(site.eave)}`, 17600, 4200, -4600, 0.68);
   dim(scheme, "前通道约 2000", 2800, 1600, -2500, 0.66);
   dim(scheme, `侧道 ${formatMm(site.sideGap)}`, 450, 1800, 6400, 0.64);

@@ -4,6 +4,7 @@ import type { Furniture } from "./data";
 import { bedLayout } from "./furniture-catalog";
 import { floorplanFurniture, getFloorplanFurniture, type FloorplanFurniture, type FloorplanFurnitureType } from "./floorplan-catalog";
 import { buildFurniture, furnSVG } from "./vendor/floorplan-furniture.js";
+import { isRitualTea, ritualTeaModel, ritualTeaSymbol } from "./ritual-tea-model";
 
 /** 历史户型保持名称、占地和摆放；能对应的旧类型改用上游形体。 */
 const legacyTypes: Partial<Record<Furniture["kind"], FloorplanFurnitureType>> = {
@@ -38,6 +39,7 @@ function partsFor(f: Furniture): Part[] | undefined {
 /** 上游背面为 −Z；绕 180° 后适配本项目 +Z 为床头／靠背的约定。 */
 export function floorplanFurnitureSymbol(f: Furniture, pick = ""): string | undefined {
   if (isShower(f)) return showerSymbol(f, pick);
+  if (isRitualTea(f)) return ritualTeaSymbol(f, pick);
   const parts = partsFor(f);
   if (!parts) return;
   const shapes = parts.map(part => {
@@ -65,6 +67,7 @@ export function fitFurnitureFootprint(model: THREE.Group, w: number, d: number):
 /** 上游 Three.js 以米建模；转回毫米后交给查看器统一的 mmRoot。 */
 export function floorplanFurnitureModel(f: Furniture, glass?: THREE.Material): THREE.Group | undefined {
   if (isShower(f)) return showerModel(f, glass);
+  if (isRitualTea(f)) return ritualTeaModel(f);
   const parts = partsFor(f);
   if (!parts) return;
   const group = new THREE.Group();

@@ -1,4 +1,4 @@
-import { porticoFrontZ, porticoWallZ, recessedPortico, hasThirdFloorSideTerraces } from "./building-variants";
+import { frontApronOutline, entranceApproachLayout, porticoFrontZ, porticoWallZ, recessedPortico, hasThirdFloorSideTerraces } from "./building-variants";
 import { continuousGlazingGrid } from "./continuous-glazing";
 import { entryAssemblyDesign, entryPartOutline } from "./entry-assembly";
 import { moveWindowDesign, windowDesign, windowOpeningLine } from "./window-design";
@@ -11,7 +11,7 @@ import { construction, site, type Point } from "./data";
 import type { Facade } from "./facades";
 import { roofProjectedEdges } from "./roof-plan";
 import { subtractRoofPolygon, type RoofFace } from "./roof-surfaces";
-import { bayOutline, hatEaveRim, frontTerraceRailRuns, apronSupportOutline, hatSupportInset } from "./facade-details";
+import { bayOutline, hatEaveRim, frontTerraceRailRuns, terraceParapetLayout, apronSupportOutline, hatSupportInset } from "./facade-details";
 import { apronEaveDesign, frontApronSection, fasciaBottomY, gutterOuterWallTop, roofGutterDesign, roofTileEaveLift, roofTileInset, roofStyleLabels, type RoofStyle } from "./roof-options";
 
 export const elevationLabels = {
@@ -235,15 +235,15 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   const y3 = model.floors[2].y, p = r.portico;
   const apronHeights = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop);
   const capitalTop = apronHeights.columnTopY, fasciaBot = apronHeights.fasciaBottomY;
-  for (const post of f.balustradePosts.slice(1, 3)) {
-    box(post.x - post.w / 2, f.porticoColumnZ - f.porticoColumnDepth / 2, post.w, f.porticoColumnDepth,
+  // 立面门厅柱按堂屋角点；将军柱另在露台段绘制。
+  const columnSize = f.porticoColumnDepth;
+  for (const x of recessedPortico() ? [] : f.postXs) {
+    box(x - columnSize / 2, f.porticoColumnZ - columnSize / 2, columnSize, columnSize,
       site.entranceRise - 20, capitalTop - (site.entranceRise - 20), "el-column");
-    columnCourses(post.x, f.porticoColumnZ, 0, porticoShoulderProfile(post.w, f.porticoColumnDepth, capitalTop, fasciaBot));
+    columnCourses(x, f.porticoColumnZ, 0, porticoShoulderProfile(columnSize, columnSize, capitalTop, fasciaBot));
   }
-  const [westColumn, eastColumn] = f.balustradePosts.slice(1, 3);
-  const clearSpan = eastColumn.x - westColumn.x - westColumn.w;
-  box(westColumn.x + westColumn.w / 2 - 8, f.porticoColumnZ - PORTICO_BEAM_DEPTH / 2,
-    clearSpan + 16, PORTICO_BEAM_DEPTH, fasciaBot - 670, 670, "el-trim");
+  if (!recessedPortico()) box(f.postXs[0] + columnSize / 2 - 8, f.porticoColumnZ - PORTICO_BEAM_DEPTH / 2,
+    f.postXs[1] - f.postXs[0] - columnSize + 16, PORTICO_BEAM_DEPTH, fasciaBot - 670, 670, "el-trim");
   for (const x of f.postXs) {
     const height = fasciaBottomY(r.hat.eave, 0) - y3;
     box(x - f.dividerWidth / 2, f.postZ - hatPierDesign.depth / 2, f.dividerWidth, hatPierDesign.depth,
@@ -260,10 +260,7 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
     columnCourses(x, model.floors[2].front, y3,
       upperCornerProfile(f.cornerProject, f.cornerLeg, outward, fasciaBottomY(r.main.eave, 0) - y3));
   }
-  const [west, east] = f.balustradePosts.slice(1, 3);
-  const westOuter = west.x - west.w / 2, eastOuter = east.x + east.w / 2;
-  const westInner = west.x + west.w / 2, eastInner = east.x - east.w / 2;
-  const columnNorth = f.porticoColumnZ - f.porticoColumnDepth / 2;
+  const { westOuter, westInner, eastInner, eastOuter, columnNorth } = entranceApproachLayout(f, p);
   const landing = columnNorth - construction.entranceLandingOffset, steps = landing - construction.entranceTread * 2;
   box(westOuter, landing, eastOuter - westOuter, porticoWallZ() - landing, 0, site.entranceRise, "el-wall");
   for (const [x0, x1] of [[westOuter, westInner], [eastInner, eastOuter]]) box(x0, steps, x1 - x0, landing - steps, 0, site.entranceRise, "el-wall");
@@ -283,8 +280,9 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
     const a = new Vector3(run.a[0], bottom, run.a[1]), b = new Vector3(run.b[0], bottom, run.b[1]);
     face([a, b, b.clone().add(new Vector3(0, 680, 0)), a.clone().add(new Vector3(0, 680, 0))], "el-glass-rail", "", false);
   }
-  for (const x of [p.x, p.x + p.w - apronEaveDesign.parapetThickness])
-    box(x, hasThirdFloorSideTerraces() ? f.terraceFront : f.centerFront, apronEaveDesign.parapetThickness, f.postZ - 250 - (hasThirdFloorSideTerraces() ? f.terraceFront : f.centerFront),
+  const parapet = terraceParapetLayout(f, p);
+  for (const x of [parapet.westOuter, parapet.eastOuter - parapet.thick])
+    box(x, hasThirdFloorSideTerraces() ? f.terraceFront : parapet.middleOuter, parapet.thick, f.postZ - 250 - (hasThirdFloorSideTerraces() ? f.terraceFront : parapet.middleOuter),
       y3, f.eaveParapet, "el-wall");
   const apron = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop);
   const terracePosts = hasThirdFloorSideTerraces() ? f.balustradePosts : f.balustradePosts.slice(1, 3);
@@ -302,13 +300,8 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   // 二楼顶部仅为无天沟瓦挑檐，外缘按独立薄檐板高度概括，不套屋顶反坎或三眼皮。
   const e = site.secondFrontEave;
   const apronBack = hasThirdFloorSideTerraces() ? f.terraceBack : model.floors[2].front + 40;
-  const westEdge = f.sideTerraces[0].x, eastEdge = f.sideTerraces[1].x + f.sideTerraces[1].w;
-  const inner: Point[] = [[westEdge, apronBack], [westEdge, f.terraceFront], [p.x, f.terraceFront],
-    [p.x, f.centerFront], [p.x + p.w, f.centerFront], [p.x + p.w, f.terraceFront],
-    [eastEdge, f.terraceFront], [eastEdge, apronBack]];
-  const outer: Point[] = [[westEdge-e, apronBack], [westEdge-e, f.terraceFront-e], [p.x-e, f.terraceFront-e],
-    [p.x-e, f.centerFront-e], [p.x+p.w+e, f.centerFront-e], [p.x+p.w+e, f.terraceFront-e],
-    [eastEdge+e, f.terraceFront-e], [eastEdge+e, apronBack]];
+  const inner = frontApronOutline(apronBack, 0, f, p);
+  const outer = frontApronOutline(apronBack, e, f, p);
   const { fasciaOuter: fascia, beamBack, beamFace, outer: apronOuter } = apronSupportOutline(inner, outer,
     [m.x - construction.outsideWall / 2, m.x + m.w + construction.outsideWall / 2]);
   const strips = (a: Point[], b: Point[]) => a.slice(0, -1).map((point, i) => [point, a[i + 1], b[i + 1], b[i]]);
@@ -380,7 +373,7 @@ export function elevationSvg(view: ElevationView, style: RoofStyle, layout?: Vil
   } else {
     const b = building === "main" ? m : a;
     dimensions += dimension(u(0, b.z), u(0, b.z + b.d), 850, 0);
-    if (building === "main") dimensions += dimension(u(0, porticoFrontZ()), u(0, porticoWallZ()), 850, 0);
+    if (building === "main" && !recessedPortico()) dimensions += dimension(u(0, porticoFrontZ()), u(0, porticoWallZ()), 850, 0);
   }
   const levels: [string, number][] = building === "main"
     ? [["院坪基准", 0], ["首层完成面", site.entranceRise], ["二层楼面", model.floors[1].y], ["三层楼面", model.floors[2].y], ["主楼屋面基准", r.main.eave], ["主楼瓦脊", r.mainPeak]]

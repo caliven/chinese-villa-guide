@@ -3,8 +3,9 @@ import { parseDataVersionsIndex, parseLayoutVersionDocument } from "./data-versi
 import { parseSchemeDocument, type SchemeDocument } from "./scheme-store";
 import { applyVillaParams } from "./villa-params";
 import { scaleLayoutDraftToEnvelope, envelopeFromSite } from "./layout-draft";
+import { loadInitialLayoutVersion } from "./layout-default";
 
-/** 独立页与场地页使用相同的保存稿、首个户型版本和尺寸对齐规则。 */
+/** 独立页与场地页使用相同的保存稿、默认户型选择和尺寸对齐规则。 */
 export async function loadRealSceneScheme(base: URL): Promise<SchemeDocument> {
   const read = async (path: string) => {
     const response = await fetch(new URL(path, base), { cache: "no-store" });
@@ -15,10 +16,10 @@ export async function loadRealSceneScheme(base: URL): Promise<SchemeDocument> {
   applyVillaParams(scheme.villaParams);
   if (scheme.layoutDraft) scheme.layoutDraft = scaleLayoutDraftToEnvelope(scheme.layoutDraft, envelopeFromSite());
   const index = parseDataVersionsIndex(await read("data/户型/index.json"), "户型");
-  const first = index.versions[0];
-  if (first) {
-    const version = parseLayoutVersionDocument(await read(`data/户型/${encodeURIComponent(first.file)}`));
-    scheme.layoutDraft = normalizeDraftWallContacts(version.layoutDraft);
+  const initial = await loadInitialLayoutVersion(index, async file =>
+    parseLayoutVersionDocument(await read(`data/户型/${encodeURIComponent(file)}`)));
+  if (initial) {
+    scheme.layoutDraft = normalizeDraftWallContacts(initial.document.layoutDraft);
   }
   return scheme;
 }

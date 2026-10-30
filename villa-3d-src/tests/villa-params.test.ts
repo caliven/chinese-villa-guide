@@ -242,27 +242,19 @@ test("屋后预留变化后通高玻璃与辅楼屋顶随楼体 Z 平移", async
   resetVillaParams();
 });
 
-test("三楼短柱与门厅柱同轴、包角柱外皮对齐，改门厅参数后一起挪", () => {
+test("三楼将军柱落在挡墙中线交点，门厅柱轴与改参后露台外缘仍联动", async () => {
+  const { terraceParapetLayout } = await import("../src/facade-details");
   resetVillaParams();
   const e = frontElevation;
-  const [west, midW, midE, east] = e.balustradePosts;
-  // 默认：柱心在门厅北沿左右角
-  assert.equal(midW.x, site.portico.x);
-  assert.equal(midE.x, site.portico.x + site.portico.w);
-  assert.equal(midW.x, e.postXs[0]);
-  assert.equal(midE.x, e.postXs[1]);
-  assert.equal(midW.z, e.porticoColumnZ);
-  assert.equal(midE.z, e.porticoColumnZ);
-  assert.ok(Math.abs(midW.z - (site.main.z - site.portico.projection)) < 1e-6);
-  assert.equal(midW.w, DEFAULT_VILLA_PARAMS.porticoColumnSize);
-  const project = e.cornerProject, leg = e.cornerLeg;
-  assert.ok(Math.abs(west.x - (e.cornerWestX - (project - leg) / 2)) < 1e-6);
-  assert.ok(Math.abs(east.x - (e.cornerEastX + (project - leg) / 2)) < 1e-6);
-  assert.ok(Math.abs((west.z - west.w / 2) - (site.main.z - 120 - project)) < 1e-6);
-  // 官帽柱／构造柱北皮贴一层前墙外皮。
+  const layout = terraceParapetLayout();
+  assert.deepEqual(e.balustradePosts.map(p => ({ x: p.x, z: p.z, w: p.w })), layout.cornerPosts);
+  // 门厅柱仍在堂屋角点；将军柱不再要求与之同轴。
+  assert.equal(e.postXs[0], site.portico.x);
+  assert.equal(e.postXs[1], site.portico.x + site.portico.w);
+  assert.equal(e.porticoColumnZ, site.main.z - site.portico.projection);
   assert.ok(Math.abs(e.postZ - 250 - site.main.z) < 1e-6);
+  assert.ok(Math.abs(layout.middleZ - e.porticoColumnZ) > 1, "中央将军柱应离开门厅柱轴，落在挡墙中线上");
 
-  // 柱心在外伸北沿左右两角；改截面／面宽／外伸后仍贴角。
   applyVillaParams({
     ...DEFAULT_VILLA_PARAMS,
     porticoColumnSize: 900,
@@ -270,18 +262,19 @@ test("三楼短柱与门厅柱同轴、包角柱外皮对齐，改门厅参数�
     porticoProjection: 2200,
   });
   const e2 = frontElevation;
-  assert.equal(e2.balustradePosts[1].x, site.portico.x);
-  assert.equal(e2.balustradePosts[2].x, site.portico.x + site.portico.w);
-  assert.equal(e2.balustradePosts[1].z, e2.porticoColumnZ);
+  const layout2 = terraceParapetLayout();
+  assert.deepEqual(e2.balustradePosts.map(p => ({ x: p.x, z: p.z, w: p.w })), layout2.cornerPosts);
   assert.equal(e2.balustradePosts[1].w, 900);
   assert.ok(Math.abs(e2.porticoColumnZ - (site.main.z - 2200)) < 1e-6);
   assert.ok(Math.abs(e2.porticoColumnWallGap - (2200 - 450)) < 1e-6);
-  assert.ok(Math.abs(e2.postZ - site.main.z - 250) < 1e-6);
 
   applyVillaParams({ ...DEFAULT_VILLA_PARAMS, cornerProject: 220 });
   assert.equal(frontElevation.cornerProject, 220);
-  const [west2] = frontElevation.balustradePosts;
-  assert.ok(Math.abs((west2.z - west2.w / 2) - (site.main.z - 120 - 220)) < 1e-6);
+  assert.equal(frontElevation.terraceFront, site.main.z - 120 - 220);
+  assert.deepEqual(
+    frontElevation.balustradePosts.map(p => ({ x: p.x, z: p.z, w: p.w })),
+    terraceParapetLayout().cornerPosts,
+  );
   resetVillaParams();
   assert.equal(frontElevation.cornerProject, DEFAULT_VILLA_PARAMS.cornerProject);
 });

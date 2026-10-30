@@ -77,6 +77,11 @@ export function furnSVG(t,w,d,c,showerDoorSide){
     case 'ksink': return rc(x,y,w,d,c,'rx="20"') + rc(x+w*.06,y+d*.18,w*.42,d*.66,'#fff','rx="50"') + rc(x+w*.52,y+d*.18,w*.42,d*.66,'#fff','rx="50"') + `<circle cx="0" cy="${y+d*.09}" r="22" fill="#999"/>`;
     case 'fridge': return rc(x,y,w,d,c,'rx="30"') + ln(x,y+d*.14,x+w,y+d*.14) + ln(0,y+d*.14,0,y+d) + rc(-70,y+d*.5,40,d*.25,'#aab') + rc(30,y+d*.5,40,d*.25,'#aab');
     case 'toilet': return rc(x+w*.04,y,w*.92,d*.27,c,'rx="30"') + ec(0,y+d*.27+d*.365,w*.5,d*.365,c) + ec(0,y+d*.27+d*.4,w*.3,d*.24,'#eef4f7');
+    case 'squatToilet': {
+      let s = rc(x,y,w,d,c,'rx="35"') + ec(0,0,w*.22,d*.32,'#d9e1e3');
+      for (const side of [-1,1]) for (const z of [-.2,-.08,.04,.16]) s += ln(side*w*.31-w*.06,d*z,side*w*.31+w*.06,d*z);
+      return s;
+    }
     case 'vanity': return rc(x,y,w,d,c,'rx="20"') + ec(0,y+d*.57,Math.min(w*.32,260),d*.28,'#fff') + `<circle cx="0" cy="${y+d*.17}" r="26" fill="#999"/>`;
     case 'shower': return rc(x,y,w,d,c) + (showerDoorSide === 'left' ? ln(x+w,y,x+w,y+d) : showerDoorSide === 'right' ? ln(x,y,x,y+d) : ln(x,y+d,x+w,y+d)) + `<circle r="45" fill="#fff" ${ST}/>`;
     case 'bathtub': return rc(x,y,w,d,c,'rx="40"') + rc(x+80,y+80,w-160,d-160,'#fff',`rx="${m*.33}"`) + `<circle cx="${x+w-260}" cy="0" r="35" fill="#ccc" ${ST}/>`;
@@ -507,6 +512,15 @@ export function buildFurniture(f, glassMaterial) {
         const seat = cyl(Rb*1.01, Rb*1.01, .022, mat('#f4f4f2', {roughness:.2}), 0, .37, zc, 40), lid = cyl(Rb*.97, Rb*.99, .02, mat('#f4f4f2', {roughness:.2}), 0, .392, zc, 40);
         ped.scale.z = seat.scale.z = lid.scale.z = kz; g.add(ped, seat, lid);
         [-1, 1].forEach(s => g.add(box(.03, .02, .03, cm, s*w*.18, .39, zc - Rb*kz - .005)));
+        break;
+      }
+      case 'squatToilet': {
+        // 可见陶瓷面接近地坪；深色椭圆为盆腔示意，非排水构造。
+        const cer = ceramic(), detail = mat('#c9d3d5', {roughness:.4});
+        g.add(rbox(w, .025, d, cer, 0, 0, 0, .012));
+        g.add(blob(w*.22, .003, d*.32, detail, 0, .026, 0));
+        for (const side of [-1, 1]) for (const z of [-.2, -.08, .04, .16])
+          g.add(box(w*.12, .002, .006, detail, side*w*.31, .025, d*z));
         break;
       }
       case 'vanity': {

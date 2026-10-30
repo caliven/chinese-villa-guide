@@ -115,7 +115,7 @@ function stairSection() {
   content += text(70, 110, "净高／扶手后净宽尚无结论", "warn-text");
   content += text(70, 135, `示意梯段宽${formatMm(stairLayout.flight)}、平台进深${formatMm(stairLayout.landing)}`, "small");
   content += text(70, 158, `洞口${formatMm(stairLayout.hole.w)}×${formatMm(stairLayout.hole.d)}；梁底、装修及起终步待设计`, "small");
-  return sheet("S03", "楼梯连续高差展开", `首层完成面已抬高${formatMm(site.entranceRise)} mm；展开图按现有20分段示意，不是踏步施工排布或碰头校核结论。`, content);
+  return sheet("S03", "楼梯连续高差展开", `本图仅展开一至三层；三层另有楼梯通向坡屋面下顶板。首层完成面已抬高${formatMm(site.entranceRise)} mm；踏步及净高待设计。`, content);
 }
 
 function entranceSection() {
@@ -130,8 +130,8 @@ function entranceSection() {
   content += text(530, 124, `${mirroredBuildings() ? "辅楼" : "主楼"}完成面 ${elevation(floorFinish(0))}`, "small");
   content += text(330, 249, `连接地坪 ${elevation(m.connectionY)} · 两端各差${formatMm(m.connectionRise)}`, "small warn-text");
   content += dimension(335, 485, 280, `墙间${formatMm(site.lane)}`);
-  content += text(100, 310, "此处尚未表达连续抬高平台、踏步或合适坡道；门洞画通不等于实际平顺通行。", "small warn-text");
-  content += text(50, 344, recessedPortico() ? "B · 凹入门厅控制线（向北为正、向南内退为负，非面积认定）" : "B · 门厅向北外伸控制线（从主楼前墙北外皮起算，非面积认定）", "small muted");
+  content += text(100, 310, "过道两端踏步接院坪；踏步、防滑、排水与适老通行做法待设计。", "small warn-text");
+  content += text(50, 344, recessedPortico() ? "B · 平齐入口控制线（大门不内退、取消外伸门厅及柱，非面积认定）" : "B · 门厅向北外伸控制线（从主楼前墙北外皮起算，非面积认定）", "small muted");
   const z = (d: number) => 165 + toM(d) * 170;
   content += path(`M${z(0)} 367 H${z(m.steps)} M${z(0)} 355 V400`, "line");
   for (const [d, label] of [[m.projection, `楼板${formatMm(m.projection)}`], [m.column, `柱${formatMm(m.column)}`], [m.platform, `平台${formatMm(m.platform)}`], [m.steps, `踏步${formatMm(m.steps)}`]] as [number, string][]) {
@@ -140,7 +140,7 @@ function entranceSection() {
   }
   content += text(100, 393, "前墙0", "small");
   if (recessedPortico()) {
-    content += text(845, 145, "凹入式门厅", "small");
+    content += text(845, 145, "平齐式入口", "small");
     content += text(845, 172, "左右侧坡道已取消", "small");
     content += text(845, 197, "保留正面三步台阶", "small");
   } else {

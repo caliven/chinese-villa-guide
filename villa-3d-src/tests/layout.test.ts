@@ -20,6 +20,7 @@ import { areaM2 } from "../src/units";
 import { facades } from "../src/facades";
 import { sunDirection } from "../src/viewer";
 import { diningClearance } from "../src/plan";
+import { frontApronOutline } from "../src/building-variants";
 import type { Mats } from "../src/primitives";
 import { cornerPilasterTopY, eyelidFixed, fasciaBottomY, frontApronSection } from "../src/roof-options";
 
@@ -274,19 +275,20 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   const approach = villa.group.getObjectByName("门厅柱间三步与两侧坡道")!;
   const approachBounds = new THREE.Box3().setFromObject(approach);
   const columnFront = frontElevation.porticoColumnZ - frontElevation.porticoColumnDepth / 2;
-  const westInner = frontElevation.balustradePosts[1].x + frontElevation.balustradePosts[1].w / 2;
-  const eastInner = frontElevation.balustradePosts[2].x - frontElevation.balustradePosts[2].w / 2;
+  const columnHalf = frontElevation.porticoColumnDepth / 2;
+  const westInner = site.portico.x + columnHalf;
+  const eastInner = site.portico.x + site.portico.w - columnHalf;
   const steps = approach.getObjectByName("柱间三步")!;
   const stepBounds = new THREE.Box3().setFromObject(steps);
   assert.ok(stepBounds.min.z < columnFront - 500, "台阶应伸到门厅柱前面");
   assert.ok(stepBounds.min.x > westInner - 20 && stepBounds.max.x < eastInner + 20, "三步应嵌在两根门厅柱中间");
-  const westOuter = frontElevation.balustradePosts[1].x - frontElevation.balustradePosts[1].w / 2;
-  const eastOuter = frontElevation.balustradePosts[2].x + frontElevation.balustradePosts[2].w / 2;
+  const westOuter = site.portico.x - columnHalf;
+  const eastOuter = site.portico.x + site.portico.w + columnHalf;
   assert.ok(approachBounds.min.z > -5000, "坡道不应伸向院坪栏杆");
   assert.ok(approachBounds.min.x < westOuter - 1500 && approachBounds.min.x > westOuter - 2400, "西侧坡道缩短到约2米");
   assert.ok(approachBounds.max.x > eastOuter + 1500 && approachBounds.max.x < eastOuter + 2400, "东侧坡道缩短到约2米");
   assert.ok(approach.getObjectByName("坡道防滑条"), "坡道应有防滑横条");
-  const eastOuterFace = frontElevation.balustradePosts[2].x + frontElevation.balustradePosts[2].w / 2;
+  const eastOuterFace = eastOuter;
   const eastRamp = approach.getObjectByName("东侧坡道")!;
   const fromNorth = new THREE.Raycaster(
     new THREE.Vector3(eastOuterFace + 1000, 220, columnFront - 1200),
@@ -301,13 +303,13 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   assert.ok(fromAbove.intersectObject(eastRamp, true).length > 0, "东侧坡道顶面应封闭");
   assert.ok(Math.abs(approachBounds.max.y - site.entranceRise) < 30);
   const porch = villa.levels[2].getObjectByName("外伸门厅三楼平台")!;
-  // 平台北缘与门厅柱心／飘檐折角对齐（不再取柱北皮）。
+  // 平台北缘沿用门厅柱心控制线，飘檐折角另按柱宽比例外移。
   assert.ok(Math.abs(new THREE.Box3().setFromObject(porch).min.z - frontElevation.centerFront) < 0.01);
   assert.equal(frontElevation.centerFront, frontElevation.porticoColumnZ);
   const lowerEave = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
   // 前凸门厅同样出檐；外缘线脚和瓦垄另有不到5cm的建模厚度。
   const lowerEaveBounds = new THREE.Box3().setFromObject(lowerEave);
-  assert.ok(Math.abs(lowerEaveBounds.min.z - (frontElevation.centerFront - site.secondFrontEave)) < 50);
+  assert.ok(Math.abs(lowerEaveBounds.min.z - frontApronOutline(frontElevation.terraceBack, site.secondFrontEave)[3][1]) < 50);
   const frontCorners: THREE.Object3D[] = [];
   villa.group.traverse((object) => {
     if (object.name === "包角柱" && object.position.y < 1000 && object.position.z < 0) frontCorners.push(object);

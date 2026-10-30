@@ -6,6 +6,9 @@ export type DoorSide = "in" | "out";
 /** 单开门铰链侧到墙角（或分段端）的统一净距（毫米）。 */
 export const DOOR_HINGE_CORNER_GAP = 100;
 
+/** 普通门及无门洞口的默认洞高；门厅通高组合另行设计。 */
+export const DEFAULT_DOOR_HEIGHT = 2200;
+
 /**
  * 门洞宽度（毫米）＝墙上网口宽，不是门扇净宽。
  * 依据浙标／沪标下限与市面成品门主流洞口：卧室／过道约 900，厨约 800，卫约 750。
@@ -160,7 +163,7 @@ export function interiorOpeningProfile(raw: WallOpening, wallHeight: number) {
   const opening = normalizeOpening(raw), window = opening.kind === "window";
   const defaultSill = window ? 900 : 0;
   const sill = window && opening.sill != null ? Math.min(opening.sill, Math.max(0, wallHeight - 280)) : defaultSill;
-  return { ...opening, sill, height: Math.max(0, Math.min(window ? opening.height ?? 1500 : 2200, wallHeight - sill - 80)), door: !window };
+  return { ...opening, sill, height: Math.max(0, Math.min(window ? opening.height ?? 1500 : DEFAULT_DOOR_HEIGHT, wallHeight - sill - 80)), door: !window };
 }
 
 /** 平面门窗符号（墙局部坐标：X 沿墙，Y 垂直墙面向外/左）。 */

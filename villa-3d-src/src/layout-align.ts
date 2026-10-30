@@ -302,7 +302,7 @@ const FREE_PLACE_FURNITURE = new Set([
 
 export function furnitureUsesWallCenter(kind: string) {
   const model = getFloorplanFurniture(kind);
-  if (model) return !["table", "roundtable", "chair", "officechair", "coffeetable", "sidetable", "island", "barstool", "rug", "beanbag", "floorlamp", "plant"].includes(model.type);
+  if (model) return !["table", "teaTable", "roundtable", "chair", "officechair", "coffeetable", "sidetable", "island", "barstool", "rug", "beanbag", "floorlamp", "plant"].includes(model.type);
   return !FREE_PLACE_FURNITURE.has(kind);
 }
 

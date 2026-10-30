@@ -44,6 +44,7 @@ import { mainEaveY } from "./facades";
 import { ensureFurnitureWallClearance } from "./layout-align";
 import { formatMm, isMeterLengthPayload, migrateVillaParamsToMm } from "./units";
 import { porticoColumnCenters, porticoColumnOuterWidth, porticoWestOffset } from "./frontage-geometry";
+import { terraceParapetLayout } from "./facade-details";
 import { interiorRailing, isRailingStyle, type RailingStyle } from "./railing-options";
 
 export const LOCKED_SITE_WIDTH = 21000;
@@ -306,7 +307,7 @@ export function floatingHatHeightLimits(p: VillaParams) {
   const mainRun = (Math.min(p.mainWidth, p.mainDepth - setback) + 2 * p.thirdEave - 2 * inset) / 2;
   const hatRun = (p.porticoWidth + 1040 - 2 * inset) / 2;
   const frontToRidge = -980 * p.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection
-    + (p.porticoStyle === "recessed" ? p.porticoProjection : 0) - setback + p.thirdEave + hatRun;
+    - setback + p.thirdEave + hatRun;
   return floatingHatLevels(mainRun * slope, hatRun, slope, frontToRidge, p.floatingHatHeightOffset);
 }
 
@@ -485,7 +486,6 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
 
   // —— 几何包络／净空约束（无效组合直接拒绝应用）——
   const thirdSetback = effectiveThirdSetback(p);
-  if (p.porticoStyle === "recessed" && p.mainDepth - thirdSetback - p.porticoProjection < MIN_THIRD_BODY_DEPTH) issues.push({ field: "porticoProjection", message: "凹入门厅后，三层中央剩余进深须至少 3000 mm" });
   const bodyDepth = p.mainDepth - thirdSetback;
   if (!(thirdSetback < p.mainDepth - MIN_THIRD_BODY_DEPTH + 1e-6)) {
     issues.push({
@@ -1009,16 +1009,14 @@ export function applyVillaParams(input: VillaParams) {
 }
 
 /**
- * 三楼露台短柱与下层柱同轴；贴前墙的官帽柱另按堂屋两端分档线定位。
- * 改门厅／包角相关参数时由此一处重算，避免错位。
+ * 门厅／官帽柱仍按堂屋分档；三楼将军柱改落在露台挡墙中线交点（直角对柱心）。
+ * 改门厅／包角／露台相关参数时由此一处重算。
  */
 function syncFrontElevation(params: VillaParams) {
   const main = site.main;
   const porch = site.portico;
   frontElevation.cornerProject = params.cornerProject;
   const project = params.cornerProject;
-  const leg = frontElevation.cornerLeg;
-  const shortW = frontElevation.shortPostWidth;
 
   // 官帽柱与门厅柱共用堂屋开间两端的X轴线；门厅柱心在前沿两角。
   frontElevation.postXs = [porch.x, porch.x + porch.w];
@@ -1033,30 +1031,12 @@ function syncFrontElevation(params: VillaParams) {
   frontElevation.porticoColumnDepth = params.porticoColumnSize;
   frontElevation.porticoColumnZ = porticoFrontZ();
 
-  // 短柱外侧与下层包角柱外皮对齐；其余深度退向墙体。仅为外观示意，实际支承待结构设计。
-  const cornerShaft = (cornerX: number, outward: number) => ({
-    x: cornerX + (outward * (project - leg)) / 2,
-    z: main.z - 120 - project + shortW / 2,
-    w: shortW,
-  });
-  const westCorner = cornerShaft(frontElevation.cornerWestX, -1);
-  const eastCorner = cornerShaft(frontElevation.cornerEastX, 1);
-  const columnXs = porticoColumnCenters(porch);
-  const middleWest = {
-    x: columnXs[0],
-    z: frontElevation.porticoColumnZ,
-    w: params.porticoColumnSize,
-  };
-  const middleEast = {
-    x: columnXs[1],
-    z: frontElevation.porticoColumnZ,
-    w: params.porticoColumnSize,
-  };
-  frontElevation.balustradePosts = [westCorner, middleWest, middleEast, eastCorner];
-
-  // 飘檐／露台折角北缘落在门厅柱心：柱在下方承托整段下沿线，直角拐弯对柱顶中心。
-  frontElevation.centerFront = middleWest.z;
-  frontElevation.terraceFront = Math.min(westCorner.z - westCorner.w / 2, eastCorner.z - eastCorner.w / 2);
+  // 先定露台外缘，再把将军柱放到挡墙中线交点；不再与门厅柱同轴。
+  frontElevation.centerFront = frontElevation.porticoColumnZ;
+  frontElevation.terraceFront = main.z - 120 - project;
+  if (params.porticoStyle === "recessed") {
+    frontElevation.centerFront = frontElevation.terraceFront;
+  }
   frontElevation.terraceBack = porticoWallZ(main.z + effectiveThirdSetback(params)) + 40;
   const cornerOffset = 180 * (params.mainWidth / DEFAULT_VILLA_PARAMS.mainWidth);
   frontElevation.sideTerraces = [
@@ -1066,7 +1046,8 @@ function syncFrontElevation(params: VillaParams) {
       w: main.x + main.w - cornerOffset - (porch.x + porch.w),
     },
   ];
-  frontElevation.hatFront = main.z - 980 * (params.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection) + (params.porticoStyle === "recessed" ? params.porticoProjection : 0);
+  frontElevation.balustradePosts = terraceParapetLayout().cornerPosts.map(post => ({ ...post }));
+  frontElevation.hatFront = main.z - 980 * (params.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection);
   frontElevation.hatWidth = porch.w + 1040;
   // 官帽檐口随三层层高累加；悬浮方案另有 floatingHatLayout 抬高。
   frontElevation.hatEave = mainEaveY();

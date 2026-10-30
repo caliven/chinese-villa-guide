@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { construction, contains, floors, frontElevation, site, type Point } from "../src/data";
 import { attachRoofs, floatingHatLayout, joinedHatLayout, mainRoofFootprint, annexRoofFootprint, roofPitch } from "../src/architecture";
-import { corbelCentersOnEdge, gutteredRoof, hatSupportInset, meander, tiledApron } from "../src/facade-details";
+import { apronSupportOutline, corbelCentersOnEdge, gutteredRoof, hatSupportInset, meander, tiledApron, terraceParapetLayout } from "../src/facade-details";
+import { frontApronOutline } from "../src/building-variants";
 import { addTiledRoof, hatRoofSurfaces, hipRoofSurfaces, joinRoofFaces } from "../src/roof-surfaces";
 import type { Mats } from "../src/primitives";
 import {
@@ -853,12 +854,18 @@ test("二楼飘檐下沿线与柱位连续，柱间灯带上方不被柱颈遮�
   const fascia = apron.getObjectByName("连续转角下沿线")!;
   const seats = apron.getObjectByName("四处柱位实体承台")!;
   const e = frontElevation, s = frontApronSection(floors[2].y + e.eaveParapet, e.tiledEaveDrop);
-  const west = site.main.x - construction.outsideWall / 2, east = site.main.x + site.main.w + construction.outsideWall / 2;
-  const cw = site.portico.x, ce = cw + site.portico.w, d = site.secondFrontEave;
-  const inner: Point[] = [[west,e.terraceBack],[west,e.terraceFront],[cw,e.terraceFront],
-    [cw,e.centerFront],[ce,e.centerFront],[ce,e.terraceFront],[east,e.terraceFront],[east,e.terraceBack]];
-  const outer: Point[] = [[west-d,e.terraceBack],[west-d,e.terraceFront-d],[cw-d,e.terraceFront-d],
-    [cw-d,e.centerFront-d],[ce+d,e.centerFront-d],[ce+d,e.terraceFront-d],[east+d,e.terraceFront-d],[east+d,e.terraceBack]];
+  const d = site.secondFrontEave;
+  const sideWallFaces: [number, number] = [
+    site.main.x - construction.outsideWall / 2,
+    site.main.x + site.main.w + construction.outsideWall / 2,
+  ];
+  // 与 tiledApron 同源：折角外移后的檐线，侧面梁托贴主墙外皮；探针走下沿线带宽而非整段出挑。
+  const { beamFace: inner, fasciaOuter: outer } = apronSupportOutline(
+    frontApronOutline(e.terraceBack, 0),
+    frontApronOutline(e.terraceBack, d),
+    sideWallFaces,
+  );
+  const fasciaDepth = apronEaveDesign.fasciaProtrusion;
   const inPostFoot = (x: number, z: number) => e.balustradePosts.some(post => {
     const half = (post.w + 80) / 2 + apronEaveDesign.postSeatOverhang;
     return Math.abs(x - post.x) <= half && Math.abs(z - post.z) <= half;
@@ -869,7 +876,7 @@ test("二楼飘檐下沿线与柱位连续，柱间灯带上方不被柱颈遮�
   for (let i = 0; i < inner.length - 1; i++) for (const t of [.05, .25, .5, .75, .95]) {
     const lerp = (points: Point[], axis: 0 | 1) => points[i][axis] * (1-t) + points[i+1][axis] * t;
     const ix = lerp(inner,0), iz = lerp(inner,1), ox = lerp(outer,0), oz = lerp(outer,1);
-    const x = ix + (ox-ix) * 50 / d, z = iz + (oz-iz) * 50 / d;
+    const x = ix + (ox-ix) * 50 / fasciaDepth, z = iz + (oz-iz) * 50 / fasciaDepth;
     const line = new THREE.Raycaster(new THREE.Vector3(x,s.fasciaTopY+1,z), new THREE.Vector3(0,-1,0))
       .intersectObject(fascia, true);
     assert.ok(line.length && Math.abs(line[0].point.y-s.fasciaTopY) < .1, `线脚在第${i}段不应断开`);
@@ -988,7 +995,7 @@ test("三楼正面窗侧不残留横槽，包角柱外展斜肩止于连续下�
   }
 });
 
-test("三楼中央栏杆分格镜像、交会共用立框且玻璃不穿框，四短柱同高同轴", async () => {
+test("三楼中央栏杆分格镜像、折角直角立框且玻璃不穿框，四短柱同高同轴", async () => {
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false); villa.group.updateMatrixWorld(true);
   const level = villa.levels[2], cx = site.portico.x + site.portico.w / 2;
@@ -1016,17 +1023,23 @@ test("三楼中央栏杆分格镜像、交会共用立框且玻璃不穿框，�
   }
   for (let i = 0; i < rails.length; i++) for (let j = i + 1; j < rails.length; j++) {
     const overlap = rails[i].clone().intersect(rails[j]).getSize(new THREE.Vector3());
-    assert.ok(overlap.x * overlap.y * overlap.z < 1, "T形扶手应端面相接，不得交叉重叠");
+    assert.ok(overlap.x * overlap.y * overlap.z < 1, "直角扶手应端面相接，不得交叉重叠");
   }
-  for (const x of [site.portico.x + 140, site.portico.x + site.portico.w - 140]) {
-    const z = frontElevation.terraceFront + 140;
-    assert.equal(frames.filter(b => Math.abs(b.getCenter(new THREE.Vector3()).x - x) < .1 &&
-      Math.abs(b.getCenter(new THREE.Vector3()).z - z) < .1).length, 1, "交会轴线必须恰有一根共用立框");
+  {
+    const { leftX, rightX, sideZ } = terraceParapetLayout();
+    for (const x of [leftX, rightX]) {
+      assert.equal(frames.filter(b => Math.abs(b.getCenter(new THREE.Vector3()).x - x) < .1 &&
+        Math.abs(b.getCenter(new THREE.Vector3()).z - sideZ) < .1).length, 1, "折角外侧须恰有一根转角立框");
+      assert.ok(!rails.some(b => Math.abs(b.getCenter(new THREE.Vector3()).x - x) < .1 && b.min.z > sideZ + 1),
+        "门厅侧返段不得越过折角再往露台内侧伸出");
+    }
   }
+  const cornerPosts = terraceParapetLayout().cornerPosts;
   for (const [i, post] of level.getObjectByName("四根露台短柱")!.children.entries()) {
     const bounds = new THREE.Box3().setFromObject(post);
     assert.ok(Math.abs(bounds.max.y - floors[2].y - frontElevation.eaveParapet - 800) < .1);
-    assert.ok(Math.abs(post.position.x - frontElevation.balustradePosts[i].x) < .1, "短柱中心沿用下方柱位轴线");
+    assert.ok(Math.abs(post.position.x - cornerPosts[i].x) < .1 && Math.abs(post.position.z - cornerPosts[i].z) < .1,
+      "将军柱心须落在挡墙中线交点");
   }
 });
 

@@ -1,4 +1,4 @@
-import { recessedPortico, recessedRoom, recessFrontFacades } from "./building-variants";
+import { recessedPortico, recessedRoom } from "./building-variants";
 import {
   annexPartitions,
   buildingAreas,
@@ -24,16 +24,16 @@ export const bedroomSummary = (index: number, rooms: Room[] = floors[index].room
   return `${count}间卧室${pending ? `＋${pending}间用途待定` : ""}`;
 };
 export function entranceMetrics() {
-  const column = site.main.z - (frontElevation.porticoColumnZ - frontElevation.porticoColumnDepth / 2);
+  const column = recessedPortico() ? 0 : site.main.z - (frontElevation.porticoColumnZ - frontElevation.porticoColumnDepth / 2);
   return {
-    projection: recessedPortico() ? -site.portico.projection : site.portico.projection,
+    projection: recessedPortico() ? 0 : site.portico.projection,
     column,
     platform: column + construction.entranceLandingOffset,
     steps: column + construction.entranceLandingOffset + 2 * construction.entranceTread,
     rampRun: construction.entranceRampRun,
     rampGrade: 100 * site.entranceRise / construction.entranceRampRun,
-    connectionY: construction.connectionY,
-    connectionRise: floorFinish(0) - construction.connectionY,
+    connectionY: floorFinish(0),
+    connectionRise: 0,
   };
 }
 export function stairMetrics() {
@@ -111,7 +111,7 @@ export function roomFillGeometry(room: Room, index: number, partitionsOverride?:
   if (!annex) room = recessedRoom(room, floors[index].front);
   const body = annex ? site.annex : { ...site.main, z: floors[index].front, d: site.main.z + site.main.d - floors[index].front };
   const basePartitions = partitionsOverride ?? (annex ? annexPartitions : floors[index].partitions);
-  const partitions = !annex && recessedPortico() ? [...basePartitions, ...recessFrontFacades(facades(index), floors[index].front).map(f => ({ a: f.a, b: f.b, role: "bearing" as const }))] : basePartitions;
+  const partitions = basePartitions;
   const signature = JSON.stringify([
     room.x, room.z, room.w, room.d, room.outline, room.label, !!room.boundary,
     body.x, body.z, body.w, body.d, construction.outsideWall, construction.partition,
@@ -219,8 +219,8 @@ export interface DesignIssue {
 }
 export const designIssues: DesignIssue[] = [
   { id: "D01", title: "联合测绘、界址与面积口径", phase: "先核实", get current() { return `院坪是相对高程基准；红线含田埂。首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡（主楼${buildingAreas.main.toFixed(1)}＋辅楼${buildingAreas.annex.toFixed(1)}＋门厅${buildingAreas.portico.toFixed(1)}），已含门厅。`; }, action: "联测道路、邻院、建筑角点、田坎及保留构件；请设计公司核实当地建设条件，按包含门厅的口径复核首层及全楼建筑面积。", owner: "业主／测绘／建筑师", output: "实测总平面、标高表、界址及面积口径表", target: "site" },
-  { id: "D02", title: "入口与主辅楼连续通行", phase: "先核实", current: "室内+450；侧向连接+15，相差435 mm。侧坡道投影2000 mm、示意坡度22.5%。", action: "比较抬高连接平台、踏步和坡道布置，标明门槛、防滑、扶手、雨棚和排水。适老条件待核。", owner: "建筑／景观／给排水", output: "入口和主辅楼连接放大平剖面", target: "entrance" },
-  { id: "D03", title: "楼梯踏步、净宽与连续净高", phase: "先核实", current: "两段完成面高差3150／3600 mm；每段20个示意高差分段，梯段宽1050 mm、踏面250 mm。", action: "核定起终点、踏步、平台、洞口、梁下净高、扶手后净宽及家具搬运。", owner: "建筑／结构", output: "逐层踏步表、连续楼梯剖面及最低净高", target: "stair", floor: 0, room: "stair" },
+  { id: "D02", title: "入口与主辅楼连续通行", phase: "先核实", current: "主辅楼首层与中间过道同高；过道两端以踏步接院坪。门厅侧坡道投影2000 mm、示意坡度22.5%。", action: "核对踏步、门槛、防滑、扶手、雨棚和排水；适老通行条件待设计。", owner: "建筑／景观／给排水", output: "入口和主辅楼连接放大平剖面", target: "entrance" },
+  { id: "D03", title: "楼梯踏步、净宽与连续净高", phase: "先核实", current: "楼梯延伸至坡屋面下顶板；三层至顶板段和屋面下净高待核。", action: "核定起终点、踏步、平台、洞口、梁下净高、扶手后净宽及家具搬运。", owner: "建筑／结构", output: "逐层踏步表、连续楼梯剖面及最低净高", target: "stair", floor: 0, room: "stair" },
   { id: "D04", title: "地库完整车辆进出校核", phase: "先核实", current: "已有L9平面扫掠及C5柱潜在冲突；道路与最低梁底待测，切口待协商。", action: "测量后校核含镜宽、转弯、纵坡俯仰、底盘、驶出倒车、开门与两车独立进出；比较切口未获确认时的备选。", owner: "建筑／结构／测量；业主协调", output: "实测轨迹与纵断面、限制条件和备选方案", target: "garage" },
   { id: "D05", title: "地库步行出口与设备配套", phase: "先核实", current: "院坪中央楼梯已取消，新的步行到达路径尚未确定。", action: "统筹人车到达、照明、通风、排水、充电和检修，由设计公司核定适用的疏散与消防要求。", owner: "建筑／设备／结构", output: "地库使用平面、步行出口剖面及设备点位", target: "garage" },
   { id: "D06", title: "贯通轴网、梁底与基础", phase: "先核实", current: "外沿和房前墙下两排示意柱；450 mm是结构占用预留，没有承载计算。", action: "结合勘察比较少柱、大跨与局部调整，协调挑空、门窗、停车、梁底及净高目标。", owner: "结构主责／建筑协调", output: "初步结构方案、梁底控制及基础条件", target: "garage" },
@@ -241,7 +241,7 @@ export const designIssues: DesignIssue[] = [
 ];
 
 export const designBrief = [
-  { status: "保留意图", title: "主辅楼及生活分区", get text() { return `主楼${formatMm(site.main.w)}×${formatMm(site.main.d)} mm、辅楼${formatMm(site.annex.w)}×${formatMm(site.annex.d)} mm（前墙相对主楼内退${formatMm(site.annex.z - site.main.z)} mm）；首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡（主楼${buildingAreas.main.toFixed(1)}＋辅楼${buildingAreas.annex.toFixed(1)}＋门厅${buildingAreas.portico.toFixed(1)}），门厅全额计入一次（凹入式先扣主楼凹口）。主楼三层、厨房在辅楼；挑空客厅、茶室、楼梯及尊亲房随主辅楼位置镜像。`; } },
+  { status: "保留意图", title: "主辅楼及生活分区", get text() { return `主楼${formatMm(site.main.w)}×${formatMm(site.main.d)} mm、辅楼${formatMm(site.annex.w)}×${formatMm(site.annex.d)} mm（前墙相对主楼内退${formatMm(site.annex.z - site.main.z)} mm）；首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡（主楼${buildingAreas.main.toFixed(1)}＋辅楼${buildingAreas.annex.toFixed(1)}＋门厅${buildingAreas.portico.toFixed(1)}），凸出式门厅全额计入一次；平齐式主楼不扣凹口，外伸门厅面积为0。主楼三层、厨房在辅楼；挑空客厅、茶室、楼梯及尊亲房随主辅楼位置镜像。`; } },
   { status: "保留意图", title: "立面与院坪", get text() { return `新中式四坡五脊；默认悬浮官帽，普通官帽作为可选方案；普通官帽加宽瓦面、后移前部起脊点，与正屋同脊高。保留通高门厅；${site.setback > 0 ? `三楼北向内退${formatMm(site.setback)} mm，三块露台分开` : "三楼不内退，两翼前墙与二楼齐平，仅保留中央门厅露台"}。辅楼前约2000 mm人行通道、原院坪中部不新增楼梯。造型须结合结构排水深化。`; } },
   { status: "可协商深化", title: "舒适与使用优先", text: "希望保留地库少柱、2500 mm净高目标、双桌餐厅和老人房内卫。实际柱梁、家具、步行出口、坡道与设备位置由设计公司出备选比较；模型未指定可行结论。" },
   { status: "待业主确认", title: "人数、房间与预算", text: "常住／节庆人数、老人行动需求、七间卧室的刚性程度、待定房用途、餐厅日常方式、投资范围和地库优先级，需在会前补充。" },

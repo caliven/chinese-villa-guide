@@ -27,6 +27,7 @@ import { OPENING_KINDS, openingLabels } from "./openings";
 const roomKindOptions = [
   ["bed", "卧室"],
   ["living", "客厅"],
+  ["void", "挑空客厅"],
   ["hall", "堂屋／过道"],
   ["bath", "卫生间"],
   ["store", "储物"],
@@ -108,6 +109,7 @@ import {
 } from "./data-versions";
 
 import { blankLayoutDraft, createLayoutVersion, layoutVersionName, renameLayoutVersion, suggestLayoutVersionName } from "./layout-version-management";
+import { getDefaultLayoutVersionFile, loadInitialLayoutVersion, setDefaultLayoutVersion } from "./layout-default";
 import { REAL_SCENE_REQUEST, REAL_SCENE_SCHEME } from "./real-scene-protocol";
 
 const shapes: Record<string, string> = {
@@ -218,6 +220,11 @@ document.querySelector("#app")!.innerHTML = `
     <section id="design-panel" class="design-panel" aria-label="设计沟通资料" hidden></section>
     <aside class="inspector" aria-label="模型设置">
       <div class="scene-heading" id="scene-heading"><h1 id="scene-title">新建方案</h1><p id="scene-subtitle">依据航拍与已知尺寸重建 · 周边为估算</p></div>
+      <section id="scene-layout-controls" class="scene-layout-controls">
+        <h2><label for="scene-layout-select">当前户型</label></h2>
+        <select id="scene-layout-select" aria-describedby="scene-layout-status"><option value="">（当前草稿）</option></select>
+        <p class="micro" id="scene-layout-status" role="status">一二三层同步切换，场地模型即时更新。</p>
+      </section>
       <div id="model-controls">
         <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number" id="area-number">${buildingAreas.total.toFixed(1)}<span>m²</span></div><p class="area-caption" id="area-caption">主楼 ${buildingAreas.main.toFixed(1)}㎡ ＋ 辅楼 ${buildingAreas.annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡</p><p class="micro" id="area-micro">首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总</p><button type="button" class="secondary-button" id="open-params-from-inspector">打开尺寸设置</button></section>
         <section><h2>模型显示</h2>${check("night-mode", "夜景模式")}<div id="eave-light-controls" class="eave-light-controls" hidden><div class="eave-preset-title">快捷灯色 <small>色温效果示意</small></div><div class="eave-presets" role="group" aria-label="洗墙灯快捷颜色">${eaveColorPresets.map(({ label, color }) => `<button type="button" class="eave-preset" data-eave-color="${color}" aria-pressed="${color === "#ff7030"}"><span class="eave-swatch" style="background:${color}" aria-hidden="true"></span>${label}</button>`).join("")}</div><label class="eave-color-label" for="eave-light-color">洗墙灯颜色<input type="color" id="eave-light-color" value="#ff7030"/></label><div class="range-heading"><label for="eave-light-brightness">洗墙灯亮度</label><output id="eave-light-brightness-output">150%</output></div><input type="range" id="eave-light-brightness" min="0" max="200" step="5" value="150"/></div>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "显示主楼与地库重叠示意")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1200 mm</option></select></label></section>
@@ -345,6 +352,8 @@ const planZoomMax = 3;
 const planZoomStep = 0.25;
 let showWallWidth = false;
 let planEditorFocus = false;
+let focusSelectionArmed = false;
+let focusSelectionKey = "";
 /** 布局编辑连按 Esc：第二次在时限内则取消选中并回到「选择」工具。 */
 let lastLayoutEscAt = 0;
 const LAYOUT_DOUBLE_ESC_MS = 450;
@@ -375,6 +384,14 @@ function syncWallWidthToggle() {
 
 function setPlanEditorFocus(on: boolean) {
   planEditorFocus = on;
+  focusSelectionArmed = false;
+  focusSelectionKey = selectionKey(layoutEditing ? layoutEditor?.selection ?? null : null);
+  $("plan-panel").classList.remove(
+    "focus-show-properties",
+    "focus-show-floating-inspector",
+    "focus-palette-dragging",
+    "focus-show-palette",
+  );
   document.body.classList.toggle("plan-editor-focus", on);
   const btn = document.getElementById("plan-focus-toggle");
   if (btn) {
@@ -383,7 +400,38 @@ function setPlanEditorFocus(on: boolean) {
     btn.setAttribute("aria-label", on ? "退出撑满编辑区域" : "撑满编辑区域");
     btn.innerHTML = icon(on ? "close" : "expand");
   }
+  // 已在户型页时仍要刷新页脚／布局；切页时 switchTab 会自行 updateScene。
   if (on && tab !== "floor") switchTab("floor");
+  else updateScene();
+  requestAnimationFrame(() => {
+    syncLayoutChromeHeight();
+    refreshLayoutInspector();
+    if (tab !== "floor") return;
+    if (planMode === "3d") viewer?.resize();
+    else if (drawingView === "floor") fitPlanToWindow();
+  });
+}
+
+/** 撑满时左侧素材库：贴左缘展开，离开后收起；拖出放置期间保持展开。 */
+function syncFocusPaletteReveal(options?: { clientX?: number; forceShow?: boolean; forceHide?: boolean }) {
+  const panel = $("plan-panel");
+  if (!planEditorFocus || drawingView !== "floor" || panel.classList.contains("is-special-drawing")) {
+    panel.classList.remove("focus-show-palette");
+    return;
+  }
+  if (options?.forceHide && !panel.classList.contains("focus-palette-dragging")) {
+    panel.classList.remove("focus-show-palette");
+    return;
+  }
+  if (options?.forceShow || panel.classList.contains("focus-palette-dragging")) {
+    panel.classList.add("focus-show-palette");
+    return;
+  }
+  const wrap = panel.querySelector<HTMLElement>(".plan-canvas-wrap");
+  if (!wrap || options?.clientX == null) return;
+  const x = options.clientX - wrap.getBoundingClientRect().left;
+  // 仅用左缘热区打开；关闭由 pointerleave／远离后的 forceHide 处理。
+  if (x <= 18) panel.classList.add("focus-show-palette");
 }
 
 function setPlanZoom(next: number, anchor?: { clientX: number; clientY: number }) {
@@ -547,21 +595,31 @@ async function refreshSizeVersionSelect(index?: DataVersionsIndex) {
 let layoutVersionsIndex = emptyDataIndex("户型");
 let activeLayoutVersionFile = "";
 function syncLayoutVersionActions() {
-  for (const id of ["layout-version-select", "layout-new-version", "layout-copy-version", "layout-rename-version", "layout-delete-version", "layout-save"]) {
+  const isDefault = !!activeLayoutVersionFile && getDefaultLayoutVersionFile(layoutVersionsIndex) === activeLayoutVersionFile;
+  const defaultButton = document.getElementById("layout-set-default") as HTMLButtonElement | null;
+  if (defaultButton) defaultButton.textContent = isDefault ? "已设为默认户型" : "设为默认户型";
+  for (const id of ["layout-version-select", "scene-layout-select", "layout-new-version", "layout-copy-version", "layout-rename-version", "layout-set-default", "layout-delete-version", "layout-save"]) {
     const control = document.getElementById(id) as HTMLButtonElement | HTMLSelectElement | null;
-    if (control) control.disabled = planLoadingTasks > 0 || (["layout-rename-version", "layout-delete-version"].includes(id) && !activeLayoutVersionFile);
+    if (control) control.disabled = planLoadingTasks > 0 || (["layout-rename-version", "layout-set-default", "layout-delete-version"].includes(id) && !activeLayoutVersionFile) || (id === "layout-set-default" && isDefault) || (id === "scene-layout-select" && (isExisting || !layoutVersionsIndex.versions.length));
   }
+  $("scene-layout-status").textContent = planLoadingTasks > 0 ? "正在载入户型，请稍候…"
+    : isExisting ? "当前查看现状，切换至「新建」后可更换户型。"
+    : !layoutVersionsIndex.versions.length ? "暂无已保存户型，可在分层户型中新增。"
+    : "一二三层同步切换，场地模型即时更新。";
 }
 async function refreshLayoutVersionSelect(index?: DataVersionsIndex) {
   layoutVersionsIndex = index ?? (await loadDataVersionsIndex("户型"));
-  const select = $("layout-version-select") as HTMLSelectElement;
-  select.innerHTML = layoutVersionsIndex.versions.map(v =>
-    `<option value="${escapeHtml(v.file)}">${escapeHtml(v.title)} · ${escapeHtml(formatSavedAtDisplay(v.savedAt))}</option>`).join("");
+  const defaultFile = getDefaultLayoutVersionFile(layoutVersionsIndex);
   if (!layoutVersionsIndex.versions.some(v => v.file === activeLayoutVersionFile)) {
-    select.insertAdjacentHTML("afterbegin", '<option value="">（当前草稿）</option>');
     activeLayoutVersionFile = "";
   }
-  select.value = activeLayoutVersionFile;
+  for (const id of ["layout-version-select", "scene-layout-select"]) {
+    const select = $(id) as HTMLSelectElement;
+    select.innerHTML = layoutVersionsIndex.versions.map(v =>
+      `<option value="${escapeHtml(v.file)}">${escapeHtml(v.title)}${v.file === defaultFile ? "（默认）" : ""}${id === "layout-version-select" ? ` · ${escapeHtml(formatSavedAtDisplay(v.savedAt))}` : ""}</option>`).join("");
+    if (!activeLayoutVersionFile) select.insertAdjacentHTML("afterbegin", '<option value="">（当前草稿）</option>');
+    select.value = activeLayoutVersionFile;
+  }
   syncLayoutVersionActions();
 }
 
@@ -859,7 +917,7 @@ function refreshAreaMetrics() {
   if (caption) caption.textContent = `主楼 ${main.toFixed(1)}㎡ ＋ 辅楼 ${annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡`;
   const micro = document.getElementById("area-micro");
   if (micro) {
-    micro.textContent = site.porticoStyle === "recessed" ? "首层建筑面积合计 · 主楼扣凹口后门厅计入一次 · 全楼各层总面积另行汇总" : "首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总";
+    micro.textContent = site.porticoStyle === "recessed" ? "首层建筑面积合计 · 平齐式无外伸门厅 · 全楼各层总面积另行汇总" : "首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总";
   }
   renderFacts();
   const metrics = document.getElementById("metric-list");
@@ -870,7 +928,7 @@ function refreshAreaMetrics() {
       ["辅楼", `${formatMm(p.annexWidth)} × ${formatMm(p.annexDepth)} · 内退${formatMm(p.annexSetback)}`],
       ["子孙道", formatMm(p.lane)],
       ["三楼模式", p.thirdFloorMode === "flush" ? "不内退" : `北向内退 ${formatMm(p.thirdSetback)}`],
-      [p.porticoStyle === "recessed" ? "门厅凹入" : "门厅外伸", formatMm(p.porticoProjection)],
+      [p.porticoStyle === "recessed" ? "平齐式入口" : "门厅外伸", p.porticoStyle === "recessed" ? "大门原位 · 无外伸柱廊" : formatMm(p.porticoProjection)],
       ["二楼前檐", formatMm(p.secondFrontEave)],
       ["主楼顶檐", formatMm(p.thirdEave)],
       ["辅楼顶檐", formatMm(p.annexEave)],
@@ -924,7 +982,7 @@ async function withPlanLoading<T>(message: string, work: () => Promise<T> | T): 
   planLoadingTasks++;
   syncLayoutVersionActions();
   try {
-    return await withLoadingOverlay($("plan-loading"), message, work);
+    return await withLoadingOverlay($(tab === "model" ? "scene-loading" : "plan-loading"), message, work);
   } finally {
     planLoadingTasks--;
     syncLayoutVersionActions();
@@ -1016,6 +1074,10 @@ function refreshLayoutInspector(force = false) {
   const panel = $("layout-inspector");
   const hasSelection = !!(layoutEditor && layoutEditing && layoutEditor.selection);
   const nextSelectionKey = selectionKey(layoutEditing ? layoutEditor?.selection ?? null : null);
+  if (planEditorFocus && nextSelectionKey && nextSelectionKey !== focusSelectionKey) focusSelectionArmed = true;
+  focusSelectionKey = nextSelectionKey;
+  $("plan-panel").classList.toggle("focus-show-properties", planEditorFocus && focusSelectionArmed && hasSelection && !inspectorFloating);
+  $("plan-panel").classList.toggle("focus-show-floating-inspector", planEditorFocus && focusSelectionArmed && hasSelection && inspectorFloating);
   if (nextSelectionKey && nextSelectionKey !== inspectorSelectionKey && !inspectorFloating) $("designer-properties").scrollTop = 0;
   inspectorSelectionKey = nextSelectionKey;
   $("designer-inspector-empty").hidden = hasSelection && !inspectorFloating;
@@ -1163,7 +1225,7 @@ function syncLayoutPalette() {
   let items: { value: string; text: string; active: boolean }[] = [];
   if (category === "room") {
     label.textContent = "房间库";
-    hint.textContent = "选择后点击画布或拖入放置；楼梯为整套模型（一二三层同步），其它为房间框";
+    hint.textContent = "选择后点击画布或拖入放置；挑空请在二楼放置，楼梯为整套模型（一二三层同步）";
     setExpanded("tool-room", true);
     items = roomKindOptions.map(([value, text]) => ({
       value,
@@ -1624,6 +1686,8 @@ function setLayoutEditing(on: boolean) {
   updateScene();
 }
 function updateScene() {
+  $("scene-layout-controls").hidden = tab !== "model";
+  syncLayoutVersionActions();
   $("eave-light-controls").hidden = !checked("night-mode");
   document.body.classList.toggle("plan-designer", tab === "floor");
   const floor3d = tab === "floor" && planMode === "3d";
@@ -1787,9 +1851,14 @@ function updateScene() {
 function syncDesignerSceneModes() {
   const walking = layoutScene?.isWalking() ?? false;
   active("[data-designer-camera]", button => !walking && button.dataset.designerCamera === designerSceneCamera);
-  $("designer-walk").setAttribute("aria-pressed", String(walking));
-  $("designer-night").setAttribute("aria-pressed", String(layoutScene?.isNight() ?? false));
-  $("designer-walk-exit").hidden = !walking;
+  const walkBtn = $("designer-walk");
+  walkBtn.setAttribute("aria-pressed", String(walking));
+  walkBtn.classList.toggle("active", walking);
+  const nightBtn = $("designer-night");
+  const nightOn = layoutScene?.isNight() ?? false;
+  nightBtn.setAttribute("aria-pressed", String(nightOn));
+  nightBtn.classList.toggle("active", nightOn);
+  $("designer-walk-exit-wrap").hidden = !walking;
   $("designer-walk-hint").hidden = !walking && !designerWalkIntro;
   $("designer-walk-intro").hidden = !designerWalkIntro;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-editor-wall-height], #designer-explode, #plan-zoom-out, #plan-zoom-reset, #plan-zoom-in')) button.disabled = walking;
@@ -2110,7 +2179,18 @@ document.addEventListener("click", (event) => {
   }
   if (el.id === "designer-walk-start" || el.id === "designer-walk-cancel") {
     designerWalkIntro = false;
-    if (el.id === "designer-walk-start") layoutScene?.setWalking(true);
+    if (el.id === "designer-walk-start") {
+      if (level !== 0) {
+        level = 0;
+        layoutEditor?.clearSelectionOnFloorChange();
+        updateScene();
+        designerCameraRevision++;
+        const pose = designerScenePoses.get(0);
+        if (pose) viewer?.restoreCameraPose(pose);
+        else viewer?.setFloorCamera(designerSceneCamera);
+      }
+      layoutScene?.setWalking(true);
+    }
     syncDesignerSceneModes();
     $("designer-walk").focus();
     return;
@@ -2427,9 +2507,36 @@ $("layout-import").addEventListener("change", async (event) => {
   }
   input.value = "";
 });
+$("layout-palette").addEventListener("pointerenter", () => syncFocusPaletteReveal({ forceShow: true }));
+$("layout-palette").addEventListener("pointerleave", (event) => {
+  const next = event.relatedTarget;
+  if (next instanceof Node && $("designer-palette-edge").contains(next)) return;
+  syncFocusPaletteReveal({ forceHide: true });
+});
+$("designer-palette-edge").addEventListener("pointerenter", () => syncFocusPaletteReveal({ forceShow: true }));
+$("designer-palette-edge").addEventListener("pointerleave", (event) => {
+  const next = event.relatedTarget;
+  if (next instanceof Node && $("layout-palette").contains(next)) return;
+  syncFocusPaletteReveal({ forceHide: true });
+});
+$("plan-panel").querySelector(".plan-canvas-wrap")!.addEventListener(
+  "pointermove",
+  (event) => {
+    if (!planEditorFocus || !(event instanceof PointerEvent)) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("#layout-palette, #designer-palette-edge")) {
+      syncFocusPaletteReveal({ forceShow: true });
+      return;
+    }
+    syncFocusPaletteReveal({ clientX: event.clientX });
+  },
+  { passive: true },
+);
 $("layout-palette-chips").addEventListener("dragstart", (event) => {
   const chip = (event.target as Element).closest<HTMLElement>("[data-palette-kind]");
   if (!chip || !(event instanceof DragEvent) || !event.dataTransfer) return;
+  $("plan-panel").classList.add("focus-palette-dragging");
+  syncFocusPaletteReveal({ forceShow: true });
   // 拖放开始时同步选中该模型，避免只靠 click（拖后 click 常被吞）
   if (layoutEditor) {
     const kind = chip.dataset.paletteKind;
@@ -2457,10 +2564,14 @@ $("layout-palette-chips").addEventListener("dragstart", (event) => {
 $("layout-palette-chips").addEventListener("dragend", (event) => {
   const chip = (event.target as Element).closest<HTMLElement>("[data-palette-kind]");
   chip?.classList.remove("dragging");
+  $("plan-panel").classList.remove("focus-palette-dragging");
   $("plan-drawing").classList.remove("layout-drop-target");
   // 仅压制紧随其后的幽灵 click，不长期锁死芯片
   suppressPaletteClickUntil = Date.now() + 120;
   syncLayoutPalette();
+  syncFocusPaletteReveal(
+    event instanceof DragEvent ? { clientX: event.clientX } : { forceHide: true },
+  );
 });
 $("plan-drawing").addEventListener("dragover", (event) => {
   if (drawingView !== "floor" || level < 0) return;
@@ -2517,6 +2628,16 @@ $("plan-drawing").addEventListener(
   { passive: false },
 );
 $("plan-drawing").addEventListener("scroll", () => positionLayoutInspector(), { passive: true });
+// 全屏时原有选中不自动展开；用户在画布再次点选或拖放后才展示属性。
+for (const id of ["plan-drawing", "designer-scene-host"]) {
+  const armFocusSelection = () => {
+    if (!planEditorFocus || !layoutEditing) return;
+    focusSelectionArmed = true;
+    requestAnimationFrame(() => refreshLayoutInspector());
+  };
+  $(id).addEventListener("pointerdown", armFocusSelection, true);
+  $(id).addEventListener("drop", armFocusSelection, true);
+}
 $("designer-library-search").addEventListener("input", filterDesignerLibrary);
 $("designer-dining-mode").addEventListener("change", event => {
   $<HTMLSelectElement>("dining-mode").value = (event.target as HTMLSelectElement).value;
@@ -2998,21 +3119,36 @@ document.getElementById("scheme-delete-version")?.addEventListener("click", () =
 document.getElementById("layout-delete-version")?.addEventListener("click", () => {
   void deleteLayoutVersion();
 });
+$("layout-set-default").addEventListener("click", () => {
+  if (planLoadingTasks) return;
+  try {
+    const version = setDefaultLayoutVersion(layoutVersionsIndex, activeLayoutVersionFile);
+    void refreshLayoutVersionSelect(layoutVersionsIndex);
+    const message = `已将「${version.title}」设为默认户型；当前浏览器刷新后自动载入已保存的配置`;
+    $("layout-save-status").textContent = message;
+    $("layout-set-default").closest("details")?.removeAttribute("open");
+    toast(message);
+  } catch (error) {
+    toast(error instanceof Error ? error.message : "设置默认户型失败");
+  }
+});
 for (const [id, action] of [["layout-new-version", "new"], ["layout-copy-version", "copy"], ["layout-rename-version", "rename"]] as const) {
   $(id).addEventListener("click", () => openLayoutVersionDialog(action));
 }
 $("layout-version-form").addEventListener("submit", event => { void submitLayoutVersionDialog(event as SubmitEvent); });
 $("layout-version-cancel").addEventListener("click", () => ($("layout-version-dialog") as HTMLDialogElement).close());
 $("layout-version-dialog").addEventListener("cancel", event => { if (planLoadingTasks) event.preventDefault(); });
-document.getElementById("layout-version-select")?.addEventListener("change", () => {
-  const select = $("layout-version-select") as HTMLSelectElement;
-  const file = select.value;
-  if (!file) return;
-  void runLayoutVersionTask("正在载入户型…", async () => {
-    try { await selectLayoutVersion(file); }
-    catch (error) { select.value = activeLayoutVersionFile; throw error; }
+for (const id of ["layout-version-select", "scene-layout-select"]) {
+  $(id).addEventListener("change", () => {
+    const select = $(id) as HTMLSelectElement;
+    const file = select.value;
+    if (!file || file === activeLayoutVersionFile) return;
+    void runLayoutVersionTask("正在载入户型…", async () => {
+      try { await selectLayoutVersion(file); }
+      catch (error) { await refreshLayoutVersionSelect(layoutVersionsIndex); throw error; }
+    });
   });
-});
+}
 $("villa-params-reset").addEventListener("click", () => {
   void resetSchemeToInitial();
 });
@@ -3068,11 +3204,19 @@ updateFenShui();
   }
   await refreshSizeVersionSelect();
   await refreshLayoutVersionSelect();
-  // 首次打开载入目录第一项；视图切换不重载，保留用户正在编辑的内容。
-  const first = layoutVersionsIndex.versions[0];
-  if (first) {
-    try { await selectLayoutVersion(first.file, true); }
-    catch (error) { toast(error instanceof Error ? error.message : "默认户型载入失败"); }
+  // 首次打开优先载入用户指定的默认户型；视图切换不重载当前编辑。
+  const initial = await loadInitialLayoutVersion(layoutVersionsIndex);
+  if (initial) {
+    try {
+      await applyLayoutVersion(initial.document, true);
+      activeLayoutVersionFile = initial.file;
+      await refreshLayoutVersionSelect(layoutVersionsIndex);
+      drawPlan();
+      const defaultFile = getDefaultLayoutVersionFile(layoutVersionsIndex);
+      if (defaultFile && defaultFile !== initial.file) toast("默认户型读取失败，已载入列表首项");
+    } catch (error) { toast(error instanceof Error ? error.message : "默认户型载入失败"); }
+  } else if (layoutVersionsIndex.versions.length) {
+    toast("户型版本读取失败，已保留当前方案");
   }
 }
 

@@ -131,10 +131,10 @@ const groups: ParamGroup[] = [
   {
     id: "portico",
     title: "门厅",
-    note: "凸出式门厅伸出主楼前墙；凹入式门厅柱收至主楼前沿，中央墙面内退。官帽、露台、台阶与图纸联动；凹口占用的室内空间按当前造型显示，切回凸出式恢复原稿。",
+    note: "凸出式飘檐收口拐角距柱身两个外沿各留截面的1/8，改柱宽自动联动（800柱留100）。平齐式（原凹入式）保持大门和主体墙原位，删除门厅柱、横梁及外伸区域，二楼改为连续直檐；三楼官帽保持原样。",
     fields: [
       { key: "porticoWidth", label: "堂屋／门厅面宽（柱心距）" },
-      { key: "porticoProjection", label: "门厅外伸／凹入深度" },
+      { key: "porticoProjection", label: "凸出式外伸／官帽定位深度" },
       { key: "porticoColumnSize", label: "门厅柱截面" },
     ],
   },
@@ -214,7 +214,7 @@ function numInput(f: Field, value: number, disabled = false) {
 }
 
 function fieldsGridHtml(fields: Field[], params: VillaParams) {
-  return `<div class="params-grid">${fields.map((f) => numInput(f, params[f.key] as number, f.key === "thirdSetback" && params.thirdFloorMode === "flush")).join("")}</div>`;
+  return `<div class="params-grid">${fields.map((f) => numInput(f, params[f.key] as number, (f.key === "thirdSetback" && params.thirdFloorMode === "flush") || (f.key === "porticoColumnSize" && params.porticoStyle === "recessed"))).join("")}</div>`;
 }
 
 function courtyardChoices(id: string, label: string, name: string) {
@@ -312,11 +312,11 @@ export function villaParamsPanelHtml(params: VillaParams = getVillaParams()) {
               <dt>辅楼内退</dt>
               <dd><strong id="villa-params-annex-setback">${formatMm(Math.max(0, derivedAnnexSetback(params)))}</strong><span>· 自动</span></dd>
             </div>
-            <div class="params-meta-item">
+            <div class="params-meta-item" data-portico-column-meta${params.porticoStyle === "recessed" ? " hidden" : ""}>
               <dt>门厅柱心距</dt>
               <dd><strong id="villa-params-portico-span">${formatMm(porticoColumnSpacing(params))}</strong><span>· 柱心对齐门厅前沿两角</span></dd>
             </div>
-            <div class="params-meta-item">
+            <div class="params-meta-item" data-portico-column-meta${params.porticoStyle === "recessed" ? " hidden" : ""}>
               <dt>柱内侧至前墙</dt>
               <dd><strong id="villa-params-portico-wall-gap">${formatMm(derivedPorticoColumnWallGap(params))}</strong><span>· 派生</span></dd>
             </div>
@@ -420,6 +420,7 @@ export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = do
   setText("villa-params-site-width", formatMm(LOCKED_SITE_WIDTH));
   setText("villa-params-west-gap", formatMm(west));
   setText("villa-params-annex-setback", formatMm(Math.max(0, setback)));
+  root.querySelectorAll<HTMLElement>("[data-portico-column-meta]").forEach(el => { el.hidden = params.porticoStyle === "recessed"; });
   setText("villa-params-portico-span", formatMm(porticoColumnSpacing(params)));
   setText("villa-params-portico-wall-gap", formatMm(derivedPorticoColumnWallGap(params)));
   const { minOffset, maxOffset } = floatingHatHeightLimits(params);
@@ -458,6 +459,7 @@ export function fillVillaParamsDom(
     const value = params[key];
     if (typeof value === "number") input.value = formatParamValue(value, key);
     if (key === "thirdSetback") input.disabled = params.thirdFloorMode === "flush";
+    if (key === "porticoColumnSize") input.disabled = params.porticoStyle === "recessed";
   });
   root.querySelectorAll<HTMLButtonElement>("[data-building-variant]").forEach(button => {
     const key = button.dataset.buildingVariant as "porticoStyle" | "buildingPlacement" | "thirdFloorMode";

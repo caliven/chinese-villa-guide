@@ -9,6 +9,7 @@ import { DEFAULT_VILLA_PARAMS, applyVillaParams, resetVillaParams } from "../src
 import { centerPorticoInBay, porticoBayAlign } from "../src/layout-align";
 import { alignedEntryOpenings } from "../src/entry-assembly";
 import { facades } from "../src/facades";
+import { terraceParapetLayout } from "../src/facade-details";
 
 test.afterEach(resetVillaParams);
 
@@ -26,11 +27,12 @@ function checkFrontage(draft: LayoutDraft) {
   const expectedPosts = elevation.balustradePosts
     .filter((_, i) => site.setback > 0 || i === 1 || i === 2)
     .map(p => ({ x: p.x, z: p.z, w: p.w, d: p.w }));
+  const rail = terraceParapetLayout(elevation, porch);
   for (const editorCanvas of [false, true]) {
     const second = floorPlan(1, false, false, { editorCanvas }, planSourceFromDraft(draft, 1));
     const third = floorPlan(2, false, false, { editorCanvas }, planSourceFromDraft(draft, 2));
     const columns = rectangles(second, "portico");
-    assert.deepEqual(columns.map(p => p.x), expectedXs);
+    assert.deepEqual(columns.map(p => p.x), site.porticoStyle === "recessed" ? [] : expectedXs);
     assert.ok(columns.every(p => p.z === expectedZ && p.w === p.d), "门厅柱截面含饰线，双向对称于柱心");
     assert.deepEqual(rectangles(third, "railing"), expectedPosts, "露台短柱与三维同轴");
     assert.deepEqual(rectangles(third, "hat").map(p => [p.x, p.z]),
@@ -40,9 +42,9 @@ function checkFrontage(draft: LayoutDraft) {
       .map(([, x, z]) => [Number(x), Number(z)]);
     assert.deepEqual(dividerWalls, expectedXs.map(x => [x, elevation.postZ + 120]),
       "官帽柱后方分隔墙须与当前柱心同轴，不能继续使用全局柱位");
-    assert.ok(third.includes(`M${porch.x} ${elevation.postZ} V${expectedZ} H${porch.x + porch.w} V${elevation.postZ}`),
-      "中央栏杆折线落在当前户型柱心");
-    assert.ok(third.includes(`<rect x="${porch.x}" y="${expectedZ}" width="${porch.w}" height="${elevation.terraceBack - expectedZ}" fill="#e9e2d4"`),
+    assert.ok(third.includes(`M${rail.leftX} ${elevation.postZ} V${rail.middleZ} H${rail.rightX} V${elevation.postZ}`),
+      "中央栏杆折线落在当前户型挡墙中线");
+    assert.ok(third.includes(`<rect x="${porch.x}" y="${elevation.centerFront}" width="${porch.w}" height="${elevation.terraceBack - elevation.centerFront}" fill="#e9e2d4"`),
       "中央露台与三维边界相同");
     for (const svg of [second, third]) {
       const control = svg.match(/<g data-dim-side="north" data-dim-kind="control">([\s\S]*?)<\/g>/)?.[1];

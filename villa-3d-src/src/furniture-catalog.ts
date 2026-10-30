@@ -115,6 +115,9 @@ const floorplanOrientationHints: Record<FloorplanFurnitureType, string> = {
   armchair: "后方＝靠背；前方＝落座",
   beanbag: "后方＝靠背；前方＝落座",
   coffeetable: "无固定朝向；长边为宽",
+  hunanShrine: "后方＝贴墙背板；前方＝供奉面；挂装底高从本层地面计算",
+  offeringTable: "后方＝靠墙；前方＝供奉及抽屉面；可与壁挂神龛搭配",
+  teaTable: "后方＝主泡茶位；前方＝客人侧；座椅独立放置",
   sidetable: "无固定朝向；四周可用",
   tvstand: "后方＝贴墙；前方＝柜门",
   rug: "无固定前后；宽深为地毯边长",
@@ -131,6 +134,7 @@ const floorplanOrientationHints: Record<FloorplanFurnitureType, string> = {
   fridge: "后方＝机背贴墙；前方＝冰箱门",
   cabinet: "后方＝贴墙；前方＝柜门",
   toilet: "后方＝水箱；前方＝坐盆",
+  squatToilet: "后方＝贴墙／排污侧；前方＝蹲向",
   vanity: "后方＝镜面与水龙头；前方＝洗漱",
   shower: "后方＝贴墙及花洒侧；玻璃门位置可选",
   bathtub: "后方＝水龙头；按现场方向旋转",
@@ -166,7 +170,7 @@ export function furnitureHasFacing(kind: Furniture["kind"]): boolean {
 /** 沿用床、柜体与厨卫操作件的600毫米讨论留位，型号和旧类型共用用途判断。 */
 export function furnitureHasUseZone(kind: FurnitureKind): boolean {
   const model = getFloorplanFurniture(kind);
-  if (model) return ["bed", "wardrobe", "cabinet", "toilet", "vanity", "ksink", "stove", "dresser"].includes(model.type);
+  if (model) return ["bed", "wardrobe", "cabinet", "toilet", "squatToilet", "vanity", "ksink", "stove", "dresser"].includes(model.type);
   return ["bed", "wardrobe", "cabinet", "toilet", "squatToilet", "basin", "sink", "stove", "hob", "dressingTable"].includes(kind);
 }
 
@@ -273,7 +277,7 @@ export function furnitureDisplayName(f: Pick<Furniture, "kind" | "label">): stri
 
 export function createFurniture(kind: FurnitureKind, x: number, z: number): Furniture {
   const { w, d } = defaultFurnitureSize(kind);
-  return { kind, x, z, w, d, rotation: 0, label: furnitureLabels[kind] };
+  return { kind, x, z, w, d, rotation: 0, label: furnitureLabels[kind], ...(kind === "fp-hunan-shrine" ? { mountHeight: 1400 } : {}) };
 }
 
 /**

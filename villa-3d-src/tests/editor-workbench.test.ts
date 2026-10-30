@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { readFileSync } from "node:fs";
 import { fitCanvasView, zoomCanvasView, measuredPoint } from "../src/plan-canvas.ts";
 import { buildEditorModel, disposeEditorModel, editorFloorGeometry, editorModelBounds } from "../src/editor-model.ts";
 import { clonePublishedLayout, removeStairFromDraft } from "../src/layout-draft.ts";
@@ -9,6 +10,8 @@ import { roomAreaLabels, roomAreas } from "../src/design-data.ts";
 import { site, type Point } from "../src/data.ts";
 import type { Mats } from "../src/primitives.ts";
 import { selectionBounds } from "../src/layout-scene.ts";
+import { parseLayoutVersionDocument } from "../src/data-versions.ts";
+import { fitStairToRoom, stairOpeningBounds } from "../src/stair-geometry.ts";
 
 test("连续画布适应窗口保持毫米比例；鼠标锚点缩放不漂移且有限幅", () => {
   const bounds = { x: 1000, y: -2000, w: 20000, h: 15000 };
@@ -108,6 +111,31 @@ test("编辑楼板底面遮住室内与板内网格，洞口保留，标签仅�
   disposeEditorModel(model.root, new THREE.Scene());
 });
 
+test("漫游楼梯洞侧板与下层墙共面时保持墙面优先，对数深度和普通深度均生效", () => {
+  const url = new URL("../data/户型/户型-20261017-233620.json", import.meta.url);
+  const draft = parseLayoutVersionDocument(JSON.parse(readFileSync(url, "utf8"))).layoutDraft;
+  const opening = stairOpeningBounds(fitStairToRoom(draft.stairLayout, draft.floors));
+  const model = buildEditorModel(draft, materials(), "full", { walking: true });
+  model.root.updateMatrixWorld(true);
+  const slab = model.levels[1].children[0] as THREE.Mesh;
+  const material = slab.material as THREE.MeshStandardMaterial;
+  assert.ok(material.polygonOffset && material.polygonOffsetFactor > 0 && material.polygonOffsetUnits > 0);
+  const shader = { fragmentShader: "#include <logdepthbuf_fragment>" };
+  material.onBeforeCompile(shader as never, {} as never);
+  assert.match(shader.fragmentShader, /gl_FragDepth = max\(0\.0, gl_FragDepth - -1\.0 \* 0\.0000005\)/);
+  const x = opening.x + opening.w / 2, z = opening.z + opening.d;
+  const y = draft.floors[1].y - 80;
+  const walls: THREE.Object3D[] = [];
+  model.levels[0].traverse(object => { if (object.userData.walkWall) walls.push(object); });
+  const ray = new THREE.Raycaster(new THREE.Vector3(x, y, z - 2), new THREE.Vector3(0, 0, 1), 0, 4);
+  const slabHit = ray.intersectObject(slab)[0], wallHit = ray.intersectObjects(walls, false)[0];
+  assert.ok(slabHit && wallHit, "该保存稿的楼梯洞边实际与下层墙面重合");
+  assert.ok(Math.abs(slabHit.distance - wallHit.distance) < .01);
+  const down = new THREE.Raycaster(new THREE.Vector3(x, draft.floors[1].y + 100, opening.z + opening.d / 2), new THREE.Vector3(0, -1, 0));
+  assert.equal(down.intersectObject(slab).length, 0, "深度优化不能封住楼梯洞");
+  disposeEditorModel(model.root, new THREE.Scene());
+});
+
 test("三维剖切/全高墙保留真实墙索引与家具身份，构建不改动草稿和共享尺寸", () => {
   const draft = clonePublishedLayout();
   draft.floors[0].partitions = [
@@ -142,7 +170,7 @@ test("单层剖看补上从下层通来的梯段，完整和分离模型不重�
   for (const cut of [1200, "full"] as const) for (const floor of [0, 1, 2]) {
     const model = buildEditorModel(draft, materials(), cut, { floors: [floor] });
     const objects = stairObjects(model.root);
-    assert.equal(objects.length, floor === 1 ? 2 : 1, `${floor + 1}层 ${cut} 必须有实际梯段`);
+    assert.equal(objects.length, floor > 0 ? 2 : 1, `${floor + 1}层 ${cut} 必须有实际梯段`);
     const expectedBounds = new THREE.Box3();
     objects.forEach(object => expectedBounds.union(new THREE.Box3().setFromObject(object)));
     assert.ok(selectionBounds(model.root, { kind: "stair" })?.equals(expectedBounds), "定位应包含上下梯段，不能只取最后一个梯段");
@@ -159,7 +187,7 @@ test("单层剖看补上从下层通来的梯段，完整和分离模型不重�
   for (const overview of [false, true]) {
     const model = buildEditorModel(draft, materials(), 1200, { overview });
     const objects = stairObjects(model.root);
-    assert.equal(objects.length, draft.floors.length - 1);
+    assert.equal(objects.length, draft.floors.length);
     assert.ok(objects.every(object => !object.userData.incomingStair), "已构造下层时不叠加来梯副本");
     disposeEditorModel(model.root, new THREE.Scene());
   }

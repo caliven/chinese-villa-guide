@@ -6,9 +6,16 @@ export const PORTICO_BEAM_DEPTH = 500;
 
 export const porticoColumnOuterWidth = (shaftWidth: number) => shaftWidth + 2 * PORTICO_COLUMN_MAX_TRIM;
 
+/** 飘檐可见收口拐角距柱身外沿留截面的1/8；800柱留100，1000柱留125。 */
+export const PORTICO_EAVE_CORNER_INSET_RATIO = 1 / 8;
+
+/** 承托线另扣外凸线脚，保证最终可见拐角按比例落在柱身上。 */
+export const porticoEaveCornerOffset = (size: number, fasciaProjection: number) =>
+  Math.max(0, size * (0.5 - PORTICO_EAVE_CORNER_INSET_RATIO) - fasciaProjection);
+
 /**
  * 门厅前沿两个直角顶点为柱心（平面 X）；改柱截面或饰线不改变定位轴线。
- * 飘檐下沿线折角的平面位置与柱心重合：X＝本函数，Z＝`porticoColumnZ`／`centerFront`。
+ * 飘檐折角由 frontApronOutline 单独向柱身外侧偏移，不移动柱轴或门厅控制区。
  */
 export function porticoColumnCenters(porch: { x: number; w: number }): [number, number] {
   return [porch.x, porch.x + porch.w];

@@ -122,19 +122,19 @@ test("尺寸、分水与草稿门厅联动，屋面计算不改写参数和用�
   } finally { resetVillaParams(); }
 });
 
-test("屋顶层仅表示顶板及下层投影，楼梯删除后不残留投影，SVG可独立显示", () => {
+test("屋顶层表示楼梯洞，楼梯删除后不残留洞口，SVG可独立显示", () => {
   resetVillaParams();
   const draft = clonePublishedLayout();
   const svg = roofPlanSvg("slab", "joined", villaLayoutFromDraft(draft));
   assert.match(svg, /三层顶板范围/);
-  assert.match(svg, /三层楼梯投影/);
-  draft.floors[2].rooms = draft.floors[2].rooms.filter(r => r.kind !== "stair");
-  assert.doesNotMatch(roofPlanSvg("slab", "joined", villaLayoutFromDraft(draft)), /三层楼梯投影/);
+  assert.match(svg, /楼梯洞口/);
+  draft.floors.forEach(floor => floor.rooms = floor.rooms.filter(r => r.kind !== "stair"));
+  assert.doesNotMatch(roofPlanSvg("slab", "joined", villaLayoutFromDraft(draft)), /楼梯洞口/);
   for (const view of ["slab", "joined", "floating"] as const) {
     const drawing = roofPlanSvg(view, "joined");
     assert.match(drawing, /xmlns="http:\/\/www.w3.org\/2000\/svg"/);
     assert.match(drawing, /<style>/);
-    assert.match(drawing, /雨水口.*待设计/);
+    assert.match(drawing, /防水待设计/);
     assert.doesNotMatch(drawing, /data-edit=|data-room=|<image|<script|NaN|Infinity/);
   }
 });

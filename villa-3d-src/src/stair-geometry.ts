@@ -58,8 +58,8 @@ export function stairStoryHeight(floorList: Floor[], index: number): number {
   return floorList[from].height - (from === 0 ? site.entranceRise : 0);
 }
 
-/** 洞口围栏避开下跑起步及上跑到达的整跑宽通口，保留两者之间的梯井护栏。 */
-export function stairOpeningRails(s: StairDraft): [number, number][][] {
+/** 洞口围栏在入口边按通口分段；默认避开下跑起步及上跑到达。 */
+export function stairOpeningRails(s: StairDraft, passages: "both" | "upper" = "both"): [number, number][][] {
   const opening = stairOpeningBounds(s), shape = stairShape(s);
   const crossMin = s.axis === "x" ? opening.z : opening.x;
   const crossMax = crossMin + (s.axis === "x" ? opening.d : opening.w);
@@ -68,7 +68,9 @@ export function stairOpeningRails(s: StairDraft): [number, number][][] {
   const entry = shape.direction === "negative" ? alongMax : alongMin;
   const far = shape.direction === "negative" ? alongMin : alongMax;
   const crossOrigin = s.axis === "x" ? s.z : s.x;
-  const passages = [shape.lowerAcross, shape.upperAcross]
+  // 顶板只留上跑到达通口，下跑侧横封；楼层仍开两侧通口。
+  const offsets = passages === "upper" ? [shape.upperAcross] : [shape.lowerAcross, shape.upperAcross];
+  const gaps = offsets
     .map(offset => [Math.max(crossMin, crossOrigin + offset), Math.min(crossMax, crossOrigin + offset + s.flight)])
     .sort((a, b) => a[0] - b[0]);
   const point = (cross: number, along: number): [number, number] => s.axis === "x" ? [along, cross] : [cross, along];
@@ -78,7 +80,7 @@ export function stairOpeningRails(s: StairDraft): [number, number][][] {
     [point(crossMax, far), point(crossMax, entry)],
   ];
   let cursor = crossMin;
-  for (const [start, end] of passages) {
+  for (const [start, end] of gaps) {
     if (start > cursor) rails.push([point(cursor, entry), point(start, entry)]);
     cursor = Math.max(cursor, end);
   }

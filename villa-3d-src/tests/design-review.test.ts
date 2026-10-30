@@ -22,7 +22,7 @@ const view = (): MeetingView => ({
 test("控制线分别起算，首层抬高反映在楼梯与辅楼连接中", () => {
   const m = entranceMetrics();
   // 柱心在门厅北沿角上；column 口径仍为前墙→柱北皮＝外伸＋半柱＝2400，平台／台阶由此派生。
-  for (const [key, value] of Object.entries({ column: 2400, platform: 2550, steps: 3150, connectionRise: 435, rampGrade: 22.5 }))
+  for (const [key, value] of Object.entries({ column: 2400, platform: 2550, steps: 3150, connectionRise: 0, rampGrade: 22.5 }))
     assert.ok(Math.abs(m[key as keyof typeof m] - value) < 1e-6, key);
   assert.equal(m.projection, 2000);
   const stairs = stairMetrics();

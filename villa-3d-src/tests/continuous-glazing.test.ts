@@ -241,7 +241,7 @@ test("通高门跟随凸凹门厅、主辅楼位置和尺寸；全高分离不�
       assert.ok(entry); assert.ok(entry.w > 0);
       const worldX = entry.a[0] + (entry.b[0] - entry.a[0]) * entry.at / Math.hypot(entry.b[0] - entry.a[0], entry.b[1] - entry.a[1]);
       assert.ok(worldX > site.portico.x && worldX < site.portico.x + site.portico.w);
-      assert.ok(Math.abs(entry.a[1] - site.main.z - 120 - (porticoStyle === "recessed" ? site.portico.projection : 0)) < 1);
+      assert.ok(Math.abs(entry.a[1] - site.main.z - 120) < 1);
       for (const floors of [undefined, [0], [1]]) for (const cut of ["full", 1200] as const) {
         const model = buildEditorModel(draft, materials(), cut, { floors });
         const entries: THREE.Object3D[] = []; model.root.traverse(o => { if (o.userData.entryAssembly) entries.push(o); });

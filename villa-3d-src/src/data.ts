@@ -102,6 +102,8 @@ export interface Furniture {
   d: number;
   rotation?: number;
   label?: string;
+  /** 壁挂神龛最低点距本层完成面的高度，毫米。 */
+  mountHeight?: number;
   /** 相对淋浴房局部方向，默认正面（花洒对面）。 */
   showerDoorSide?: "front" | "left" | "right";
   showerShape?: import("./shower-model").ShowerShape;
@@ -263,14 +265,14 @@ export const site = {
 
 export const buildingAreas = {
   get main() {
-    return areaM2(site.main.w, site.main.d) - (site.porticoStyle === "recessed" ? this.portico : 0);
+    return areaM2(site.main.w, site.main.d);
   },
   get annex() {
     return areaM2(site.annex.w, site.annex.d);
   },
   // 按用户2026-10-21确认的方案口径，外伸通高门厅全额计入首层合计一次。
   get portico() {
-    return areaM2(site.portico.w, site.portico.projection);
+    return site.porticoStyle === "recessed" ? 0 : areaM2(site.portico.w, site.portico.projection);
   },
   get total() {
     return this.main + this.annex + this.portico;
@@ -307,7 +309,7 @@ export const frontElevation = {
   // 露台北缘随后由 syncFrontElevation 按柱位重算；此处与默认柱位一致。
   terraceFront: site.main.z - 120 - 75 - 300,
   terraceBack: site.main.z + site.setback + 40,
-  // 中间露台／飘檐折角北缘＝门厅柱心（syncFrontElevation 按柱位重算）。
+  // 中间露台北缘＝门厅柱心；飘檐折角另按柱截面比例外移，不改变露台控制区。
   centerFront: site.main.z - site.portico.projection,
   sideTerraces: [
     { x: site.main.x + 180, w: site.portico.x - (site.main.x + 180) },
@@ -416,7 +418,6 @@ export const construction = {
   outsideWall: 240,
   partition: 120,
   floorSlab: 180,
-  connectionY: 15,
   entranceTread: 300,
   entranceLandingOffset: 150,
   entranceRampRun: 2000,
@@ -842,10 +843,10 @@ export const facts: Fact[] = [
     get note() { return `主辅楼按当前尺寸参数计算；辅楼前墙内退${site.annex.z - site.main.z} mm，后墙齐平。加上门厅${buildingAreas.portico.toFixed(1)}㎡，首层建筑面积合计${buildingAreas.total.toFixed(1)}㎡；报建面积以核定为准。`; },
   },
   {
-    get label() { return site.porticoStyle === "recessed" ? "凹入通高门厅" : "外伸通高门厅"; },
-    get value() { return `${site.porticoStyle === "recessed" ? "凹入" : "外伸"}${site.portico.projection} mm / 计入${buildingAreas.portico.toFixed(1)}㎡`; },
+    get label() { return site.porticoStyle === "recessed" ? "平齐式入口" : "外伸通高门厅"; },
+    get value() { if (site.porticoStyle === "recessed") return "大门原位 / 无外伸门厅与门厅柱"; return `外伸${site.portico.projection} mm / 计入${buildingAreas.portico.toFixed(1)}㎡`; },
     source: "用户提供",
-    get note() { return `堂屋／门厅面宽${site.portico.w} mm（两柱柱心对齐门厅前沿两角，柱心距等于面宽）、${site.porticoStyle === "recessed" ? "凹入" : "外伸"}${site.portico.projection} mm，${site.porticoStyle === "recessed" ? "主楼先扣凹口；" : ""}投影${buildingAreas.portico.toFixed(1)}㎡全额计入首层合计一次。柱间二楼无平台，三楼为露台；首层合计${buildingAreas.total.toFixed(1)}㎡，不等于全楼各层建筑面积总和。`; },
+    get note() { if (site.porticoStyle === "recessed") return `主楼墙体与大门不内退，取消外伸门厅、门厅柱及横梁；二楼飘檐连续拉直，三楼官帽保持原样。首层合计${buildingAreas.total.toFixed(1)}㎡。`; return `堂屋／门厅面宽${site.portico.w} mm（两柱柱心对齐门厅前沿两角，柱心距等于面宽）、外伸${site.portico.projection} mm，投影${buildingAreas.portico.toFixed(1)}㎡全额计入首层合计一次。柱间二楼无平台，三楼为露台；首层合计${buildingAreas.total.toFixed(1)}㎡，不等于全楼各层建筑面积总和。`; },
   },
   {
     label: "飘檐 / 官帽 / 天沟",

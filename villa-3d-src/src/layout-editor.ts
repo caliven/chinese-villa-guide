@@ -1,4 +1,5 @@
 import { showerShapes, isShower } from "./shower-model";
+import { SHRINE_HEIGHT, SHRINE_MOUNT_HEIGHT } from "./ritual-tea-model";
 import { alignedEntryOpenings } from "./entry-assembly";
 import type { Furniture, Room, Wall, Point, WallRole } from "./data";
 import { site, construction, wallRoleOf, isPhysicalWall } from "./data";
@@ -762,6 +763,10 @@ export class LayoutEditor {
         this.placeStairModelAt(x, z, kind === "stair-triple" ? "triple" : "double");
         return;
       }
+      if (kind === "void") {
+        this.placeLivingVoidAt(x, z);
+        return;
+      }
       this.roomKind = kind as Room["kind"];
       this.placeRoomAt(x, z);
       return;
@@ -775,6 +780,41 @@ export class LayoutEditor {
     if (!this.placeOpeningNear(raw.x, raw.z)) {
       this.host.toast("请拖到隔墙或外墙附近");
     }
+  }
+
+  /** 在二楼显式创建挑空；独立于一楼房间，之后可选择跟随。 */
+  placeLivingVoidAt(x: number, z: number) {
+    if (this.host.getFloor() !== 1) {
+      this.host.toast("请切换到二楼主楼放置挑空客厅");
+      return;
+    }
+    const current = this.draft.livingVoid;
+    if (current.w > 0 && current.d > 0) {
+      this.host.toast("当前户型已有挑空，请选中已有挑空调整位置和尺寸");
+      return;
+    }
+    const body = this.planBody(1, false);
+    if (x < body.x || x > body.x + body.w || z < body.z || z > body.z + body.d) {
+      this.host.toast("请在二楼主楼范围内放置挑空客厅");
+      return;
+    }
+    let box: { x: number; z: number; w: number; d: number } | undefined;
+    let conflict: string | undefined;
+    // 空间较窄时从小范围开始，放置后仍可单独拉伸宽深。
+    for (const size of [3000, 2000, 1000]) {
+      const w = Math.min(size, body.w), d = Math.min(size, body.d);
+      const candidate = { x: snapMeter(Math.max(body.x, Math.min(body.x + body.w - w, x - w / 2))),
+        z: snapMeter(Math.max(body.z, Math.min(body.z + body.d - d, z - d / 2))), w, d };
+      conflict = livingVoidConflict(this.draft, candidate, { ...candidate, w: 0, d: 0 });
+      if (!conflict) { box = candidate; break; }
+    }
+    if (!box) { this.host.toast(conflict ?? "此处无法放置挑空"); return; }
+    setLivingVoid(this.draft, { ...current, ...box, mode: "custom", sourceRoomId: undefined });
+    const room = this.draft.floors[1]!.rooms.find(r => r.kind === "void")!;
+    this.selection = { kind: "room", id: room.id, floor: 1 };
+    this.tool = "select";
+    this.commit();
+    this.host.toast("已添加二楼挑空，可调整范围、关联一楼房间和设置栏杆");
   }
 
   /** 放置／移动整套楼梯（三层房间框＋踏步几何一体）。 */
@@ -923,7 +963,6 @@ export class LayoutEditor {
     }
     recessFrontFacades(facades(floor), this.floorData(floor).front).forEach((f, i) => {
       // 凹角返墙尚无独立的源立面身份；可编辑中央凹墙与两翼原门窗。
-      if (site.porticoStyle === "recessed" && f.sourceFacadeIndex == null) return;
       consider(f.a, f.b, "facade", f.sourceFacadeIndex ?? i,
         { facadeFloor: floor, sourceOffset: f.sourceOffset ?? 0 });
     });
@@ -1332,6 +1371,10 @@ export class LayoutEditor {
       }
 
       if (this.tool === "room") {
+        if (this.roomKind === "void") {
+          this.placeLivingVoidAt(x, z);
+          return;
+        }
         if (this.roomKind === "stair") {
           this.placeStairModelAt(x, z, this.stairModel);
           return;
@@ -2351,6 +2394,14 @@ export class LayoutEditor {
       const item = this.furnitureList(floor, !!sel.annex)[sel.index];
       if (!item) return;
       const original = structuredClone(item);
+      if (field === "mountHeight" && item.kind === "fp-hunan-shrine") {
+        const height = (sel.annex ? site.annex.height : this.floorData(floor).height) - (floor === 0 ? site.entranceRise : 0);
+        if (value < 0 || value + SHRINE_HEIGHT > height) {
+          this.host.toast(`挂装底高须在0至${Math.max(0, height - SHRINE_HEIGHT)}之间，神龛不能超出本层净高`);
+          this.host.redraw(); return;
+        }
+        item.mountHeight = snapMeter(value);
+      }
       if (field === "x" || field === "z") item[field] = snapMeter(value);
       if (field === "w" || field === "d") {
         const next = Math.max(minimumFurnitureSize(item.kind)[field], snapMeter(value));
@@ -3292,9 +3343,11 @@ export class LayoutEditor {
         ${field("名称", `<input type="text" id="edit-model-name" value="${escapeHtml(displayName)}"/>`)}
         ${num("x", "X", item.x)}${num("z", "Z", item.z)}${num("w", "宽", item.w)}${num("d", "深", item.d)}
         ${num("rotationDeg", "旋转°", rotationToDeg(item.rotation ?? 0), 15, true)}
+        ${item.kind === "fp-hunan-shrine" ? `${num("mountHeight", "挂装底高", item.mountHeight ?? SHRINE_MOUNT_HEIGHT)}<p class="layout-align-hint">神龛本体高1280，底高从本层地面起算；后侧贴墙，可搭配落地供桌。</p>` : ""}
+        ${item.kind === "fp-tea-table" ? '<p class="layout-align-hint">桌面高750，含茶盘、紫砂壶、公道杯、四只茶杯及烧水壶；座椅需独立放置。</p>' : ""}
         ${isShower(item) ? `${field("淋浴房造型", `<select data-shower-option="showerShape">${Object.entries(showerShapes).map(([key, label]) => `<option value="${key}" ${(item.showerShape ?? "inline") === key ? "selected" : ""}>${label}</option>`).join("")}</select>`)}
-        ${field("移门开度", `<select data-shower-option="showerOpening">${[0, 50, 100].map(n => `<option value="${n}" ${(item.showerOpening ?? 0) === n ? "selected" : ""}>${n === 0 ? "关闭" : n === 50 ? "半开" : "全开"}</option>`).join("")}</select>`)}
-        ${field("玻璃门位置", `<select data-shower-door-side ${item.showerShape === "quadrant" ? "disabled" : ""}><option value="front" ${(item.showerDoorSide ?? "front") === "front" ? "selected" : ""}>花洒对面</option><option value="left" ${item.showerDoorSide === "left" ? "selected" : ""}>花洒左侧</option><option value="right" ${item.showerDoorSide === "right" ? "selected" : ""}>花洒右侧</option></select>`)}<p class="layout-align-hint">左右按模型局部方向；靠墙面需与现有墙体对应，不自动新建墙。弧形门沿前方弯轨推拉；切换造型保留原宽深与摆放。</p>` : ""}
+        ${field("移门开度", `<select data-shower-option="showerOpening" ${item.showerShape === "open" ? "disabled" : ""}>${[0, 50, 100].map(n => `<option value="${n}" ${(item.showerOpening ?? 0) === n ? "selected" : ""}>${n === 0 ? "关闭" : n === 50 ? "半开" : "全开"}</option>`).join("")}</select>`)}
+        ${field("玻璃门位置", `<select data-shower-door-side ${item.showerShape === "quadrant" || item.showerShape === "open" ? "disabled" : ""}><option value="front" ${(item.showerDoorSide ?? "front") === "front" ? "selected" : ""}>花洒对面</option><option value="left" ${item.showerDoorSide === "left" ? "selected" : ""}>花洒左侧</option><option value="right" ${item.showerDoorSide === "right" ? "selected" : ""}>花洒右侧</option></select>`)}<p class="layout-align-hint">左右按模型局部方向；靠墙面需与现有墙体对应，不自动新建墙。开放式仅显示花洒，宽深仍为编辑及避让范围；切换造型保留原宽深与摆放。</p>` : ""}
         ${sizeHint}
         ${facingHint}
         <div class="layout-rotate-row">

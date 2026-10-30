@@ -1,6 +1,6 @@
 import { recessFrontFacades, thirdFloorWingIsClosed } from "./building-variants";
 import { site, floors, circulation, type Floor, type Point } from "./data";
-import { facades, secondFloorSideGlassHeadY, thirdFloorMaxOpeningHead, type Opening } from "./facades";
+import { facades, standardExteriorDoor, secondFloorSideGlassHeadY, thirdFloorMaxOpeningHead, type Opening } from "./facades";
 import { facadeOpeningToWallOpening, type ExteriorOpeningDraft, type VoidDraft } from "./layout-draft";
 import { polygonContainsPoint, roomOutline } from "./room-geometry";
 import { alignedEntryOpenings, type EntryAssembly } from "./entry-assembly";
@@ -154,6 +154,7 @@ export function resolveLayoutFacades(layout?: FacadeLayout | null) {
   }));
   // 自定义普通窗不能穿过本层墙顶／屋檐；通高窗已按整窗规格拆成上下层洞口。
   walls.forEach((faces, floor) => faces.forEach(face => face.openings.forEach(opening => {
+    Object.assign(opening, standardExteriorDoor(opening, floor, floor === 3 ? site.annex.height : floorList[floor].height));
     const source = opening.layoutSourceIndex == null ? undefined : layout?.exteriorOpenings?.[opening.layoutSourceIndex]?.opening;
     if (opening.door || opening.continuous || opening.entryAssembly || source?.height == null && source?.sill == null) return;
     const rise = floor === 0 || floor === 3 ? site.entranceRise : 0;

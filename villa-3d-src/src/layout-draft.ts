@@ -322,12 +322,16 @@ function parseFurniture(value: unknown, i: number): Furniture {
     item.rotation = normalizeRotation(num(value.rotation, `家具 ${i} 旋转`, -1e6, 1e6));
   }
   if (value.label !== undefined) item.label = str(value.label, `家具 ${i} 标签`, 40);
+  if (value.mountHeight !== undefined) {
+    if (kind !== "fp-hunan-shrine") throw new Error(`家具 ${i} 不支持挂装底高`);
+    item.mountHeight = Math.round(num(value.mountHeight, `家具 ${i} 挂装底高`, 0, 10000));
+  }
   if (value.showerDoorSide !== undefined) {
     if ((kind !== "shower" && kind !== "fp-shower") || !["front", "left", "right"].includes(String(value.showerDoorSide))) throw new Error(`家具 ${i} 淋浴门位置无效`);
     item.showerDoorSide = value.showerDoorSide as Furniture["showerDoorSide"];
   }
   if (value.showerShape !== undefined) {
-    if ((kind !== "shower" && kind !== "fp-shower") || !["inline", "corner", "quadrant", "semicircle"].includes(String(value.showerShape))) throw new Error(`家具 ${i} 淋浴房造型无效`);
+    if ((kind !== "shower" && kind !== "fp-shower") || !["inline", "corner", "quadrant", "open", "semicircle"].includes(String(value.showerShape))) throw new Error(`家具 ${i} 淋浴房造型无效`);
     // 已撤下的半圆造型兼容载入为扇弧转角，保留其他尺寸与摆放参数。
     item.showerShape = value.showerShape === "semicircle" ? "quadrant" : value.showerShape as Furniture["showerShape"];
   }

@@ -28,6 +28,26 @@ test("楼层分离限制夜景光源数量，单层逐房间灯光不变", () =>
   assert.deepEqual(draft, before);
 });
 
+test("漫游夜景也合并分区灯，标高用真实层高而非分离偏移", () => {
+  const draft = clonePublishedLayout();
+  const perRoom = draft.floors.reduce((n, _, index) => n + editorLampSpecs(draft, index, false).length, 0);
+  const walk = editorLampSpecs(draft, 0, false, true);
+  const overview = editorLampSpecs(draft, 0, true);
+  assert.ok(walk.length <= 7 && walk.length < perRoom);
+  assert.equal(walk.length, overview.length);
+  for (let floor = 0; floor < 3; floor++) {
+    const data = draft.floors[floor]!;
+    const rise = floor === 0 ? site.entranceRise : 0;
+    const y = data.y + rise + Math.min(data.height - rise - 250, 2600);
+    assert.ok(walk.some(light => light.y === y), `第${floor + 1}层应有真实标高暖光`);
+    if (floor > 0) {
+      const explodedY = data.y * 2.25 + rise + Math.min(data.height - rise - 250, 2600);
+      assert.equal(walk.some(light => light.y === explodedY), false);
+      assert.ok(overview.some(light => light.y === explodedY));
+    }
+  }
+});
+
 test("三维射线按楼层标高换算毫米，平行地面的视线不生成落点", () => {
   const ray = new THREE.Ray(new THREE.Vector3(12.345, 10, 4.567), new THREE.Vector3(0, -1, 0));
   assert.deepEqual(floorPoint(ray, 3600), { x: 12345, z: 4567 });

@@ -243,7 +243,7 @@ export function architecturalGlass(lowE = false) {
 
 // 不同开关组仍可能有完成面贴着墙顶、压顶贴着田面的接触。
 // 对数深度写 gl_FragDepth 时会覆盖硬件 polygonOffset，因此也在片元里指定微小层次。
-function finishLayer(material: THREE.MeshStandardMaterial, layer: number) {
+export function finishLayer(material: THREE.MeshStandardMaterial, layer: number) {
   material.polygonOffset = true;
   material.polygonOffsetFactor = -layer;
   material.polygonOffsetUnits = -layer;
@@ -637,10 +637,10 @@ export function interiorOpeningModel(parent: THREE.Object3D, o: Opening, mat: Do
 }
 
 /** 外门与户型编辑共用造型；仅内门保持平面符号对应的90度开启表达。 */
-export function exteriorDoorModel(parent: THREE.Object3D, o: Opening, mat: DoorMaterials, intoRoom: number, cut = Infinity, thickness = 240) {
+export function exteriorDoorModel(parent: THREE.Object3D, o: Opening, mat: DoorMaterials, intoRoom: number, cut = Infinity, thickness = 240, open = false) {
   const sliding = o.kind ? o.kind === "slidingDoor" : o.pattern === "sliding" || o.glazed;
   return doorModel(parent, { ...o, kind: sliding ? "slidingDoor" : o.kind ?? (o.w >= 1400 ? "doubleDoor" : "door") }, mat,
-    { style: o.kind === "bathroomDoor" ? "bathroom" : sliding ? "glazed" : "bronze", open: false, thickness, outward: -intoRoom, top: cut });
+    { style: o.kind === "bathroomDoor" ? "bathroom" : sliding ? "glazed" : "bronze", open, thickness, outward: -intoRoom, top: cut });
 }
 export function wallWithOpenings(
   parent: THREE.Object3D,

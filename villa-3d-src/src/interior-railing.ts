@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { site, type Floor, type Point } from "./data";
 import type { StairDraft, VoidDraft } from "./layout-draft";
-import { livingVoidGuards, stairFloorGuards, type GuardSegment } from "./interior-guards";
+import { livingVoidGuards, stairFloorGuards, stairRoofGuards, type GuardSegment } from "./interior-guards";
 import { resolvedRailingStyle, type RailingStyle } from "./railing-options";
 import { railingNetwork, type RailingSection } from "./railing-network";
 import { stairRailingSections } from "./stair-railing";
@@ -15,14 +15,18 @@ export function interiorRailingLayout(floors: Floor[], stair: StairDraft, living
     a: new THREE.Vector3(a[0], y, a[1]), b: new THREE.Vector3(b[0], y, b[1]),
     height: 1100, style, connectionGroup, postPriority: 10,
   })));
-  const stories = floors.map((floor, index) => hasStair && index < floors.length - 1
+  const stories = floors.map((floor, index) => hasStair
     ? append(stairRailingSections(stair, floor.y + (index === 0 ? site.entranceRise : 0), floor.height - (index === 0 ? site.entranceRise : 0), stairStyle)) : []);
   const livingGuards = floors.map((floor, index) => index === 1
     ? guards(livingVoidGuards(living, floor, facades[index], livingStyle, hasStair ? stair : undefined), floor.y, livingStyle, "living") : []);
   const stairGuards = floors.map((floor, index) => hasStair && index > 0
     ? guards(stairFloorGuards(stair, floor, facades[index], stairStyle, index === 1 ? living : undefined), floor.y, stairStyle, "stair") : []);
+  const top = floors.at(-1)!;
+  const roofFloor = { ...top, y: top.y + top.height, rooms: [], partitions: [], furniture: [] };
+  // 顶板只留上跑到达通口，下跑侧横封；二三层仍留双侧通口。
+  const roofGuards = hasStair ? guards(stairRoofGuards(stair, roofFloor, stairStyle), roofFloor.y, stairStyle, "stair") : [];
   const network = railingNetwork(sections);
-  return { ...network, stories, livingGuards, stairGuards,
+  return { ...network, stories, livingGuards, stairGuards, roofGuards,
     floorSignature: (index: number) => network.signature([...stories[index], ...livingGuards[index], ...stairGuards[index], ...(stories[index - 1] ?? [])]),
   };
 }

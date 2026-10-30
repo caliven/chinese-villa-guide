@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { buildVilla } from "../src/architecture";
 import { construction, site } from "../src/data";
+import { frontApronOutline } from "../src/building-variants";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params";
 import type { Mats } from "../src/primitives";
 
@@ -21,20 +22,21 @@ const corbelsIn = (group: THREE.Object3D) => {
 test.afterEach(resetVillaParams);
 test.after(() => Object.values(mat).forEach(m => m.dispose()));
 
-test("保存稿门厅短返段按实际中距选数量，700中距不再被ceil压成405", () => {
+test("飘檐折角外移后，返段梁托仍按实际净段选择最接近参数的中距", () => {
   for (const [spacing, corner, length, count, gap] of [
-    [700, 600, 500, 2, 810],
-    [1000, 600, 500, 2, 810],
-    [700, 700, 500, 2, 760],
-    [700, 600, 650, 2, 660],
-    [400, 300, 500, 3, 480],
+    [700, 600, 500, 3, 505],
+    [1000, 600, 500, 2, 1010],
+    [700, 700, 500, 3, 480],
+    [700, 600, 650, 2, 860],
+    [400, 300, 500, 4, 1160 / 3],
   ]) {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, ...saved, corbelSpacing: spacing, corbelCornerSpacing: corner, corbelLength: length });
     const villa = buildVilla(mat, false);
     try {
       const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
       const all = corbelsIn(apron);
-      for (const x of [site.portico.x + 8, site.portico.x + site.portico.w - 8]) {
+      const outline = frontApronOutline(0);
+      for (const x of [outline[3][0] + 8, outline[4][0] - 8]) {
         const row = all.filter(c => Math.abs(c.position.x - x) < .1 && Math.abs(Math.sin(c.rotation.y)) < .1)
           .sort((a, b) => a.position.z - b.position.z);
         assert.equal(row.length, count, `${spacing}/${corner}/${length} 的短返段数量`);

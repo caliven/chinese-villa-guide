@@ -5,7 +5,7 @@
  * Copyright (c) 2026 wuyi. Licensed under MIT; see public/licenses/floorplan-3d.txt.
  */
 
-/** 上游完整目录。独立 ID 区分同类家具的规格、配色与名称。 */
+/** 上游目录及本项目补充模型。独立 ID 区分同类家具的规格、配色与名称。 */
 export const floorplanFurniture = [
   {"id":"fp-bed-double-1800","type":"bed","name":"双人床 1.8m","w":1800,"d":2000,"color":"#c9d6df","category":"卧室"},
   {"id":"fp-bed-double-1500","type":"bed","name":"双人床 1.5m","w":1500,"d":2000,"color":"#d8c7dc","category":"卧室"},
@@ -30,6 +30,8 @@ export const floorplanFurniture = [
   {"id":"fp-rug","type":"rug","name":"地毯","w":2400,"d":1700,"color":"#d9cbb8","category":"客厅"},
   {"id":"fp-shoecab","type":"shoecab","name":"鞋柜","w":1000,"d":350,"color":"#efe6d8","category":"客厅"},
   {"id":"fp-entry-cabinet","type":"shoecab","name":"玄关柜","w":1400,"d":380,"color":"#e6dccc","category":"客厅"},
+  {"id":"fp-hunan-shrine","type":"hunanShrine","name":"湖南壁挂神龛","w":1080,"d":300,"color":"#71352d","category":"客厅"},
+  {"id":"fp-offering-table","type":"offeringTable","name":"落地供桌","w":1600,"d":500,"color":"#71352d","category":"客厅"},
   {"id":"fp-floorlamp","type":"floorlamp","name":"落地灯","w":450,"d":450,"color":"#3d3a34","category":"客厅"},
   {"id":"fp-plant","type":"plant","name":"绿植","w":500,"d":500,"color":"#a9c39b","category":"客厅"},
   {"id":"fp-plant-large","type":"plant","name":"大绿植","w":700,"d":700,"color":"#9dbb8c","category":"客厅"},
@@ -45,6 +47,7 @@ export const floorplanFurniture = [
   {"id":"fp-fridge","type":"fridge","name":"冰箱","w":700,"d":700,"color":"#dfe4e8","category":"餐厨"},
   {"id":"fp-sideboard","type":"cabinet","name":"餐边柜","w":1600,"d":400,"color":"#efe6d8","category":"餐厨"},
   {"id":"fp-toilet","type":"toilet","name":"马桶","w":400,"d":700,"color":"#ffffff","category":"卫浴"},
+  {"id":"fp-squat-toilet","type":"squatToilet","name":"蹲便","w":450,"d":600,"color":"#ffffff","category":"卫浴"},
   {"id":"fp-vanity","type":"vanity","name":"浴室柜","w":800,"d":500,"color":"#eef1f3","category":"卫浴"},
   {"id":"fp-vanity-double","type":"vanity","name":"双盆浴室柜","w":1200,"d":500,"color":"#eef1f3","category":"卫浴"},
   {"id":"fp-shower","type":"shower","name":"淋浴房","w":900,"d":900,"color":"#e4edf2","category":"卫浴"},
@@ -62,6 +65,7 @@ export const floorplanFurniture = [
   {"id":"fp-dryer","type":"dryer","name":"烘干机","w":600,"d":600,"color":"#e6ebee","category":"家电"},
   {"id":"fp-purifier","type":"purifier","name":"空气净化器","w":400,"d":300,"color":"#f4f4f2","category":"家电"},
   {"id":"fp-desk-long","type":"desk","name":"长书桌","w":1600,"d":700,"color":"#d8c2a2","category":"书房 · 休闲"},
+  {"id":"fp-tea-table","type":"teaTable","name":"功夫茶桌（含茶具）","w":1600,"d":800,"color":"#916346","category":"书房 · 休闲"},
   {"id":"fp-officechair","type":"officechair","name":"办公椅","w":620,"d":620,"color":"#4a4f55","category":"书房 · 休闲"},
   {"id":"fp-bookshelf-large","type":"bookshelf","name":"大书架","w":1600,"d":350,"color":"#e2cfb4","category":"书房 · 休闲"},
   {"id":"fp-piano","type":"piano","name":"立式钢琴","w":1500,"d":600,"color":"#1f1d1b","category":"书房 · 休闲"},

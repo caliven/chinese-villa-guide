@@ -14,7 +14,7 @@ import { collectPlanSiteDimensions } from "../src/plan-dimensions";
 import { floorPlan, planSourceFromDraft, courtyardSitePlan } from "../src/plan";
 import { roofPlanSvg } from "../src/roof-plan";
 import { elevationSvg } from "../src/elevation-plan";
-import { polygonContainsPoint, polygonAreaMm2 } from "../src/room-geometry";
+import { polygonContainsPoint, polygonAreaMm2, roomOutline } from "../src/room-geometry";
 import { roomAreas } from "../src/design-data";
 import { buildEditorModel, disposeEditorModel } from "../src/editor-model";
 import { LayoutEditor } from "../src/layout-editor";
@@ -67,40 +67,28 @@ test("主辅楼互换：包络、各层户型、门窗、楼梯与总尺寸随�
   assert.deepEqual(restored.exteriorOpenings, source.exteriorOpenings);
 });
 
-test("凹入门厅：柱退至主楼前沿、门墙与三层官帽联动、主楼面积先扣凹口", () => {
+test("平齐门厅：大门与各层墙体原位、主楼不扣凹口、无外伸门厅面积", () => {
+  const original = resolveLayoutFacades().facades;
   applyVillaParams({ ...DEFAULT_VILLA_PARAMS, porticoStyle: "recessed" });
   assert.equal(porticoFrontZ(), site.main.z);
-  assert.equal(porticoWallZ(), site.main.z + 2000);
-  assert.equal(frontElevation.porticoColumnZ, site.main.z);
-  assert.equal(frontElevation.postZ, site.main.z + 2250);
-  assert.equal(buildingAreas.main, 126.8);
-  assert.equal(buildingAreas.portico, 9.2);
+  assert.equal(porticoWallZ(), site.main.z);
+  assert.equal(frontElevation.postZ, site.main.z + 250);
+  assert.equal(buildingAreas.main, 136);
+  assert.equal(buildingAreas.portico, 0);
   assert.equal(buildingAreas.total, 168);
   const outline = recessedFootprint(floors[0].front);
-  assert.equal(polygonAreaMm2(outline), 126800000);
-  assert.equal(polygonContainsPoint(outline, [site.portico.x + 1000, site.main.z + 1000]), false);
-  const walls = resolveLayoutFacades().facades[0];
-  assert.ok(walls.some(w => w.openings.some(o => o.door) && w.a[1] === porticoWallZ() + 120));
-  assert.equal(walls.filter(w => w.a[1] === site.main.z + 120 && w.b[1] === site.main.z + 120).length, 2);
+  assert.equal(polygonAreaMm2(outline), 136000000);
+  assert.equal(polygonContainsPoint(outline, [site.portico.x + 1000, site.main.z + 1000]), true);
+  assert.deepEqual(resolveLayoutFacades().facades, original);
 });
 
-test("凹口派生房间、隔墙与家具，不改用户源稿；切回原造型恢复", () => {
-  resetVillaParams();
+test("平齐式不裁切房间隔墙或后移家具；两种样式切换不改用户源稿", () => {
   const draft = clonePublishedLayout(), before = JSON.stringify(draft);
-  const x = site.portico.x, z = site.main.z;
-  draft.floors[0].partitions.push({ a: [x - 500, z + 800], b: [x + 5100, z + 800] });
-  const staged = JSON.stringify(draft);
   applyVillaParams({ ...DEFAULT_VILLA_PARAMS, porticoStyle: "recessed" });
-  const shown = recessedFloor(draft.floors[0]);
-  assert.equal(JSON.stringify(draft), staged);
-  const parts = shown.partitions.filter(w => w.sourceIndex === draft.floors[0].partitions.length - 1);
-  assert.equal(parts.length, 2);
-  assert.equal(parts[0].b[0], x);
-  assert.equal(parts[1].a[0], x + site.portico.w);
-  assert.ok(shown.rooms.every(r => !polygonContainsPoint(r.outline ?? [], [x + 2300, z + 500])));
+  for (const floor of draft.floors) assert.deepEqual(recessedFloor(floor), floor);
+  assert.equal(JSON.stringify(draft), before);
   resetVillaParams();
   assert.deepEqual(recessedFloor(draft.floors[0]), draft.floors[0]);
-  assert.ok(before.length > 0);
 });
 
 test("造型与换位保存在尺寸和完整方案中；旧文件默认凸出式和主东辅西", () => {
@@ -149,20 +137,20 @@ test("互换后按实际西侧院坪校验，不用东侧余量冒充可用进�
 });
 
 
-test("凹口分隔后的房间保留全部片区；通高窗仍能定位原始可编辑洞口", () => {
+test("平齐式保留完整房间；通高窗仍能定位原始可编辑洞口", () => {
   applyVillaParams({ ...DEFAULT_VILLA_PARAMS, porticoStyle: "recessed", buildingPlacement: "main-west" });
   const p = site.portico, front = floors[0].front;
   const room = recessedRoom({ id: "across", name: "跨凹口", kind: "hall", x: p.x - 500, z: front, w: p.w + 1000, d: 1000 }, front);
-  assert.equal(polygonAreaMm2(room.outline!), 1000000);
-  assert.ok(polygonContainsPoint(room.outline!, [p.x - 250, front + 500]));
-  assert.ok(polygonContainsPoint(room.outline!, [p.x + p.w + 250, front + 500]));
-  assert.equal(polygonContainsPoint(room.outline!, [p.x + p.w / 2, front + 500]), false);
+  assert.equal(room.w * room.d, (p.w + 1000) * 1000);
+  assert.ok(polygonContainsPoint(roomOutline(room), [p.x - 250, front + 500]));
+  assert.ok(polygonContainsPoint(roomOutline(room), [p.x + p.w + 250, front + 500]));
+  assert.equal(polygonContainsPoint(roomOutline(room), [p.x + p.w / 2, front + 500]), true);
   const draft = clonePublishedLayout(), resolved = resolveLayoutFacades(draft);
   assert.ok(resolved.glazing.length > 0);
   assert.ok(resolved.glazing.every(panel => panel.sourceIndex != null));
 });
 
-test("互换后再次改面宽和进深：户型、尺寸链、面积及凹口仍取新参数", () => {
+test("互换后再次改面宽和进深：平齐式户型、尺寸链和面积取新参数", () => {
   resetVillaParams();
   let draft = clonePublishedLayout();
   applyVillaParams({ ...DEFAULT_VILLA_PARAMS, buildingPlacement: "main-west" });
@@ -171,14 +159,14 @@ test("互换后再次改面宽和进深：户型、尺寸链、面积及凹口�
   draft = scaleLayoutDraftToEnvelope(draft, envelopeFromSite());
   assert.deepEqual(collectPlanSiteDimensions().widthSegmentsMm, [1400,13000,1800,4000,800]);
   assert.equal(site.main.z + site.main.d, site.annex.z + site.annex.d);
-  assert.equal(porticoWallZ() - site.main.z, 1500);
+  assert.equal(porticoWallZ() - site.main.z, 0);
   assert.equal(buildingAreas.total, 158);
   assert.equal(draft.envelope!.mainW, 13000);
   assert.equal(draft.envelope!.annexD, 7000);
   assert.equal(draft.portico.projection, 1500);
 });
 
-test("凹角旁宽窗在平面与立体中同宽收口，保留原可编辑洞口；可在退入墙面新增门", () => {
+test("平齐式宽窗保持原宽与可编辑身份；可在原前墙新增门", () => {
   for (const buildingPlacement of ["main-east", "main-west"] as const) {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, porticoStyle: "recessed", buildingPlacement });
     const draft = clonePublishedLayout(), face = facades(0)[0];
@@ -194,9 +182,9 @@ test("凹角旁宽窗在平面与立体中同宽收口，保留原可编辑洞�
     const source = JSON.stringify(draft);
     const resolved = resolveLayoutFacades(draft).facades[0].flatMap(f => f.openings);
     assert.equal(resolved.length, 1);
-    assert.equal(resolved[0].w, 520);
+    assert.equal(resolved[0].w, 2000);
     const svg = floorPlan(0, true, false, { editable: true }, planSourceFromDraft(draft, 0));
-    assert.match(svg, /width="520" height="240" class="edit-hit" data-edit="door" data-index="0" data-exterior="1"/);
+    assert.match(svg, /width="2000" height="240" class="edit-hit" data-edit="door" data-index="0" data-exterior="1"/);
     const model = buildEditorModel(draft, mat, "full", { floors: [0] });
     let picked = false;
     model.root.traverse(o => { if (o.userData.layoutSelection?.exterior && o.userData.layoutSelection.index === 0) picked = true; });

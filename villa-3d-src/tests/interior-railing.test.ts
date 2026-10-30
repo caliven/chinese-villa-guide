@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { site, type Floor } from "../src/data";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams, getVillaParams } from "../src/villa-params";
 import { clonePublishedLayout } from "../src/layout-draft";
-import { livingVoidGuards, stairFloorGuards } from "../src/interior-guards";
+import { livingVoidGuards, stairFloorGuards, stairRoofGuards } from "../src/interior-guards";
 import { canonicalRailingStyle, interiorRailing, railingStyleLabels, railingThickness, type RailingStyle } from "../src/railing-options";
 import { railingModel } from "../src/railing-model";
 import { stairs, type Mats } from "../src/primitives";
@@ -287,7 +287,7 @@ test("完整房屋与编辑三维沿相同挑空边线生成，切造型后增�
   for (const model of [first, next, chosen]) model.group.traverse(child => { if (child instanceof THREE.Mesh) child.geometry.dispose(); });
 });
 
-test("主辅楼镜像／凹入门厅下只在实际楼板上的边线生成栏杆", () => {
+test("主辅楼镜像／平齐门厅下挑空栏杆保持完整主体边线", () => {
   for (const buildingPlacement of ["main-east", "main-west"] as const) for (const porticoStyle of ["projecting", "recessed"] as const) {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, buildingPlacement, porticoStyle });
     const { draft, floor } = fixture();
@@ -295,10 +295,9 @@ test("主辅楼镜像／凹入门厅下只在实际楼板上的边线生成栏�
     const living = { x: site.main.x + site.main.w / 2 - 1000, z: floor.front, w: 2000, d: 4000 };
     const rails = livingVoidGuards(living, front, resolveLayoutFacades(draft).facades[1], "brick");
     assert.ok(rails.length > 0);
-    if (porticoStyle === "recessed") for (const [a, b] of rails) {
-      const north = Math.min(a[1], b[1]);
-      assert.ok(north > floor.front + site.portico.projection, `凹口内不能悬空放栏杆: ${north}`);
-    }
+    applyVillaParams({ ...DEFAULT_VILLA_PARAMS, buildingPlacement, porticoStyle: "projecting" });
+    assert.deepEqual(rails, livingVoidGuards(living, floor, resolveLayoutFacades(draft).facades[1], "brick"),
+      "平齐式不切凹口，挑空栏杆与原完整主体相同");
   }
 });
 
@@ -360,4 +359,34 @@ test("木立柱与大理石栏杆落在真实踏面，柱间通透且旧砖柱�
     const spindles = root.children.filter(child => child.name === "花瓶栏杆柱") as THREE.Mesh[];
     assert.ok(spindles.every(column => column.geometry instanceof THREE.LatheGeometry && column.rotation.x === 0 && column.rotation.z === 0));
   }
+});
+
+test("顶板洞口只留上跑到达通口，下跑侧横封，中间出口不封死", () => {
+  const { draft, floor } = fixture();
+  const top = draft.floors[2];
+  const roofFloor = { ...top, y: top.y + top.height, rooms: [], partitions: [], furniture: [] };
+  for (const model of ["double", "triple"] as const) for (const axis of ["x", "z"] as const)
+    for (const direction of ["positive", "negative"] as const) for (const lowerSide of ["min", "max"] as const) {
+      const stair = { ...stairModelDefaults(draft.stairLayout, model, draft.floors), x: site.main.x + 2500, z: floor.front + 2000, axis, direction, lowerSide };
+      const g = stairShape(stair);
+      stair.hole = stairOpeningBounds({ ...stair, hole: g.footprint });
+      for (const style of styles) {
+        const rails = stairRoofGuards(stair, roofFloor, style);
+        const innerInset = Math.max(60, railingThickness(style) / 2 + 20);
+        const upperEntry = g.point(g.upperAcross + stair.flight / 2, 0);
+        for (const [a, b] of rails) {
+          const dx = b[0] - a[0], dz = b[1] - a[1], len2 = dx * dx + dz * dz || 1;
+          const t = Math.max(0, Math.min(1, ((upperEntry.x - a[0]) * dx + (upperEntry.z - a[1]) * dz) / len2));
+          assert.ok(Math.hypot(upperEntry.x - a[0] - t * dx, upperEntry.z - a[1] - t * dz) > stair.flight / 2 - innerInset - 1,
+            `${model}/${axis}/${direction}/${lowerSide}/${style}上跑到达通口不能封死`);
+        }
+        const lowerEntry = g.point(g.lowerAcross + stair.flight / 2, 0);
+        assert.ok(rails.some(([a, b]) => {
+          const dx = b[0] - a[0], dz = b[1] - a[1], len2 = dx * dx + dz * dz || 1;
+          const t = Math.max(0, Math.min(1, ((lowerEntry.x - a[0]) * dx + (lowerEntry.z - a[1]) * dz) / len2));
+          return Math.hypot(lowerEntry.x - a[0] - t * dx, lowerEntry.z - a[1] - t * dz) < railingThickness(style);
+        }), `${model}/${axis}/${direction}/${lowerSide}/${style}下跑侧须有横向封口`);
+        assert.ok(interiorRailingLayout([{ ...floor, y: 0 }, { ...floor, y: 3600 }, roofFloor], stair, draft.livingVoid, [[], [], []], true).roofGuards.length >= 3);
+      }
+    }
 });

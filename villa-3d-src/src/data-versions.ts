@@ -248,6 +248,11 @@ async function fetchJson(url: string): Promise<unknown | null> {
 const sessionIndexes = new Map<DataKind, DataVersionsIndex>();
 const sessionDocuments = new Map<string, unknown>();
 
+/** 静态服务下载的新版本尚未落到资料目录，刷新后不可读取。 */
+export function isSessionDataVersion(kind: DataKind, file: string): boolean {
+  return sessionDocuments.has(`${kind}/${file}`);
+}
+
 export async function loadDataVersionsIndex(kind: DataKind): Promise<DataVersionsIndex> {
   const cached = sessionIndexes.get(kind);
   if (cached) return structuredClone(cached);

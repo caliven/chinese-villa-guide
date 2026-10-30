@@ -100,3 +100,35 @@ export function stairFloorGuards(stair: StairDraft, floor: Floor, boundaries: Bo
   const holes = [rect(hole), ...floor.rooms.filter(r => r.kind === "void").map(roomOutline), ...(living && living.w > 0 && living.d > 0 ? [rect(living)] : [])];
   return supportedSegments(candidates, floor, boundaries, holes, style);
 }
+
+/**
+ * 坡屋面下顶板洞口：只留上跑到达通口可走上顶板；
+ * 下跑侧入口边横向封口，中间出口不封死。
+ */
+export function stairRoofGuards(stair: StairDraft, floor: Floor, style: RailingStyle): GuardSegment[] {
+  const hole = stairOpeningBounds(stair), center: Point = [hole.x + hole.w / 2, hole.z + hole.d / 2];
+  const inset = railingThickness(style) / 2 + 20;
+  const shape = stairShape(stair), railInset = Math.max(60, inset);
+  const candidates = stairOpeningRails(stair, "upper").map(([a, b]): GuardSegment => {
+    const dx = b[0] - a[0], dz = b[1] - a[1], length = Math.hypot(dx, dz);
+    let nx = -dz / length, nz = dx / length;
+    if (nx * ((a[0] + b[0]) / 2 - center[0]) + nz * ((a[1] + b[1]) / 2 - center[1]) < 0) { nx *= -1; nz *= -1; }
+    const shift = (p: Point, sign: number): Point => {
+      const point: Point = [p[0] + nx * inset + dx / length * sign, p[1] + nz * inset + dz / length * sign];
+      const local = shape.local(p[0], p[1]);
+      // 入口边横段接到上跑内侧轴线；下跑侧整段横封，不再为下跑留口。
+      if (Math.abs(local.along) < .1) {
+        const inner = shape.upperAcross === 0 ? shape.upperAcross + stair.flight : shape.upperAcross;
+        if (Math.abs(local.across - inner) < .1) {
+          const target = shape.point(shape.upperAcross + (shape.upperAcross === 0 ? stair.flight - railInset : railInset), -inset);
+          return [target.x, target.z];
+        }
+      }
+      return point;
+    };
+    const corner = (p: Point) => (Math.abs(p[0] - hole.x) < 1 || Math.abs(p[0] - hole.x - hole.w) < 1)
+      && (Math.abs(p[1] - hole.z) < 1 || Math.abs(p[1] - hole.z - hole.d) < 1);
+    return [shift(a, corner(a) ? -inset : 0), shift(b, corner(b) ? inset : 0)];
+  });
+  return supportedSegments(candidates, floor, [], [rect(hole)], style);
+}

@@ -2,6 +2,7 @@ import { mirroredBuildings, mirrorFacade, mainLocalX, hasThirdFloorSideTerraces 
 import { floors, site, frontElevation, circulation, stairLayout, annexRooms, type Point } from "./data";
 import {
   DOOR_OPENING,
+  DEFAULT_DOOR_HEIGHT,
   FLOOR1_WINDOW,
   FRONT_OPENING,
   doorCenterAgainstHinge,
@@ -9,7 +10,7 @@ import {
   type DoorSide,
   type OpeningKind,
 } from "./openings";
-import { fasciaBottomY, openingBelowFasciaClearance } from "./roof-options";
+import { fasciaBottomY, openingBelowFasciaClearance, withAnnexRoofDesign } from "./roof-options";
 
 export interface Opening {
   at: number;
@@ -33,6 +34,20 @@ export interface Opening {
   entryAssembly?: string;
   /** 派生洞口对应的草稿索引，拆分凹入立面后仍保留。 */
   layoutSourceIndex?: number;
+}
+
+/** 门套上横线高出洞口约41；留50毫米避免压入辅楼檐下线脚。 */
+export function annexDoorMaxHead() {
+  return withAnnexRoofDesign(() => fasciaBottomY(site.annex.height, 0) - 50);
+}
+
+/** 普通外门按完成面统一洞高，门厅跨层组合和受净空限制的门除外。 */
+export function standardExteriorDoor(o: Opening, index: number, wallHeight: number): Opening {
+  if (!o.door || o.entryAssembly || o.span === "lower") return o;
+  const sill = index === 0 || index === 3 ? site.entranceRise : 0;
+  const maxHead = index === 3 ? Math.min(wallHeight - 80, annexDoorMaxHead())
+    : index === 2 ? Math.min(wallHeight - 80, thirdFloorMaxOpeningHead()) : wallHeight - 80;
+  return { ...o, sill, h: Math.max(0, Math.min(DEFAULT_DOOR_HEIGHT, maxHead - sill)) };
 }
 
 /** 默认主楼面宽（开间／洞口比例基准）。 */
@@ -158,7 +173,10 @@ export function mainFrontOpeningX(at0: number) {
 
 // 平面图和3D使用同一组墙体/洞口。坐标位于墙厚中心线。
 export function facades(index: number, frontage = frontElevation): Facade[] {
-  const faces = unmirroredFacades(index, frontage);
+  const height = index === 3 ? site.annex.height : floors[index].height;
+  const faces = unmirroredFacades(index, frontage).map(face => ({
+    ...face, openings: face.openings.map(opening => standardExteriorDoor(opening, index, height)),
+  }));
   if (!mirroredBuildings()) return faces;
   const body = index === 3 ? site.annex : site.main;
   return faces.map(f => mirrorFacade(f, body.x * 2 + body.w));
@@ -203,7 +221,7 @@ function unmirroredFacades(index: number, frontage: typeof frontElevation): Faca
         at: doorCenter,
         w: doorW,
         sill: site.entranceRise,
-        h: Math.max(1800, site.annex.height - 200 - site.entranceRise),
+        h: DEFAULT_DOOR_HEIGHT,
         door: true,
         hinge: "start",
         side: "out",
@@ -485,7 +503,7 @@ function unmirroredFacades(index: number, frontage: typeof frontElevation): Faca
                 at: circulation.sideDoorZ - (front + 240),
                 w: circulation.sideDoorWidth,
                 sill: site.entranceRise,
-                h: 2500 - site.entranceRise,
+                h: DEFAULT_DOOR_HEIGHT,
                 door: true,
                 hinge: "start",
                 side: "in",
@@ -536,12 +554,7 @@ function unmirroredFacades(index: number, frontage: typeof frontElevation): Faca
   return out;
 }
 
-/** 编辑已有洞口时保持源偏移轴，同时采用该开间真实的凹入墙面。 */
+/** 编辑已有洞口时保持源偏移轴，采用原前墙位置与洞口宽度。 */
 export function openingFacade(floor: number, facadeIndex: number, offset: number): Facade {
-  const face = facades(floor)[facadeIndex];
-  if (floor === 3 || facadeIndex !== 0 || site.porticoStyle !== "recessed") return face;
-  const length = Math.abs(face.b[0] - face.a[0]);
-  const x = face.a[0] + (face.b[0] - face.a[0]) * offset / length;
-  const shift = x > site.portico.x && x < site.portico.x + site.portico.w ? site.portico.projection : 0;
-  return { ...face, a: [face.a[0], face.a[1] + shift], b: [face.b[0], face.b[1] + shift] };
+  return facades(floor)[facadeIndex];
 }

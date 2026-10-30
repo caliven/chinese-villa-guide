@@ -553,6 +553,10 @@ export class VillaViewer {
     // 完整房屋保留封顶；单层／分离视图继续敞开，便于查看户型。
     this.villa.topSlabs.main.visible = s.mainBuilding && s.floor === null && !s.exploded;
     this.villa.topSlabs.annex.visible = s.annexBuilding && s.floor === null && !s.exploded;
+    const roofCoversRailing = s.roof && s.floor === null && !s.exploded;
+    for (const root of [this.villa.levels[2], this.villa.topSlabs.main]) root.traverse(object => {
+      if (object.userData.roofRailingMode) object.visible = object.userData.roofRailingMode === (roofCoversRailing ? "covered" : "open");
+    });
     this.villa.annex.visible = s.annexBuilding && (s.floor === null || s.floor === 0);
     this.villa.balcony.visible =
       s.mainBuilding && s.balcony && (s.floor === null || s.floor === 2);

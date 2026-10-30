@@ -4,6 +4,7 @@ import { LayoutEditor } from "../src/layout-editor.ts";
 import { clonePublishedLayout, draftToJson, parseLayoutDraft } from "../src/layout-draft.ts";
 import { createFurniture } from "../src/furniture-catalog.ts";
 import { mirrorFurniture } from "../src/building-variants.ts";
+import { showerModel, showerSymbol } from "../src/shower-model.ts";
 
 test("淋浴门位置可编辑、撤销并随户型往返，旧件默认对面", () => {
   for (const annex of [false, true]) for (const kind of ["shower", "fp-shower"] as const) {
@@ -76,5 +77,34 @@ test("所有淋浴造型的活动门沿轨道错层滑动，关闭接合、全�
     assert.ok(bounds.min.x >= -f.w / 2 - 1 && bounds.max.x <= f.w / 2 + 1);
     assert.ok(bounds.min.z >= -f.d / 2 - 1 && bounds.max.z <= f.d / 2 + 1);
     assert.ok(showerOutline(f).length > (shape === "inline" || shape === "corner" ? 3 : 30));
+  }
+});
+
+test("开放式花洒无玻璃、门和底盘，切换与保存保留尺寸、摆放和原门设置", () => {
+  for (const annex of [false, true]) for (const kind of ["shower", "fp-shower"] as const) {
+    const draft = clonePublishedLayout(), f = { ...createFurniture(kind, 10000, 5000), w: 1100, d: 800, rotation: Math.PI / 2, showerDoorSide: "left" as const, showerOpening: 50 };
+    if (annex) draft.annexFurniture = [f]; else draft.floors[0].furniture = [f];
+    const editor = new LayoutEditor({ getFloor: () => 0, redraw: () => {}, toast: () => {} } as never, draft);
+    editor.selection = { kind: "furniture", floor: 0, index: 0, annex };
+    editor.updateSelectedShowerOption("showerShape", "open");
+    const list = () => annex ? editor.draft.annexFurniture : editor.draft.floors[0].furniture;
+    const item = list()[0]!;
+    assert.deepEqual([item.w, item.d, item.x, item.z, item.rotation, item.showerDoorSide, item.showerOpening], [1100, 800, 10000, 5000, Math.PI / 2, "left", 50]);
+    assert.match(editor.inspectorHtml(), /开放式花洒（无玻璃门）/);
+    assert.match(editor.inspectorHtml(), /data-shower-option="showerOpening" disabled/);
+    assert.match(editor.inspectorHtml(), /data-shower-door-side disabled/);
+    const loaded = parseLayoutDraft(draftToJson(editor.draft));
+    assert.equal((annex ? loaded.annexFurniture : loaded.floors[0].furniture)[0]!.showerShape, "open");
+    const names: string[] = [];
+    showerModel(item).traverse(object => names.push(object.name));
+    assert.ok(names.includes("花洒顶喷") && names.includes("花洒混水阀"));
+    for (const absent of ["淋浴房底盘", "淋浴地漏", "固定玻璃", "推拉活动玻璃", "推拉门连续导轨"]) assert.ok(!names.includes(absent), absent);
+    const symbol = showerSymbol(item, ' data-edit="furniture"');
+    assert.match(symbol, /data-edit="furniture"/);
+    assert.doesNotMatch(symbol, /<polygon|<path/);
+    editor.undo(); assert.equal(list()[0]!.showerShape, undefined);
+    editor.redo(); assert.equal(list()[0]!.showerShape, "open");
+    editor.updateSelectedShowerOption("showerShape", "corner");
+    assert.equal(list()[0]!.showerDoorSide, "left"); assert.equal(list()[0]!.showerOpening, 50);
   }
 });

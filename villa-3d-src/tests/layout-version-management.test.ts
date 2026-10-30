@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { blankLayoutDraft, createLayoutVersion, layoutVersionName, renameLayoutVersion, suggestLayoutVersionName } from "../src/layout-version-management";
 import { buildLayoutVersionDocument, emptyDataIndex, parseLayoutVersionDocument, prependVersionMeta, persistDataVersion, deleteDataVersion, loadDataVersionsIndex, loadLayoutVersion } from "../src/data-versions";
 import { clonePublishedLayout } from "../src/layout-draft";
+import { setDefaultLayoutVersion } from "../src/layout-default";
 
 const now = new Date(2026, 9, 20, 12, 0, 0);
 function fixture() {
@@ -88,6 +89,7 @@ test("静态服务下载后，本次页面内仍能切换、重命名和删除�
   assert.equal((await persistDataVersion({ kind: "户型", document, index })).via, "download");
   assert.equal((await loadLayoutVersion(file))!.title, document.title);
   assert.deepEqual(await loadDataVersionsIndex("户型"), index);
+  assert.throws(() => setDefaultLayoutVersion(index, file), /仅在本次页面内可用/);
   const renamed = renameLayoutVersion((await loadLayoutVersion(file))!, index, file, "下载方案改名");
   await persistDataVersion({ kind: "户型", ...renamed });
   assert.equal((await loadLayoutVersion(file))!.title, "下载方案改名");
