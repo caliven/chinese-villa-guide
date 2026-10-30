@@ -640,7 +640,7 @@ export function interiorOpeningModel(parent: THREE.Object3D, o: Opening, mat: Do
 export function exteriorDoorModel(parent: THREE.Object3D, o: Opening, mat: DoorMaterials, intoRoom: number, cut = Infinity, thickness = 240) {
   const sliding = o.kind ? o.kind === "slidingDoor" : o.pattern === "sliding" || o.glazed;
   return doorModel(parent, { ...o, kind: sliding ? "slidingDoor" : o.kind ?? (o.w >= 1400 ? "doubleDoor" : "door") }, mat,
-    { style: sliding ? "glazed" : "bronze", open: false, thickness, outward: -intoRoom, top: cut });
+    { style: o.kind === "bathroomDoor" ? "bathroom" : sliding ? "glazed" : "bronze", open: false, thickness, outward: -intoRoom, top: cut });
 }
 export function wallWithOpenings(
   parent: THREE.Object3D,

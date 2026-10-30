@@ -144,3 +144,32 @@ test("所有保存户型直接重建新门，主辅楼及完整房屋与户型�
     disposeEditorModel(editor.root, new THREE.Scene()); disposeEditorModel(cut.root, new THREE.Scene());
   }
 });
+
+
+test("浴室门默认800洞口小于房门，保存类型、剖切与四向铰链共用", async () => {
+  const { createOpening, defaultOpeningWidth, interiorOpeningProfile, normalizeOpening } = await import("../src/openings.ts");
+  const opening = createOpening("bathroomDoor", 100);
+  assert.equal(opening.width, 800);
+  assert.ok(opening.width < defaultOpeningWidth("door"));
+  assert.deepEqual(normalizeOpening(JSON.parse(JSON.stringify(opening))), opening);
+  assert.equal(interiorOpeningProfile(opening, 3600).height, 2200);
+  const { clonePublishedLayout, parseLayoutDraft } = await import("../src/layout-draft.ts");
+  const draft = clonePublishedLayout();
+  draft.floors[0]!.partitions[0]!.door = opening;
+  assert.equal(parseLayoutDraft(JSON.stringify(draft)).floors[0]!.partitions[0]!.door!.kind, "bathroomDoor");
+  const cut = doorModel(new THREE.Group(), { at: 0, sill: 0, w: 800, h: 2200, kind: "bathroomDoor" }, materials(), { top: 1200 });
+  assert.ok(bounds(cut).max.y <= 1200.05);
+
+  for (const side of ["in", "out"] as const) for (const hinge of ["start", "end"] as const) {
+    const model = doorModel(new THREE.Group(), { at: 0, sill: 0, w: 800, h: 2200, kind: "bathroomDoor", side, hinge }, materials());
+    assert.equal(model.userData.doorDimensions.style, "bathroom");
+    assert.equal(named(model, "平开门扇").length, 1);
+    assert.equal(named(model, "门扇基板").length, 0);
+    assert.equal(named(model, "浴室门整片雾面玻璃").length, 1);
+    const glass = named(model, "浴室门整片雾面玻璃")[0] as THREE.Mesh;
+    assert.equal((glass.material as THREE.MeshStandardMaterial).transparent, false);
+    assert.equal(named(model, "浴室门隐私锁底座").length, 2);
+    assert.equal(named(model, "门执手横柄").length, 2);
+    assert.equal(named(model, "平开门扇")[0].userData.doorHinge, hinge);
+  }
+});

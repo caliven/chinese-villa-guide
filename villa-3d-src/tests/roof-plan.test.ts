@@ -13,7 +13,7 @@ test("普通官帽加宽有效瓦面、前侧等坡，天沟改宽不挤占瓦�
   resetVillaParams();
   try {
     const ordinary = roofPlanModel("joined"), floating = roofPlanModel("floating");
-    assert.equal(ordinary.hat.w, 7100);
+    assert.equal(ordinary.hat.w, 5350 + 2 * roofTileInset);
     assert.equal(ordinary.hat.w - 2 * roofTileInset, 5350);
     assert.equal(ordinary.hat.ridgeFront - ordinary.hat.z - roofTileInset, 2675);
     assert.equal(ordinary.hat.eave, ordinary.main.eave);
@@ -88,7 +88,7 @@ test("两种官帽同用主辅楼控制尺寸，原有同脊、悬浮落脊，�
   assert.equal(joined.main.w, DEFAULT_VILLA_PARAMS.mainWidth + 2 * DEFAULT_VILLA_PARAMS.thirdEave);
   assert.equal(joined.main.d, DEFAULT_VILLA_PARAMS.mainDepth - DEFAULT_VILLA_PARAMS.thirdSetback + 2 * DEFAULT_VILLA_PARAMS.thirdEave);
   assert.equal(joined.hat.peak, joined.mainPeak);
-  assert.equal(floating.mainPeak - floating.hat.peak, DEFAULT_VILLA_PARAMS.floatingHatRidgeDrop);
+  assert.equal(floating.mainPeak - floating.hat.peak, 500);
   assert.equal(joined.frontTrimGap, undefined);
   assert.deepEqual(floating.frontTrimGap, [frontElevation.postXs[0] - frontElevation.dividerWidth / 2,
     frontElevation.postXs[1] + frontElevation.dividerWidth / 2]);

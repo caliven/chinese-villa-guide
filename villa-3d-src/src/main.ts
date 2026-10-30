@@ -2,7 +2,7 @@ import "./style.css";
 import "./plan-designer.css";
 import { planDesignerHtml, libraryCardsHtml, designerRoomListHtml, type LibraryCategory } from "./plan-designer";
 import { loadingOverlayHtml, withLoadingOverlay } from "./loading-overlay";
-import { DeferredSceneUpdate, FrameRedraw } from "./deferred-scene-update";
+import { DeferredSceneUpdate, FrameRedraw, villaSceneVisible } from "./deferred-scene-update";
 import { patchPlanDrawing } from "./plan-dom";
 import { roofPlan, roofDrawingLabels, type RoofDrawingView } from "./roof-plan";
 import { elevationPlan, elevationLabels, type ElevationView } from "./elevation-plan";
@@ -108,6 +108,7 @@ import {
 } from "./data-versions";
 
 import { blankLayoutDraft, createLayoutVersion, layoutVersionName, renameLayoutVersion, suggestLayoutVersionName } from "./layout-version-management";
+import { REAL_SCENE_REQUEST, REAL_SCENE_SCHEME } from "./real-scene-protocol";
 
 const shapes: Record<string, string> = {
   house: '<path d="M3 10 12 3l9 7M5 9v12h14V9M10 21v-7h4v7"/>',
@@ -172,7 +173,7 @@ document.querySelector("#app")!.innerHTML = `
       ]
         .map(
           ([id, name]) =>
-            `<button data-tab="${id}" ${id === "real" ? 'title="合成参考，未同步最新方案；尺寸以场地模型为准。"' : ""} class="${id === "model" ? "active" : ""}" aria-pressed="${id === "model"}">${name}</button>`,
+            `<button data-tab="${id}" ${id === "real" ? 'title="建筑模型同步当前场地；合成图片为保存稿渲染，落位为照片估算。"' : ""} class="${id === "model" ? "active" : ""}" aria-pressed="${id === "model"}">${name}</button>`,
         )
         .join("")}
     </nav>
@@ -211,7 +212,7 @@ document.querySelector("#app")!.innerHTML = `
       <div class="sun-stamp" id="sun-stamp" hidden>${icon("sun")}<span id="sun-stamp-text"></span></div>
     </section>
     <section id="originals-panel" class="real-scene-panel" aria-label="原始资料" hidden><iframe id="originals-frame" title="原始资料图片与文件浏览"></iframe></section>
-    <section id="real-scene-panel" class="real-scene-panel" aria-label="实景效果" aria-description="合成参考，未同步最新方案；尺寸以场地模型为准。" hidden>
+    <section id="real-scene-panel" class="real-scene-panel" aria-label="实景效果" aria-description="建筑模型同步当前场地；合成图片为保存稿渲染，落位为照片估算。" hidden>
       <iframe id="real-scene-frame" title="安化山居实景效果与原片对比" allow="fullscreen"></iframe>
     </section>
     <section id="design-panel" class="design-panel" aria-label="设计沟通资料" hidden></section>
@@ -1549,8 +1550,19 @@ function currentSceneLayout() {
   const draft = layoutEditor?.draft ?? loadLayoutDraft();
   return draft ? villaLayoutFromDraft(draft) : null;
 }
+function sendRealSceneScheme() {
+  const frame = $<HTMLIFrameElement>("real-scene-frame");
+  if (!frame?.hasAttribute("src")) return;
+  const scheme = { ...collectSchemeDocument("当前场地方案", "current"), layoutDraft: layoutEditor?.draft ?? loadLayoutDraft() };
+  frame.contentWindow?.postMessage({ type: REAL_SCENE_SCHEME, scheme }, location.origin);
+}
+window.addEventListener("message", event => {
+  const frame = $<HTMLIFrameElement>("real-scene-frame");
+  if (event.origin === location.origin && event.source === frame?.contentWindow && event.data?.type === REAL_SCENE_REQUEST) sendRealSceneScheme();
+});
 const sceneUpdates = new DeferredSceneUpdate({
-  visible: isSceneVisible,
+  // 户型三维由 LayoutScene 独立生成；不要为不可见的完整场地重复重建。
+  visible: () => !!viewer && villaSceneVisible(tab),
   capture: () => {
     const layout = currentSceneLayout();
     const params = getVillaParams();
@@ -1673,7 +1685,8 @@ function updateScene() {
   }
   if (realScene) {
     const frame = $<HTMLIFrameElement>("real-scene-frame");
-    if (!frame.hasAttribute("src")) frame.src = "../villa-real-scene/?embed=1&ui=11";
+    if (!frame.hasAttribute("src")) frame.src = "../villa-real-scene/?embed=1&ui=20261029-model";
+    sendRealSceneScheme();
     $("interaction-hint").textContent = "切换机位 · 原片对比 · 下载实景效果";
     return;
   }
@@ -1729,7 +1742,7 @@ function updateScene() {
   $("roof-style-note").textContent = isExisting && tab === "model"
     ? "切换到新建方案，可比较两种官帽造型。"
     : roofStyle === "floating"
-      ? "悬浮官帽为默认方案；帽顶落差可调，纵脊接入正屋。"
+      ? "悬浮官帽为默认方案；整体升降可调，纵脊随高度接入正屋。"
       : "普通官帽与正屋同脊高，瓦面加宽，檐口相连。";
   $("scene-title").textContent = garage
     ? "地库车辆路线与待核区"
@@ -1842,6 +1855,13 @@ function updateFenShui(source?: HTMLInputElement) {
     $("fen-shui-result").textContent = "请输入 1 到 10 之间的分水。";
     return;
   }
+  const next = { ...getVillaParams(), roofFenShui: value };
+  const heightIssue = validateVillaParams(next).find(issue => issue.field === "floatingHatHeightOffset");
+  if (heightIssue) {
+    range.value = field.value = String(getVillaParams().roofFenShui);
+    $("fen-shui-result").textContent = heightIssue.message;
+    return;
+  }
   (current === range ? field : range).value = current.value;
   $("fen-shui-output").textContent = String(Math.round(value * 10) / 10);
   const pitch = roofPitch(value);
@@ -1850,7 +1870,6 @@ function updateFenShui(source?: HTMLInputElement) {
   viewer?.setRoofFenShui(value);
   const fenInput = document.querySelector<HTMLInputElement>('[data-villa-param="roofFenShui"]');
   if (fenInput) fenInput.value = String(value);
-  const next = { ...getVillaParams(), roofFenShui: value };
   rememberVillaParams(next);
   saveVillaParams(next);
 }
@@ -2556,6 +2575,12 @@ $("layout-inspector").addEventListener("change", (event) => {
   if (!layoutEditor) return;
   if (el.id === "edit-model-name") {
     layoutEditor.updateSelectedName((el as HTMLInputElement).value);
+    return;
+  }
+  const showerOption = el.getAttribute("data-shower-option");
+  if ((showerOption === "showerShape" || showerOption === "showerOpening") && el instanceof HTMLSelectElement) {
+    layoutEditor.updateSelectedShowerOption(showerOption, el.value);
+    refreshLayoutInspector(true);
     return;
   }
   if (el.hasAttribute("data-shower-door-side") && el instanceof HTMLSelectElement) {

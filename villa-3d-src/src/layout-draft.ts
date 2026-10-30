@@ -326,6 +326,15 @@ function parseFurniture(value: unknown, i: number): Furniture {
     if ((kind !== "shower" && kind !== "fp-shower") || !["front", "left", "right"].includes(String(value.showerDoorSide))) throw new Error(`家具 ${i} 淋浴门位置无效`);
     item.showerDoorSide = value.showerDoorSide as Furniture["showerDoorSide"];
   }
+  if (value.showerShape !== undefined) {
+    if ((kind !== "shower" && kind !== "fp-shower") || !["inline", "corner", "quadrant", "semicircle"].includes(String(value.showerShape))) throw new Error(`家具 ${i} 淋浴房造型无效`);
+    // 已撤下的半圆造型兼容载入为扇弧转角，保留其他尺寸与摆放参数。
+    item.showerShape = value.showerShape === "semicircle" ? "quadrant" : value.showerShape as Furniture["showerShape"];
+  }
+  if (value.showerOpening !== undefined) {
+    if ((kind !== "shower" && kind !== "fp-shower") || typeof value.showerOpening !== "number" || !Number.isFinite(value.showerOpening) || value.showerOpening < 0 || value.showerOpening > 100) throw new Error(`家具 ${i} 移门开度无效`);
+    item.showerOpening = value.showerOpening;
+  }
   return item;
 }
 

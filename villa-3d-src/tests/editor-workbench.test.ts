@@ -77,6 +77,37 @@ const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (targe
 globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => context }) } as unknown as Document;
 const materials = () => new Proxy({} as Mats, { get: (target, key: keyof Mats) => target[key] ??= new THREE.MeshPhysicalMaterial() as never });
 
+test("编辑楼板底面遮住室内与板内网格，洞口保留，标签仅在上方可见", () => {
+  const outline: Point[] = [[0, 0], [4000, 0], [4000, 4000], [0, 4000]];
+  const hole: Point[] = [[1000, 1000], [2000, 1000], [2000, 2000], [1000, 2000]];
+  const slab = new THREE.Mesh(editorFloorGeometry([outline], [hole], 450, 160, true), new THREE.MeshBasicMaterial());
+  const upward = (x: number, z: number) => new THREE.Raycaster(new THREE.Vector3(x, -500, z), new THREE.Vector3(0, 1, 0)).intersectObject(slab);
+  assert.equal(upward(500, 500)[0]?.point.y, 290, "先命中向下的楼板底面");
+  assert.equal(upward(1500, 1500).length, 0, "楼梯或挑空洞口底面仍为空");
+  slab.geometry.dispose(); (slab.material as THREE.Material).dispose();
+
+  const model = buildEditorModel(clonePublishedLayout(), materials(), 1200, { floors: [0] });
+  model.root.updateMatrixWorld(true);
+  for (const [building, group] of [[site.main, model.levels[0]], [site.annex, model.annex]] as const) {
+    const ray = new THREE.Raycaster(new THREE.Vector3(building.x + 500, -500, building.z + 500), new THREE.Vector3(0, 1, 0));
+    const meshes: THREE.Mesh[] = [];
+    group.traverse(object => { if (object instanceof THREE.Mesh) meshes.push(object); });
+    assert.equal(ray.intersectObjects(meshes, false)[0]?.point.y, site.entranceRise - 160, "实际编辑模型从下方先命中封闭楼板");
+  }
+  const sprites: THREE.Sprite[] = [];
+  model.root.traverse(object => { if (object instanceof THREE.Sprite) sprites.push(object); });
+  assert.ok(sprites.length > 0);
+  const sprite = sprites[0]!, camera = new THREE.PerspectiveCamera();
+  const renderer = { domElement: { clientHeight: 800 } } as THREE.WebGLRenderer;
+  camera.position.y = site.entranceRise + 1000;
+  sprite.onBeforeRender(renderer, new THREE.Scene(), camera, sprite.geometry, sprite.material, null!);
+  assert.equal(sprite.material.opacity, 1, "从楼层上方完整显示标签");
+  camera.position.y = site.entranceRise - 1000;
+  sprite.onBeforeRender(renderer, new THREE.Scene(), camera, sprite.geometry, sprite.material, null!);
+  assert.equal(sprite.material.opacity, 0, "从下方不透出标签");
+  disposeEditorModel(model.root, new THREE.Scene());
+});
+
 test("三维剖切/全高墙保留真实墙索引与家具身份，构建不改动草稿和共享尺寸", () => {
   const draft = clonePublishedLayout();
   draft.floors[0].partitions = [

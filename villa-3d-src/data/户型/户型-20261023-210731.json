@@ -3,11 +3,11 @@
   "units": "mm",
   "id": "户型-20261023-210731",
   "title": "户型-楼梯在南侧",
-  "savedAt": "2026-10-29T09:32:30+08:00",
+  "savedAt": "2026-10-29T20:32:41+08:00",
   "layoutDraft": {
     "schema": 1,
     "revision": "沟通方案 05",
-    "updatedAt": "2026-10-29T01:32:30.786Z",
+    "updatedAt": "2026-10-29T12:32:41.300Z",
     "note": "布局草稿 · 设计建议 · 非施工图。二、三层动线修订：起居大空间；主卧并入西侧过道；楼梯北端折跑处西墙不开到外墙、井道洞口拉通；门扇开进所服务房间；三层东南卧自楼梯间独立进门。一层与 stairLayout 定位未改。",
     "floors": [
       {
@@ -209,7 +209,7 @@
             "door": {
               "offset": 120,
               "width": 700,
-              "kind": "door",
+              "kind": "bathroomDoor",
               "hinge": "start",
               "side": "out"
             }
@@ -314,7 +314,7 @@
             "door": {
               "offset": 256,
               "width": 800,
-              "kind": "door",
+              "kind": "bathroomDoor",
               "hinge": "start",
               "side": "out"
             }
@@ -457,20 +457,11 @@
           {
             "kind": "fp-sofa-three",
             "x": 11030,
-            "z": 1977,
+            "z": 1970,
             "w": 2400,
             "d": 900,
             "rotation": 1.5707963267948966,
             "label": "三人沙发"
-          },
-          {
-            "kind": "fp-sofa-two",
-            "x": 9535,
-            "z": 300,
-            "w": 1700,
-            "d": 880,
-            "rotation": 3.141592653589793,
-            "label": "双人沙发"
           },
           {
             "kind": "fp-sideboard",
@@ -479,7 +470,7 @@
             "w": 1600,
             "d": 400,
             "rotation": 0,
-            "label": "餐边柜"
+            "label": "神龛"
           },
           {
             "kind": "fp-coffeetable",
@@ -493,7 +484,7 @@
           {
             "kind": "fp-sidetable",
             "x": 11030,
-            "z": 301,
+            "z": 310,
             "w": 600,
             "d": 600,
             "rotation": 3.141592653589793,
@@ -616,6 +607,15 @@
             "d": 500,
             "rotation": -1.5707963267948966,
             "label": "浴室柜"
+          },
+          {
+            "kind": "fp-sofa-three",
+            "x": 9380,
+            "z": 310,
+            "w": 2400,
+            "d": 900,
+            "rotation": 3.141592653589793,
+            "label": "三人沙发"
           }
         ]
       },
@@ -757,7 +757,7 @@
           },
           {
             "id": "room1",
-            "name": "房间2",
+            "name": "公卫",
             "x": 6600,
             "z": 5600,
             "w": 2000,
@@ -776,7 +776,7 @@
           },
           {
             "id": "room3",
-            "name": "房间1",
+            "name": "起居室",
             "x": 11500,
             "z": -400,
             "w": 4200,
@@ -870,9 +870,9 @@
             "id": "wall-15",
             "role": "bearing",
             "door": {
-              "offset": 1125,
-              "width": 700,
-              "kind": "door",
+              "offset": 1048,
+              "width": 800,
+              "kind": "bathroomDoor",
               "hinge": "end",
               "side": "out"
             }
@@ -890,8 +890,8 @@
             "role": "partition",
             "door": {
               "offset": 2194,
-              "width": 700,
-              "kind": "door",
+              "width": 800,
+              "kind": "bathroomDoor",
               "hinge": "end",
               "side": "out"
             }
@@ -1335,9 +1335,9 @@
             "id": "wall-21",
             "role": "partition",
             "door": {
-              "offset": 1126,
-              "width": 700,
-              "kind": "door",
+              "offset": 1088,
+              "width": 800,
+              "kind": "bathroomDoor",
               "hinge": "end",
               "side": "out"
             }
@@ -1354,7 +1354,7 @@
             "id": "wall-27",
             "role": "partition",
             "door": {
-              "offset": 690,
+              "offset": 1010,
               "width": 3000,
               "kind": "slidingDoor",
               "hinge": "start",
@@ -1404,7 +1404,7 @@
             "id": "wall-32",
             "role": "bearing",
             "door": {
-              "offset": 1325,
+              "offset": 1415,
               "width": 1500,
               "kind": "passage",
               "hinge": "start",
@@ -1498,8 +1498,8 @@
             "role": "partition",
             "door": {
               "offset": 3295,
-              "width": 700,
-              "kind": "door",
+              "width": 800,
+              "kind": "bathroomDoor",
               "hinge": "end",
               "side": "out"
             }
@@ -1508,7 +1508,7 @@
         "furniture": [
           {
             "kind": "fp-shower",
-            "x": 7687,
+            "x": 7690,
             "z": 8560,
             "w": 1560,
             "d": 1653,
@@ -1801,8 +1801,8 @@
       {
         "kind": "fp-counter",
         "x": 1360,
-        "z": 8290,
-        "w": 2100,
+        "z": 8790,
+        "w": 1100,
         "d": 600,
         "rotation": -1.5707963267948966,
         "label": "橱柜台面"
@@ -2276,19 +2276,6 @@
           "sill": 900,
           "hinge": "start",
           "side": "out"
-        }
-      },
-      {
-        "floor": 0,
-        "facadeIndex": 2,
-        "opening": {
-          "offset": 630,
-          "width": 3000,
-          "kind": "window",
-          "hinge": "start",
-          "side": "out",
-          "height": 5600,
-          "sill": 450
         }
       }
     ],

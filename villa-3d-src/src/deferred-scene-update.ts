@@ -1,4 +1,9 @@
-/** 仅在三维可见时同步最新内容；合并绘制等待期间的连续修改。 */
+/** 户型三维有独立编辑模型，完整场地仅在场地或日照页需要更新。 */
+export function villaSceneVisible(tab: string): boolean {
+  return tab === "model" || tab === "sun";
+}
+
+/** 仅在目标场景可见时同步最新内容；合并绘制等待期间的连续修改。 */
 export class DeferredSceneUpdate<T> {
   private dirty = true;
   private appliedKey: string | undefined;

@@ -73,7 +73,7 @@ test("层高、主楼宽度、三层退台与屋面坡度联动，两种官帽�
     assert.equal(changed.main.w, 13400);
     assert.equal(changed.floors[2].y, 7400);
     assert.equal(changed.floors[2].front, site.main.z + 1600);
-    assert.equal(changed.roof.mainPeak - floating.roof.hat.peak, DEFAULT_VILLA_PARAMS.floatingHatRidgeDrop);
+    assert.equal(changed.roof.mainPeak - floating.roof.hat.peak, 500);
     assert.notEqual(elevationSvg("north", "joined"), original);
     for (const style of ["joined", "floating"] as const) {
       for (const view of Object.keys(elevationLabels) as ElevationView[]) {

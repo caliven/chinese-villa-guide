@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { isShower, showerModel, showerSymbol } from "./shower-model";
 import type { Furniture } from "./data";
 import { bedLayout } from "./furniture-catalog";
 import { floorplanFurniture, getFloorplanFurniture, type FloorplanFurniture, type FloorplanFurnitureType } from "./floorplan-catalog";
@@ -36,6 +37,7 @@ function partsFor(f: Furniture): Part[] | undefined {
 
 /** 上游背面为 −Z；绕 180° 后适配本项目 +Z 为床头／靠背的约定。 */
 export function floorplanFurnitureSymbol(f: Furniture, pick = ""): string | undefined {
+  if (isShower(f)) return showerSymbol(f, pick);
   const parts = partsFor(f);
   if (!parts) return;
   const shapes = parts.map(part => {
@@ -62,6 +64,7 @@ export function fitFurnitureFootprint(model: THREE.Group, w: number, d: number):
 
 /** 上游 Three.js 以米建模；转回毫米后交给查看器统一的 mmRoot。 */
 export function floorplanFurnitureModel(f: Furniture, glass?: THREE.Material): THREE.Group | undefined {
+  if (isShower(f)) return showerModel(f, glass);
   const parts = partsFor(f);
   if (!parts) return;
   const group = new THREE.Group();

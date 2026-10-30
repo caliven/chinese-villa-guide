@@ -1,0 +1,92 @@
+{
+  "version": "20261029-current-model-plates",
+  "outputWidth": 2736,
+  "notes": "只生成去除旧别墅的底图；固定原片与既有建设选区，建筑另由共享三维模型直接渲染。",
+  "views": {
+    "front": {
+      "original": "public/photos/front-original.jpg",
+      "output": "public/photos/front-plate.png",
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/front-empty-source.png",
+          "mask": "references/environment-restore-2026-10-16/front-old-railing-mask.svg",
+          "feather": 1.5
+        },
+        {
+          "source": "references/current-model-2026-10-29/front-empty-source.png",
+          "mask": "references/environment-restore-2026-10-16/front-construction-mask.png",
+          "feather": 0.34
+        },
+        {
+          "source": "references/current-model-2026-10-29/front-empty-source.png",
+          "mask": "references/environment-restore-2026-10-16/front-seams-mask.svg",
+          "feather": 2
+        }
+      ]
+    },
+    "left": {
+      "original": "public/photos/left-original.jpg",
+      "output": "public/photos/left-plate.png",
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/left-empty-source.png",
+          "mask": "references/multiview-2026-10-17/left-construction-mask.png",
+          "feather": 0
+        },
+        {
+          "source": "references/current-model-2026-10-29/left-empty-source.png",
+          "mask": "references/multiview-2026-10-17/left-courtyard-mask.png",
+          "feather": 0
+        }
+      ]
+    },
+    "right": {
+      "original": "public/photos/right-original.jpg",
+      "output": "public/photos/right-plate.png",
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/right-empty-source.png",
+          "mask": "references/multiview-2026-10-17/right-construction-mask.png",
+          "feather": 0
+        },
+        {
+          "source": "references/current-model-2026-10-29/right-empty-source.png",
+          "mask": "references/multiview-2026-10-17/right-connection-mask.png",
+          "feather": 0
+        }
+      ]
+    },
+    "overhead": {
+      "original": "public/photos/overhead-original.jpg",
+      "output": "public/photos/overhead-plate.png",
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/overhead-empty-source.png",
+          "mask": "references/multiview-2026-10-17/overhead-construction-mask.svg",
+          "feather": 0.337
+        }
+      ]
+    },
+    "aerial": {
+      "original": "public/photos/aerial-original.jpg",
+      "output": "public/photos/aerial-plate.png",
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/aerial-empty-source.png",
+          "mask": "references/environment-restore-2026-10-16/aerial-old-railing-mask.svg",
+          "feather": 0.35
+        },
+        {
+          "source": "references/current-model-2026-10-29/aerial-empty-source.png",
+          "mask": "references/environment-restore-2026-10-16/aerial-construction-mask.svg",
+          "feather": 0.35
+        },
+        {
+          "source": "references/current-model-2026-10-29/aerial-empty-source.png",
+          "mask": "references/environment-restore-2026-10-16/aerial-neighbor-floor-mask.svg",
+          "feather": 0.5
+        }
+      ]
+    }
+  }
+}

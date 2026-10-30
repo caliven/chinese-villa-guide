@@ -14,7 +14,11 @@ test.afterEach(resetVillaParams);
 test.after(() => Object.values(mat).forEach(material => material.dispose()));
 
 function drawnColumns(svg: string) {
-  return [...svg.matchAll(/<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" fill="#879183"/g)]
+  const marked = svg.includes('data-plan-column="portico"');
+  const pattern = marked
+    ? /<g data-plan-column="portico"[^>]*><title>[^<]*<\/title><rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/g
+    : /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" fill="#879183"/g;
+  return [...svg.matchAll(pattern)]
     .slice(0, 2).map(([, x, z, w, d]) => ({ x: Number(x) + Number(w) / 2, z: Number(z) + Number(d) / 2 }));
 }
 

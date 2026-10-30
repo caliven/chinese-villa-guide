@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DeferredSceneUpdate, FrameRedraw } from "../src/deferred-scene-update.ts";
+import { DeferredSceneUpdate, FrameRedraw, villaSceneVisible } from "../src/deferred-scene-update.ts";
 import { LayoutEditor } from "../src/layout-editor.ts";
 import { clonePublishedLayout, draftToJson } from "../src/layout-draft.ts";
 
@@ -29,6 +29,25 @@ function setup() {
     get overlays() { return overlays; },
   };
 }
+
+test("户型三维编辑推迟完整场地构建，返回场地或日照时应用最新草稿", async () => {
+  let tab = "floor", value = 0;
+  const applied: number[] = [];
+  const sync = new DeferredSceneUpdate({
+    visible: () => villaSceneVisible(tab),
+    capture: () => ({ key: String(value), value }),
+    apply: next => { applied.push(next); },
+    loading: async work => { work(); },
+  });
+  for (value = 1; value <= 3; value++) { sync.invalidate(); await sync.flush(); }
+  assert.deepEqual(applied, []);
+  tab = "model";
+  await sync.flush();
+  assert.deepEqual(applied, [4]);
+  tab = "floor"; value = 5; sync.invalidate(); await sync.flush();
+  tab = "sun"; await sync.flush();
+  assert.deepEqual(applied, [4, 5]);
+});
 
 test("二维连续编辑不构建立体，切换时仅应用最新草稿", async () => {
   const state = setup();

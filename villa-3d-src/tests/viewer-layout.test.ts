@@ -148,3 +148,31 @@ test("外轮廓尺寸变化不复用旧构件，清空 live 户型恢复源码�
   assert.equal(viewer.layoutLive, null);
   assert.equal(viewer.villa.levels.length, 3);
 });
+
+
+test("屋顶开关只隐藏瓦屋面，完整模型保留顶板；分层及建筑显隐各自生效", () => {
+  const { viewer } = fixture();
+  Object.assign(viewer, {
+    applyLighting: () => {}, builtRoofStyle: viewer.state.roofStyle,
+    renderer: { shadowMap: {} },
+    land: new Proxy({}, { get: () => new THREE.Group() }),
+  });
+  const update = (state: Parameters<VillaViewer["setState"]>[0]) => VillaViewer.prototype.setState.call(viewer, state);
+  update({ roof: false });
+  assert.equal(viewer.villa.roof.visible, false);
+  assert.equal(viewer.villa.annexRoof.visible, false);
+  assert.equal(viewer.villa.topSlabs.main.visible, true);
+  assert.equal(viewer.villa.topSlabs.annex.visible, true);
+  update({ roof: true });
+  assert.equal(viewer.villa.roof.visible, true);
+  assert.equal(viewer.villa.topSlabs.main.visible, true);
+  update({ floor: 2 });
+  assert.equal(viewer.villa.topSlabs.main.visible, false, "单层剖看不封住室内");
+  assert.equal(viewer.villa.topSlabs.annex.visible, false);
+  update({ floor: null, mainBuilding: false });
+  assert.equal(viewer.villa.topSlabs.main.visible, false);
+  assert.equal(viewer.villa.topSlabs.annex.visible, true);
+  update({ mainBuilding: true, annexBuilding: false });
+  assert.equal(viewer.villa.topSlabs.main.visible, true);
+  assert.equal(viewer.villa.topSlabs.annex.visible, false);
+});

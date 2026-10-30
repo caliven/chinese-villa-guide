@@ -1,3 +1,4 @@
+import { showerShapes, isShower } from "./shower-model";
 import { alignedEntryOpenings } from "./entry-assembly";
 import type { Furniture, Room, Wall, Point, WallRole } from "./data";
 import { site, construction, wallRoleOf, isPhysicalWall } from "./data";
@@ -2217,6 +2218,22 @@ export class LayoutEditor {
     return true;
   }
 
+  updateSelectedShowerOption(field: "showerShape" | "showerOpening", value: string) {
+    const sel = this.selection;
+    if (sel?.kind !== "furniture") return;
+    const item = this.furnitureList(sel.floor, !!sel.annex)[sel.index];
+    if (!item || !isShower(item)) return;
+    if (field === "showerShape") {
+      if (!Object.hasOwn(showerShapes, value)) return;
+      item.showerShape = value as NonNullable<Furniture["showerShape"]>;
+    } else {
+      const amount = Number(value);
+      if (!Number.isFinite(amount) || amount < 0 || amount > 100) return;
+      item.showerOpening = amount;
+    }
+    return this.commit();
+  }
+
   updateSelectedShowerDoorSide(value: string) {
     const sel = this.selection;
     if (sel?.kind !== "furniture" || !["front", "left", "right"].includes(value)) return;
@@ -3275,7 +3292,9 @@ export class LayoutEditor {
         ${field("名称", `<input type="text" id="edit-model-name" value="${escapeHtml(displayName)}"/>`)}
         ${num("x", "X", item.x)}${num("z", "Z", item.z)}${num("w", "宽", item.w)}${num("d", "深", item.d)}
         ${num("rotationDeg", "旋转°", rotationToDeg(item.rotation ?? 0), 15, true)}
-        ${item.kind === "shower" || item.kind === "fp-shower" ? `${field("玻璃门位置", `<select data-shower-door-side><option value="front" ${(item.showerDoorSide ?? "front") === "front" ? "selected" : ""}>花洒对面</option><option value="left" ${item.showerDoorSide === "left" ? "selected" : ""}>花洒左侧</option><option value="right" ${item.showerDoorSide === "right" ? "selected" : ""}>花洒右侧</option></select>`)}<p class="layout-align-hint">左、右按淋浴房局部方向；花洒位置不变，选择后平面与三维同步。</p>` : ""}
+        ${isShower(item) ? `${field("淋浴房造型", `<select data-shower-option="showerShape">${Object.entries(showerShapes).map(([key, label]) => `<option value="${key}" ${(item.showerShape ?? "inline") === key ? "selected" : ""}>${label}</option>`).join("")}</select>`)}
+        ${field("移门开度", `<select data-shower-option="showerOpening">${[0, 50, 100].map(n => `<option value="${n}" ${(item.showerOpening ?? 0) === n ? "selected" : ""}>${n === 0 ? "关闭" : n === 50 ? "半开" : "全开"}</option>`).join("")}</select>`)}
+        ${field("玻璃门位置", `<select data-shower-door-side ${item.showerShape === "quadrant" ? "disabled" : ""}><option value="front" ${(item.showerDoorSide ?? "front") === "front" ? "selected" : ""}>花洒对面</option><option value="left" ${item.showerDoorSide === "left" ? "selected" : ""}>花洒左侧</option><option value="right" ${item.showerDoorSide === "right" ? "selected" : ""}>花洒右侧</option></select>`)}<p class="layout-align-hint">左右按模型局部方向；靠墙面需与现有墙体对应，不自动新建墙。弧形门沿前方弯轨推拉；切换造型保留原宽深与摆放。</p>` : ""}
         ${sizeHint}
         ${facingHint}
         <div class="layout-rotate-row">
@@ -3291,7 +3310,7 @@ export class LayoutEditor {
       const kindOpts = OPENING_KINDS
         .map((k) => `<option value="${k}" ${o.kind === k ? "selected" : ""}>${openingLabels[k]}</option>`)
         .join("");
-      const hingeDisabled = o.kind !== "door" ? "disabled" : "";
+      const hingeDisabled = o.kind !== "door" && o.kind !== "bathroomDoor" ? "disabled" : "";
       const profile = this.selectedWindowProfile(), defaults = profile ? this.selectedWindowProfile(true) : null;
       const heights = profile ? `${num("windowHeight", profile.mode === "continuous" ? "整窗高度" : "窗高", profile.height)}${num("windowSill", "窗台高度", profile.sill)}
         <p class="layout-align-hint">${profile.mode === "continuous" ? `通高整窗，窗台距${profile.floor + 1}层完成地面` : "窗台距本层完成地面"}，单位 mm。${defaults ? `默认高度 ${formatMm(defaults.height)}，默认窗台 ${formatMm(defaults.sill)}。` : ""}</p>

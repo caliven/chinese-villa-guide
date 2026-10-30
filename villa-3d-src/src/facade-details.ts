@@ -1208,10 +1208,12 @@ export function integratedHatEaves(
   const rim = (inset: number, width: number, end: number) => hatEaveRim(x, z, w, inset, width, end);
   // 低于正屋瓦檐的线脚接到正屋前檐；不能向前外推坡面，把后端裁到官帽前面。
   const endAt = (y: number) => Math.max(mainTileFront - roofTileInset, mainTileFront + (y - mainTileEave) / slope);
-  const finish = (outline: (end: number) => Point[], top: number, thick: number, material: THREE.Material, coping = false) => {
+  const finish = (outline: (end: number) => Point[], top: number, thick: number, material: THREE.Material,
+    shape?: (mesh: THREE.Mesh, end: number) => void) => {
     const end = endAt(top);
     const mesh = slab(g, outline(end), top, thick, material);
-    if (coping) slopeGutterCoping(mesh, [[x - eyelidFixed.copingOverhang, end], [x - eyelidFixed.copingOverhang, z - eyelidFixed.copingOverhang], [x + w + eyelidFixed.copingOverhang, z - eyelidFixed.copingOverhang], [x + w + eyelidFixed.copingOverhang, end]], outerT + eyelidFixed.copingOverhang, false);
+    // 先完成槽底／压顶找坡，再按最终顶点标高斜切，避免找坡后二次抬高留下接缝。
+    shape?.(mesh, end);
     const positions = mesh.geometry.getAttribute("position");
     for (let i = 0; i < positions.count; i++) {
       if (Math.abs(positions.getZ(i) - end) < 1e-2)
@@ -1227,9 +1229,9 @@ export function integratedHatEaves(
   const cement = gutterCement(mat);
   const bedY = base + gutterBedTop;
   // 槽底只在沟内，避免外皮露出水泥灰白线。
-  const bed = finish(end => rim(outerT, innerFace, end), bedY, 80, cement);
+  const bed = finish(end => rim(outerT, innerFace, end), bedY, 80, cement,
+    mesh => slopeGutterBed(mesh, [[x + outerT, z + outerT], [x + w - outerT, z + outerT], [x + w - outerT, z + 1000], [x + outerT, z + 1000]]));
   bed.name = "天沟槽底";
-  slopeGutterBed(bed, [[x + outerT, z + outerT], [x + w - outerT, z + outerT], [x + w - outerT, z + 1000], [x + outerT, z + 1000]]);
   const outerWallH = roofGutterDesign.clearDepth;
   const wallTopGap = 3;
   finish(
@@ -1244,7 +1246,8 @@ export function integratedHatEaves(
     base + outerWallH + 30,
     30,
     mat.british,
-    true,
+    (mesh, end) => slopeGutterCoping(mesh, [[x - copeOh, end], [x - copeOh, z - copeOh],
+      [x + w + copeOh, z - copeOh], [x + w + copeOh, end]], outerT + copeOh, false),
   ).name = "天沟外边反坎压顶";
   const innerTop = gutterInnerWallTop();
   const innerEmbed = 10;

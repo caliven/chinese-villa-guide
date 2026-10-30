@@ -29,7 +29,7 @@ export let roofGutterDesign = {
   /** 内侧反坎厚度：用户未口述，沿用原挡墙模型厚。 */
   innerWallThickness: 55,
   tileGap: 50,
-  tileOverhang: 80,
+  tileOverhang: 200,
   /** 默认 1° → tan(1°) */
   bedSlope: Math.tan((1 * Math.PI) / 180),
   copingSlopeDegrees: 4,
@@ -223,9 +223,29 @@ export function maxOpeningTopY(eaveY: number, drop = 0) {
   return fasciaBottomY(eaveY, drop) - openingBelowFasciaClearance;
 }
 
-// 按最新参考：帽脊低于主脊约 50cm，纵脊直接接入正屋前坡。
+// 升降零点：帽脊默认低于主脊约 50cm，纵脊直接接入正屋前坡。
 // 极缓坡保留柱头净空及最小起坡；这些是造型建议，非实测或结构尺寸。
-export const floatingHatDesign = { ridgeDrop: 500, minEaveLift: 270, minRise: 50 };
+export const floatingHatDesign = { heightOffset: 0, minEaveLift: 270, minRise: 50 };
+
+/** 以主屋瓦檐为脊高零点、主屋檐口为檐高零点；升降保持官帽自身坡度。 */
+export function floatingHatLevels(mainRise: number, run: number, slope: number, frontToRidge: number,
+  requestedOffset: number) {
+  const { minEaveLift, minRise } = floatingHatDesign;
+  let basePeak = Math.max(mainRise - 500, Math.min(minEaveLift + minRise, mainRise - 50));
+  let baseEave = Math.max(minEaveLift, basePeak - run * slope);
+  // 深凹门厅的自动位置也保留最短接脊；修正计入零点，保证升降数值始终相对该零点。
+  const automaticLift = Math.max(0, Math.ceil((frontToRidge + 50) * slope - basePeak - 1e-7));
+  if (basePeak + automaticLift <= mainRise + 1e-7) {
+    basePeak += automaticLift;
+    baseEave += automaticLift;
+  }
+  // 柱顶保持净空，纵脊至少向后接入50；帽脊最高接到主屋脊，不越过前坡。
+  const minOffset = Math.ceil(Math.max(minEaveLift - baseEave, (frontToRidge + 50) * slope - basePeak) - 1e-7);
+  const maxOffset = Math.floor(mainRise - basePeak + 1e-7);
+  // 户型草稿可改变门厅进深；在实际上下文中再约束，避免保存后草稿导致反向屋脊。
+  const offset = minOffset <= maxOffset ? Math.max(minOffset, Math.min(maxOffset, requestedOffset)) : 0;
+  return { peakLift: basePeak + offset, eaveLift: baseEave + offset, offset, minOffset, maxOffset };
+}
 
 /** 普通官帽独立控制有效瓦宽；天沟向外增加，不再挤占瓦面。均为造型建议值。 */
 export const joinedHatDesign = { tileWidthExtra: 750, minWingWidth: 1000 };

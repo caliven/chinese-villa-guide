@@ -550,6 +550,9 @@ export class VillaViewer {
     this.land.parked.visible = !s.garage;
     this.villa.roof.visible = s.mainBuilding && s.roof && s.floor === null;
     this.villa.annexRoof.visible = s.annexBuilding && s.roof && s.floor === null;
+    // 完整房屋保留封顶；单层／分离视图继续敞开，便于查看户型。
+    this.villa.topSlabs.main.visible = s.mainBuilding && s.floor === null && !s.exploded;
+    this.villa.topSlabs.annex.visible = s.annexBuilding && s.floor === null && !s.exploded;
     this.villa.annex.visible = s.annexBuilding && (s.floor === null || s.floor === 0);
     this.villa.balcony.visible =
       s.mainBuilding && s.balcony && (s.floor === null || s.floor === 2);
@@ -719,7 +722,7 @@ export class VillaViewer {
   rebuildLayout(layout: VillaLayoutLive | null) {
     const previous = this.villa;
     const oldRoots = new Set<THREE.Object3D>([
-      ...previous.levels, previous.roof, previous.annex, previous.annexRoof,
+      ...previous.levels, previous.roof, previous.annex, previous.annexRoof, ...Object.values(previous.topSlabs),
       previous.portico, previous.balcony, this.livingGlass, this.entryBay, this.eastBand,
     ]);
     const next = buildVilla(this.mat, true, this.fenShui, this.state.roofStyle, layout, previous);
@@ -730,7 +733,7 @@ export class VillaViewer {
     const eastBand = next.group.getObjectByName("烤火房回纹横披")!;
     const created: THREE.Mesh[] = [];
     for (const root of [
-      ...next.levels, next.roof, next.annex, next.annexRoof, next.portico,
+      ...next.levels, next.roof, next.annex, next.annexRoof, ...Object.values(next.topSlabs), next.portico,
       next.balcony, livingGlass, entryBay, eastBand,
     ]) {
       if (oldRoots.has(root)) continue;

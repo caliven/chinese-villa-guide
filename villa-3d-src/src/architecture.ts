@@ -49,6 +49,7 @@ import {
   eyelidStackHeight,
   fasciaBottomY,
   floatingHatDesign,
+  floatingHatLevels,
   joinedHatDesign,
   DEFAULT_ROOF_STYLE,
   roofTileEaveLift,
@@ -446,6 +447,8 @@ export type VillaModel = {
   balcony: THREE.Group;
   annex: THREE.Group;
   annexRoof: THREE.Group;
+  /** 顶板与瓦屋面独立，关闭屋顶时仍保留建筑封顶。 */
+  topSlabs: { main: THREE.Group; annex: THREE.Group };
   portico: THREE.Group;
   labels: THREE.Group[];
   /** 字符串是构建当时的快照，不受后续原地编辑草稿影响。 */
@@ -525,8 +528,9 @@ function buildVillaInContext(
   const layoutFacades = resolved.facades;
   const railings = interiorRailingLayout(floorList, stairGeom, livingVoid, layoutFacades, stairPresent);
   const customFront = frontOpeningsChanged(layout);
+  const topSlabLayout = roofSlabLayout(layout);
   const signatures: VillaModel["signatures"] = {
-    structure: JSON.stringify([site, roofGutterDesign, eaveTrimDesign, annexRoofGutterDesign, annexEaveTrimDesign, frontElevation, construction, circulation, floors.map(f => [f.y, f.height, f.front]), fenShui, roofStyle]),
+    structure: JSON.stringify([site, roofGutterDesign, eaveTrimDesign, annexRoofGutterDesign, annexEaveTrimDesign, floatingHatDesign, frontElevation, construction, circulation, floors.map(f => [f.y, f.height, f.front]), topSlabLayout, fenShui, roofStyle]),
     levels: floorList.map((floor, index) => JSON.stringify([
       floor, withLabels, stairPresent, stairGeom, index === 1 ? livingVoid : null, layoutFacades[index], index < 2 && customFront, interiorRailing, railings.floorSignature(index),
     ])),
@@ -540,6 +544,14 @@ function buildVillaInContext(
     balcony = reuseStatic ? reuse!.balcony : new THREE.Group(),
     annex = reuseStatic && reuse!.signatures.annex === signatures.annex ? reuse!.annex : new THREE.Group(),
     annexRoof = reuseStatic ? reuse!.annexRoof : new THREE.Group();
+  const topSlabs = reuseStatic ? reuse!.topSlabs : { main: new THREE.Group(), annex: new THREE.Group() };
+  if (!reuseStatic) {
+    for (const key of ["main", "annex"] as const) {
+      const spec = topSlabLayout[key], root = topSlabs[key];
+      root.name = key === "main" ? "主楼三层顶板" : "辅楼一层顶板";
+      slab(root, spec.outline, spec.top, spec.thickness, mat.trim).name = `${root.name}实体`;
+    }
+  }
   const levels: THREE.Group[] = [];
   const labels: THREE.Group[] = [];
   const m = site.main;
@@ -601,7 +613,8 @@ function buildVillaInContext(
       floorSlab.name = "二楼楼板";
       floorSlab.castShadow = floorSlab.receiveShadow = true;
       g.add(floorSlab);
-    } else slab(g, floorOutline, base + (index === 0 ? site.entranceRise : 0), construction.floorSlab, mat.floor, holes);
+    } else slab(g, floorOutline, base + (index === 0 ? site.entranceRise : 0), construction.floorSlab, mat.floor, holes)
+      .name = index === 0 ? "一楼楼板" : "三楼楼板";
     const floorWalls = layoutFacades[index];
     const wallPeers = wallJunctionPeers(floor.partitions, floorWalls);
     for (const facade of floorWalls)
@@ -1004,10 +1017,22 @@ function buildVillaInContext(
     else { const placeholder = new THREE.Group(); placeholder.name = frontNames[2]; group.add(placeholder); }
   }
   // 所有可能抛错的构造完成后才迁移复用对象，避免构造失败拆掉当前可见场景。
-  group.add(roof, balcony, annex, annexRoof, portico, ...levels);
+  group.add(roof, balcony, annex, annexRoof, topSlabs.main, topSlabs.annex, portico, ...levels);
   if (reuseFront)
     for (const name of frontNames) { const detail = reuse!.group.getObjectByName(name); if (detail) group.add(detail); }
-  return { group, levels, roof, balcony, annex, annexRoof, portico, labels, signatures };
+  return { group, levels, roof, balcony, annex, annexRoof, topSlabs, portico, labels, signatures };
+}
+
+/** 屋顶层平面与三维封顶共用范围；楼梯止于三层，顶板不延续下层楼梯／客厅挑空洞。 */
+export function roofSlabLayout(layout?: VillaLayoutLive | null) {
+  return withLayoutContext(layout, () => {
+    const topFloor = recessedFloor((layout?.floors ?? floors)[2]);
+    const a = site.annex;
+    return {
+      main: { outline: recessedFootprint(topFloor.front), top: topFloor.y + topFloor.height, thickness: construction.floorSlab },
+      annex: { outline: rect(a.x, a.z, a.w, a.d), top: a.height, thickness: construction.floorSlab },
+    };
+  });
 }
 
 export function attachLayoutRoofs(
@@ -1085,15 +1110,15 @@ export function floatingHatLayout(fenShui = site.roofFenShui) {
   const main = mainRoofFootprint(), pitch = roofPitch(fenShui), slope = fenShui / 10;
   const w = frontElevation.hatWidth, run = (w - 2 * roofTileInset) / 2;
   const tileLift = roofTileEaveLift();
-  const mainPeak = main.eave + tileLift + pitch.mainRise;
-  const minPeak = main.eave + floatingHatDesign.minEaveLift + tileLift + floatingHatDesign.minRise;
-  const peak = Math.max(mainPeak - floatingHatDesign.ridgeDrop, Math.min(minPeak, mainPeak - 50));
-  const eave = Math.max(main.eave + floatingHatDesign.minEaveLift, peak - tileLift - run * slope);
+  const levels = floatingHatLevels(pitch.mainRise, run, slope, frontElevation.hatFront - main.z + run,
+    floatingHatDesign.heightOffset);
+  const peak = main.eave + tileLift + levels.peakLift;
+  const eave = main.eave + levels.eaveLift;
   const joinZ = main.z + roofTileInset + (peak - main.eave - tileLift) / slope;
   return {
     x: site.portico.x + site.portico.w / 2 - w / 2,
     z: frontElevation.hatFront, w, d: joinZ - frontElevation.hatFront,
-    eave, rise: peak - eave - tileLift, peak, joinZ,
+    eave, rise: peak - eave - tileLift, peak, joinZ, heightOffset: levels.offset,
     // 前斜脊的水平 X/Z 增量相等，与正屋两端斜脊平行；纵脊在等高处接入前坡。
     ridgeFront: frontElevation.hatFront + roofTileInset + run,
   };
@@ -1116,7 +1141,7 @@ export function roofPlanModel(style: RoofStyle, layout?: VillaLayoutLive | null,
     const hat = style === "floating" ? floatingHatLayout(fenShui) : joinedHatLayout(fenShui);
     const hatFaces = hatRoofSurfaces(hat.x + hat.w / 2, hat.z, hat.w, hat.joinZ, hat.eave + lift, hat.peak, 1, hat.ridgeFront);
     return {
-      main, annex, hat: { ...hat }, pitch, annexProfile,
+      main, annex, hat: { ...hat }, pitch, annexProfile, slabs: roofSlabLayout(layout),
       frontTrimGap: style === "floating" ? floatingHatTrimGap() : undefined,
       mainFaces: joinRoofFaces([...mainHip.faces, ...hatFaces.faces]),
       annexFaces: annexHip.faces,
@@ -1145,10 +1170,11 @@ export function elevationModel(style: RoofStyle, layout?: VillaLayoutLive | null
 }
 
 /** 烟囱外壳与盖板共用模型定位，避免图纸自行估算屋面出口高度。 */
-function annexChimneyModel() {
+export function annexChimneyModel() {
   const annex = annexRoofFootprint(), pitch = roofPitch(site.roofFenShui);
   const { tileInset: roofTileInset, tileLift } = annexRoofProfile();
-  const x = annexLocalX(850), z = site.annex.z + site.annex.d - 1050;
+  // 向前离开后侧斜脊，烟囱及盖板完整落在侧坡内。
+  const x = annexLocalX(850), z = site.annex.z + site.annex.d - 2050;
   const localX = x - (annex.x + roofTileInset), localZ = z - (annex.z + roofTileInset);
   const tileW = annex.w - 2 * roofTileInset, tileD = annex.d - 2 * roofTileInset;
   const run = Math.min(tileW, tileD) / 2;
@@ -1214,6 +1240,6 @@ export function attachRoofs(
   const stackMid = roofYAtChimney + stackH / 2 - 200;
   box(annexRoof, chimneyX, stackMid, chimneyZ, 460, stackH + 400, 460, mat.stone);
   box(annexRoof, chimneyX, capY + 60, chimneyZ, 720, 120, 720, mat.dark);
-  for (const x of [annexLocalX(650), annexLocalX(1050)])
+  for (const x of [chimneyX - 200, chimneyX + 200])
     box(annexRoof, x, capY - 140, chimneyZ, 45, 320, 45, mat.metal);
 }

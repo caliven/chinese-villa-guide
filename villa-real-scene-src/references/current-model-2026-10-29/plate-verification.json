@@ -1,0 +1,137 @@
+{
+  "version": "20261029-current-model-plates",
+  "views": {
+    "front": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "373a123d38ff1916dbc4f70aace8bc5cd802f5d024096797ab4ef36a1ed3ea4f",
+      "outputSha256": "67ffd13fd2f688f4899724eac3b1df527e11468f2fd4c537635678425b9e6ecd",
+      "outsidePixels": 3050892,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 61.134,
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/front-empty-source.png",
+          "sourceSha256": "68e7f49151fadadc4fc23db3ffd53c58654b809c35fbfb2816af646489a07afa",
+          "mask": "references/environment-restore-2026-10-16/front-old-railing-mask.svg",
+          "maskSha256": "f295df1f84451892f4790d86b4b920d9ff9f1ebcf3a5e014b85cfab415188b56",
+          "selectedPixels": 30423
+        },
+        {
+          "source": "references/current-model-2026-10-29/front-empty-source.png",
+          "sourceSha256": "68e7f49151fadadc4fc23db3ffd53c58654b809c35fbfb2816af646489a07afa",
+          "mask": "references/environment-restore-2026-10-16/front-construction-mask.png",
+          "maskSha256": "8e264e7636c11dd60c8687e1c5299d516dfb1864740583c02d2c2503b8f47b3f",
+          "selectedPixels": 1863713
+        },
+        {
+          "source": "references/current-model-2026-10-29/front-empty-source.png",
+          "sourceSha256": "68e7f49151fadadc4fc23db3ffd53c58654b809c35fbfb2816af646489a07afa",
+          "mask": "references/environment-restore-2026-10-16/front-seams-mask.svg",
+          "maskSha256": "9ee691cbf74dbf6348f8aaed6ab6108f3170e4e96b66f25c8741701b6bcb2e73",
+          "selectedPixels": 164168
+        }
+      ]
+    },
+    "left": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "4ae94295a96e5a21658abb7a2cddbec489ab9eca8380cbd354c763592c52c1e3",
+      "outputSha256": "7c0e76aa7154239e6942fb6ae8e377ba326520384df5ce88e8d046047ea88c6f",
+      "outsidePixels": 4522948,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 90.632,
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/left-empty-source.png",
+          "sourceSha256": "86eb27133d4bdafa44dbbabd37943640e8f19b011b90c815346759a0c042237f",
+          "mask": "references/multiview-2026-10-17/left-construction-mask.png",
+          "maskSha256": "62061f96d0eb827b0022a38640270bf5cba66cb004de7b2ad8b03635afd22e61",
+          "selectedPixels": 240387
+        },
+        {
+          "source": "references/current-model-2026-10-29/left-empty-source.png",
+          "sourceSha256": "86eb27133d4bdafa44dbbabd37943640e8f19b011b90c815346759a0c042237f",
+          "mask": "references/multiview-2026-10-17/left-courtyard-mask.png",
+          "maskSha256": "7481edf3e54cf9a9edcc030a104513f545a6ea0a66c36eeb0c36a34ac8823d66",
+          "selectedPixels": 317104
+        }
+      ]
+    },
+    "right": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "719b96f98c0ecb956666f11f43229a6c3a146eb5f3e71033f14e7bf84a631164",
+      "outputSha256": "204d9a74d9606a7fb52b3a964db28c15bfdfe735e49fcf87d5fa4be831595a5c",
+      "outsidePixels": 4398246,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 88.133,
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/right-empty-source.png",
+          "sourceSha256": "a8d9600b621ba661dd15d615487d0be042968a17582cc8efa3608d58ee377399",
+          "mask": "references/multiview-2026-10-17/right-construction-mask.png",
+          "maskSha256": "3ad9ecc9112ba63c277105d90d5e34b837f8dc8183b9338bd7769c78db4c575c",
+          "selectedPixels": 556249
+        },
+        {
+          "source": "references/current-model-2026-10-29/right-empty-source.png",
+          "sourceSha256": "a8d9600b621ba661dd15d615487d0be042968a17582cc8efa3608d58ee377399",
+          "mask": "references/multiview-2026-10-17/right-connection-mask.png",
+          "maskSha256": "e758e5685c0b4d0d96a58ead8ef1512a02a7753e0bde77f093e5e5e2c6a1231c",
+          "selectedPixels": 49867
+        }
+      ]
+    },
+    "overhead": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "40d1fbd38583f2bbfb02009a9b010a4a5cea03bace9e16588e6072f51d37256c",
+      "outputSha256": "815c17c191d26ddeaff16cd036d3bb58b5f36c229a1a40ea4dea981bdfd136f9",
+      "outsidePixels": 4718233,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 94.545,
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/overhead-empty-source.png",
+          "sourceSha256": "32d8114d3fc270e3a153f6a8bd4740893815ed9d133e73a841e68509604721b8",
+          "mask": "references/multiview-2026-10-17/overhead-construction-mask.svg",
+          "maskSha256": "5eac26540ed150d49bd1c7dadc535b63d1333c34232a8e02fe3dcbf4fba0e051",
+          "selectedPixels": 272231
+        }
+      ]
+    },
+    "aerial": {
+      "width": 2736,
+      "height": 1824,
+      "originalSha256": "2c22146e953b03eeb939ad629d0b4d26aa131e763776a39b5887eff99a825ab5",
+      "outputSha256": "3cfcbc8d7bde922fbeed124cad05c834fc3dbe056be99605277d93144afbdede",
+      "outsidePixels": 4860632,
+      "outsideMismatches": 0,
+      "originalPixelPercent": 97.398,
+      "layers": [
+        {
+          "source": "references/current-model-2026-10-29/aerial-empty-source.png",
+          "sourceSha256": "b076ca793dac2772c90d15fed5935fda90daa95b7c843fd914a8f2b211bb3b76",
+          "mask": "references/environment-restore-2026-10-16/aerial-old-railing-mask.svg",
+          "maskSha256": "3f8e88e226c33fd88d312acf90f1245b5fae6b7c302d3f056a9066bdc39d2724",
+          "selectedPixels": 1592
+        },
+        {
+          "source": "references/current-model-2026-10-29/aerial-empty-source.png",
+          "sourceSha256": "b076ca793dac2772c90d15fed5935fda90daa95b7c843fd914a8f2b211bb3b76",
+          "mask": "references/environment-restore-2026-10-16/aerial-construction-mask.svg",
+          "maskSha256": "43a728bfc95fb53317bb2ddc05449df133873a062d9899b6899b7f44504d779d",
+          "selectedPixels": 126965
+        },
+        {
+          "source": "references/current-model-2026-10-29/aerial-empty-source.png",
+          "sourceSha256": "b076ca793dac2772c90d15fed5935fda90daa95b7c843fd914a8f2b211bb3b76",
+          "mask": "references/environment-restore-2026-10-16/aerial-neighbor-floor-mask.svg",
+          "maskSha256": "59e392f0dfd073ebfd042cbf96ed38410d2f0b2f5b6b4cc3f75e8ad41e14d8a9",
+          "selectedPixels": 8161
+        }
+      ]
+    }
+  }
+}

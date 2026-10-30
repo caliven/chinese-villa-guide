@@ -1,5 +1,5 @@
 /** 隔墙／外墙上的洞口（门、窗）。offset 为沿墙从 a 点起的起点。 */
-export type OpeningKind = "door" | "doubleDoor" | "slidingDoor" | "passage" | "window";
+export type OpeningKind = "door" | "bathroomDoor" | "doubleDoor" | "slidingDoor" | "passage" | "window";
 export type DoorHinge = "start" | "end";
 export type DoorSide = "in" | "out";
 
@@ -104,10 +104,11 @@ export interface WallOpening {
   side?: DoorSide;
 }
 
-export const OPENING_KINDS: OpeningKind[] = ["door", "doubleDoor", "slidingDoor", "passage", "window"];
+export const OPENING_KINDS: OpeningKind[] = ["door", "bathroomDoor", "doubleDoor", "slidingDoor", "passage", "window"];
 
 export const openingLabels: Record<OpeningKind, string> = {
   door: "单开门",
+  bathroomDoor: "浴室门",
   doubleDoor: "双开门",
   slidingDoor: "推拉门",
   passage: "门洞（无门）",
@@ -118,6 +119,8 @@ export function defaultOpeningWidth(kind: OpeningKind): number {
   switch (kind) {
     case "door":
       return DOOR_OPENING.room;
+    case "bathroomDoor":
+      return 800;
     case "doubleDoor":
       return 1800;
     case "slidingDoor":

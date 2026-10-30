@@ -48,26 +48,30 @@ test("全目录 JSON 往返保留型号、尺寸、名称和朝向，包括 80 �
   assert.equal(loaded.floors[0]!.furniture.find(item => item.kind === "fp-tv-65")?.d, 80);
 });
 
-test("上游符号全量可选中、坐标有效，朝向统一转换", () => {
+test("全目录符号可选中、坐标有效，原生淋浴房与上游符号各自转换朝向", () => {
   for (const entry of floorplanFurniture) {
     const svg = floorplanFurnitureSymbol(createFurniture(entry.id, 0, 0), ' data-edit="furniture" data-index="3"');
     assert.ok(svg, entry.id);
     assert.doesNotMatch(svg, /NaN|Infinity|undefined/, entry.id);
-    assert.match(svg, /rotate\(180\)/, entry.id);
+    if (entry.id === "fp-shower") assert.doesNotMatch(svg, /rotate\(180\)/, entry.id);
+    else assert.match(svg, /rotate\(180\)/, entry.id);
     assert.match(svg, /class="floorplan-furniture-shape" data-edit="furniture" data-index="3"/, entry.id);
   }
 });
 
-test("新旧淋浴房均只有进出侧一面玻璃，缩放后保持占地", () => {
+test("新旧一字型淋浴房均在进出侧设置固定玻璃与双移门，缩放后保持占地", () => {
   for (const kind of ["shower", "fp-shower"]) {
     const f = createFurniture(kind, 0, 0); f.w = 1200; f.d = 800;
     const glass = new THREE.MeshBasicMaterial();
     const group = floorplanFurnitureModel(f, glass)!;
     const panes: THREE.Mesh[] = [];
     group.traverse(object => { if (object instanceof THREE.Mesh && object.material instanceof THREE.MeshBasicMaterial) panes.push(object); });
-    assert.equal(panes.length, 1, kind);
+    assert.equal(panes.length, 4, kind);
+    assert.equal(panes.filter(p => p.name === "固定玻璃").length, 2);
+    assert.equal(panes.filter(p => p.name === "推拉活动玻璃").length, 2);
     group.updateMatrixWorld(true);
-    const pane = new THREE.Box3().setFromObject(panes[0]!, true);
+    const pane = new THREE.Box3();
+    panes.forEach(p => pane.union(new THREE.Box3().setFromObject(p, true)));
     assert.ok(pane.getSize(new THREE.Vector3()).x > 1100);
     assert.ok(pane.getSize(new THREE.Vector3()).z < 30);
     assertFootprint(group, f);
@@ -99,8 +103,8 @@ test("全目录立体几何有限、尺度为毫米，返回模型独立持有�
     assertFootprint(group, { ...entry, kind: entry.id });
     assert.ok(size.y > 0 && size.y < 3200, `${entry.id}: wrong height scale ${size.y}`);
     assert.ok(size.z > 0 && Number.isFinite(size.z), entry.id);
-    assert.equal(group.children[0]!.scale.x, 1000);
-    assert.equal(group.children[0]!.rotation.y, Math.PI);
+    assert.equal(group.children[0]!.scale.x, entry.id === "fp-shower" ? 1 : 1000);
+    assert.equal(group.children[0]!.rotation.y, entry.id === "fp-shower" ? 0 : Math.PI);
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     previousMaterials = materials;
@@ -203,17 +207,21 @@ test("淋浴房玻璃门可单独选对面或两侧，二维三维和尺寸同�
   for (const kind of ["shower", "fp-shower"] as const) for (const side of ["front", "left", "right"] as const) {
     const f = { ...createFurniture(kind, 0, 0), w: 1200, d: 800, showerDoorSide: side };
     const svg = floorplanFurnitureSymbol(f)!;
-    const expectedLine = side === "front" ? /<line[^>]*x1="-450" y1="450" x2="450" y2="450"/ : side === "left" ? /<line[^>]*x1="450" y1="-450" x2="450" y2="450"/ : /<line[^>]*x1="-450" y1="-450" x2="-450" y2="450"/;
-    assert.match(svg, expectedLine);
+    // 原生符号直接使用实际毫米坐标：花洒在后墙，推拉箭头随门所在面旋转。
+    assert.match(svg, /points="-600,-400 600,-400 600,400 -600,400"/);
+    assert.match(svg, /<circle cx="0" cy="320"/);
+    const arrowStart = side === "front" ? "M-216 -240h432" : `M${side === "right" ? 360 : -360} -144v288`;
+    assert.ok(svg.includes(arrowStart), `${kind}: ${side} sliding direction`);
     const group = floorplanFurnitureModel(f, new THREE.MeshBasicMaterial())!;
     group.updateMatrixWorld(true);
     const panes: THREE.Mesh[] = [];
     group.traverse(o => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshBasicMaterial) panes.push(o); });
-    assert.equal(panes.length, 1);
-    const pane = new THREE.Box3().setFromObject(panes[0]);
+    assert.equal(panes.length, 4);
+    const pane = new THREE.Box3();
+    panes.forEach(p => pane.union(new THREE.Box3().setFromObject(p, true)));
     const center = pane.getCenter(new THREE.Vector3()), size = pane.getSize(new THREE.Vector3());
-    if (side === "front") { assert.ok(center.z < -380); assert.ok(size.x > 1100); }
-    else { assert.ok(side === "left" ? center.x < -580 : center.x > 580); assert.ok(size.z > 750); }
+    if (side === "front") { assert.ok(center.z < -370); assert.ok(size.x > 1100); }
+    else { assert.ok(side === "left" ? center.x < -570 : center.x > 570); assert.ok(size.z > 750); }
     assertFootprint(group, f);
     disposeFurniture(group);
   }

@@ -3242,3 +3242,18 @@ dialog .secondary-button {
 .eave-preset[aria-pressed="true"] { border-color: #426755; box-shadow: inset 0 0 0 1px #426755; background: #e3eee5; }
 .eave-preset:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .eave-swatch { flex: 0 0 14px; width: 14px; height: 14px; border-radius: 50%; border: 1px solid #a7ada2; }
+
+/* 柱标记与图例同时用于图册和户型编辑画布。 */
+.column-symbol-label {
+  font-size: 210px;
+  font-weight: 700;
+  fill: #283c30;
+  stroke: #e6ece1;
+  stroke-width: 45px;
+  paint-order: stroke;
+}
+.column-legend {
+  font-size: 220px;
+  fill: #536151;
+  pointer-events: none;
+}

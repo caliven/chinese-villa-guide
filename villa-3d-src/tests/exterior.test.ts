@@ -104,7 +104,7 @@ test("主辅楼天沟外边反坎高200、净宽600、压顶内倾与瓦边探�
   const lipInset = outerT + clear + innerT;
   const tileInset = lipInset - overhang;
   const midChannel = outerT + clear / 2;
-  assert.ok(overhang > 0, "默认瓦边须探出内沿");
+  assert.equal(overhang, 200, "默认瓦边探入天沟200毫米");
   assert.equal(clear, 600);
   assert.equal(outerT, 300);
   assert.equal(roofGutterDesign.clearDepth, 200);
@@ -262,13 +262,16 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     const mainTileFront = m.z + inset;
     eaves.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return;
+      // 转接梁按柱冠接到墙顶，本来就在瓦面下方；其轮廓由 column-junctions 专项校验。
+      // 探入加大后瓦边越过梁后端，不能把梁当作沿瓦面斜切的天沟／线脚。
+      if (object.name === "悬浮官帽柱顶封闭转接梁") return;
       const positions = object.geometry.getAttribute("position"), p = new THREE.Vector3();
       for (let i = 0; i < positions.count; i++) {
         p.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
         // 只检查进入正屋瓦面进深范围的后端；前方悬挑可低于正屋瓦面外推平面。
         if (p.z < mainTileFront - 0.1) continue;
         const mainHeight = m.eave + roofTileEaveLift() + (p.z - mainTileFront) * pitch / 10;
-        assert.ok(p.y >= mainHeight - 0.02, "檐底、天沟和线脚后端应斜切贴合，不穿进主屋瓦面");
+        assert.ok(p.y >= mainHeight - 0.02, `檐底、天沟和线脚后端应斜切贴合，不穿进主屋瓦面：${object.name} pitch=${pitch} xyz=${p.toArray()} below=${mainHeight-p.y}`);
       }
     });
     const fascia = cap.getObjectByName("天沟外挡边")!;

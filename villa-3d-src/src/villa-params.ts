@@ -32,6 +32,7 @@ import {
   annexRoofGutterDesign,
   annexEaveTrimDesign,
   floatingHatDesign,
+  floatingHatLevels,
   eaveTrimDesign,
   roofTileInset,
   syncRoofTileInset,
@@ -114,7 +115,8 @@ export interface VillaParams {
   annexCorbelSpacing: number;
   annexCorbelCornerSpacing: number;
   annexEyelidToFasciaGap: number;
-  floatingHatRidgeDrop: number;
+  /** 相对默认自动位置的整体升降，正升负降，毫米。 */
+  floatingHatHeightOffset: number;
   oldDepth: number;
   rearGap: number;
   entranceRise: number;
@@ -168,7 +170,7 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   /** 整数度；几何用 tan(°) 转成小数坡度 */
   gutterBedSlope: 1,
   gutterTileGap: 50,
-  gutterTileOverhang: 80,
+  gutterTileOverhang: 200,
   gutterCopingSlope: 4,
   corbelLength: 500,
   corbelSpacing: 700,
@@ -181,13 +183,13 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   annexGutterOuterTopWidth: 300,
   annexGutterBedSlope: 1,
   annexGutterTileGap: 50,
-  annexGutterTileOverhang: 80,
+  annexGutterTileOverhang: 200,
   annexGutterCopingSlope: 4,
   annexCorbelLength: 500,
   annexCorbelSpacing: 700,
   annexCorbelCornerSpacing: 600,
   annexEyelidToFasciaGap: 300,
-  floatingHatRidgeDrop: 500,
+  floatingHatHeightOffset: 0,
   oldDepth: 10800,
   rearGap: 1200,
   entranceRise: 450,
@@ -297,6 +299,17 @@ function predictedTileInset(p: VillaParams) {
   return p.gutterOuterTopWidth + p.gutterClearWidth + GUTTER_INNER_WALL - p.gutterTileOverhang;
 }
 
+/** 与实际官帽共用升降限值；仅依赖候选参数，不能读取尚未应用的全局几何。 */
+export function floatingHatHeightLimits(p: VillaParams) {
+  const inset = predictedTileInset(p), slope = p.roofFenShui / 10;
+  const setback = effectiveThirdSetback(p);
+  const mainRun = (Math.min(p.mainWidth, p.mainDepth - setback) + 2 * p.thirdEave - 2 * inset) / 2;
+  const hatRun = (p.porticoWidth + 1040 - 2 * inset) / 2;
+  const frontToRidge = -980 * p.porticoProjection / DEFAULT_VILLA_PARAMS.porticoProjection
+    + (p.porticoStyle === "recessed" ? p.porticoProjection : 0) - setback + p.thirdEave + hatRun;
+  return floatingHatLevels(mainRun * slope, hatRun, slope, frontToRidge, p.floatingHatHeightOffset);
+}
+
 /** 院坪三点相对弦的拱高；近共线时趋近 0。 */
 export function courtyardAnchorSagitta(p: Pick<
   VillaParams,
@@ -380,8 +393,14 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
       issues.push({ field: key, message: `${String(key)} 须为正数` });
     }
   }
-  if (typeof p.floatingHatRidgeDrop !== "number" || !Number.isFinite(p.floatingHatRidgeDrop) || p.floatingHatRidgeDrop < 0) {
-    issues.push({ field: "floatingHatRidgeDrop", message: "悬浮官帽落脊不能为负" });
+  if (!Number.isFinite(p.floatingHatHeightOffset)) {
+    issues.push({ field: "floatingHatHeightOffset", message: "悬浮官帽升降须为数字（正升、负降）" });
+  } else if (p.floatingHatHeightOffset !== 0) {
+    const { minOffset, maxOffset } = floatingHatHeightLimits(p);
+    if (p.floatingHatHeightOffset < minOffset || p.floatingHatHeightOffset > maxOffset) {
+      issues.push({ field: "floatingHatHeightOffset",
+        message: `当前尺寸下悬浮官帽升降可用范围 ${minOffset}～${maxOffset} mm；需保留柱顶净空、纵脊接入长度，帽脊不能高于主屋脊` });
+    }
   }
   if (p.annexSetback < 0 || !Number.isFinite(p.annexSetback)) {
     issues.push({ field: "annexSetback", message: "辅楼内退不能为负" });
@@ -722,7 +741,9 @@ let currentParams: VillaParams = { ...DEFAULT_VILLA_PARAMS };
 export function normalizeVillaParamsLengths(input: Partial<VillaParams>): VillaParams {
   const raw = isMeterLengthPayload(input, { mainWidth: input.mainWidth })
     ? migrateVillaParamsToMm({ ...input }) : { ...input };
-  const params = { ...DEFAULT_VILLA_PARAMS, ...raw };
+  // 仅保留现有配置字段，废弃项与其他未知项不参与计算或再次保存。
+  const known = Object.fromEntries(Object.entries(raw).filter(([key]) => Object.hasOwn(DEFAULT_VILLA_PARAMS, key)));
+  const params = { ...DEFAULT_VILLA_PARAMS, ...known };
   const independent = Object.values(ANNEX_ROOF_PARAM_KEYS).some(key => raw[key] !== undefined);
   for (const [main, annex] of Object.entries(ANNEX_ROOF_PARAM_KEYS) as [keyof typeof ANNEX_ROOF_PARAM_KEYS, typeof ANNEX_ROOF_PARAM_KEYS[keyof typeof ANNEX_ROOF_PARAM_KEYS]][]) {
     if (raw[annex] === undefined) params[annex] = params[main];
@@ -840,7 +861,7 @@ export function applyVillaParams(input: VillaParams) {
     corbelCornerSpacing: params.annexCorbelCornerSpacing, eyelidToFascia: params.annexEyelidToFasciaGap,
   });
   syncRoofTileInset();
-  floatingHatDesign.ridgeDrop = params.floatingHatRidgeDrop;
+  floatingHatDesign.heightOffset = params.floatingHatHeightOffset;
   // 主楼四坡起高随四面统一 thirdEave 后的外包络半坡重算（与 roofPitch 一致）。
   {
     const roofW = params.mainWidth + 2 * params.thirdEave;

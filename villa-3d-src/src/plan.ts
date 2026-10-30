@@ -375,6 +375,13 @@ function partition(
   );
   return `<g transform="translate(${p.a[0]} ${p.a[1]}) rotate(${angle})" data-wall="${index}" data-wall-role="${role}">${hit}${stroke}${opening}${wallSel}</g>${widthMark}`;
 }
+/** 只标识模型已有柱截面；不据墙交点推断室内结构柱。 */
+function columnMarker(x: number, z: number, w: number, d: number, kind: "portico" | "hat" | "railing", pattern: string) {
+  const short = kind === "railing";
+  const label = short ? "栏杆短柱" : kind === "hat" ? "官帽柱" : "门厅柱";
+  return `<g data-plan-column="${kind}" pointer-events="none"><title>${label} · 模型柱位示意，待结构设计确认</title>${rect(x - w / 2, z - d / 2, w, d, `fill="${short ? "#ece6d8" : `url(#${pattern})`}" stroke="${short ? "#8b806e" : "#465248"}" stroke-width="35"`)}${short ? "" : text(x, z + (PLAN_ENTRANCE_DOWN ? -65 : 65), "柱", "column-symbol-label")}</g>`;
+}
+
 function cornerColumn(x: number, z: number, outward: number, outwardZ = -1) {
   const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg;
   const style = 'fill="#d7d0c2" stroke="#8a8c83" stroke-width="30"';
@@ -940,7 +947,8 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
   const wallFace = src.thirdFront;
   const sideFront = elevation.terraceFront;
   const terraceRails = `<path d="${hasThirdFloorSideTerraces() ? `M${westPost.x} ${wallFace} V${sideFront} H${porch.x} M${eastPost.x} ${wallFace} V${sideFront} H${porch.x + porch.w} ` : ""}M${porch.x} ${elevation.postZ} V${middleWest.z} H${porch.x + porch.w} V${elevation.postZ}" class="balustrade"/>`;
-  const s = `<defs><pattern id="void" patternUnits="userSpaceOnUse" width="280" height="280" patternTransform="rotate(45)"><rect width="280" height="280" fill="#f4f3ee"/><path d="M0 0 V280" stroke="#d8d6cc" stroke-width="45"/></pattern></defs>`;
+  const columnPattern = `plan-column-${building}-${index}`;
+  const s = `<defs><pattern id="${columnPattern}" patternUnits="userSpaceOnUse" width="140" height="140" patternTransform="rotate(45)"><rect width="140" height="140" fill="#c4cec1"/><path d="M0 0 V140" stroke="#788876" stroke-width="25"/></pattern><pattern id="void" patternUnits="userSpaceOnUse" width="280" height="280" patternTransform="rotate(45)"><rect width="280" height="280" fill="#f4f3ee"/><path d="M0 0 V280" stroke="#d8d6cc" stroke-width="45"/></pattern></defs>`;
   const mainPartitions = f.partitions;
   const annexParts = src.annexPartitions;
   const partitionsFor = (r: Room) => (src.annexRooms.some((a) => a.id === r.id) ? annexParts : mainPartitions);
@@ -1126,7 +1134,7 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     ${!isAnnex && index === 2 && hasThirdFloorSideTerraces() ? `${elevation.sideTerraces.map(t => rect(t.x, elevation.terraceFront, t.w, f.front + 40 - elevation.terraceFront, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width="60"')).join("")}${text(8850, -200, "西侧露台", "dim-label")}${text(18400, -200, "东侧露台", "dim-label")}` : ""}
     ${porticoHit}${!isAnnex ? rect(porch.x, porchY, porch.w, porchH, `fill="${index === 1 ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width="60"`) : ""}
     ${!isAnnex ? text(porch.x + porch.w / 2, -1950, index === 2 ? "中央露台 · 前方敞开" : index === 1 ? "门厅上空 · 无楼板" : `门厅 ${formatMm(porch.w)}×${formatMm(porch.projection)} · 计入首层合计`, "dim-label") : ""}
-    ${!isAnnex ? `${index < 2 ? `${posts.map(p => rect(p.x - p.w / 2, elevation.porticoColumnZ - p.w / 2, p.w, p.w, 'fill="#879183"')).join("")}${cornerColumn(site.main.x + 120, f.front + 120, -1)}${cornerColumn(site.main.x + site.main.w - 120, f.front + 120, 1)}` : `${terraceRails}${terracePosts.map(p => rect(p.x - p.w / 2, p.z - p.w / 2, p.w, p.w, 'fill="#c3bba9" stroke="#777872" stroke-width="40"')).join("")}${[porch.x, porch.x + porch.w].map(x => rect(x - elevation.dividerWidth / 2, elevation.postZ - 250, elevation.dividerWidth, 500, 'fill="#879183"')).join("")}${text(porch.x + porch.w / 2, elevation.centerFront - 400, hasThirdFloorSideTerraces() ? "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱" : "三楼不内退 · 仅保留中央门厅露台", "room-size")}`}${cornerColumn(site.main.x + 120, site.main.z + site.main.d - 120, -1, 1)}${cornerColumn(site.main.x + site.main.w - 120, site.main.z + site.main.d - 120, 1, 1)}` : ""}
+    ${!isAnnex ? `${index < 2 ? `${cornerColumn(site.main.x + 120, f.front + 120, -1)}${cornerColumn(site.main.x + site.main.w - 120, f.front + 120, 1)}` : `${terraceRails}${text(porch.x + porch.w / 2, elevation.centerFront - 400, hasThirdFloorSideTerraces() ? "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱" : "三楼不内退 · 仅保留中央门厅露台", "room-size")}`}${cornerColumn(site.main.x + 120, site.main.z + site.main.d - 120, -1, 1)}${cornerColumn(site.main.x + site.main.w - 120, site.main.z + site.main.d - 120, 1, 1)}` : ""}
     ${!isAnnex ? f.rooms.filter(r => r.kind !== "stair").map((r) => room(r, index, editable, false, mainPartitions)).join("") : ""}
     ${isAnnex ? src.annexRooms.map((r) => room(r, index, editable, true, annexParts)).join("") : ""}
     ${options.useZones ? allFurniture.map(useZone).join("") : ""}
@@ -1230,6 +1238,10 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
           )
           .join("")
       : ""}
+    ${!isAnnex ? `<g class="plan-column-markers">${index < 2
+      ? posts.map(p => columnMarker(p.x, elevation.porticoColumnZ, p.w, p.w, "portico", columnPattern)).join("")
+      : terracePosts.map(p => columnMarker(p.x, p.z, p.w, p.w, "railing", columnPattern)).join("") + [porch.x, porch.x + porch.w].map(x => columnMarker(x, elevation.postZ, elevation.dividerWidth, 500, "hat", columnPattern)).join("")}</g>` : ""}
+    ${!isAnnex ? text(body.x + body.w / 2, Math.min(northClear - 3350, dimensions.northOuter - 1550) - 500, "斜线框＝门厅／官帽柱 · 浅色框＝栏杆短柱 · 包角色块＝饰件", "column-legend") + text(body.x + body.w / 2, Math.min(northClear - 3350, dimensions.northOuter - 1550) - 850, "柱位沿用模型示意，待结构设计确认；室内结构柱尚未布置", "column-legend") : ""}
     ${selection}
     ${labels}
     ${regionLabels}

@@ -104,6 +104,8 @@ export interface Furniture {
   label?: string;
   /** 相对淋浴房局部方向，默认正面（花洒对面）。 */
   showerDoorSide?: "front" | "left" | "right";
+  showerShape?: import("./shower-model").ShowerShape;
+  showerOpening?: number;
 }
 export interface Floor {
   name: string;

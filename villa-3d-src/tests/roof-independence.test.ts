@@ -26,7 +26,7 @@ const changedMain: VillaParams = { ...DEFAULT_VILLA_PARAMS,
   gutterClearDepth: 300, gutterInnerDepth: 380, gutterOuterTopWidth: 350,
   gutterBedSlope: 2, gutterTileGap: 80, gutterTileOverhang: 100,
   gutterCopingSlope: 6, corbelLength: 600, corbelSpacing: 900,
-  corbelCornerSpacing: 800, eyelidToFasciaGap: 400, floatingHatRidgeDrop: 700 };
+  corbelCornerSpacing: 800, eyelidToFasciaGap: 400, floatingHatHeightOffset: -200 };
 
 function legacyParams() {
   const legacy: Partial<VillaParams> = { ...changedMain, annexEave: 500 };
@@ -51,9 +51,10 @@ test("屋面字段归入主楼与辅楼，各字段仅出现一次，辅楼不�
     assert.equal(html.split(`data-villa-param="${annex}"`).length, 2);
   }
   assert.match(pane("main"), /data-roof-style="floating"/);
-  assert.match(pane("main"), /data-villa-param="floatingHatRidgeDrop"/);
+  assert.match(pane("main"), /data-villa-param="floatingHatHeightOffset"/);
+  assert.doesNotMatch(html, /floatingHatRidgeDrop|悬浮官帽落脊/);
   assert.match(pane("annex"), /data-villa-param="annexEave"/);
-  assert.doesNotMatch(pane("annex"), /官帽|floatingHatRidgeDrop|secondFrontEave|data-roof-style/);
+  assert.doesNotMatch(pane("annex"), /官帽|floatingHatHeightOffset|secondFrontEave|data-roof-style/);
 });
 
 test("旧毫米与米制方案、尺寸版本及会议快照继承原共用屋面参数", () => {

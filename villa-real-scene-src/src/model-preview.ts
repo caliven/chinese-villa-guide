@@ -1,21 +1,22 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { buildVilla } from "./architecture";
-import { materials } from "./primitives";
-import { batchStatic } from "./render-geometry";
+import { buildVilla, villaLayoutFromDraft } from "../../villa-3d-src/src/architecture";
+import { materials, setCourtyardFinishes } from "../../villa-3d-src/src/primitives";
+import { batchScene } from "../../villa-3d-src/src/render-geometry";
+import { buildSite } from "../../villa-3d-src/src/terrain";
+import { applyVillaParams } from "../../villa-3d-src/src/villa-params";
+import { MM_PER_M } from "../../villa-3d-src/src/units";
+import { fitPhotoCamera, type PhotoView } from "../../villa-3d-src/src/photo-cameras";
+import { parseRealSceneScheme, loadRealSceneScheme, type SchemeDocument } from "../../villa-3d-src/src/real-scene-scheme";
+import { registerPhotoCamera } from "../../villa-3d-src/src/photo-registration";
 
-type PreviewView = "front" | "left" | "right" | "overhead" | "aerial";
-
-const cameraPresets: Record<PreviewView, { pitch: number; yaw: number }> = {
-  front: { pitch: 10, yaw: 0 },
-  left: { pitch: 16, yaw: 48 },
-  right: { pitch: 16, yaw: -48 },
-  overhead: { pitch: 62, yaw: 22 },
-  aerial: { pitch: 25, yaw: 22 },
-};
-
-// 独立的造型参考预览；地面只用于接影，不表示场地边界或实测高程。
+// 直接构建场地页的当前几何；只独立管理取景、光照和资源生命周期。
 export class ModelPreview {
+  static async create(host: HTMLElement, currentScheme: () => unknown, photoView?: PhotoView) {
+    const raw = currentScheme();
+    const saved = raw ? null : await loadRealSceneScheme(new URL("../villa-3d/", location.href));
+    return new ModelPreview(host, currentScheme() ? parseRealSceneScheme(currentScheme()) : saved!, photoView);
+  }
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(35, 1, 0.1, 400);
@@ -26,14 +27,19 @@ export class ModelPreview {
   private readonly geometries = new Set<THREE.BufferGeometry>();
   private readonly ownedMaterials = new Set<THREE.Material>();
   private readonly textures = new Set<THREE.Texture>();
-  private view: PreviewView = "front";
+  private view: PhotoView = "front";
   private disposed = false;
+  private photoPlate: HTMLImageElement | null = null;
+  private readonly plates = new Map<PhotoView, Promise<HTMLImageElement>>();
 
-  constructor(private readonly host: HTMLElement) {
+  constructor(private readonly host: HTMLElement, readonly scheme: SchemeDocument, private readonly photoView?: PhotoView) {
+    applyVillaParams(scheme.villaParams);
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       preserveDrawingBuffer: true,
       powerPreference: "high-performance",
+      logarithmicDepthBuffer: true,
+      alpha: !!photoView,
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -45,11 +51,12 @@ export class ModelPreview {
     canvas.style.display = "block";
     canvas.style.width = "100%";
     canvas.style.height = "100%";
-    canvas.setAttribute("aria-label", "别墅造型参考，可拖动旋转并导出图片");
+    canvas.setAttribute("aria-label", "当前场地模型，可拖动旋转并导出图片");
     host.append(canvas);
 
     this.scene.background = new THREE.Color(0xe6e9e5);
     this.scene.fog = new THREE.Fog(0xe6e9e5, 110, 240);
+    if (photoView) { this.scene.background = null; this.scene.fog = null; }
     const sky = outdoorSky();
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.environment = pmrem.fromEquirectangular(sky);
@@ -59,36 +66,39 @@ export class ModelPreview {
     pmrem.dispose();
 
     const mat = materials();
+    setCourtyardFinishes(mat, scheme.courtyardFinish, scheme.neighborCourtyardFinish);
     Object.values(mat).forEach((material) => this.ownedMaterials.add(material));
-    const villa = buildVilla(mat, false);
+    const villa = buildVilla(mat, false, scheme.villaParams.roofFenShui, scheme.roofStyle,
+      scheme.layoutDraft ? villaLayoutFromDraft(scheme.layoutDraft) : null);
+    villa.balcony.visible = false;
+    const root = new THREE.Group();
+    root.name = "当前场地模型（mm）";
+    root.scale.setScalar(1 / MM_PER_M);
+    root.add(villa.group);
+    this.scene.add(root);
     this.collectResources(villa.group);
-    // 保持原模型各楼层、屋顶、门厅的分组；现有可选后阳台仍按原默认隐藏。
-    for (const child of villa.group.children) batchStatic(child);
-    this.scene.add(villa.group);
+    for (const part of [...villa.levels, villa.annex, villa.roof, villa.annexRoof, villa.portico]) batchScene(part);
+    root.updateMatrixWorld(true);
     this.bounds = new THREE.Box3().setFromObject(villa.group);
-
-    const groundMaterial = new THREE.MeshStandardMaterial({
-      color: 0xc7cac2,
-      roughness: 1,
-      metalness: 0,
-    });
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(350, 350), groundMaterial);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(10.5, -0.025, 3);
-    ground.receiveShadow = true;
-    this.scene.add(ground);
-
-    const pavingMaterial = new THREE.MeshStandardMaterial({
-      color: 0xd6d5cd,
-      roughness: 0.92,
-      metalness: 0,
-    });
-    const paving = new THREE.Mesh(new THREE.PlaneGeometry(25, 17), pavingMaterial);
-    paving.name = "造型截图的中性院坪";
-    paving.rotation.x = -Math.PI / 2;
-    paving.position.set(10.5, -0.014, 1.75);
-    paving.receiveShadow = true;
-    this.scene.add(paving);
+    if (!photoView) {
+      const land = buildSite(mat);
+      land.existing.visible = land.dimensions.visible = land.overlap.visible = false;
+      land.cutOutline.visible = land.columnNotes.visible = land.roadsideDimensions.visible = false;
+      land.frontNeighbor.visible = false;
+      land.garage.traverse(object => { if (object instanceof THREE.Sprite) object.visible = false; });
+      root.add(land.context, land.fixed, land.proposed);
+      for (const part of Object.values(land)) if (part instanceof THREE.Object3D) this.collectResources(part);
+      for (const part of [land.fixed, land.deck, land.garage, land.sideNeighbor, land.rearNeighbor, land.roadsideNeighbor]) batchScene(part);
+      root.updateMatrixWorld(true);
+      this.bounds.union(new THREE.Box3().setFromObject(land.deck));
+      this.bounds.union(new THREE.Box3().setFromObject(land.garage));
+    }
+    // 为截图和回归核对公开数据身份；不暴露控制接口。
+    canvas.dataset.modelSource = "villa-3d";
+    canvas.dataset.mainWidth = String(scheme.villaParams.mainWidth);
+    canvas.dataset.annexWidth = String(scheme.villaParams.annexWidth);
+    canvas.dataset.roofStyle = scheme.roofStyle;
+    if (photoView) canvas.dataset.scheme = JSON.stringify(scheme);
 
     const daylight = new THREE.DirectionalLight(0xfff8ed, 3.4);
     daylight.position.set(31, 35, -27);
@@ -117,51 +127,45 @@ export class ModelPreview {
     this.controls.maxDistance = 95;
     this.controls.maxPolarAngle = Math.PI / 2 - 0.035;
     this.controls.screenSpacePanning = true;
+    this.controls.enabled = !photoView;
     this.resize();
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.renderer.setAnimationLoop(() => {
-      this.controls.update();
+      if (!this.photoView) this.controls.update();
       this.renderer.render(this.scene, this.camera);
     });
   }
 
-  setView(view: PreviewView) {
+  async setView(view: PhotoView) {
     if (this.disposed) return;
     this.view = view;
-    const preset = cameraPresets[view];
-    const pitch = THREE.MathUtils.degToRad(preset.pitch);
-    const yaw = THREE.MathUtils.degToRad(preset.yaw);
-    const offset = new THREE.Vector3(
-      Math.sin(yaw) * Math.cos(pitch),
-      Math.sin(pitch),
-      -Math.cos(yaw) * Math.cos(pitch),
-    );
-    const target = this.bounds.getCenter(new THREE.Vector3());
-    const forward = offset.clone().negate();
-    const right = forward.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
-    const up = right.clone().cross(forward).normalize();
-    const vertical = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
-    const horizontal = vertical * this.camera.aspect;
-    let distance = 13;
-    for (const x of [this.bounds.min.x, this.bounds.max.x])
-      for (const y of [this.bounds.min.y, this.bounds.max.y])
-        for (const z of [this.bounds.min.z, this.bounds.max.z]) {
-          const corner = new THREE.Vector3(x, y, z).sub(target);
-          const depth = corner.dot(offset);
-          distance = Math.max(
-            distance,
-            depth + Math.abs(corner.dot(right)) / (horizontal * 0.84),
-            depth + Math.abs(corner.dot(up)) / (vertical * 0.84),
-          );
-        }
+    // 清掉拖动的惯性，快速切机位时不带入前一机位的残余旋转。
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    if (!this.photoView) this.controls.update();
+    const { target, distance } = this.photoView ? registerPhotoCamera(this.camera, view) : fitPhotoCamera(this.camera, this.bounds, view);
     this.controls.maxDistance = Math.max(95, distance * 3);
     this.controls.target.copy(target);
-    this.camera.position.copy(target).addScaledVector(offset, distance);
-    this.camera.up.set(0, 1, 0);
-    this.camera.lookAt(target);
-    this.controls.update();
+    if (!this.photoView) this.controls.update();
+    this.controls.enableDamping = damping;
     this.controls.saveState();
+    if (this.photoView) {
+      let plate = this.plates.get(view);
+      if (!plate) {
+        plate = new Promise<HTMLImageElement>((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error("实景底图未就绪"));
+          image.src = `./photos/${view}-plate.png`;
+        });
+        this.plates.set(view, plate);
+      }
+      const image = await plate;
+      if (this.disposed || this.view !== view) return;
+      this.photoPlate = image;
+      this.host.style.background = `center / contain no-repeat url("${image.src}")`;
+    }
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -170,13 +174,23 @@ export class ModelPreview {
     if (this.disposed) throw new Error("造型预览已经关闭");
     const size = this.renderer.getSize(new THREE.Vector2());
     const pixelRatio = this.renderer.getPixelRatio();
-    const width = Math.max(2560, Math.round(size.x * pixelRatio));
+    const width = this.photoView ? 2736 : Math.max(2560, Math.round(size.x * pixelRatio));
     const height = Math.max(1, Math.round(width / this.camera.aspect));
     try {
       this.renderer.setPixelRatio(1);
       this.renderer.setSize(width, height, false);
-      this.controls.update();
+      if (!this.photoView) this.controls.update();
       this.renderer.render(this.scene, this.camera);
+      if (this.photoPlate) {
+        this.renderer.domElement.dataset.modelLayer = this.renderer.domElement.toDataURL("image/png");
+        const result = document.createElement("canvas");
+        result.width = width;
+        result.height = height;
+        const ctx = result.getContext("2d")!;
+        ctx.drawImage(this.photoPlate, 0, 0, width, height);
+        ctx.drawImage(this.renderer.domElement, 0, 0);
+        return result.toDataURL("image/png");
+      }
       return this.renderer.domElement.toDataURL("image/png");
     } finally {
       this.renderer.setPixelRatio(pixelRatio);
@@ -202,16 +216,18 @@ export class ModelPreview {
     this.scene.clear();
     this.renderer.dispose();
     this.renderer.domElement.remove();
+    this.host.style.removeProperty("background");
   }
 
   private resize() {
     if (this.disposed) return;
-    const width = Math.max(1, this.host.clientWidth || 960);
-    const height = Math.max(1, this.host.clientHeight || 600);
+    if (!this.host.clientWidth || !this.host.clientHeight) return;
+    const width = this.host.clientWidth;
+    const height = this.host.clientHeight;
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.setView(this.view);
+    void this.setView(this.view);
   }
 
   private collectResources(root: THREE.Object3D) {

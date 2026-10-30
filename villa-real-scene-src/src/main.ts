@@ -1,9 +1,10 @@
 import "./style.css";
+import { REAL_SCENE_REQUEST, REAL_SCENE_SCHEME } from "../../villa-3d-src/src/real-scene-protocol";
 
 type View = "front" | "left" | "right" | "overhead" | "aerial";
 type Mode = "render" | "original" | "compare" | "model";
 type ModelController = {
-  setView(view: View): void;
+  setView(view: View): void | Promise<void>;
   exportImage(): string | Promise<string>;
   dispose(): void;
 };
@@ -12,27 +13,27 @@ const views: Record<View, { label: string; original: string; render: string }> =
   front: {
     label: "近景正面",
     original: "./photos/front-original.jpg",
-    render: "./photos/front-render.png?v=20261016-original1",
+    render: "./photos/front-render.png?v=20261029-current-model",
   },
   left: {
     label: "左侧斜视",
     original: "./photos/left-original.jpg",
-    render: "./photos/left-render.png?v=20261016-multiview1",
+    render: "./photos/left-render.png?v=20261029-current-model",
   },
   right: {
     label: "右侧斜视",
     original: "./photos/right-original.jpg",
-    render: "./photos/right-render.png?v=20261016-multiview1",
+    render: "./photos/right-render.png?v=20261029-current-model",
   },
   overhead: {
     label: "屋顶俯瞰",
     original: "./photos/overhead-original.jpg",
-    render: "./photos/overhead-render.png?v=20261016-multiview1",
+    render: "./photos/overhead-render.png?v=20261029-current-model",
   },
   aerial: {
     label: "全景航拍",
     original: "./photos/aerial-original.jpg",
-    render: "./photos/aerial-render.png?v=20261016-original1",
+    render: "./photos/aerial-render.png?v=20261029-current-model",
   },
 };
 const modes: Record<Mode, string> = {
@@ -79,7 +80,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       </div>
       <p id="asset-status" class="asset-status" role="status" hidden></p>
     </section>
-    <footer class="page-footer"><p>合成参考，场地位置为估算；未同步最新方案，尺寸以当前方案模型为准。</p></footer>
+    <footer class="page-footer"><p>建筑模型同步当前场地；合成图片为保存稿渲染，落位为照片估算。</p></footer>
   </main>
   <div id="toast" class="toast" role="status" hidden></div>
 `;
@@ -89,9 +90,12 @@ const params = new URLSearchParams(window.location.search);
 const isView = (value: string | null): value is View => value !== null && Object.hasOwn(views, value);
 const modelParam = params.get("model");
 const viewParam = params.get("view");
+const captureParam = params.get("capture");
+const captureView = isView(captureParam) ? captureParam : undefined;
+document.body.classList.toggle("photo-capture", !!captureView);
 document.body.classList.toggle("is-embedded", params.get("embed") === "1");
-let view: View = isView(modelParam) ? modelParam : isView(viewParam) ? viewParam : "front";
-let mode: Mode = isView(modelParam) ? "model" : "render";
+let view: View = captureView ?? (isView(modelParam) ? modelParam : isView(viewParam) ? viewParam : "front");
+let mode: Mode = captureView || isView(modelParam) ? "model" : "render";
 let model: ModelController | null = null;
 let updateId = 0;
 let imageReady = false;
@@ -99,6 +103,19 @@ let comparison = 50;
 let comparisonDrag: { pointer: number; startX: number; startAmount: number } | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 const imageCache = new Map<string, Promise<string>>();
+let currentScheme: unknown = null;
+let currentSchemeKey = "";
+window.addEventListener("message", event => {
+  if (window.parent === window || event.source !== window.parent || event.origin !== location.origin || event.data?.type !== REAL_SCENE_SCHEME) return;
+  const next = event.data.scheme;
+  const key = JSON.stringify([next?.villaParams, next?.layoutDraft, next?.roofStyle, next?.courtyardFinish, next?.neighborCourtyardFinish]);
+  if (key === currentSchemeKey) return;
+  currentSchemeKey = key;
+  currentScheme = next;
+  if (model) { model.dispose(); model = null; }
+  if (mode === "model") void updateView();
+});
+if (window.parent !== window) window.parent.postMessage({ type: REAL_SCENE_REQUEST }, location.origin);
 
 Object.defineProperty(window, "__realSceneState", {
   get: () => ({ view, mode, imageReady, modelReady: model !== null }),
@@ -128,12 +145,19 @@ function loadImage(url: string): Promise<string> {
 }
 
 function download(url: string, name: string) {
+  // 高分辨率截图使用 Blob，避免数MB的 data URL 被浏览器下载入口截断。
+  let blobUrl: string | null = null;
+  if (url.startsWith("data:image/png;base64,")) {
+    const bytes = Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), character => character.charCodeAt(0));
+    blobUrl = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+  }
   const link = document.createElement("a");
-  link.href = url;
+  link.href = blobUrl ?? url;
   link.download = name;
   document.body.appendChild(link);
   link.click();
   link.remove();
+  if (blobUrl) setTimeout(() => URL.revokeObjectURL(blobUrl!), 60_000);
 }
 
 function setImage(element: HTMLImageElement, url: string, description: string) {
@@ -185,6 +209,7 @@ async function updateView() {
   endComparisonDrag();
   const thisUpdate = ++updateId;
   imageReady = false;
+  delete $("download-image").dataset.exportImage;
   updateSelection();
   $<HTMLButtonElement>("download-image").disabled = true;
   $("asset-status").hidden = true;
@@ -197,7 +222,8 @@ async function updateView() {
 
   if (mode === "model") {
     if (model) {
-      model.setView(view);
+      await model.setView(view);
+      if (thisUpdate !== updateId) return;
       imageReady = true;
       $<HTMLButtonElement>("download-image").disabled = false;
       return;
@@ -208,8 +234,11 @@ async function updateView() {
       const { ModelPreview } = await import("./model-preview");
       if (thisUpdate !== updateId) return;
       $("model-host").replaceChildren();
-      model = new ModelPreview($("model-host"));
-      model.setView(view);
+      const nextModel = await ModelPreview.create($("model-host"), () => currentScheme, captureView);
+      if (thisUpdate !== updateId) { nextModel.dispose(); return; }
+      model = nextModel;
+      await model.setView(view);
+      if (thisUpdate !== updateId) return;
       $("model-host").setAttribute("aria-busy", "false");
       imageReady = true;
       $<HTMLButtonElement>("download-image").disabled = false;
@@ -340,6 +369,7 @@ $("download-image").addEventListener("click", async () => {
   try {
     if (selectedMode === "model" && model) {
       const url = await model.exportImage();
+      if (captureView) button.dataset.exportImage = url;
       download(url, `安化山居-${selected.label}-模型.png`);
     } else {
       const original = selectedMode === "original";

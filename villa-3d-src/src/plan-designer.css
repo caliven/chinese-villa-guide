@@ -1039,3 +1039,16 @@ body.plan-designer {
 #plan-panel[data-editor-canvas="false"] .editor-canvas-tools,
 #plan-panel[data-editor-canvas="false"] .editor-plan-scale,
 #plan-panel[data-editor-canvas="false"] .editor-mode-hint { display: none !important; }
+
+.editor-floor-svg .column-legend { display: none; }
+.designer-column-legend p { font-size: 12px; line-height: 1.7; }
+.column-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
+  border: 1px solid #465248;
+  background: repeating-linear-gradient(45deg, #c4cec1 0 3px, #788876 3px 4px);
+}
+.column-swatch.short { margin-left: 10px; border-color: #8b806e; background: #ece6d8; }

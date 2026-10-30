@@ -1,11 +1,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { floorPoint, layoutRoomAt, layoutWallAt, selectionKey, selectionBounds } from "../src/layout-scene.ts";
+import { editorLampSpecs, floorPoint, layoutRoomAt, layoutWallAt, selectionKey, selectionBounds } from "../src/layout-scene.ts";
 import { LayoutEditor } from "../src/layout-editor.ts";
 import { clonePublishedLayout } from "../src/layout-draft.ts";
 import { batchStatic, visibleSurfaceMeshes } from "../src/render-geometry.ts";
 import { site } from "../src/data.ts";
+import { roomLabelPosition } from "../src/design-data.ts";
+
+test("楼层分离限制夜景光源数量，单层逐房间灯光不变", () => {
+  const draft = clonePublishedLayout(), before = structuredClone(draft);
+  const overview = editorLampSpecs(draft, 0, true);
+  const count = draft.floors.reduce((n, floor) => n + floor.rooms.filter(r => r.kind !== "void" && r.kind !== "stair").length, 0)
+    + draft.annexRooms.filter(r => r.kind !== "void" && r.kind !== "stair").length;
+  assert.ok(overview.length <= 7 && overview.length < count);
+  for (let floor = 0; floor < 3; floor++) {
+    const data = draft.floors[floor]!;
+    const single = editorLampSpecs(draft, floor, false);
+    const rooms = data.rooms.filter(r => r.kind !== "void" && r.kind !== "stair");
+    for (const [i, room] of rooms.entries()) {
+      const [x, z] = roomLabelPosition(room, floor, data.partitions);
+      assert.deepEqual(single[i], { x, z, y: data.y + (floor === 0 ? site.entranceRise : 0) + Math.min(data.height - (floor === 0 ? site.entranceRise : 0) - 250, 2600), intensity: 16, distance: 7 });
+    }
+    assert.equal(single.length, rooms.length + (floor === 0 ? draft.annexRooms.filter(r => r.kind !== "void" && r.kind !== "stair").length : 0));
+    assert.ok(overview.some(light => light.y === data.y * 2.25 + (floor === 0 ? site.entranceRise : 0) + Math.min(data.height - (floor === 0 ? site.entranceRise : 0) - 250, 2600)));
+  }
+  assert.deepEqual(draft, before);
+});
 
 test("三维射线按楼层标高换算毫米，平行地面的视线不生成落点", () => {
   const ray = new THREE.Ray(new THREE.Vector3(12.345, 10, 4.567), new THREE.Vector3(0, -1, 0));

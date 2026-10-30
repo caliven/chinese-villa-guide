@@ -5,6 +5,7 @@ export type DoorMaterials = {
   wood: THREE.Material; dark: THREE.Material; glass: THREE.Material;
   bronze?: THREE.Material; bronzeDark?: THREE.Material;
   doorTimber?: THREE.Material; doorInset?: THREE.Material;
+  doorBathFrame?: THREE.Material; doorBathGlass?: THREE.Material;
   doorHardware?: THREE.Material; doorSeal?: THREE.Material;
   doorBronze?: THREE.Material; doorBronzeInset?: THREE.Material; doorBronzeHardware?: THREE.Material;
 };
@@ -13,7 +14,7 @@ export type DoorSpec = {
   hinge?: "start" | "end"; side?: "in" | "out";
 };
 type DoorOptions = {
-  style?: "timber" | "bronze" | "glazed"; open?: boolean; frame?: boolean;
+  style?: "timber" | "bronze" | "glazed" | "bathroom"; open?: boolean; frame?: boolean;
   thickness?: number; outward?: number; z?: number; bottom?: number; top?: number;
 };
 
@@ -37,6 +38,8 @@ export function doorFinishMaterials() {
   map.magFilter = THREE.LinearFilter; map.minFilter = THREE.LinearMipmapLinearFilter;
   map.generateMipmaps = true; map.needsUpdate = true;
   return {
+    doorBathFrame: new THREE.MeshStandardMaterial({ name: "浴室门深灰铝框", color: 0x414747, roughness: .4, metalness: .65 }),
+    doorBathGlass: new THREE.MeshStandardMaterial({ name: "浴室门隐私雾面玻璃", color: 0xdce5df, roughness: .92, metalness: 0, transparent: false }),
     doorTimber: new THREE.MeshStandardMaterial({ name: "浅胡桃木门及门套", color: 0xffffff, map, roughness: .48 }),
     doorInset: new THREE.MeshStandardMaterial({ name: "木门凹入门芯", color: 0xeee7dc, map, roughness: .57 }),
     doorHardware: new THREE.MeshStandardMaterial({ name: "拉丝镍门五金", color: 0x92968f, roughness: .29, metalness: .78 }),
@@ -50,15 +53,15 @@ export function doorFinishMaterials() {
 /** 共用毫米实体。门扇原位裁切，剖看不会把高处五金下移或补出假门头。 */
 export function doorModel(parent: THREE.Object3D, spec: DoorSpec, mat: DoorMaterials, options: DoorOptions = {}) {
   const group = new THREE.Group(); parent.add(group);
-  const style = options.style ?? (spec.kind === "slidingDoor" ? "glazed" : "timber");
-  group.name = style === "bronze" ? "铸铝咖色大门" : style === "glazed" ? "双轨玻璃推拉门" : "实木造型室内门";
+  const style = options.style ?? (spec.kind === "bathroomDoor" ? "bathroom" : spec.kind === "slidingDoor" ? "glazed" : "timber");
+  group.name = style === "bathroom" ? "窄铝框雾面玻璃浴室门" : style === "bronze" ? "铸铝咖色大门" : style === "glazed" ? "双轨玻璃推拉门" : "实木造型室内门";
   group.position.set(spec.at, spec.sill, options.z ?? 0);
   group.userData.doorDimensions = { width: spec.w, height: spec.h, kind: spec.kind ?? "door", style };
   const bottom = (options.bottom ?? -Infinity) - spec.sill, top = (options.top ?? Infinity) - spec.sill;
   if (spec.kind === "passage" || top <= 0 || bottom >= spec.h || spec.w <= 0 || spec.h <= 0) return group;
   const timber = mat.doorTimber ?? mat.wood, seal = mat.doorSeal ?? mat.dark;
   const hardware = style === "bronze" ? mat.doorBronzeHardware ?? mat.bronze ?? mat.dark : mat.doorHardware ?? mat.dark;
-  const finish = style === "bronze" ? mat.doorBronze ?? mat.bronze ?? mat.dark : timber;
+  const finish = style === "bathroom" ? mat.doorBathFrame ?? mat.dark : style === "bronze" ? mat.doorBronze ?? mat.bronze ?? mat.dark : timber;
   const inset = style === "bronze" ? mat.doorBronzeInset ?? mat.bronzeDark ?? finish : mat.doorInset ?? timber;
   const thickness = options.thickness ?? 200, outward = options.outward ?? -1;
 
@@ -190,7 +193,7 @@ export function doorModel(parent: THREE.Object3D, spec: DoorSpec, mat: DoorMater
   const double = spec.kind === "doubleDoor", count = double ? 2 : 1;
   const leafW = (x1 - x0 - 2 * gap - (double ? gap : 0)) / count;
   const leafH = spec.h - head - floorGap - gap, depth = style === "bronze" ? 70 : 42;
-  const open = options.open ?? style === "timber", openSide = spec.side === "in" ? -1 : 1;
+  const open = options.open ?? (style === "timber" || style === "bathroom"), openSide = spec.side === "in" ? -1 : 1;
   if (double && !open) piece(group, 0, floorGap + leafH / 2, -outward * (depth / 2 - 3), 8, leafH, 6, seal, "双扇中缝密封条");
   for (let i = 0; i < count; i++) {
     const end = double ? i === 1 : spec.hinge === "end", direction = end ? -1 : 1;
@@ -199,20 +202,30 @@ export function doorModel(parent: THREE.Object3D, spec: DoorSpec, mat: DoorMater
     leaf.rotation.y = open ? -direction * openSide * Math.PI / 2 : 0;
     leaf.userData.doorHinge = end ? "end" : "start";
     const cx = direction * leafW / 2, cy = floorGap + leafH / 2;
-    const stile = Math.min(style === "bronze" ? 95 : 85, leafW / 5), topRail = 100, bottomRail = style === "bronze" ? 170 : 140;
-    piece(leaf, cx, cy, 0, leafW, leafH, depth - 10, finish, "门扇基板", 2);
-    for (const sign of [-1, 1]) piece(leaf, cx + sign * (leafW - stile) / 2, cy, 0, stile, leafH, depth, finish, "门扇边梃", 2);
-    piece(leaf, cx, spec.h - head - gap - topRail / 2, 0, leafW - 2 * stile, topRail, depth, finish, "门扇上横档", 2);
-    piece(leaf, cx, floorGap + bottomRail / 2, 0, leafW - 2 * stile, bottomRail, depth, finish, "门扇下横档", 2);
-    const mid = floorGap + leafH * .29, midRail = style === "bronze" ? 80 : 75;
-    piece(leaf, cx, mid, 0, leafW - 2 * stile, midRail, depth, finish, "门扇中横档", 2);
-    for (const [lo, hi] of [[floorGap + bottomRail, mid - midRail / 2], [mid + midRail / 2, spec.h - head - gap - topRail]]) {
-      const w = leafW - 2 * stile - 5, h = hi - lo - 5, y = (lo + hi) / 2;
-      if (w <= 16 || h <= 16) continue;
-      for (const face of [-1, 1]) {
-        piece(leaf, cx, y, face * (depth / 2 - 7), w, h, 8, inset, "凹入门芯", 1.5);
-        border(leaf, cx, y, face * (depth / 2 + 1), w + 4, h + 4, 12, 8, finish, "门芯倒角压线");
-        if (style === "bronze") border(leaf, cx, y, face * (depth / 2 - 1), w - 26, h - 26, 5, 4, finish, "咖色门芯内线");
+    if (style === "bathroom") {
+      const stile = Math.min(38, leafW / 6), rail = 45, lowRail = 90;
+      for (const sign of [-1, 1]) piece(leaf, cx + sign * (leafW - stile) / 2, cy, 0, stile, leafH, depth, finish, "浴室门窄边竖框", 2);
+      piece(leaf, cx, floorGap + leafH - rail / 2, 0, leafW - 2 * stile, rail, depth, finish, "浴室门上横框", 2);
+      piece(leaf, cx, floorGap + lowRail / 2, 0, leafW - 2 * stile, lowRail, depth, finish, "浴室门防潮下横框", 2);
+      const gw = leafW - 2 * stile, gh = leafH - rail - lowRail, gy = floorGap + lowRail + gh / 2;
+      piece(leaf, cx, gy, 0, gw, gh, 8, mat.doorBathGlass ?? mat.glass, "浴室门整片雾面玻璃");
+      for (const face of [-1, 1]) border(leaf, cx, gy, face * 7, gw + 6, gh + 6, 6, 6, seal, "浴室门玻璃密封压条");
+    } else {
+      const stile = Math.min(style === "bronze" ? 95 : 85, leafW / 5), topRail = 100, bottomRail = style === "bronze" ? 170 : 140;
+      piece(leaf, cx, cy, 0, leafW, leafH, depth - 10, finish, "门扇基板", 2);
+      for (const sign of [-1, 1]) piece(leaf, cx + sign * (leafW - stile) / 2, cy, 0, stile, leafH, depth, finish, "门扇边梃", 2);
+      piece(leaf, cx, spec.h - head - gap - topRail / 2, 0, leafW - 2 * stile, topRail, depth, finish, "门扇上横档", 2);
+      piece(leaf, cx, floorGap + bottomRail / 2, 0, leafW - 2 * stile, bottomRail, depth, finish, "门扇下横档", 2);
+      const mid = floorGap + leafH * .29, midRail = style === "bronze" ? 80 : 75;
+      piece(leaf, cx, mid, 0, leafW - 2 * stile, midRail, depth, finish, "门扇中横档", 2);
+      for (const [lo, hi] of [[floorGap + bottomRail, mid - midRail / 2], [mid + midRail / 2, spec.h - head - gap - topRail]]) {
+        const w = leafW - 2 * stile - 5, h = hi - lo - 5, y = (lo + hi) / 2;
+        if (w <= 16 || h <= 16) continue;
+        for (const face of [-1, 1]) {
+          piece(leaf, cx, y, face * (depth / 2 - 7), w, h, 8, inset, "凹入门芯", 1.5);
+          border(leaf, cx, y, face * (depth / 2 + 1), w + 4, h + 4, 12, 8, finish, "门芯倒角压线");
+          if (style === "bronze") border(leaf, cx, y, face * (depth / 2 - 1), w - 26, h - 26, 5, 4, finish, "咖色门芯内线");
+        }
       }
     }
     for (const fraction of [.16, .5, .84]) {
@@ -229,6 +242,11 @@ export function doorModel(parent: THREE.Object3D, spec: DoorSpec, mat: DoorMater
         rod(leaf, [handleX, handleY, z + face * 6], [handleX, handleY, z + face * 42], 8, hardware, "门执手支颈");
         rod(leaf, [handleX, handleY, z + face * 42], [handleX - direction * 105, handleY, z + face * 42], 8, hardware, "门执手横柄");
         for (const offset of [-16, 16]) rod(leaf, [handleX + offset, handleY, z + face * 6], [handleX + offset, handleY, z + face * 7], 2.5, seal, "执手固定螺钉");
+      }
+      if (style === "bathroom") {
+        rod(leaf, [handleX, handleY - 90, z], [handleX, handleY - 90, z + face * 8], 20, hardware, "浴室门隐私锁底座");
+        piece(leaf, handleX, handleY - 90, z + face * 12, face === -1 ? 28 : 3, 8, 8, hardware, face === -1 ? "浴室门内侧旋钮" : "浴室门外侧应急槽", 1);
+        continue;
       }
       rod(leaf, [handleX, handleY - 140, z], [handleX, handleY - 140, z + face * 5], 17, hardware, "门锁锁孔盖");
       rod(leaf, [handleX, handleY - 138, z + face * 5], [handleX, handleY - 138, z + face * 6], 4, seal, "门锁钥匙孔");

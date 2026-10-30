@@ -98,6 +98,38 @@ export function layoutWallAt(draft: LayoutDraft, floor: number, point: Point, he
   return (closest as { selection: SelectionItem } | null)?.selection ?? null;
 }
 
+type EditorLamp = { x: number; y: number; z: number; intensity: number; distance: number };
+
+/** 分离总览按建筑分区合并灯光；单层和漫游保留原有逐房间灯光。坐标为毫米。 */
+export function editorLampSpecs(draft: LayoutDraft, floor: number, exploded: boolean): EditorLamp[] {
+  const lamps: EditorLamp[] = [];
+  const add = (rooms: typeof draft.annexRooms, parts: typeof draft.annexPartitions, index: number, base: number, height: number, annex: boolean) => {
+    const points = rooms.filter(room => room.kind !== "void" && room.kind !== "stair")
+      .map(room => roomLabelPosition(room, index, parts));
+    const y = base + Math.min(height - 250, 2600);
+    if (!exploded) {
+      for (const [x, z] of points) lamps.push({ x, y, z, intensity: 16, distance: 7 });
+      return;
+    }
+    // 主楼按两个开间范围汇总，辅楼独立汇总；空分区不创建灯。
+    const middle = site.main.x + site.main.w / 2;
+    const zones = annex ? [points] : [points.filter(([x]) => x < middle), points.filter(([x]) => x >= middle)];
+    for (const zone of zones) {
+      if (!zone.length) continue;
+      const x = zone.reduce((sum, point) => sum + point[0], 0) / zone.length;
+      const z = zone.reduce((sum, point) => sum + point[1], 0) / zone.length;
+      lamps.push({ x, y, z, intensity: 32, distance: 11 });
+    }
+  };
+  for (const [index, data] of draft.floors.entries()) {
+    if (!exploded && index !== floor) continue;
+    const rise = index === 0 ? site.entranceRise : 0;
+    add(data.rooms, data.partitions, index, data.y + rise + (exploded ? data.y * 1.25 : 0), data.height - rise, false);
+  }
+  if (floor === 0 || exploded) add(draft.annexRooms, draft.annexPartitions, 0, draft.floors[0].y + site.entranceRise, site.annex.height - site.entranceRise, true);
+  return lamps;
+}
+
 interface SceneEditorHost {
   active(): boolean;
   floor(): number;
@@ -273,7 +305,8 @@ export class LayoutScene {
   setWallHeight(height: EditorWallHeight) { this.cut = height; this.sync(); }
   isWalking() { return this.walking; }
   isNight() { return this.night; }
-  setNight(night: boolean) { this.night = night; this.viewer.renderer.shadowMap.needsUpdate = true; this.sync(); }
+  // 切换仅改变灯光强度及背景，不移动太阳或几何，沿用已缓存的阴影。
+  setNight(night: boolean) { this.night = night; this.sync(); }
   focusSelection() {
     if (!this.selectionBox.visible) return;
     this.viewer.setFloorCamera("orbit", this.selectionBox.box.clone().expandByScalar(1.5));
@@ -284,22 +317,11 @@ export class LayoutScene {
   private updateLamps(draft: LayoutDraft, floor: number, exploded: boolean, key: string) {
     if (!this.night || this.lampsKey === key) return;
     this.lamps.clear();
-    const add = (rooms: typeof draft.annexRooms, parts: typeof draft.annexPartitions, index: number, base: number, height: number) => {
-      for (const room of rooms) {
-        if (room.kind === "void" || room.kind === "stair") continue;
-        const [x, z] = roomLabelPosition(room, index, parts);
-        const light = new THREE.PointLight(0xffcd8d, 16, 7, 2);
-        light.position.set(toM(x), toM(base + Math.min(height - 250, 2600)), toM(z));
-        this.lamps.add(light);
-      }
-    };
-    for (const [index, data] of draft.floors.entries()) {
-      if (!exploded && index !== floor) continue;
-      const rise = index === 0 ? site.entranceRise : 0;
-      const base = data.y + rise + (exploded ? data.y * 1.25 : 0);
-      add(data.rooms, data.partitions, index, base, data.height - rise);
+    for (const spec of editorLampSpecs(draft, floor, exploded)) {
+      const light = new THREE.PointLight(0xffcd8d, spec.intensity, spec.distance, 2);
+      light.position.set(toM(spec.x), toM(spec.y), toM(spec.z));
+      this.lamps.add(light);
     }
-    if (floor === 0 || exploded) add(draft.annexRooms, draft.annexPartitions, 0, draft.floors[0].y + site.entranceRise, site.annex.height - site.entranceRise);
     this.lampsKey = key;
   }
 

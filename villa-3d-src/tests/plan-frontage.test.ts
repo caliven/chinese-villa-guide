@@ -12,8 +12,8 @@ import { facades } from "../src/facades";
 
 test.afterEach(resetVillaParams);
 
-function rectangles(svg: string, fill: string) {
-  return [...svg.matchAll(new RegExp(`<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" fill="${fill}"`, "g"))]
+function rectangles(svg: string, kind: string) {
+  return [...svg.matchAll(new RegExp(`<g data-plan-column="${kind}"[^>]*><title>[^<]*</title><rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"`, "g"))]
     .map(([, x, z, w, d]) => ({ x: +x + +w / 2, z: +z + +d / 2, w: +w, d: +d }));
 }
 
@@ -29,11 +29,11 @@ function checkFrontage(draft: LayoutDraft) {
   for (const editorCanvas of [false, true]) {
     const second = floorPlan(1, false, false, { editorCanvas }, planSourceFromDraft(draft, 1));
     const third = floorPlan(2, false, false, { editorCanvas }, planSourceFromDraft(draft, 2));
-    const columns = rectangles(second, "#879183");
+    const columns = rectangles(second, "portico");
     assert.deepEqual(columns.map(p => p.x), expectedXs);
     assert.ok(columns.every(p => p.z === expectedZ && p.w === p.d), "门厅柱截面含饰线，双向对称于柱心");
-    assert.deepEqual(rectangles(third, "#c3bba9"), expectedPosts, "露台短柱与三维同轴");
-    assert.deepEqual(rectangles(third, "#879183").map(p => [p.x, p.z]),
+    assert.deepEqual(rectangles(third, "railing"), expectedPosts, "露台短柱与三维同轴");
+    assert.deepEqual(rectangles(third, "hat").map(p => [p.x, p.z]),
       expectedXs.map(x => [x, elevation.postZ]), "官帽柱与三维采用同一当前户型");
     const dividerWalls = [...third.matchAll(/<g transform="translate\(([^ ]+) ([^)]+)\) rotate\(([^)]+)\)" data-facade="\d+">/g)]
       .filter(([, , z, angle]) => Number(z) === elevation.postZ + 120 && Math.abs(Number(angle)) === 90)

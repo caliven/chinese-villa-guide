@@ -6,6 +6,7 @@ import {
   derivedAnnexSetback,
   derivedWestGap,
   getVillaParams,
+  floatingHatHeightLimits,
   derivedPorticoColumnWallGap,
   porticoColumnSpacing,
   type VillaParams,
@@ -50,7 +51,7 @@ function roofSections(annex = false): ParamSection[] {
       roofStyle: true,
       fields: [
         { key: "roofFenShui", label: "四坡分水", min: 1, max: 10 },
-        { key: "floatingHatRidgeDrop", label: "悬浮官帽落脊", min: 0 },
+        { key: "floatingHatHeightOffset", label: "悬浮官帽升降（正升／负降）", min: -80000, max: 80000 },
       ],
     },
     {
@@ -94,7 +95,7 @@ function roofSections(annex = false): ParamSection[] {
     note: index === 1 ? "辅楼四面独立出檐；三眼皮中层＝挑出−100、最下层＝挑出−200。"
       : index === 2 ? "独立设置辅楼屋顶的排水与瓦檐构造。"
       : index === 3 ? "仅控制辅楼屋顶的梁托与下沿线。" : undefined,
-    fields: section.fields.filter(field => field.key !== "floatingHatRidgeDrop" && field.key !== "secondFrontEave")
+    fields: section.fields.filter(field => field.key !== "floatingHatHeightOffset" && field.key !== "secondFrontEave")
       .map(field => ({ ...field, key: field.key === "thirdEave" ? "annexEave"
         : ANNEX_ROOF_PARAM_KEYS[field.key as keyof typeof ANNEX_ROOF_PARAM_KEYS] })),
   }));
@@ -184,15 +185,13 @@ function allFields(g: ParamGroup): Field[] {
 
 const fieldByKey = new Map(groups.flatMap((g) => allFields(g).map((f) => [f.key, f] as const)));
 
-/** 解析尺寸数字：支持中英文小数点；拒绝负数。 */
-export function parseVillaParamNumber(raw: string): number | null {
-  const text = raw.trim().replace(/[，．。,]/g, ".");
+/** 默认拒绝负数；仅升降等显式允许负值的字段启用有符号解析。 */
+export function parseVillaParamNumber(raw: string, signed = false): number | null {
+  const text = raw.trim().replace(/[，．。,]/g, ".").replace(/[−－]/g, "-");
   if (!text) return null;
-  if (/[^\d.]/.test(text)) return null;
-  if ((text.match(/\./g) ?? []).length > 1) return null;
-  if (text === ".") return null;
+  if (!(signed ? /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/ : /^(?:\d+(?:\.\d*)?|\.\d+)$/).test(text)) return null;
   const value = Number(text);
-  if (!Number.isFinite(value) || value < 0) return null;
+  if (!Number.isFinite(value) || (!signed && value < 0)) return null;
   return value;
 }
 
@@ -238,6 +237,8 @@ function roofStyleGroupHtml() {
     <h3 class="params-subhead">官帽造型</h3>
     <p class="micro">即时生效，无需点「应用」。</p>
     <div class="segmented" role="group" aria-label="官帽造型">${buttons}</div>
+    <p class="micro">升降单位 mm：0 为默认自动位置，正值整体抬高、负值整体降低；柱顶和斜接收口同步重算。</p>
+    <p class="micro" id="floating-hat-height-range"></p>
     <p class="micro" id="roof-style-note">悬浮官帽为默认方案；帽顶落差可调，纵脊接入正屋。</p>
   </div>`;
 }
@@ -382,9 +383,9 @@ export function readVillaParamsFromDom(root: ParentNode = document, options?: { 
     if (!(key in next)) return;
     if (DERIVED_PARAM_KEYS.has(key) || input.readOnly || input.disabled) return;
     if (options?.finalize) sanitizeVillaParamInput(input, true);
-    const value = parseVillaParamNumber(input.value);
-    if (value == null) return;
     const field = fieldByKey.get(key);
+    const value = parseVillaParamNumber(input.value, (field?.min ?? 0) < 0);
+    if (value == null) return;
     const min = field?.min ?? 0;
     const max = field?.max ?? 80000;
     const clamped = Math.min(max, Math.max(min, value));
@@ -421,6 +422,10 @@ export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = do
   setText("villa-params-annex-setback", formatMm(Math.max(0, setback)));
   setText("villa-params-portico-span", formatMm(porticoColumnSpacing(params)));
   setText("villa-params-portico-wall-gap", formatMm(derivedPorticoColumnWallGap(params)));
+  const { minOffset, maxOffset } = floatingHatHeightLimits(params);
+  setText("floating-hat-height-range", Number.isFinite(minOffset + maxOffset) && minOffset <= maxOffset
+    ? `当前尺寸升降范围：${formatMm(minOffset)}～${formatMm(maxOffset)} mm。`
+    : "当前尺寸无法保留自然斜接，请调整门厅进深或屋面分水。");
   const meta = root.querySelector("#villa-params-meta");
   meta?.classList.toggle("is-invalid", !ok);
   const warn = root.querySelector<HTMLElement>("#villa-params-width-sum");
@@ -466,7 +471,7 @@ export function fillVillaParamsDom(
 export function sanitizeVillaParamInput(input: HTMLInputElement, finalize: boolean) {
   const min = Number(input.dataset.paramMin ?? 0);
   const max = Number(input.dataset.paramMax ?? 80000);
-  const parsed = parseVillaParamNumber(input.value);
+  const parsed = parseVillaParamNumber(input.value, min < 0);
   if (parsed == null) {
     if (finalize) {
       const key = input.dataset.villaParam as keyof VillaParams | undefined;

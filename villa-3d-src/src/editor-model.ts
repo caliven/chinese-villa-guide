@@ -54,7 +54,8 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
     return colors.get(color)!;
   };
   const surface = (parent: THREE.Group, paths: Point[][], holes: Point[][], y: number, material: THREE.Material, thickness = 0) => {
-    const mesh = new THREE.Mesh(editorFloorGeometry(paths, holes, y, thickness), material);
+    // 有厚度的楼板必须封底，避免仰视时透过顶面看到家具、房间铺面和板内网格。
+    const mesh = new THREE.Mesh(editorFloorGeometry(paths, holes, y, thickness, thickness > 0), material);
     mesh.receiveShadow = true; mesh.castShadow = thickness > 0;
     parent.add(mesh); return mesh;
   };
@@ -219,13 +220,16 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
         context.fillText(detail, 384, 125 + i * 52, 730);
       });
       const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+      // 从楼层上方保持标签完整可读；从楼板下方看时隐藏，避免透过实体。
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false, toneMapped: false }));
       sprite.position.set(x, base + 160, z); sprite.scale.set(3000, 1000, 1); sprite.renderOrder = 10;
       // 保持标签像素宽度，缩放镜头时仍可读，不改变房间几何。
-      const world = new THREE.Vector3(), localScale = new THREE.Vector3(), forward = new THREE.Vector3();
+      const world = new THREE.Vector3(), localScale = new THREE.Vector3(), forward = new THREE.Vector3(), eye = new THREE.Vector3();
       sprite.onBeforeRender = (renderer, _scene, camera) => {
         const perspective = camera as THREE.PerspectiveCamera;
         sprite.getWorldPosition(world);
+        camera.getWorldPosition(eye);
+        sprite.material.opacity = eye.y >= world.y ? 1 : 0;
         camera.getWorldDirection(forward);
         const depth = world.sub(camera.position).dot(forward);
         sprite.parent!.getWorldScale(localScale);
