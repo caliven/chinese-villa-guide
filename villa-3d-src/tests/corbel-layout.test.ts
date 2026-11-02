@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { buildVilla } from "../src/architecture";
-import { construction, site } from "../src/data";
+import { construction, frontElevation, site } from "../src/data";
 import { frontApronOutline } from "../src/building-variants";
+import { apronSupportOutline } from "../src/facade-details";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params";
 import type { Mats } from "../src/primitives";
 
@@ -50,6 +51,26 @@ test("飘檐折角外移后，返段梁托仍按实际净段选择最接近参�
   }
 });
 
+test("二楼飘檐左右相对墙皮出挑等于 secondFrontEave，并随参数变化", () => {
+  for (const eave of [600, 800, 1000]) {
+    applyVillaParams({ ...DEFAULT_VILLA_PARAMS, ...saved, secondFrontEave: eave, corbelLength: Math.min(500, eave) });
+    const west = site.main.x - construction.outsideWall / 2;
+    const east = site.main.x + site.main.w + construction.outsideWall / 2;
+    const back = frontElevation.terraceBack;
+    const { outer, projection } = apronSupportOutline(
+      frontApronOutline(back, 0),
+      frontApronOutline(back, site.secondFrontEave),
+      [west, east],
+    );
+    assert.equal(projection, eave, "轮廓投影即飘檐挑出参数");
+    assert.ok(Math.abs((west - outer[0][0]) - eave) < .1, `西侧相对墙皮应为 ${eave}`);
+    assert.ok(Math.abs((outer[outer.length - 1][0] - east) - eave) < .1, `东侧相对墙皮应为 ${eave}`);
+    // 西翼前檐相对露台前缘；门厅前折角另有柱截面比例外移，不在此断言。
+    assert.ok(Math.abs((frontElevation.terraceFront - outer[1][1]) - eave) < .1,
+      `西翼前檐相对露台前缘应为 ${eave}`);
+  }
+});
+
 test("二楼两侧梁托竖脚位于真实墙皮外，长梁托及小出檐仍完整容纳", () => {
   for (const [length, eave] of [[500, 800], [650, 800], [500, 600]]) {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, ...saved, corbelLength: length, secondFrontEave: eave });
@@ -62,6 +83,8 @@ test("二楼两侧梁托竖脚位于真实墙皮外，长梁托及小出檐仍�
         [site.main.x + site.main.w + construction.outsideWall / 2, 1]]) {
         const row = corbelsIn(apron).filter(c => Math.abs(c.position.x - face + sign * 8) < .1);
         assert.ok(row.length >= 3, "两侧均须有完整梁托排布");
+        const sideExtent = sign < 0 ? face - board.min.x : board.max.x - face;
+        assert.ok(Math.abs(sideExtent - eave) < 1, `侧檐板相对墙皮出挑应为飘檐参数 ${eave}，得 ${sideExtent}`);
         for (const c of row) {
           const b = bounds(c);
           assert.ok(b.min.x >= board.min.x - .1 && b.max.x <= board.max.x + .1, "完整出挑须落在檐板内");

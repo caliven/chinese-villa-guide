@@ -261,6 +261,19 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     const eaves = cap.getObjectByName("前檐及两侧融入正屋的天沟")!;
     eaves.updateMatrixWorld(true);
     const mainTileFront = m.z + inset;
+    const innerWall = eaves.getObjectByName("天沟内挡边") as THREE.Mesh;
+    const closures: THREE.Mesh[] = [];
+    eaves.traverse(object => {
+      if (object instanceof THREE.Mesh && object.name === "官帽与正屋交接侧封板") closures.push(object);
+    });
+    assert.equal(closures.length, 2, "两侧均有与内挡衔接的封板");
+    for (const closure of closures) {
+      assert.equal(closure.material, innerWall.material, "封板与内挡共用材质");
+      assert.equal(closure.receiveShadow, innerWall.receiveShadow, "封板与内挡接收相同的阴影");
+      assert.equal(closure.castShadow, innerWall.castShadow);
+      assert.ok(new THREE.Box3().setFromObject(closure).min.y >= h.eave + 30 + roofGutterDesign.innerDepth - 0.02,
+        "封板只延伸内挡顶部，不与内挡面重叠");
+    }
     eaves.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return;
       // 转接梁按柱冠接到墙顶，本来就在瓦面下方；其轮廓由 column-junctions 专项校验。
@@ -290,6 +303,34 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     }
     assert.ok(eaves.getObjectByName("檐下梁托与下沿线"), "悬浮官帽前／侧檐应有梁托与下沿线");
     assert.equal(roof.getObjectByName("悬浮官帽横梁与柱头"), undefined, "柱身装饰改由三楼加高柱承担，不再叠英国风斜杠板");
+  }
+});
+
+test("悬浮官帽两侧檐口下补齐与正屋同坡的窄带底瓦", () => {
+  const m = mainRoofFootprint();
+  const channel = roofGutterDesign.outerTopWidth + roofGutterDesign.clearWidth;
+  for (const pitch of [1, 4.5, 10]) {
+    const roof = new THREE.Group();
+    attachRoofs(roof, new THREE.Group(), mat, pitch, "floating");
+    roof.updateMatrixWorld(true);
+    const h = floatingHatLayout(pitch), z0 = m.z + inset;
+    const z = z0 + (h.eave - m.eave) / (pitch / 10) * 0.6;
+    const underlays: THREE.Object3D[] = [];
+    roof.traverse(o => { if (o.name === "官帽交接底瓦") underlays.push(o); });
+    const mid = (inset + channel) / 2;
+    for (const x of [h.x + mid, h.x + h.w - mid]) {
+      const hits = new THREE.Raycaster(new THREE.Vector3(x, 25000, z), new THREE.Vector3(0, -1, 0))
+        .intersectObjects(underlays).filter(hit => (hit.face?.normal.y ?? 0) > 0.01);
+      assert.equal(hits.length, 1, `${pitch}分水两侧瓦檐下应各有一层底瓦`);
+      const mainHeight = m.eave + roofTileEaveLift() + (z - z0) * pitch / 10;
+      assert.ok(Math.abs(hits[0].point.y - mainHeight) < 0.02, "补瓦应与正屋坡面同高");
+      assert.equal(hits[0].object instanceof THREE.Mesh && hits[0].object.material, mat.villaRoof);
+    }
+    for (const x of [h.x + channel + 20, h.x + h.w - channel - 20]) {
+      const hits = new THREE.Raycaster(new THREE.Vector3(x, 25000, z), new THREE.Vector3(0, -1, 0))
+        .intersectObjects(underlays).filter(hit => (hit.face?.normal.y ?? 0) > 0.01);
+      assert.equal(hits.length, 0, "底瓦不应继续伸入官帽内部");
+    }
   }
 });
 

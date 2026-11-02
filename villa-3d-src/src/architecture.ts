@@ -63,7 +63,7 @@ import {
   roofTileInset,
   type RoofStyle,
 } from "./roof-options";
-import { addTiledRoof, hipRoofSurfaces, hatRoofSurfaces, joinRoofFaces } from "./roof-surfaces";
+import { addTiledRoof, hipRoofSurfaces, hatRoofSurfaces, joinRoofFaces, coveredRoofStrips } from "./roof-surfaces";
 import { addTimberRoofFrame } from "./roof-timber";
 import {
   box,
@@ -1218,7 +1218,17 @@ function floatingHat(parent: THREE.Object3D, mainRoof: THREE.Object3D, mat: Mats
   const main = hipRoofSurfaces(m.x + roofTileInset, m.z + roofTileInset, m.w - 2 * roofTileInset, m.d - 2 * roofTileInset, m.eave + tileLift, roofPitch(fenShui).mainRise);
   const hat = hatRoofSurfaces(center, h.z, h.w, h.joinZ, h.eave + tileLift, h.peak, 1, h.ridgeFront);
   const original = [...main.faces, ...hat.faces], visible = joinRoofFaces(original);
-  addTiledRoof(mainRoof, visible.filter(face => face.owner === 0), mat.villaRoof, mat.villaRoofJoint, main.ridges, original);
+  const mainVisible = visible.filter(face => face.owner === 0);
+  const channel = roofGutterDesign.outerTopWidth + roofGutterDesign.clearWidth;
+  // 瓦边探入天沟，内挡沟侧位于瓦边以内；保留两者之间被官帽遮住的正屋底瓦。
+  const underlay = coveredRoofStrips(main.faces, hat.faces, [
+    [h.x + roofTileInset, h.x + channel],
+    [h.x + h.w - channel, h.x + h.w - roofTileInset],
+  ]);
+  const mainTiling = addTiledRoof(mainRoof, [...mainVisible, ...underlay], mat.villaRoof, mat.villaRoofJoint, main.ridges, original);
+  // 单独命名便于区分交线下的底瓦与从上方可见的单层瓦面。
+  mainTiling.children.slice(mainVisible.length, mainVisible.length + underlay.length)
+    .forEach(mesh => { mesh.name = "官帽交接底瓦"; });
   const group = new THREE.Group();
   group.name = "悬浮官帽";
   parent.add(group);

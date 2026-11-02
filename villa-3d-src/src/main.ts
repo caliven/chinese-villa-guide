@@ -929,7 +929,7 @@ function refreshAreaMetrics() {
       ["子孙道", formatMm(p.lane)],
       ["三楼模式", p.thirdFloorMode === "flush" ? "不内退" : `北向内退 ${formatMm(p.thirdSetback)}`],
       [p.porticoStyle === "recessed" ? "平齐式入口" : "门厅外伸", p.porticoStyle === "recessed" ? "大门原位 · 无外伸柱廊" : formatMm(p.porticoProjection)],
-      ["二楼前檐", formatMm(p.secondFrontEave)],
+      ["二楼飘檐", formatMm(p.secondFrontEave)],
       ["主楼顶檐", formatMm(p.thirdEave)],
       ["辅楼顶檐", formatMm(p.annexEave)],
       ["右端人行通道", "约 2000"],

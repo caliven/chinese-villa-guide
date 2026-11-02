@@ -845,18 +845,19 @@ export function apronSupportOutline(wallPts: Point[], outerPts: Point[], sideWal
   const beamFace = wallPts.map(p => [...p] as Point);
   const outer = outerPts.map(p => [...p] as Point);
   const last = wallPts.length - 1;
-  // 露台边线内收，侧面梁托必须贴真实墙外皮；檐板至少容纳完整出挑。
+  // 出挑取自外轮廓相对露台边线的投影（调用方传入的 secondFrontEave），前／侧共用。
+  const projection = polylineProjection(outerPts, wallPts);
+  // 露台边线内收时，侧面梁托仍贴主墙外皮；外缘按飘檐挑出推到墙皮外，不因内收变短、也不改用梁托长度。
   if (sideWallFaces) {
     for (const i of [0, 1]) {
       beamFace[i][0] = sideWallFaces[0];
-      outer[i][0] = Math.min(outer[i][0], sideWallFaces[0] - eaveTrimDesign.corbelLength);
+      outer[i][0] = Math.min(outer[i][0], sideWallFaces[0] - projection);
     }
     for (const i of [last - 1, last]) {
       beamFace[i][0] = sideWallFaces[1];
-      outer[i][0] = Math.max(outer[i][0], sideWallFaces[1] + eaveTrimDesign.corbelLength);
+      outer[i][0] = Math.max(outer[i][0], sideWallFaces[1] + projection);
     }
   }
-  const projection = polylineProjection(outerPts, wallPts);
   const fasciaOuter = beamFace.map((p, i): Point => [
     p[0] + Math.sign(outer[i][0] - p[0]) * apronEaveDesign.fasciaProtrusion,
     p[1] + Math.sign(outer[i][1] - p[1]) * apronEaveDesign.fasciaProtrusion,
@@ -1301,6 +1302,27 @@ export function integratedHatEaves(
     innerTop - gutterBedTop + innerEmbed,
     cement,
   ).name = "天沟内挡边";
+  // 封板只补内挡顶以上的缺口，与内挡外皮共面，避免两个面重叠造成颜色分界。
+  const tileY = base + roofTileEaveLift();
+  const junctionEnd = endAt(tileY);
+  const closureBottom = Math.max(base + innerTop, mainTileEave);
+  const closureBottomEnd = endAt(closureBottom);
+  if (tileY > closureBottom && junctionEnd > mainTileFront) {
+    for (const sideX of [x + channel, x + w - channel]) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute([
+        sideX, tileY, mainTileFront, sideX, closureBottom, mainTileFront, sideX, closureBottom, closureBottomEnd,
+        sideX, tileY, mainTileFront, sideX, closureBottom, closureBottomEnd, sideX, tileY, junctionEnd,
+        sideX, closureBottom, closureBottomEnd, sideX, closureBottom, mainTileFront, sideX, tileY, mainTileFront,
+        sideX, tileY, junctionEnd, sideX, closureBottom, closureBottomEnd, sideX, tileY, mainTileFront,
+      ], 3));
+      geometry.computeVertexNormals();
+      const closure = new THREE.Mesh(geometry, cement);
+      closure.name = "官帽与正屋交接侧封板";
+      closure.castShadow = closure.receiveShadow = true;
+      g.add(closure);
+    }
+  }
   const lids = eyelidGroup(g);
   for (const layer of eyelidLayerTops(base))
     lids.add(finish(end => rim(layer.inset, innerFace, end), layer.top, layer.thick, mat.british));

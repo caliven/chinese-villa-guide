@@ -104,6 +104,25 @@ export function joinRoofFaces(faces: RoofFace[]) {
   });
 }
 
+/** 恢复高屋檐下方的窄带底瓦，限制在高屋面投影和指定横向范围内。 */
+export function coveredRoofStrips(lower: RoofFace[], upper: RoofFace[], spans: [number, number][]) {
+  const result: RoofFace[] = [];
+  for (const face of lower) for (const cover of upper) for (const [minX, maxX] of spans) {
+    if (maxX - minX <= epsilon) continue;
+    let polygon = clip(clip(footprint(face), 1, 0, -minX), -1, 0, maxX);
+    const boundary = footprint(cover), sign = Math.sign(area(boundary));
+    for (let i = 0; i < boundary.length && polygon.length >= 3; i++) {
+      const [a, b, c] = edgePlane(boundary[i], boundary[(i + 1) % boundary.length], sign);
+      polygon = clip(polygon, a, b, c);
+    }
+    const p = plane(face), q = plane(cover);
+    polygon = clip(polygon, q.x - p.x, q.z - p.z, q.c - p.c);
+    if (polygon.length >= 3 && Math.abs(area(polygon)) > areaEpsilon)
+      result.push(atHeight(face, polygon));
+  }
+  return result;
+}
+
 export function hipRoofSurfaces(x: number, z: number, w: number, d: number, eave: number, rise: number, owner = 0) {
   const a = new THREE.Vector3(x, eave, z), b = new THREE.Vector3(x + w, eave, z);
   const c = new THREE.Vector3(x + w, eave, z + d), f = new THREE.Vector3(x, eave, z + d);
