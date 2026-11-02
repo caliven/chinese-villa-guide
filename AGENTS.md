@@ -95,3 +95,11 @@ python3 -m http.server 18888 --bind 127.0.0.1
 一般情况下按变更范围运行 `npm run check`、构建；影响页面布局或交互时仅检查 PC 桌面页面，默认跳过手机小屏幕适配与验证。用户明确要求跳过验证时遵从，并在交付中写明未验证，不把历史测试记录算作本次结果。现有检查覆盖布局、门洞、屋檐边界、通道、道路表面、梯田高度及太阳方向；不代表车辆通行、结构、审批或法定日照已通过。
 
 文件使用 UTF-8、两空格缩进，页面中文；普通文档页面用小写连字符文件名并复用共享资源。提交沿用 `feat:` / `fix:` / `docs:` 加中文摘要，说明行为变化和实际完成的验证。先看工作区状态，保留用户已有修改和暂存内容；用户没要求提交、推送或处理 `.DS_Store` 时不要顺手操作。
+
+## Cursor Cloud specific instructions
+
+- 系统时区保持 `Asia/Shanghai`。版本号用 `Intl` 固定北京时间，测试用本地 `Date` 构造；机器在 UTC 时，`npm run check` 里两条版本标题会差 8 小时。
+- 根目录 `package.json` 没有 lockfile。在 `villa-3d-src` 与 `villa-real-scene-src` 分别执行 `npm ci`。
+- 开发服务：`BROWSER=none npm run dev --prefix villa-3d-src -- --port 5173 --strictPort`。不要把 `--host` / `--port` 加在根目录 `npm run dev` 后面，npm 会吃掉这两个参数。`/` 转到 `/docs/`，别墅模型在 `/villa-3d/`。
+- 默认镜像的 Node 22 可以完成类型检查、测试和 `npm run build`。文档里的 Node 24 是本机习惯，仓库没有 `engines` 锁定。
+- `npm run check` 在时区正确时仍有两条与安装无关的既有断言失败：`door-model.test.ts`（`户型-20261017-233620.json` 门实体）和 `window-height.test.ts`（西侧楼梯背窗窗台 900 与 450）。类型检查会通过。
