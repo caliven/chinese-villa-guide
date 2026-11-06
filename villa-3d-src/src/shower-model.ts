@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Furniture } from "./data";
+import type { Furniture } from "./data.ts";
 
 export const showerShapes = {
   inline: "一字型（三面靠墙）",

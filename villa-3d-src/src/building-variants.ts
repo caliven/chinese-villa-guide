@@ -1,8 +1,8 @@
-import { site, frontElevation, type Point, type Room, type Floor, type Wall, type Furniture } from "./data";
-import type { Facade } from "./facades";
-import { porticoColumnCenters, porticoEaveCornerOffset } from "./frontage-geometry";
-import { apronEaveDesign } from "./roof-options";
-import { terraceParapetLayout } from "./facade-details";
+import { site, frontElevation, type Point, type Room, type Floor, type Wall, type Furniture } from "./data.ts";
+import type { Facade } from "./facades.ts";
+import { porticoColumnCenters, porticoEaveCornerOffset } from "./frontage-geometry.ts";
+import { apronEaveDesign } from "./roof-options.ts";
+import { terraceParapetLayout } from "./facade-details.ts";
 
 export type PorticoStyle = "projecting" | "recessed";
 export type BuildingPlacement = "main-east" | "main-west";

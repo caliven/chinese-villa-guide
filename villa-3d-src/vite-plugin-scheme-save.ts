@@ -2,7 +2,7 @@ import type { Plugin } from "vite";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseSchemeDocument, type SchemeDocument, type SchemeVersionsIndex } from "./src/scheme-store";
+import { parseSchemeDocument, type SchemeDocument, type SchemeVersionsIndex } from "./src/scheme-store.ts";
 
 type SaveBody = {
   kind: "current" | "version";

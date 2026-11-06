@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { stairShape, type StairShapeInput } from "./stair-geometry";
-import { railingThickness, type RailingStyle } from "./railing-options";
-import type { RailingSection } from "./railing-network";
+import { stairShape, type StairShapeInput } from "./stair-geometry.ts";
+import { railingThickness, type RailingStyle } from "./railing-options.ts";
+import type { RailingSection } from "./railing-network.ts";
 
 /** 只描述扶手路径和踏步支承；平台、斜段及楼层转角在同一网络中连接。 */
 export function stairRailingSections(geometry: StairShapeInput, base: number, height: number, style: RailingStyle): RailingSection[] {

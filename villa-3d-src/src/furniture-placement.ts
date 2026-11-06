@@ -1,5 +1,5 @@
-import { construction, isPhysicalWall, wallRoleOf, type Furniture, type Wall } from "./data";
-import { furnitureLocalBounds, furnitureLocalToWorld } from "./furniture-catalog";
+import { construction, isPhysicalWall, wallRoleOf, type Furniture, type Wall } from "./data.ts";
+import { furnitureLocalBounds, furnitureLocalToWorld } from "./furniture-catalog.ts";
 
 type Point = { x: number; z: number };
 type Bounds = { x0: number; x1: number; z0: number; z1: number };

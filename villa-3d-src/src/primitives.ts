@@ -1,17 +1,17 @@
 import * as THREE from "three";
-import { resolvedRailingStyle } from "./railing-options";
-import { railingNetwork } from "./railing-network";
-import { stairRailingSections } from "./stair-railing";
-import { stairLayout, site, type Point, type Furniture } from "./data";
-import type { CourtyardFinish } from "./courtyard-finishes";
-import { bedLayout } from "./furniture-catalog";
-import { stairShape, type StairShapeInput } from "./stair-geometry";
-import { MM_PER_M } from "./units";
-import { fitFurnitureFootprint, floorplanFurnitureModel } from "./floorplan-furniture";
-import type { OpeningKind } from "./openings";
-import { moveWindowDesign, windowDesign, windowInteriorSide } from "./window-design";
-import { windowModel } from "./window-model";
-import { doorFinishMaterials, doorModel, type DoorMaterials } from "./door-model";
+import { resolvedRailingStyle } from "./railing-options.ts";
+import { railingNetwork } from "./railing-network.ts";
+import { stairRailingSections } from "./stair-railing.ts";
+import { stairLayout, site, type Point, type Furniture } from "./data.ts";
+import type { CourtyardFinish } from "./courtyard-finishes.ts";
+import { bedLayout } from "./furniture-catalog.ts";
+import { stairShape, type StairShapeInput } from "./stair-geometry.ts";
+import { MM_PER_M } from "./units.ts";
+import { fitFurnitureFootprint, floorplanFurnitureModel } from "./floorplan-furniture.ts";
+import type { OpeningKind } from "./openings.ts";
+import { moveWindowDesign, windowDesign, windowInteriorSide } from "./window-design.ts";
+import { windowModel } from "./window-model.ts";
+import { doorFinishMaterials, doorModel, type DoorMaterials } from "./door-model.ts";
 
 export const palette = {
   wall: 0xe6dfd0,

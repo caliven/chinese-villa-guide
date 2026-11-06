@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Furniture } from "./data";
+import type { Furniture } from "./data.ts";
 
 export const SHRINE_HEIGHT = 1280;
 export const SHRINE_MOUNT_HEIGHT = 1400;

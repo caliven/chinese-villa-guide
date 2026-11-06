@@ -1,23 +1,23 @@
-import type { Furniture, Point, Room, Wall } from "./data";
-import { annexFurniture, annexRooms, construction, floors, isPhysicalWall, site, wallRoleOf } from "./data";
-import { roomFillBounds } from "./design-data";
-import { furnitureLocalBounds, furnitureLocalToWorld } from "./furniture-catalog";
-import { getFloorplanFurniture } from "./floorplan-catalog";
-import { normalizeOpening, type WallOpening } from "./openings";
+import type { Furniture, Point, Room, Wall } from "./data.ts";
+import { annexFurniture, annexRooms, construction, floors, isPhysicalWall, site, wallRoleOf } from "./data.ts";
+import { roomFillBounds } from "./design-data.ts";
+import { furnitureLocalBounds, furnitureLocalToWorld } from "./furniture-catalog.ts";
+import { getFloorplanFurniture } from "./floorplan-catalog.ts";
+import { normalizeOpening, type WallOpening } from "./openings.ts";
 import {
   forceOrthoWall,
   snapMeter,
   wallAxis,
   WALL_EDGE_SNAP_GAP,
-} from "./layout-draft";
-import { constrainWallEdits, type WallConstraintResult } from "./wall-constraints";
-import { polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomOutline } from "./room-geometry";
-import { polygonIntersectionAreaMm2 } from "./plan-regions";
-import { FURNITURE_WALL_FINISH, furnitureWallFinish, physicalFurnitureAnchors, resolveFurnitureCollisions } from "./furniture-placement";
-import type { WallContactTarget } from "./wall-contact-snap";
+} from "./layout-draft.ts";
+import { constrainWallEdits, type WallConstraintResult } from "./wall-constraints.ts";
+import { polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomOutline } from "./room-geometry.ts";
+import { polygonIntersectionAreaMm2 } from "./plan-regions.ts";
+import { FURNITURE_WALL_FINISH, furnitureWallFinish, physicalFurnitureAnchors, resolveFurnitureCollisions } from "./furniture-placement.ts";
+import type { WallContactTarget } from "./wall-contact-snap.ts";
 
 /** 家具贴墙内皮后再留的示意缝（mm），避免色块压进墙线。 */
-export { FURNITURE_WALL_FINISH } from "./furniture-placement";
+export { FURNITURE_WALL_FINISH } from "./furniture-placement.ts";
 
 export type OpeningBay = {
   bayStart: number;

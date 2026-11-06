@@ -1,6 +1,6 @@
-import { site, floors, frontFieldLevel, courtyardFront, roadsideVilla, contains, type Point } from "./data";
-import { contourAt, insetContour, smoothContour } from "./contours";
-import { placeRoadsideVilla, roadsideToWorld } from "./roadside-villa-layout";
+import { site, floors, frontFieldLevel, courtyardFront, roadsideVilla, contains, type Point } from "./data.ts";
+import { contourAt, insetContour, smoothContour } from "./contours.ts";
+import { placeRoadsideVilla, roadsideToWorld } from "./roadside-villa-layout.ts";
 
 // 全部左右关系按站在北侧、面对房子描述：画面左侧为 X 增大。
 // 对齐关系来自用户；周边房屋尺寸、未测标高和田坎折点仍是航拍估算。

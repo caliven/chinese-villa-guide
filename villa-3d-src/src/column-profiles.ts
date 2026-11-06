@@ -1,4 +1,4 @@
-import type { Point } from "./data";
+import type { Point } from "./data.ts";
 
 /** 柱头外展为外观建议尺寸；轮廓供三维及四向立面共同使用。 */
 export type ColumnCourse = { bottom: number; top: number; lower: Point[]; upper: Point[]; dark?: boolean };

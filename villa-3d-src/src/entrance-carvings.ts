@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { frontElevation } from "./data";
-import { box, type Mats } from "./primitives";
-import { PORTICO_BEAM_DEPTH, PORTICO_COLUMN_MAX_TRIM } from "./frontage-geometry";
-import { cornerOutline, cornerShoulderProfile, upperCornerProfile, type ColumnCourse } from "./column-profiles";
+import { frontElevation } from "./data.ts";
+import { box, type Mats } from "./primitives.ts";
+import { PORTICO_BEAM_DEPTH, PORTICO_COLUMN_MAX_TRIM } from "./frontage-geometry.ts";
+import { cornerOutline, cornerShoulderProfile, upperCornerProfile, type ColumnCourse } from "./column-profiles.ts";
 
 type XY = [number, number];
 

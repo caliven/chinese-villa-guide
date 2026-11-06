@@ -1,10 +1,10 @@
 import * as THREE from "three";
-import { isShower, showerModel, showerSymbol } from "./shower-model";
-import type { Furniture } from "./data";
-import { bedLayout } from "./furniture-catalog";
-import { floorplanFurniture, getFloorplanFurniture, type FloorplanFurniture, type FloorplanFurnitureType } from "./floorplan-catalog";
+import { isShower, showerModel, showerSymbol } from "./shower-model.ts";
+import type { Furniture } from "./data.ts";
+import { bedLayout } from "./furniture-catalog.ts";
+import { floorplanFurniture, getFloorplanFurniture, type FloorplanFurniture, type FloorplanFurnitureType } from "./floorplan-catalog.ts";
 import { buildFurniture, furnSVG } from "./vendor/floorplan-furniture.js";
-import { isRitualTea, ritualTeaModel, ritualTeaSymbol } from "./ritual-tea-model";
+import { isRitualTea, ritualTeaModel, ritualTeaSymbol } from "./ritual-tea-model.ts";
 
 /** 历史户型保持名称、占地和摆放；能对应的旧类型改用上游形体。 */
 const legacyTypes: Partial<Record<Furniture["kind"], FloorplanFurnitureType>> = {

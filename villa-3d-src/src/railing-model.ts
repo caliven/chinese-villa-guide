@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { canonicalRailingStyle, railingStyleLabels, type RailingStyle } from "./railing-options";
-import type { RailingJoints, RailingEndJoint } from "./railing-network";
-import { handrailGeometry, type HandrailSample } from "./railing-handrail";
+import { canonicalRailingStyle, railingStyleLabels, type RailingStyle } from "./railing-options.ts";
+import type { RailingJoints, RailingEndJoint } from "./railing-network.ts";
+import { handrailGeometry, type HandrailSample } from "./railing-handrail.ts";
 
 function marbleTexture() {
   const size = 64, pixels = new Uint8Array(size * size * 4);

@@ -1,5 +1,5 @@
-import { mirroredBuildings, mirrorFacade, mainLocalX, hasThirdFloorSideTerraces } from "./building-variants";
-import { floors, site, frontElevation, circulation, stairLayout, annexRooms, type Point } from "./data";
+import { mirroredBuildings, mirrorFacade, mainLocalX, hasThirdFloorSideTerraces } from "./building-variants.ts";
+import { floors, site, frontElevation, circulation, stairLayout, annexRooms, type Point } from "./data.ts";
 import {
   DOOR_OPENING,
   DEFAULT_DOOR_HEIGHT,
@@ -9,8 +9,8 @@ import {
   type DoorHinge,
   type DoorSide,
   type OpeningKind,
-} from "./openings";
-import { fasciaBottomY, openingBelowFasciaClearance, withAnnexRoofDesign } from "./roof-options";
+} from "./openings.ts";
+import { fasciaBottomY, openingBelowFasciaClearance, withAnnexRoofDesign } from "./roof-options.ts";
 
 export interface Opening {
   at: number;

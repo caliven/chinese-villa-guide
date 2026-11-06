@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { carCorners, contains, site, type Point } from "./data";
-import { garageLayout, rectangle } from "./garage-layout";
-import { roadHeight, surroundings } from "./surroundings";
+import { carCorners, contains, site, type Point } from "./data.ts";
+import { garageLayout, rectangle } from "./garage-layout.ts";
+import { roadHeight, surroundings } from "./surroundings.ts";
 
 /**
  * 道路段随 surroundings.road.x 移动；院坪内段仍用原探索折点（相对自家东界）。

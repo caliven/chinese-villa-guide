@@ -1,18 +1,18 @@
-import { smoothContour } from "./contours";
-import { placeRoadsideVilla } from "./roadside-villa-layout";
-import { roofGutterDesign, annexRoofGutterDesign, roofTileInset } from "./roof-options";
-import { areaM2 } from "./units";
-import { porticoColumnCenters } from "./frontage-geometry";
-import { getFloorplanFurniture, type FloorplanFurnitureId } from "./floorplan-catalog";
+import { smoothContour } from "./contours.ts";
+import { placeRoadsideVilla } from "./roadside-villa-layout.ts";
+import { roofGutterDesign, annexRoofGutterDesign, roofTileInset } from "./roof-options.ts";
+import { areaM2 } from "./units.ts";
+import { porticoColumnCenters } from "./frontage-geometry.ts";
+import { getFloorplanFurniture, type FloorplanFurnitureId } from "./floorplan-catalog.ts";
 import {
   DOOR_OPENING,
   doorOffsetAgainstHinge,
   type DoorHinge,
   type DoorSide,
   type WallOpening,
-} from "./openings";
-export type { WallOpening, OpeningKind, DoorHinge, DoorSide } from "./openings";
-export { DOOR_HINGE_CORNER_GAP, DOOR_OPENING } from "./openings";
+} from "./openings.ts";
+export type { WallOpening, OpeningKind, DoorHinge, DoorSide } from "./openings.ts";
+export { DOOR_HINGE_CORNER_GAP, DOOR_OPENING } from "./openings.ts";
 
 // 坐标：X 向东、Y 向上、Z 向南；旧房前坪外缘 Z=0，单位均为毫米（mm）。
 export type Point = [number, number];

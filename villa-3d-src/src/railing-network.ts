@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { canonicalRailingStyle, type RailingStyle } from "./railing-options";
-import { railingModel } from "./railing-model";
-import { smoothHandrailPath, type HandrailSample } from "./railing-handrail";
+import { canonicalRailingStyle, type RailingStyle } from "./railing-options.ts";
+import { railingModel } from "./railing-model.ts";
+import { smoothHandrailPath, type HandrailSample } from "./railing-handrail.ts";
 
 export type RailingSection = {
   a: THREE.Vector3; b: THREE.Vector3; style: RailingStyle; height: number;

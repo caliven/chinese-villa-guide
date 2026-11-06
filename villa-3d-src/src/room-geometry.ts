@@ -1,4 +1,4 @@
-import { isPhysicalWall, wallRoleOf, type Point, type Room, type Wall } from "./data";
+import { isPhysicalWall, wallRoleOf, type Point, type Room, type Wall } from "./data.ts";
 
 export interface RoomRect { x: number; z: number; w: number; d: number }
 

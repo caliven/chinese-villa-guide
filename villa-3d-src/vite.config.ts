@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
-import { dataSavePlugin } from "./vite-plugin-data-save";
-import { schemeSavePlugin } from "./vite-plugin-scheme-save";
-import { repoRootDevPlugin, repoRootFsAllow } from "./vite-plugin-repo-root";
+import { dataSavePlugin } from "./vite-plugin-data-save.ts";
+import { schemeSavePlugin } from "./vite-plugin-scheme-save.ts";
+import { repoRootDevPlugin, repoRootFsAllow } from "./vite-plugin-repo-root.ts";
 
 export default defineConfig({
   base: "./",

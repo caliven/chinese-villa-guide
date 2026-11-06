@@ -1,8 +1,8 @@
-import { construction, isPhysicalWall, wallRoleOf, type Point, type Room, type Wall } from "./data";
-import { areaM2 } from "./units";
-import { constrainWallEdits } from "./wall-constraints";
-import { polygonAreaMm2, polygonContainsPoint as containsPolygonPoint, roomLabelPoint, roomOutline } from "./room-geometry";
-export { polygonAreaMm2 } from "./room-geometry";
+import { construction, isPhysicalWall, wallRoleOf, type Point, type Room, type Wall } from "./data.ts";
+import { areaM2 } from "./units.ts";
+import { constrainWallEdits } from "./wall-constraints.ts";
+import { polygonAreaMm2, polygonContainsPoint as containsPolygonPoint, roomLabelPoint, roomOutline } from "./room-geometry.ts";
+export { polygonAreaMm2 } from "./room-geometry.ts";
 
 type Envelope = { x: number; z: number; w: number; d: number };
 type Boundary = { axis: "h" | "v"; at: number; lo: number; hi: number; half: number; virtual: boolean };

@@ -1,6 +1,6 @@
-import { frontElevation, type Point } from "./data";
-import { hatPierDesign } from "./column-profiles";
-import { eyelidFixed, eyelidStackHeight, fasciaBottomY } from "./roof-options";
+import { frontElevation, type Point } from "./data.ts";
+import { hatPierDesign } from "./column-profiles.ts";
+import { eyelidFixed, eyelidStackHeight, fasciaBottomY } from "./roof-options.ts";
 
 export type HatJunction = { x: number; width: number; section: Point[] };
 

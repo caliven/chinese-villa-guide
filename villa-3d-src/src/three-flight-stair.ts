@@ -1,4 +1,4 @@
-import type { StairShapeInput } from "./stair-geometry";
+import type { StairShapeInput } from "./stair-geometry.ts";
 
 /** U形三跑：两侧平行梯段，中间横跑，两个独立的90°休息平台。 */
 export function threeFlightCounts(risers: number) {

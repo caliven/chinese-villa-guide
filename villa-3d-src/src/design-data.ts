@@ -1,4 +1,4 @@
-import { recessedPortico, recessedRoom } from "./building-variants";
+import { recessedPortico, recessedRoom } from "./building-variants.ts";
 import {
   annexPartitions,
   buildingAreas,
@@ -11,11 +11,11 @@ import {
   wallRoleOf,
   type Room,
   type Wall,
-} from "./data";
-import { facades } from "./facades";
-import { resolveLayoutFacades, type FacadeLayout } from "./facade-layout";
-import { formatMm } from "./units";
-import { outlinePath, physicalWallJoinExtensions, polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomLabelPoint, roomNetGeometry, roomOutline, type RoomNetGeometry } from "./room-geometry";
+} from "./data.ts";
+import { facades } from "./facades.ts";
+import { resolveLayoutFacades, type FacadeLayout } from "./facade-layout.ts";
+import { formatMm } from "./units.ts";
+import { outlinePath, physicalWallJoinExtensions, polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomLabelPoint, roomNetGeometry, roomOutline, type RoomNetGeometry } from "./room-geometry.ts";
 
 export const floorFinish = (index: number) => floors[index].y + (index === 0 ? site.entranceRise : 0);
 export const bedroomSummary = (index: number, rooms: Room[] = floors[index].rooms) => {

@@ -1,4 +1,4 @@
-import type { Point } from "./data";
+import type { Point } from "./data.ts";
 
 // 坐标与 spacing、distance 均为毫米。田埂控制点按 X 递增。保形 Hermite 插值保留转折，不越过相邻点的 Z 范围。
 // 采样结果同时供田面、田坎、院坪和高度查询使用，避免各自拟合留下缝隙。

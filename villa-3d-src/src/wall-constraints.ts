@@ -1,4 +1,4 @@
-import { construction, isPhysicalWall, wallRoleOf, type Point, type Wall } from "./data";
+import { construction, isPhysicalWall, wallRoleOf, type Point, type Wall } from "./data.ts";
 
 export type WallConstraintResult = { ok: boolean; reason?: string };
 /** 显式同线吸附：纠正相接墙端的毫米级错位，其余编辑仍保留原接点偏移。 */

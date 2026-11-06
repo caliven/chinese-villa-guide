@@ -1,4 +1,4 @@
-import { mirrorRoom, mirrorWall, mirrorFurniture, porticoFrontZ, porticoWallZ, resizeThirdFloorFront, type PorticoStyle, type BuildingPlacement, type ThirdFloorMode } from "./building-variants";
+import { mirrorRoom, mirrorWall, mirrorFurniture, porticoFrontZ, porticoWallZ, resizeThirdFloorFront, type PorticoStyle, type BuildingPlacement, type ThirdFloorMode } from "./building-variants.ts";
 /**
  * 方案尺寸参数（长度一律毫米）：总面宽锁定 21000 mm；改参后重算场地／主辅楼／院坪，
  * 并按主楼／辅楼面宽、进深轴向比例缩放室内房间与家具（相对默认几何，不叠乘）。
@@ -26,7 +26,7 @@ import {
   type Wall,
   type Furniture,
   type Point,
-} from "./data";
+} from "./data.ts";
 import {
   roofGutterDesign,
   annexRoofGutterDesign,
@@ -36,16 +36,16 @@ import {
   eaveTrimDesign,
   roofTileInset,
   syncRoofTileInset,
-} from "./roof-options";
-import { rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings";
-import { rebuildGarageLayout } from "./garage-layout";
-import { rebuildVehicleRoute } from "./vehicle-route";
-import { mainEaveY } from "./facades";
-import { ensureFurnitureWallClearance } from "./layout-align";
-import { formatMm, isMeterLengthPayload, migrateVillaParamsToMm } from "./units";
-import { porticoColumnCenters, porticoColumnOuterWidth, porticoWestOffset } from "./frontage-geometry";
-import { terraceParapetLayout } from "./facade-details";
-import { interiorRailing, isRailingStyle, type RailingStyle } from "./railing-options";
+} from "./roof-options.ts";
+import { rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings.ts";
+import { rebuildGarageLayout } from "./garage-layout.ts";
+import { rebuildVehicleRoute } from "./vehicle-route.ts";
+import { mainEaveY } from "./facades.ts";
+import { ensureFurnitureWallClearance } from "./layout-align.ts";
+import { formatMm, isMeterLengthPayload, migrateVillaParamsToMm } from "./units.ts";
+import { porticoColumnCenters, porticoColumnOuterWidth, porticoWestOffset } from "./frontage-geometry.ts";
+import { terraceParapetLayout } from "./facade-details.ts";
+import { interiorRailing, isRailingStyle, type RailingStyle } from "./railing-options.ts";
 
 export const LOCKED_SITE_WIDTH = 21000;
 /** @deprecated 已改存 scheme 文件，仅供旧迁移识别。 */

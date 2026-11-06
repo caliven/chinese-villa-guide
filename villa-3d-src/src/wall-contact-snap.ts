@@ -1,7 +1,7 @@
-import { construction, isPhysicalWall, wallRoleOf, type Point, type Wall } from "./data";
-import { facades } from "./facades";
-import { recessFrontFacades } from "./building-variants";
-import type { LayoutDraft } from "./layout-draft";
+import { construction, isPhysicalWall, wallRoleOf, type Point, type Wall } from "./data.ts";
+import { facades } from "./facades.ts";
+import { recessFrontFacades } from "./building-variants.ts";
+import type { LayoutDraft } from "./layout-draft.ts";
 
 /** 外墙用实际墙带的远侧，内部实体墙用中心线；虚拟分界不作为实体墙。 */
 export type WallContactTarget = Pick<Wall, "a" | "b" | "role"> & { exterior?: boolean };

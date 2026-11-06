@@ -1,6 +1,6 @@
-import { threeFlightShape, threeFlightCounts } from "./three-flight-stair";
-import { construction, floors, site, wallRoleOf, isPhysicalWall, type Floor } from "./data";
-import type { StairDraft } from "./layout-draft";
+import { threeFlightShape, threeFlightCounts } from "./three-flight-stair.ts";
+import { construction, floors, site, wallRoleOf, isPhysicalWall, type Floor } from "./data.ts";
+import type { StairDraft } from "./layout-draft.ts";
 
 export type StairRect = { x: number; z: number; w: number; d: number };
 export type StairShapeInput = Pick<StairDraft, "model" | "x" | "z" | "axis" | "flight" | "gap" | "tread" | "middleTread" | "risers" | "landing" | "lowerSide" | "direction" | "railingStyle">;

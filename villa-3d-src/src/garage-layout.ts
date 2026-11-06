@@ -1,6 +1,6 @@
-import { courtyardFront, site, type Point } from "./data";
-import { contourSection, insetContour } from "./contours";
-import { basementColumns, surroundings } from "./surroundings";
+import { courtyardFront, site, type Point } from "./data.ts";
+import { contourSection, insetContour } from "./contours.ts";
+import { basementColumns, surroundings } from "./surroundings.ts";
 
 export const rectangle = (x: number, z: number, w: number, d: number): Point[] => [
   [x, z], [x + w, z], [x + w, z + d], [x, z + d],

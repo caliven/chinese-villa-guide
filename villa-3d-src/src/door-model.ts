@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { OpeningKind } from "./openings";
+import type { OpeningKind } from "./openings.ts";
 
 export type DoorMaterials = {
   wood: THREE.Material; dark: THREE.Material; glass: THREE.Material;

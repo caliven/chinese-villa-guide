@@ -1,4 +1,4 @@
-import { mirrorRoom, mirrorWall, mirrorFurniture, resizeThirdFloorFront } from "./building-variants";
+import { mirrorRoom, mirrorWall, mirrorFurniture, resizeThirdFloorFront } from "./building-variants.ts";
 import {
   floors,
   site,
@@ -15,20 +15,20 @@ import {
   type Wall,
   type Furniture,
   type Point,
-} from "./data";
-import { FURNITURE_KINDS, normalizeRotation } from "./furniture-catalog";
-import { getFloorplanFurniture } from "./floorplan-catalog";
-import { OPENING_KINDS, normalizeOpening, createOpening, type WallOpening, type OpeningKind } from "./openings";
+} from "./data.ts";
+import { FURNITURE_KINDS, normalizeRotation } from "./furniture-catalog.ts";
+import { getFloorplanFurniture } from "./floorplan-catalog.ts";
+import { OPENING_KINDS, normalizeOpening, createOpening, type WallOpening, type OpeningKind } from "./openings.ts";
 import {
   facades,
   defaultWindowMaxRatio,
   type Opening as FacadeOpening,
-} from "./facades";
-import { projectMeta } from "./project-meta";
-import { snapMm } from "./units";
-import { reconcileWallOpening } from "./wall-constraints";
-import { parseOptionalRailingStyle, type RailingStyle } from "./railing-options";
-import { normalizeDraftWallContacts } from "./wall-contact-snap";
+} from "./facades.ts";
+import { projectMeta } from "./project-meta.ts";
+import { snapMm } from "./units.ts";
+import { reconcileWallOpening } from "./wall-constraints.ts";
+import { parseOptionalRailingStyle, type RailingStyle } from "./railing-options.ts";
+import { normalizeDraftWallContacts } from "./wall-contact-snap.ts";
 
 export const layoutDraftKey = "anhua-villa-layout-draft-v1";
 export const layoutDraftSchema = 1 as const;

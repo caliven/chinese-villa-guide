@@ -1,5 +1,5 @@
-import type { Furniture } from "./data";
-import { floorplanFurniture, getFloorplanFurniture, type FloorplanFurnitureType } from "./floorplan-catalog";
+import type { Furniture } from "./data.ts";
+import { floorplanFurniture, getFloorplanFurniture, type FloorplanFurnitureType } from "./floorplan-catalog.ts";
 
 /**
  * 家具局部坐标（rotation = 0）统一约定——按日常用法，不是随意画的：

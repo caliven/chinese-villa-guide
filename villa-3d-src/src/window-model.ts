@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { windowProfiles, type WindowDesign, type WindowRect } from "./window-design";
+import { windowProfiles, type WindowDesign, type WindowRect } from "./window-design.ts";
 
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 type WindowMaterials = { glass: THREE.Material; dark: THREE.Material };

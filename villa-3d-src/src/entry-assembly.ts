@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { site, type Point } from "./data";
-import { facades } from "./facades";
-import type { ExteriorOpeningDraft } from "./layout-draft";
-import { box, type Mats } from "./primitives";
-import { moveWindowDesign, windowDesign } from "./window-design";
+import { site, type Point } from "./data.ts";
+import { facades } from "./facades.ts";
+import type { ExteriorOpeningDraft } from "./layout-draft.ts";
+import { box, type Mats } from "./primitives.ts";
+import { moveWindowDesign, windowDesign } from "./window-design.ts";
 
 export type EntryAssembly = { id: string; a: Point; b: Point; at: number; w: number; bottom: number; top: number; bandBottom: number; bandTop: number; sourceIndex?: number; upperSourceIndex?: number };
 type EntryLayout = { exteriorOpenings?: ExteriorOpeningDraft[]; portico?: { x: number; w: number } };

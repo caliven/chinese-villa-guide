@@ -1,13 +1,13 @@
 import * as THREE from "three";
-import { addEaveWash, eaveLightSpans } from "./eave-lighting";
+import { addEaveWash, eaveLightSpans } from "./eave-lighting.ts";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { box, slab, rect, type Mats } from "./primitives";
-import { addTiledRoof, hipRoofSurfaces, hatRoofSurfaces, joinRoofFaces, cutRoofOpenings, subtractRoofPolygon, roofHeight, type RoofFace } from "./roof-surfaces";
-import { frontElevation, site, type Point } from "./data";
-import { columnProfileMeshes, upperColumnFace } from "./entrance-carvings";
-import { hatPierCrownProfile, hatPierDesign } from "./column-profiles";
-import { floatingHatJunctions, type HatJunction } from "./hat-junctions";
-import { porticoEaveCornerOffset } from "./frontage-geometry";
+import { box, slab, rect, type Mats } from "./primitives.ts";
+import { addTiledRoof, hipRoofSurfaces, hatRoofSurfaces, joinRoofFaces, cutRoofOpenings, subtractRoofPolygon, roofHeight, type RoofFace } from "./roof-surfaces.ts";
+import { frontElevation, site, type Point } from "./data.ts";
+import { columnProfileMeshes, upperColumnFace } from "./entrance-carvings.ts";
+import { hatPierCrownProfile, hatPierDesign } from "./column-profiles.ts";
+import { floatingHatJunctions, type HatJunction } from "./hat-junctions.ts";
+import { porticoEaveCornerOffset } from "./frontage-geometry.ts";
 import {
   apronFasciaBottom,
   apronEaveDesign,
@@ -22,7 +22,7 @@ import {
   roofTileEaveLift,
   roofTileInset,
   roofTileThickness,
-} from "./roof-options";
+} from "./roof-options.ts";
 
 /**
  * 三楼露台挡墙外缘、栏杆中线与四根将军柱心。
@@ -80,7 +80,7 @@ function gutterCement(mat: Mats) {
   return m;
 }
 
-export { apronFasciaBottom } from "./roof-options";
+export { apronFasciaBottom } from "./roof-options.ts";
 
 export type WallFootprint = { x: number; z: number; w: number; d: number };
 

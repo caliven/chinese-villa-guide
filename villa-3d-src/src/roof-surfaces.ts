@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import type { Point } from "./data";
-import { roofTileInset, roofTileThickness } from "./roof-options";
+import type { Point } from "./data.ts";
+import { roofTileInset, roofTileThickness } from "./roof-options.ts";
 
 // 屋面先按平面求交、裁切，再铺瓦；相邻坡面共用交线，瓦垄也在同一边界收口。
 export interface RoofFace {

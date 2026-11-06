@@ -1,9 +1,9 @@
-import { recessFrontFacades, thirdFloorWingIsClosed } from "./building-variants";
-import { site, floors, circulation, type Floor, type Point } from "./data";
-import { facades, standardExteriorDoor, secondFloorSideGlassHeadY, thirdFloorMaxOpeningHead, type Opening } from "./facades";
-import { facadeOpeningToWallOpening, type ExteriorOpeningDraft, type VoidDraft } from "./layout-draft";
-import { polygonContainsPoint, roomOutline } from "./room-geometry";
-import { alignedEntryOpenings, type EntryAssembly } from "./entry-assembly";
+import { recessFrontFacades, thirdFloorWingIsClosed } from "./building-variants.ts";
+import { site, floors, circulation, type Floor, type Point } from "./data.ts";
+import { facades, standardExteriorDoor, secondFloorSideGlassHeadY, thirdFloorMaxOpeningHead, type Opening } from "./facades.ts";
+import { facadeOpeningToWallOpening, type ExteriorOpeningDraft, type VoidDraft } from "./layout-draft.ts";
+import { polygonContainsPoint, roomOutline } from "./room-geometry.ts";
+import { alignedEntryOpenings, type EntryAssembly } from "./entry-assembly.ts";
 
 export type FacadeLayout = { floors?: Floor[]; livingVoid?: VoidDraft; exteriorOpenings?: ExteriorOpeningDraft[]; exteriorManaged?: boolean };
 export type ContinuousGlazing = { id: string; floor: number; upperFloor: number; facadeIndex: number; a: Point; b: Point; at: number; w: number; bottom: number; top: number; sourceIndex?: number; upperSourceIndices?: number[] };

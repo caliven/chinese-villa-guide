@@ -8,15 +8,15 @@ import {
   normalizeVillaParamsLengths,
   type VillaParams,
   validateVillaParams,
-} from "./villa-params";
+} from "./villa-params.ts";
 import {
   clonePublishedLayout,
   parseLayoutDraftManaged,
   type LayoutDraft,
-} from "./layout-draft";
-import type { CourtyardDimLayout } from "./courtyard-dim-drag";
-import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
-import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options";
+} from "./layout-draft.ts";
+import type { CourtyardDimLayout } from "./courtyard-dim-drag.ts";
+import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes.ts";
+import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options.ts";
 import {
   LENGTH_UNITS,
   isMeterLayoutDraft,
@@ -24,7 +24,7 @@ import {
   migrateCourtyardDimLayoutToMm,
   migrateLayoutLengthsToMm,
   migrateVillaParamsToMm,
-} from "./units";
+} from "./units.ts";
 
 export const schemeSchema = "anhua-villa-scheme-v1";
 export const schemeCurrentUrl = "./scheme/current.json";
