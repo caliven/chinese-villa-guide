@@ -19,9 +19,27 @@ import {
 import { buildL9, buildXingyuan } from "./cars";
 import { buildRoadsideVilla } from "./roadside-villa";
 import { roadsideFootprints, roadsideToWorld } from "./roadside-villa-layout";
-import { surroundings, forestTrees, basementColumns, roadHeight, rightTerraceBreak, rebuildTerraceLinkage } from "./surroundings";
+import {
+  surroundings,
+  forestTrees,
+  basementColumns,
+  annexColumnInnerZ,
+  mainFrontGaragePocket,
+  mainFrontPadHole,
+  rightTerraceBreak,
+  rebuildTerraceLinkage,
+} from "./surroundings";
 import { buildContextGround, buildRoad } from "./site-ground";
-import { garageLayout, rebuildGarageLayout } from "./garage-layout";
+import {
+  basementFloorY,
+  beamSoffitAt,
+  garageLayout,
+  GARAGE_OUTER_WALL_CENTER_INSET,
+  GARAGE_OUTER_WALL_THICKNESS,
+  outerLaneDepth,
+  rebuildGarageLayout,
+  slabSoffitAt,
+} from "./garage-layout";
 
 function gableRoof(
   parent: THREE.Object3D,
@@ -898,48 +916,138 @@ function vegetation(parent: THREE.Object3D, mat: Mats) {
   parent.add(crowns, trunks);
 }
 
-function courtyardRailing(parent: THREE.Group, mat: Mats) {
-  const path = contourSection(insetContour(courtyardFront, 100), 130, site.width - 130);
-  const strip = (halfWidth: number): Point[] => [
-    ...insetContour(path, -halfWidth),
-    ...insetContour(path, halfWidth).reverse(),
-  ];
-  // 底托顶仍约 0.12；底面抬离院坪顶约 1cm，避免与铺装共面斜看闪白线。
-  slab(parent, strip(90), 120, 110, mat.trim);
-  slab(parent, strip(50), 1130, 65, mat.metal);
+const RAIL_HEIGHT = 1100;
+const RAIL_POST_SPAN = 2600;
+const RAIL_BALUSTER_SPAN = 230;
+
+function railMaterials(mat: Mats) {
+  const trim = mat.trim.clone();
+  const metal = mat.metal.clone();
+  const stone = mat.stone.clone();
+  for (const material of [trim, metal, stone]) {
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = 2;
+    material.polygonOffsetUnits = 2;
+  }
+  return { trim, metal, stone };
+}
+
+/** 同一套栏杆：底托离开铺装，立柱处不再叠细栏杆，避免共面闪动。 */
+function edgeRailing(parent: THREE.Object3D, path: Point[], mat: Mats, postPoints?: Point[]) {
+  if (path.length < 2) return;
   const lengths = [0];
   for (let i = 1; i < path.length; i++)
     lengths.push(lengths[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
   const total = lengths.at(-1)!;
+  if (total < 200) return;
   const at = (distance: number): Point => {
-    const index = lengths.findIndex((length, i) => i > 0 && length >= distance);
+    const index = lengths.findIndex((length, i) => i > 0 && length >= distance - 1e-6);
     if (index < 0) return path.at(-1)!;
-    const t = (distance - lengths[index - 1]) / (lengths[index] - lengths[index - 1]);
+    const span = lengths[index] - lengths[index - 1];
+    const t = span < 1e-6 ? 0 : (distance - lengths[index - 1]) / span;
     const a = path[index - 1], b = path[index];
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   };
-  // 柱子按弧长间隔布置，不能每个曲线采样点都立一根粗柱。
-  const balusters = Math.ceil(total / 230), posts = Math.ceil(total / 2600);
+  const project = (point: Point) => {
+    let best = 0, bestD = Infinity;
+    for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1], b = path[i];
+      const dx = b[0] - a[0], dz = b[1] - a[1], len2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dz) / len2));
+      const x = a[0] + dx * t, z = a[1] + dz * t;
+      const d = (point[0] - x) ** 2 + (point[1] - z) ** 2;
+      if (d < bestD) { bestD = d; best = lengths[i - 1] + Math.hypot(x - a[0], z - a[1]); }
+    }
+    return best;
+  };
+  const { trim, metal, stone } = railMaterials(mat);
+  const strip = (halfWidth: number): Point[] => [
+    ...insetContour(path, -halfWidth),
+    ...insetContour(path, halfWidth).reverse(),
+  ];
+  slab(parent, strip(90), 140, 100, trim);
+  slab(parent, strip(50), 1130, 65, metal);
+  const posts = Math.max(1, Math.ceil(total / RAIL_POST_SPAN));
+  const postDistances = postPoints?.map(project) ?? Array.from({ length: posts + 1 }, (_, i) => total * i / posts);
+  const balusters = Math.ceil(total / RAIL_BALUSTER_SPAN);
   for (let i = 0; i <= balusters; i++) {
-    const [x, z] = at(total * i / balusters);
-    box(parent, x, 550, z, 25, 1100, 25, mat.metal, false);
+    const distance = total * i / balusters;
+    if (postDistances.some((post) => Math.abs(post - distance) < 100)) continue;
+    const [x, z] = at(distance);
+    box(parent, x, 550, z, 25, RAIL_HEIGHT, 25, metal, false);
   }
-  for (let i = 0; i <= posts; i++) {
-    const [x, z] = at(total * i / posts);
-    box(parent, x, 550, z, 160, 1100, 160, mat.trim);
-    box(parent, x, 1125, z, 240, 90, 240, mat.stone);
+  for (const distance of postDistances) {
+    const [x, z] = at(Math.max(0, Math.min(total, distance)));
+    box(parent, x, 550, z, 160, RAIL_HEIGHT, 160, trim);
+    box(parent, x, 1175, z, 240, 90, 240, stone);
   }
+}
+
+/** 完成面铺装只留朝上的一张面，不挤出竖向侧壁，避免和相邻院坪共面闪线。 */
+function gradeSurface(
+  parent: THREE.Object3D,
+  name: string,
+  points: Point[],
+  y: number,
+  material: THREE.Material,
+  holes: Point[][] = [],
+) {
+  const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, -z)));
+  for (const hole of holes) {
+    shape.holes.push(new THREE.Path(hole.map(([x, z]) => new THREE.Vector2(x, -z))));
+  }
+  const geometry = new THREE.ShapeGeometry(shape);
+  geometry.rotateX(-Math.PI / 2);
+  const pos = geometry.getAttribute("position");
+  const uv = geometry.getAttribute("uv");
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i), -pos.getZ(i));
+  geometry.computeVertexNormals();
+  const normal = geometry.getAttribute("normal");
+  if (normal.getY(0) < 0) {
+    const index = geometry.getIndex();
+    if (index) {
+      for (let i = 0; i < index.count; i += 3) {
+        const a = index.getX(i);
+        index.setX(i, index.getX(i + 2));
+        index.setX(i + 2, a);
+      }
+    } else {
+      for (let i = 0; i < pos.count; i += 3) {
+        for (const attr of [pos, uv]) {
+          for (let k = 0; k < attr.itemSize; k++) {
+            const keep = attr.getComponent(i, k);
+            attr.setComponent(i, k, attr.getComponent(i + 2, k));
+            attr.setComponent(i + 2, k, keep);
+          }
+        }
+      }
+    }
+    geometry.computeVertexNormals();
+  }
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = name;
+  mesh.position.y = y;
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+function courtyardRailing(parent: THREE.Group, mat: Mats) {
+  const path = contourSection(insetContour(courtyardFront, 100), 130, site.width - 130);
+  edgeRailing(parent, path, mat);
 }
 
 export function buildCourtyard(mat: Mats) {
   const deck = new THREE.Group();
   deck.name = "完整院坪与右侧人行通道";
-  slab(deck, site.field, 0, 230, mat.courtyard).name = "无中央楼梯洞的院坪";
+  const slabThick = site.garageSlabThickness;
+  // 辅楼内退段下为实体台地：院坪楼板只铺到 Z=0，不再向前廊下挖悬空。
+  slab(deck, site.field, 0, slabThick, mat.courtyard).name = "无中央楼梯洞的院坪";
   courtyardRailing(deck, mat);
   // 西侧栏杆北端落在院坪西端外沿，南端接到右田坎／辅楼侧通道，不伸出院坪。
   const westRailNorth = contourAt(courtyardFront, 120);
-  railing(deck, [120, westRailNorth], [120, surroundings.rightStep], 0, mat, 1100);
-  box(deck, 13600, -335, -500, 13600, 230, 360, mat.stone);
+  railing(deck, [120, westRailNorth], [120, surroundings.rightStep], 0, mat, RAIL_HEIGHT);
   return deck;
 }
 
@@ -966,20 +1074,52 @@ export function buildSite(mat: Mats) {
   const rearNeighbor = neighbors.getObjectByName("后方第二层梯田木房")!;
   const frontNeighbor = neighbors.getObjectByName("前方两层砖房")!;
   const roadsideNeighbor = neighbors.getObjectByName("主马路边蓝顶三层邻房")!;
+  // 两家旧台地进深同为 oldDepth，南缘同为 Z=0、北缘齐平。
+  // 主楼前墙若相对台地南缘外伸（mainDepth+rearGap−oldDepth），外伸段架空，地基实体不填出台地南缘。
+  const platformSouth = 0;
+  const platformDepth = site.oldDepth;
+  const platformNorth = platformSouth + platformDepth;
+  const foundationTop = site.garageFloor - site.garageSlabThickness;
+  // 主楼前廊下挖悬空（含原外伸段）：前墙一线承重柱／地梁落在地库净空，再往北仍实体台地。
+  const mainPocket = mainFrontGaragePocket();
+  const soilHoles: Point[][] = mainPocket.length ? [mainPocket] : [];
   // 院坪、地库和基座共用外沿；相邻未挖田面在 X=0 接续这条曲线。
-  const foundationTop = site.garageFloor - 150;
-  slab(fixed, site.boundary, foundationTop, foundationTop - frontFieldLevel, mat.soil);
-  // 铺装是看见的地面。石基顶面留在铺装底面以下，避免鸟瞰时两层共面闪成格子。
-  const padTop = 10;
+  slab(
+    fixed,
+    site.boundary,
+    foundationTop,
+    foundationTop - frontFieldLevel,
+    mat.soil,
+    soilHoles,
+  ).name = "自家场地土基";
+  // 看见的地面与前院、邻居过道同一完成面。厚板侧壁会在水泥边闪成细线，铺装只留朝上的面。
+  // 石基顶面留在铺装以下，避免鸟瞰时两层共面闪成格子。
+  // 台地石基／铺装落在 [platformSouth, platformNorth]；仅主楼前廊下挖开洞，辅楼段保持实体。
   const padThick = 70;
-  const stoneTop = padTop - padThick - 60;
-  slab(fixed, rect(0, 0, site.width, site.oldDepth), stoneTop, stoneTop - foundationTop, mat.stone);
-  slab(fixed, rect(0, 0, site.width, site.oldDepth), padTop, padThick, mat.courtyard);
-  box(fixed, site.width / 2, 1250, site.oldDepth + 160, site.width, 2500, 320, mat.stone);
+  const stoneTop = -padThick - 60;
+  const ownPad = rect(0, platformSouth, site.width, platformDepth);
+  const mainPadHole = mainFrontPadHole();
+  const padHoles = mainPadHole.length ? [mainPadHole] : [];
+  slab(fixed, ownPad, stoneTop, stoneTop - foundationTop, mat.stone, padHoles).name = "自家旧台地石基";
+  gradeSurface(fixed, "自家旧台地铺装", ownPad, 0, mat.courtyard, padHoles);
+  box(fixed, site.width / 2, 1250, platformNorth + 160, site.width, 2500, 320, mat.stone);
+  // 邻居台地与自家同一进深口径：南缘 Z=0、北缘 oldDepth 齐平（实景两家地基外沿持平）。
+  // 木屋前地库仍是开挖净空，由地库水泥地面表达；台地土基／石基按整块台地填满，不再从木屋前墙起缩进。
+  {
+    const neighborX0 = site.width;
+    const neighborW = surroundings.road.x - neighborX0;
+    if (neighborW > 100 && platformDepth > 100) {
+      const neighborPad = rect(neighborX0, platformSouth, neighborW, platformDepth);
+      slab(fixed, neighborPad, foundationTop, foundationTop - frontFieldLevel, mat.soil)
+        .name = "邻居台地土基";
+      slab(fixed, neighborPad, stoneTop, stoneTop - foundationTop, mat.stone)
+        .name = "邻居台地石基";
+    }
+  }
   // 屋后铺装上原先有一条深色细条（偏绿灰），用户要求删除。
   vegetation(context, mat);
   context.add(road);
-  slab(fixed, rect(site.cut.x, site.cut.z, site.cut.w, site.cut.d), -3150, 150, mat.soil);
+  slab(fixed, rect(site.cut.x, site.cut.z, site.cut.w, site.cut.d), -3150, site.garageSlabThickness, mat.soil);
 
   const yard = surroundings.neighborYard;
   neighborDeck.name = "新建邻居前坪";
@@ -991,58 +1131,160 @@ export function buildSite(mat: Mats) {
     -garageLayout.retainedDeck.modelSlabBottom,
     mat.neighborCourtyard,
   ).name = "与两侧院坪接通的邻居前坪";
+  // 前缘和靠路一侧栏杆按原范围恢复。靠木房留 2 米缺口，出路不封死。2 米是口述。
+  // 与自家外侧栏杆同一套模型、同一高度。地库最外侧不再另做围栏。
+  const neighborRail = new THREE.Group();
+  neighborRail.name = "邻居前坪栏杆";
+  neighborDeck.add(neighborRail);
+  edgeRailing(neighborRail, [[site.width, yard.z + 100], [surroundings.road.x - 60, yard.z + 100]], mat);
   const neighborLeft = new THREE.Group();
   neighborLeft.name = "新建邻居前坪左侧栏杆";
   neighborDeck.add(neighborLeft);
-  // 最左侧靠木房留 2 米缺口，出路不封死。2 米是口述。
-  railing(
+  edgeRailing(
     neighborLeft,
-    [surroundings.road.x - 60, yard.z + 100],
-    [surroundings.road.x - 60, surroundings.sideHouse.z - 2000],
-    0,
+    [[surroundings.road.x - 60, yard.z + 100], [surroundings.road.x - 60, surroundings.sideHouse.z - 2000]],
     mat,
   );
-  railing(
-    neighborDeck,
-    [site.width, yard.z + 100],
-    [surroundings.road.x - 60, yard.z + 100],
-    0,
-    mat,
-  );
-  context.add(neighborDeck, cutPiece, cutOutline);
+  // 邻居前坪与自家院坪楼板同级，不挂在周边 context 下，以便拆分展开／合拢单独显隐。
+  context.add(cutPiece, cutOutline);
 
   // 正前方电杆及架空线按拆除计划移除。
   // 现状下保留自家两栋旧房和低田。
   slab(existing, site.field, site.originalField, 300, mat.grass);
   buildExistingHouses(existing, mat);
-  // 新地库顶板与楼下空间。木屋前的地下室也按自家地库铺装。
-  // 地坪前沿收进矮墙厚度内，避免铺装边缘从墙面穿出。
-  const floorFront = contourSection(insetContour(courtyardFront, 130), 0, site.width);
-  slab(garage, [[0, 0], [site.width, 0], ...floorFront.slice().reverse()], site.garageFloor, 150, mat.paving);
+  // 邻居地库按现状院坪范围，标高取邻居完成面。木房右侧前面归自家，整片降到自家完成面。
+  // 斜坡只留在最外层车道宽度内。
+  const cement = mat.courtyardConcrete.clone();
+  cement.name = "水泥地库";
+  cement.polygonOffset = true;
+  cement.polygonOffsetFactor = -2;
+  cement.polygonOffsetUnits = -2;
+  const floorThick = 150;
+  // 18 墙：中线内收半厚 → 外皮贴院坪外沿；水泥铺到墙外皮，截面从墙下露出来。
+  const wallCenterInset = GARAGE_OUTER_WALL_CENTER_INSET;
+  const wallThick = GARAGE_OUTER_WALL_THICKNESS;
+  const wallHalf = wallThick / 2;
+  const floorOuterInset = wallCenterInset - wallHalf; // 0，与外皮齐
+  const floorFrontOuter = contourSection(insetContour(courtyardFront, floorOuterInset), 0, site.width);
+  slab(garage, [[0, 0], [site.width, 0], ...floorFrontOuter.slice().reverse()], site.garageFloor, floorThick, cement)
+    .name = "自家地库地面";
+  // 主楼前廊下挖悬空段：地库地面伸入屋内；辅楼段不挖，保持实体台地。
+  if (mainPocket.length) {
+    slab(garage, mainPocket, site.garageFloor, floorThick, cement).name = "主楼前廊下挖地库地面";
+  }
   const woodFront = surroundings.sideHouse.z;
-  slab(
+  const lane = outerLaneDepth();
+  const yardWest = yard.x;
+  // 邻居／斜坡段：水泥外皮与墙外皮齐平（墙中线 yard.z+半厚，外皮贴外沿）。
+  const wallCenterZ = yard.z + wallCenterInset;
+  const outerZ = wallCenterZ - wallHalf;
+  if (yardWest > site.width && woodFront > outerZ + lane) {
+    slab(
+      garage,
+      rect(site.width, outerZ + lane, yardWest - site.width, woodFront - outerZ - lane),
+      site.garageFloor,
+      floorThick,
+      cement,
+    ).name = "木房右侧前自家地库";
+  }
+  if (surroundings.road.x > yardWest && woodFront > outerZ + lane) {
+    slab(
+      garage,
+      rect(yardWest, outerZ + lane, surroundings.road.x - yardWest, woodFront - outerZ - lane),
+      site.neighborGarageFloor,
+      floorThick,
+      cement,
+    ).name = "邻居地库地面";
+  }
+  if (surroundings.road.x > yardWest) {
+    slab(
+      garage,
+      rect(yardWest, outerZ, surroundings.road.x - yardWest, lane),
+      site.neighborGarageFloor,
+      floorThick,
+      cement,
+    ).name = "邻居外侧车道";
+  }
+  const rampStart = yardWest;
+  const rampEnd = yardWest - 5000;
+  inclinedSlab(
     garage,
-    rect(site.width, yard.z + 130, surroundings.road.x - site.width, woodFront - yard.z - 130),
+    rampEnd,
     site.garageFloor,
-    150,
-    mat.paving,
-  ).name = "木屋前自家地下室地面";
+    rampStart,
+    site.neighborGarageFloor,
+    outerZ,
+    outerZ + lane,
+    floorThick,
+    cement,
+    "外层进车斜坡",
+  );
+  if (rampEnd > site.width) {
+    slab(
+      garage,
+      rect(site.width, outerZ, rampEnd - site.width, lane),
+      site.garageFloor,
+      floorThick,
+      cement,
+    ).name = "自家外侧车道";
+  }
   const columns = basementColumns();
+  const columnMat = cement.clone();
+  columnMat.name = "地库柱";
   for (const column of garageLayout.columns) {
     const [a, , c] = column.footprint;
     box(garage, (a[0] + c[0]) / 2, (column.top + column.bottom) / 2,
       (a[1] + c[1]) / 2, garageLayout.columnWidth, column.top - column.bottom,
-      garageLayout.columnWidth, mat.stone).name = column.label;
+      garageLayout.columnWidth, columnMat).name = column.label;
   }
-  // 梁底 -.45、地面 -2.95，示意最低净高2.50；不代表结构梁高可成立。
-  // 外墙只做到约 1 米，上面敞开，便于从外侧看到地库。样式一直延续到木屋前。
-  slab(
-    garage,
-    garageLayout.outerWall,
-    site.garageFloor + 1040,
-    1040,
-    mat.stone,
-  ).name = "沿同一外沿的地库矮墙";
+  // 主楼 6 根承重柱（前墙四＋门厅前沿二）柱下独立基础示意；平面尺寸／埋深待地勘核定。
+  const footingMat = cement.clone();
+  footingMat.name = "柱下独立基础";
+  const footingW = Math.max(1200, garageLayout.columnWidth * 3);
+  const footingH = 400;
+  for (const column of columns.ownColumns.filter((entry) => entry.role === "main")) {
+    const posts = [column.inner, ...(column.mid ? [column.mid] : [])];
+    for (const [x, z] of posts) {
+      box(
+        garage,
+        x,
+        site.garageFloor - footingH / 2,
+        z,
+        footingW,
+        footingH,
+        footingW,
+        footingMat,
+      ).name = "承重柱独立基础";
+    }
+  }
+  addGarageBeams(garage, mat, columns);
+  // 自家外沿＋斜坡外侧一整段连续外墙：下沿贴水泥、顶贴楼板底，水泥色，中途不断开。
+  const dwarfWall = new THREE.Group();
+  dwarfWall.name = "地库外沿连续墙";
+  garage.add(dwarfWall);
+  const wallCement = cement.clone();
+  wallCement.name = "地库外墙水泥";
+  // 墙略拉前，避免与外沿土坎共面时输给土面闪绿；水泥地面用更强负偏移仍露截面。
+  wallCement.polygonOffset = true;
+  wallCement.polygonOffsetFactor = -1;
+  wallCement.polygonOffsetUnits = -1;
+  if (garageLayout.fullOuterWallPath.length >= 2) {
+    addContinuousOuterWall(dwarfWall, garageLayout.fullOuterWallPath, wallThick, wallCement);
+  }
+  if (garageLayout.partitionWall) {
+    const wall = garageLayout.partitionWall;
+    const [a, , c] = wall.footprint;
+    box(
+      garage,
+      (a[0] + c[0]) / 2,
+      (wall.top + wall.bottom) / 2,
+      (a[1] + c[1]) / 2,
+      Math.abs(c[0] - a[0]),
+      wall.top - wall.bottom,
+      Math.abs(c[1] - a[1]),
+      wallCement,
+    ).name = wall.label;
+  }
   // 局部下挖止于自家边界，旁田的原标高不随车库降低。
   slab(
     garage,
@@ -1051,29 +1293,25 @@ export function buildSite(mat: Mats) {
     garageLayout.westWall.top - garageLayout.westWall.bottom,
     mat.stone,
   ).name = "地库局部下挖与未挖旁田的交界";
-  // 车位锚到地库外墙包络内侧，避免院坪总进深变浅后伸出边界。
-  const wallPts = garageLayout.outerWall;
-  const wallMinX = Math.min(...wallPts.map((p) => p[0]));
-  const wallMaxX = Math.max(...wallPts.map((p) => p[0]));
-  const wallMinZ = Math.min(...wallPts.map((p) => p[1]));
-  const wallMaxZ = Math.max(...wallPts.map((p) => p[1]));
-  const clampPark = (x: number, z: number, halfW: number, halfD: number): [number, number] => [
-    Math.min(wallMaxX - halfW - 300, Math.max(wallMinX + halfW + 300, x)),
-    Math.min(wallMaxZ - halfD - 300, Math.max(wallMinZ + halfD + 300, z)),
-  ];
-  const [l9x, l9z] = clampPark(18500, -4020, 1350, 2750);
-  const [xyx, xyz] = clampPark(14650, -3750, 1100, 2300);
+  // 车位停在自家地库东侧（主楼东墙以东）：按院坪弧局部进深夹紧，
+  // 车头／车身不得穿出外沿矮墙或落到 Z≥0 实体台地（改东／西进深后仍不穿模）。
+  const l9HalfW = 1200;
+  const l9HalfD = 2750;
+  const xyHalfW = 1050;
+  const xyHalfD = 2200;
+  const [l9x, l9z] = clampParkedCar(21350, -4000, l9HalfW, l9HalfD);
+  const [xyx, xyz] = clampParkedCar(24700, -3600, xyHalfW, xyHalfD);
   const parked = buildL9(mat);
   parked.position.set(l9x, site.garageFloor, l9z);
   garage.add(parked);
   const second = buildXingyuan(mat);
   second.position.set(xyx, site.garageFloor, xyz);
   garage.add(second);
-  for (const [x, z, name] of [
-    [l9x, l9z, "理想 L9 Max · 黑"],
-    [xyx, xyz, "吉利星愿 · 银"],
-  ] as [number, number, string][]) {
-    const outline = rect(x - 1350, z - 2750, 2700, 5500);
+  for (const [x, z, halfW, halfD, name] of [
+    [l9x, l9z, l9HalfW, l9HalfD, "理想 L9 Max · 黑"],
+    [xyx, xyz, xyHalfW, xyHalfD, "吉利星愿 · 银"],
+  ] as [number, number, number, number, string][]) {
+    const outline = rect(x - halfW, z - halfD, halfW * 2, halfD * 2);
     const innerFront = insetContour(courtyardFront, 260);
     for (let i = 0; i < outline.length; i++) {
       for (const segment of clipParkingLine(outline[i], outline[(i + 1) % outline.length], innerFront)) {
@@ -1082,7 +1320,6 @@ export function buildSite(mat: Mats) {
     }
     tag(garage, name, x, -1900, z, "#685b40", 0.7);
   }
-  box(garage, 3700, -2250, -850, 3600, 1300, 800, mat.wood);
   const overlapMat = new THREE.MeshBasicMaterial({
     color: 0xcf964c,
     transparent: true,
@@ -1120,34 +1357,39 @@ export function buildSite(mat: Mats) {
       true,
     );
   };
-  markSpan(0);
-  markSpan(columns.columns.findIndex((column) => column.x > 10000 && column.x <= site.width));
-  markSpan(columns.columns.findIndex((column) => column.x > site.width));
-  const bay = columns.columns[1];
-  line(
-    columnNotes,
-    [
-      new THREE.Vector3(columns.columns[0].x, site.garageFloor + 40, columns.columns[0].outer[1]),
-      new THREE.Vector3(bay.x, site.garageFloor + 40, bay.outer[1]),
-    ],
-    0x466a59,
-    true,
-  );
-  tag(
-    columnNotes,
-    `柱距 ${formatMm(columns.spacing)}`,
-    (columns.columns[0].x + bay.x) / 2,
-    noteY,
-    (columns.columns[0].outer[1] + bay.outer[1]) / 2 - 800,
-    "#ffe566",
-    0.62,
-    true,
-  );
+  const own = columns.ownColumns;
+  if (own[0]) markSpan(0);
+  const midOwn = own.findIndex((column) => column.x > 10000 && column.x <= site.width);
+  if (midOwn >= 0) markSpan(midOwn);
+  const neighborIdx = columns.columns.findIndex((column) => column.domain === "neighbor");
+  if (neighborIdx >= 0) markSpan(neighborIdx);
+  const bay = own[1];
+  if (own[0] && bay) {
+    line(
+      columnNotes,
+      [
+        new THREE.Vector3(own[0].x, site.garageFloor + 40, own[0].outer[1]),
+        new THREE.Vector3(bay.x, site.garageFloor + 40, bay.outer[1]),
+      ],
+      0x466a59,
+      true,
+    );
+    tag(
+      columnNotes,
+      `柱距 ${formatMm(columns.spacing)}`,
+      (own[0].x + bay.x) / 2,
+      noteY,
+      (own[0].outer[1] + bay.outer[1]) / 2 - 800,
+      "#ffe566",
+      0.62,
+      true,
+    );
+  }
   tag(columnNotes, "外沿柱", 9100, noteY, -6200, "#ffe566", 0.66, true);
   tag(columnNotes, "房前墙下柱", 13300, noteY, -1700, "#ffe566", 0.66, true);
-  tag(columnNotes, "中间不立柱 · 梁高待核算", 16000, -400, -4200, "#ffe566", 0.68, true);
+  tag(columnNotes, "两家地库柱梁分开", 25000, -400, -4200, "#ffe566", 0.68, true);
   columnNotes.visible = false;
-  proposed.add(deck, garage, overlap, columnNotes);
+  proposed.add(deck, neighborDeck, garage, overlap, columnNotes);
   const scheme = new THREE.Group();
   scheme.name = "新建尺寸";
   const current = new THREE.Group();
@@ -1226,7 +1468,8 @@ export function buildSite(mat: Mats) {
   dim(scheme, `二楼前檐 ${formatMm(site.secondFrontEave)} · 主楼顶檐 ${formatMm(site.thirdEave)} · 辅楼顶檐 ${formatMm(site.eave)}`, 17600, 4200, -4600, 0.68);
   dim(scheme, "前通道约 2000", 2800, 1600, -2500, 0.66);
   dim(scheme, `侧道 ${formatMm(site.sideGap)}`, 450, 1800, 6400, 0.64);
-  dim(scheme, `地库 ${formatMm(site.garageFloor)} · 净高目标 ${formatMm(site.garageClear)}`, 16200, 2000, -7600, 0.7);
+  dim(scheme, `自家地库 ${formatMm(site.garageFloor)} · 净高 ${formatMm(site.garageClear)}`, 16200, 2000, -7600, 0.7);
+  dim(scheme, `邻居地库 ${formatMm(site.neighborGarageFloor)} · 梁下净高 ${formatMm(site.neighborBeamClear)} · 平接 ${formatMm(site.neighborBeamReach)}`, 25000, site.neighborGarageFloor + 1600, -5200, 0.7);
   dim(scheme, `右侧上田靠屋前伸 ${formatMm(surroundings.rightTerraceAdvance)}`, -4200, 1500, 2200, 0.68);
   span(scheme, p(main.x, main.z, 350), p(main.x, main.z + main.d, 350));
   dim(scheme, `进深 ${formatMm(main.d)}`, 4600, 4200, -1200, 0.68);
@@ -1272,6 +1515,61 @@ export function buildSite(mat: Mats) {
 }
 
 /** 车位线只画在弧形矮墙的内侧，按田坎采样点和真实交点裁剪。 */
+/**
+ * 停车位：车头朝南（−Z）。按院坪弧在车身宽度内的最北外沿夹紧，
+ * 整车落在外沿矮墙／弧边以北、Z=0 台地以南、主楼以东、邻界分隔以西。
+ */
+export function clampParkedCar(
+  preferX: number,
+  preferZ: number,
+  halfW: number,
+  halfD: number,
+  margin = 300,
+): [number, number] {
+  const yardWest = surroundings.neighborYard.x;
+  const mainEast = site.main.x + site.main.w;
+  const minX = mainEast + halfW + margin;
+  const maxX = yardWest - halfW - margin - GARAGE_OUTER_WALL_THICKNESS;
+  // 外沿内侧（过矮墙厚度），车头不得越过。
+  const clearFront = insetContour(
+    courtyardFront,
+    GARAGE_OUTER_WALL_CENTER_INSET + GARAGE_OUTER_WALL_THICKNESS + 40,
+  );
+  const southEdgeAt = (x: number) => {
+    const xs = [x - halfW, x, x + halfW];
+    return Math.max(
+      ...xs.map((sx) => {
+        if (sx <= site.width) return contourAt(clearFront, Math.max(0, Math.min(site.width, sx)));
+        // 自家东界以东仍按邻界外沿（邻院西界／进车带），避免车头伸进邻居前坪。
+        return surroundings.neighborYard.z + GARAGE_OUTER_WALL_CENTER_INSET + GARAGE_OUTER_WALL_THICKNESS;
+      }),
+    );
+  };
+  // 北界：整车留在院坪开挖侧（南保险杠以南不超过 Z=0 台地）。
+  const maxZ = -margin - halfD;
+  const fits = (x: number) => southEdgeAt(x) + halfD + margin <= maxZ + 1;
+
+  let x = Math.min(maxX, Math.max(minX, preferX));
+  if (!fits(x)) {
+    // 东侧变浅时向西找仍够停的进深；找不到则停在最浅可夹位置。
+    let found = x;
+    for (let tx = x; tx >= minX; tx -= 200) {
+      if (fits(tx)) {
+        found = tx;
+        break;
+      }
+    }
+    x = found;
+  }
+  const minZ = southEdgeAt(x) + halfD + margin;
+  let z = Math.min(maxZ, Math.max(minZ, preferZ));
+  if (minZ > maxZ) {
+    // 进深不够整车：宁可贴齐外沿内侧，也不穿出弧边／矮墙。
+    z = minZ;
+  }
+  return [Math.round(x), Math.round(z)];
+}
+
 export function clipParkingLine(a: Point, b: Point, front: Point[]): Point[][] {
   const dx = b[0] - a[0], dz = b[1] - a[1];
   const cuts = [0, 1, ...(dx === 0 ? [] : front.map(([x]) => (x - a[0]) / dx).filter((t) => t > 0 && t < 1))].sort((x, y) => x - y);
@@ -1291,46 +1589,296 @@ export function clipParkingLine(a: Point, b: Point, front: Point[]): Point[][] {
   return result;
 }
 
+/** 梁端停在楼板边缘内侧这段距离，挑出支撑楼板。 */
+const BEAM_EDGE_STOP = 400;
+
+/**
+ * 柱间梁：弧形外沿走边梁（贴弧折线），房前横梁与纵梁仍走柱网。
+ * 梁顶贴楼板底、梁底贴柱顶；外沿端头距板边 ≥400，不得穿出弧边。
+ * 真实弧形地库常见做法：边柱沿弧、边梁随弧，纵梁收到边柱／板边内侧。
+ */
+function addGarageBeams(
+  parent: THREE.Object3D,
+  mat: Mats,
+  columns: ReturnType<typeof basementColumns>,
+) {
+  const beams = new THREE.Group();
+  beams.name = "地库柱间梁";
+  parent.add(beams);
+  const beamWidth = Math.max(200, site.garageBeamWidth || 350);
+  const beamMat = mat.courtyardConcrete.clone();
+  beamMat.name = "地库梁";
+  beamMat.onBeforeCompile = () => {};
+  beamMat.customProgramCacheKey = () => "garage-beam-flush-slab";
+  beamMat.polygonOffset = true;
+  beamMat.polygonOffsetFactor = 2;
+  beamMat.polygonOffsetUnits = 2;
+  /** 沿平面任意方向的梁段（绕 Y 旋转）：柱心到柱心的直梁。 */
+  const spanBeam = (
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    label: string,
+  ) => {
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const length = Math.hypot(dx, dz);
+    if (length < 100) return;
+    const mx = (x0 + x1) / 2;
+    const mz = (z0 + z1) / 2;
+    const soffit = beamSoffitAt(mx);
+    const top = slabSoffitAt(mx);
+    const depth = top - soffit;
+    if (depth < 80) return;
+    const mesh = box(beams, mx, (soffit + top) / 2, mz, length, depth, beamWidth, beamMat);
+    mesh.rotation.y = -Math.atan2(dz, dx);
+    mesh.name = label;
+  };
+  const addOwnGrid = () => {
+    const byX = [...columns.ownColumns].sort((a, b) => a.x - b.x);
+    if (!byX.length) return;
+    const yard = surroundings.neighborYard;
+    const first = byX[0], last = byX.at(-1)!;
+    const xTip0 = BEAM_EDGE_STOP;
+    const xTip1 = yard.x - BEAM_EDGE_STOP;
+    const arcEdge = insetContour(courtyardFront, columns.outerInset);
+
+    type Post = { x: number; z: number; row: "outer" | "mid" | "inner"; axis: number };
+    const posts: Post[] = [];
+    const colW = Math.max(300, site.garageColumnSize || 400);
+    for (const [axis, column] of byX.entries()) {
+      const samePost =
+        Math.hypot(column.outer[0] - column.inner[0], column.outer[1] - column.inner[1]) < colW * 0.5;
+      if (samePost) {
+        // 院坪极浅轴只落一根柱，避免外沿／里侧重叠。
+        posts.push({ x: column.inner[0], z: column.inner[1], row: "inner", axis });
+        continue;
+      }
+      posts.push({ x: column.outer[0], z: column.outer[1], row: "outer", axis });
+      if (column.mid) posts.push({ x: column.mid[0], z: column.mid[1], row: "mid", axis });
+      posts.push({ x: column.inner[0], z: column.inner[1], row: "inner", axis });
+    }
+
+    // 1) 外沿横梁：按 X 顺序柱心直段（贴弧折线），含东西挑出。
+    const outers = posts.filter((p) => p.row === "outer").sort((a, b) => a.x - b.x);
+    if (outers.length && outers[0].x - xTip0 > 50) {
+      spanBeam(xTip0, contourAt(arcEdge, xTip0), outers[0].x, outers[0].z, "自家外沿横梁西挑");
+    }
+    for (let i = 1; i < outers.length; i++) {
+      spanBeam(outers[i - 1].x, outers[i - 1].z, outers[i].x, outers[i].z, `自家外沿横梁 ${i}`);
+    }
+    if (outers.length && xTip1 - outers.at(-1)!.x > 50) {
+      spanBeam(outers.at(-1)!.x, outers.at(-1)!.z, xTip1, outers.at(-1)!.z, "自家外沿横梁东挑");
+    }
+
+    // 2) 同标高横梁：凡同一排（门厅／辅楼前墙／主楼前墙）相邻柱必有梁，不漏跨。
+    const rowPosts = posts.filter((p) => p.row !== "outer");
+    const zKeys = [...new Set(rowPosts.map((p) => Math.round(p.z / 50) * 50))].sort((a, b) => a - b);
+    const westTipZ = first.inner[1];
+    const eastTipZ = last.inner[1];
+    for (const zKey of zKeys) {
+      const line = rowPosts
+        .filter((p) => Math.abs(p.z - zKey) <= 50)
+        .sort((a, b) => a.x - b.x);
+      if (line.length < 1) continue;
+      const z = line[0].z;
+      const label = Math.abs(z - annexColumnInnerZ()) < 80
+        ? "辅楼前院坪"
+        : line.some((p) => p.row === "mid")
+          ? "门厅前沿"
+          : "主楼房前";
+      // 西挑只接最西侧房前排（辅楼），东挑只接最东侧房前排，避免门厅排误挑到邻界。
+      if (Math.abs(z - westTipZ) <= 50 && line[0].x - xTip0 > 50) {
+        spanBeam(xTip0, z, line[0].x, z, `自家${label}横梁西挑`);
+      }
+      for (let i = 1; i < line.length; i++) {
+        spanBeam(line[i - 1].x, z, line[i].x, z, `自家${label}横梁 ${i}`);
+      }
+      if (Math.abs(z - eastTipZ) <= 50 && xTip1 - line.at(-1)!.x > 50) {
+        spanBeam(line.at(-1)!.x, z, xTip1, z, `自家${label}横梁东挑`);
+      }
+    }
+
+    // 3) 纵梁：同一轴上按 Z 从南到北，相邻柱位点必有梁（外沿→门厅→前墙）。
+    for (const [axis, column] of byX.entries()) {
+      const stack = posts
+        .filter((p) => p.axis === axis)
+        .sort((a, b) => a.z - b.z);
+      for (let i = 1; i < stack.length; i++) {
+        spanBeam(
+          stack[i - 1].x, stack[i - 1].z,
+          stack[i].x, stack[i].z,
+          `自家纵梁 C${axis + 1}-${i}`,
+        );
+      }
+    }
+  };
+  const addNeighborGrid = () => {
+    const byX = [...columns.neighborColumns].sort((a, b) => a.x - b.x);
+    if (!byX.length) return;
+    const yard = surroundings.neighborYard;
+    const xTip0 = yard.x + BEAM_EDGE_STOP;
+    const xTip1 = surroundings.road.x - BEAM_EDGE_STOP;
+    const first = byX[0], last = byX.at(-1)!;
+    if (first.x - xTip0 > 50) {
+      spanBeam(xTip0, first.outer[1], first.outer[0], first.outer[1], "邻居外沿横梁西挑");
+    }
+    for (let i = 1; i < byX.length; i++) {
+      const a = byX[i - 1], b = byX[i];
+      spanBeam(a.outer[0], a.outer[1], b.outer[0], b.outer[1], `邻居外沿横梁 ${i}`);
+    }
+    if (xTip1 - last.x > 50) {
+      spanBeam(last.outer[0], last.outer[1], xTip1, last.outer[1], "邻居外沿横梁东挑");
+    }
+    if (first.x - xTip0 > 50) {
+      spanBeam(xTip0, first.inner[1], first.inner[0], first.inner[1], "邻居房前横梁西挑");
+    }
+    for (let i = 1; i < byX.length; i++) {
+      const a = byX[i - 1], b = byX[i];
+      spanBeam(a.inner[0], a.inner[1], b.inner[0], b.inner[1], `邻居房前横梁 ${i}`);
+    }
+    if (xTip1 - last.x > 50) {
+      spanBeam(last.inner[0], last.inner[1], xTip1, last.inner[1], "邻居房前横梁东挑");
+    }
+    for (const [i, column] of byX.entries()) {
+      spanBeam(
+        column.outer[0], column.outer[1],
+        column.inner[0], column.inner[1],
+        `邻居纵梁 C${i + 1}`,
+      );
+    }
+  };
+  addOwnGrid();
+  addNeighborGrid();
+}
+
+/** 地库外沿矮墙高度（完成面起）。非通高封闭，只改水泥色。 */
+const GARAGE_OUTER_WALL_HEIGHT = 1040;
+
+/**
+ * 地库外沿连续矮墙：自家水平段与斜坡段同一张索引网格，共享顶点、不画东端封板。
+ * 下沿略嵌入水泥完成面（含斜坡），顶面平行抬高固定矮墙高；厚度沿南北偏移。
+ * 不画底面，避免与水泥顶共面闪烁；外皮略收进，避免与土坎立面共面闪绿。
+ */
+function addContinuousOuterWall(
+  parent: THREE.Object3D,
+  path: Point[],
+  thickness: number,
+  material: THREE.Material,
+) {
+  const cleaned: Point[] = [];
+  for (const point of path) {
+    const prev = cleaned.at(-1);
+    if (!prev || Math.hypot(point[0] - prev[0], point[1] - prev[1]) > 15) cleaned.push(point);
+  }
+  if (cleaned.length < 2) return;
+  const lengths = [0];
+  for (let i = 1; i < cleaned.length; i++) {
+    lengths.push(
+      lengths[i - 1] + Math.hypot(cleaned[i][0] - cleaned[i - 1][0], cleaned[i][1] - cleaned[i - 1][1]),
+    );
+  }
+  const total = lengths.at(-1)!;
+  if (total < 50) return;
+  const at = (distance: number): Point => {
+    const index = lengths.findIndex((length, i) => i > 0 && length >= distance - 1e-6);
+    if (index < 0) return cleaned.at(-1)!;
+    const span = lengths[index] - lengths[index - 1];
+    const t = span < 1e-6 ? 0 : (distance - lengths[index - 1]) / span;
+    const a = cleaned[index - 1], b = cleaned[index];
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  };
+  // 加密采样；斜坡段底标高连续变化时靠共享顶点抹平竖向硬边。
+  const samples = Math.max(96, Math.ceil(total / 120));
+  const halfT = thickness / 2;
+  // 外皮相对理论外沿内收，与土坎立面错开，消除斜坡段闪绿。
+  const outerInset = 25;
+  // 下沿嵌入水泥，封住接缝且不必再画底面。
+  const embed = 30;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  // 每站 4 顶点：外底、外顶、内顶、内底。相邻站共享，避免每段独立复制出竖缝。
+  for (let i = 0; i <= samples; i++) {
+    const distance = (total * i) / samples;
+    const [x, z] = at(distance);
+    const floor = basementFloorY(x, z);
+    const bottom = floor - embed;
+    const top = floor + GARAGE_OUTER_WALL_HEIGHT;
+    const oz = z - halfT + outerInset;
+    const iz = z + halfT;
+    positions.push(x, bottom, oz, x, top, oz, x, top, iz, x, bottom, iz);
+  }
+  const ring = (i: number) => i * 4;
+  for (let i = 0; i < samples; i++) {
+    const a = ring(i);
+    const b = ring(i + 1);
+    // 外立面
+    indices.push(a, b, b + 1, a, b + 1, a + 1);
+    // 内立面
+    indices.push(a + 3, a + 2, b + 2, a + 3, b + 2, b + 3);
+    // 顶面
+    indices.push(a + 1, b + 1, b + 2, a + 1, b + 2, a + 2);
+    // 底面不画：贴在水泥里，画了会与水泥顶共面闪烁。
+  }
+  // 西端封板保留；东端（斜坡起点／邻界）不封，避免模型上出现明显分割线。
+  {
+    const a = ring(0);
+    indices.push(a, a + 1, a + 2, a, a + 2, a + 3);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = "地库外沿连续矮墙";
+  mesh.castShadow = mesh.receiveShadow = true;
+  parent.add(mesh);
+}
+
+function inclinedSlab(
+  parent: THREE.Object3D,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  z0: number,
+  z1: number,
+  thick: number,
+  material: THREE.Material,
+  name: string,
+) {
+  if (x1 - x0 < 50 || z1 - z0 < 50) return;
+  const top = (x: number, y: number, z: number) => [x, y, z];
+  const bot = (x: number, y: number, z: number) => [x, y - thick, z];
+  const vertices: number[] = [];
+  const quad = (a: number[], b: number[], c: number[], d: number[]) => {
+    vertices.push(...a, ...c, ...b, ...a, ...d, ...c);
+  };
+  quad(top(x0, y0, z0), top(x1, y1, z0), top(x1, y1, z1), top(x0, y0, z1));
+  quad(bot(x0, y0, z1), bot(x1, y1, z1), bot(x1, y1, z0), bot(x0, y0, z0));
+  quad(top(x0, y0, z0), top(x0, y0, z1), bot(x0, y0, z1), bot(x0, y0, z0));
+  quad(top(x1, y1, z1), top(x1, y1, z0), bot(x1, y1, z0), bot(x1, y1, z1));
+  quad(top(x0, y0, z1), top(x1, y1, z1), bot(x1, y1, z1), bot(x0, y0, z1));
+  quad(top(x1, y1, z0), top(x0, y0, z0), bot(x0, y0, z0), bot(x1, y1, z0));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = name;
+  mesh.castShadow = mesh.receiveShadow = true;
+  parent.add(mesh);
+}
+
 export function makeRamp(
   parent: THREE.Group,
-  mat: Mats,
-  roadY: number,
-  length: number,
+  _mat: Mats,
+  _roadY: number,
+  _length: number,
 ) {
-  const startX = site.width + length,
-    endX = site.width;
+  // 进库斜坡做在地库最外层车道上，见上方地面。
   const g = new THREE.Group();
+  g.name = "地库交界平接";
   parent.add(g);
-  const z1 = garageLayout.entry.z + garageLayout.entry.d, strips = 5;
-  // 矮墙南侧的坡面会切穿墙体；保留原入口终点，起点收至墙内侧。
-  const wallInnerZ = Math.max(...garageLayout.outerWall.filter(([x]) => x >= site.width).map(([, z]) => z));
-  const z0 = Math.max(garageLayout.entry.z, Math.min(z1, wallInnerZ + 5));
-  const surface = (z: number) =>
-    roadHeight(z) + roadY - surroundings.road.entryY;
-  const material = mat.paving.clone();
-  material.side = THREE.DoubleSide;
-  const positions: number[] = [];
-  const push = (
-    ax: number, ay: number, az: number,
-    bx: number, by: number, bz: number,
-    cx: number, cy: number, cz: number,
-    dx: number, dy: number, dz: number,
-  ) => {
-    positions.push(ax, ay, az, cx, cy, cz, bx, by, bz, ax, ay, az, dx, dy, dz, cx, cy, cz);
-  };
-  for (let i = 0; i < strips; i++) {
-    const a = z0 + ((z1 - z0) * i) / strips;
-    const b = z0 + ((z1 - z0) * (i + 1)) / strips;
-    const ya = surface(a), yb = surface(b);
-    // 接入段跟着马路纵坡走，不再做成一块平台阶。
-    push(startX, ya, a, surroundings.road.x, ya, a, surroundings.road.x, yb, b, startX, yb, b);
-    push(endX, site.garageFloor, a, startX, ya, a, startX, yb, b, endX, site.garageFloor, b);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geo.computeVertexNormals();
-  const ramp = new THREE.Mesh(geo, material);
-  ramp.receiveShadow = true;
-  g.add(ramp);
   return g;
 }

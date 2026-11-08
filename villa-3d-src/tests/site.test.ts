@@ -3,10 +3,9 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { site, floors, frontFieldLevel, courtyardFront } from "../src/data";
 import { buildContextGround, buildRoad } from "../src/site-ground";
-import { buildSurroundingHouses, makeRamp, buildCourtyard, buildExistingHouses, neighborBayPlan, clipParkingLine } from "../src/terrain";
-import { surroundings as c, forestTrees, groundHeight, roadHeight, rightTerraceBreak, terraceContours } from "../src/surroundings";
+import { buildSurroundingHouses, makeRamp, buildCourtyard, buildExistingHouses, buildSite, neighborBayPlan, clipParkingLine } from "../src/terrain";
+import { surroundings as c, forestTrees, groundHeight, rightTerraceBreak, terraceContours } from "../src/surroundings";
 import { contourAt } from "../src/contours";
-import { garageLayout } from "../src/garage-layout";
 import type { Mats } from "../src/primitives";
 
 const mats = Object.fromEntries(
@@ -90,34 +89,20 @@ test("蓝顶邻房门前弯曲主马路露在田面之上，不被前方低田�
   }
 });
 
-test("坡长调整后仍接到左侧道路，坡道与接入段不叠面", () => {
+test("两家地库交界不再铺斜坡", () => {
   for (const length of [3000, 5000, 10000]) {
     const ramp = makeRamp(new THREE.Group(), mats, -2000, length);
     for (const x of [21450, 23800, 26370, 29670, 33400]) {
-      const h = hits(ramp, x, -7570);
-      assert.equal(h.length, 1, `接入断开或重叠 @ ${x},坡长${length}`);
-      assert.equal(hits(ground, x, -7570).length, 0, `原地形挡住接入段 @ ${x}`);
-      const surface = roadHeight(-7570) + (-2000 - c.road.entryY);
-      const startX = site.width + length;
-      const expected =
-        x >= startX
-          ? surface
-          : site.garageFloor +
-            ((x - site.width) / length) * (surface - site.garageFloor);
-      assert.ok(
-        Math.abs(h[0].point.y - expected) < 20,
-        `坡面高度偏离 ${Math.abs(h[0].point.y - expected).toFixed(1)}mm @ ${x}`,
-      );
+      assert.equal(hits(ramp, x, -7570).length, 0, `交界不应再有斜面 @ ${x}`);
     }
   }
+  assert.ok(site.neighborGarageFloor > site.garageFloor);
 });
 
 test("坡道前缘收在地库矮墙内侧", () => {
-  const innerZ = Math.max(...garageLayout.outerWall.filter(([x]) => x >= site.width).map(([, z]) => z));
   for (const roadY of [-4000, -2000, 0]) {
     const ramp = makeRamp(new THREE.Group(), mats, roadY, 5000);
-    assert.equal(hits(ramp, site.width + 1000, innerZ - 10).length, 0);
-    assert.equal(hits(ramp, site.width + 1000, innerZ + 50).length, 1);
+    assert.equal(ramp.children.length, 0);
   }
 });
 
@@ -308,6 +293,22 @@ test("西侧栏杆北端落在院坪西端外沿，不伸到旧 −2980", () => 
   assert.ok(minZ > -1200, "西栏杆不应再伸到 −2980");
 });
 
+test("辅楼下为实体地基：院坪楼板不伸入内退段", () => {
+  const deck = buildCourtyard(mats);
+  const annex = site.annex;
+  // 辅楼前墙内退段（0＜Z＜annex.z）是实体台地，院坪完成面不得铺进楼底。
+  for (const [x, z] of [
+    [annex.x + annex.w / 2, annex.z / 2],
+    [annex.x + 200, annex.z - 200],
+    [annex.x + annex.w - 200, 500],
+  ] as [number, number][]) {
+    assert.equal(hits(deck, x, z).length, 0, `辅楼实体地基上不应有院坪楼板 @ ${x},${z}`);
+  }
+  // 院坪南侧（Z＜0）仍有完成面；前墙以北仍不铺楼板。
+  assert.ok(hits(deck, annex.x + annex.w / 2, -500)[0], "辅楼正前院坪应有楼板");
+  assert.equal(hits(deck, annex.x + annex.w / 2, annex.z + 500).length, 0, "楼板不得穿入辅楼");
+});
+
 test("院坪原楼梯洞已填平，辅楼前与右侧通道接到同高梯田", () => {
   const deck = buildCourtyard(mats);
   for (const z of [-4800, -3200, -1400])
@@ -390,5 +391,69 @@ test("新田坎两侧各有唯一田面，渲染高度与地形查询相符", ()
         assert.ok(Math.abs(surfaces[0].point.y - groundHeight(x, z)) < .01, `高度不同源 @ ${x},${z}`);
       }
     }
+  }
+});
+
+test("两家之间的过道由院坪铺装控制，并且与自家院坪齐平", () => {
+  const previous = globalThis.document;
+  const ctx = new Proxy({}, {
+    get: (_target, prop) => (prop === "measureText" ? () => ({ width: 80 }) : () => undefined),
+    set: () => true,
+  });
+  globalThis.document = { createElement: () => ({ width: 256, height: 256, getContext: () => ctx }) } as unknown as Document;
+  try {
+    const keys = [
+      "wall", "trim", "stone", "paving", "courtyard", "neighborCourtyard", "courtyardConcrete", "courtyardTile",
+      "roof", "villaRoof", "villaRoofJoint", "roofGutter", "relief", "dressedStone", "carvedStone", "carvingInset",
+      "carvingDark", "terrace", "terraceEdge", "dark", "wood", "grass", "soil", "metal", "glass", "lowE", "inside",
+      "floor", "fabric", "foliage", "trunk", "gold", "marble", "darkStone", "darkStoneGroove", "darkStoneRampMark",
+      "sand", "british", "bronze", "bronzeDark", "doorBathFrame", "doorBathGlass", "doorTimber", "doorInset",
+      "doorHardware", "doorSeal", "doorBronze", "doorBronzeInset", "doorBronzeHardware",
+    ];
+    const finish = Object.fromEntries(keys.map((key) => {
+      const material = new THREE.MeshStandardMaterial();
+      material.name = key;
+      return [key, material];
+    })) as Mats;
+    const land = buildSite(finish);
+    for (const root of [land.context, land.fixed, land.deck, land.neighborDeck]) root.updateMatrixWorld(true);
+    const eastWall = Math.max(site.main.x + site.main.w, site.annex.x + site.annex.w);
+    const neighborWall = c.sideHouse.x;
+    const roots = [land.context, land.fixed, land.deck, land.neighborDeck];
+    const top = (x: number, z: number) => {
+      const ray = new THREE.Raycaster(new THREE.Vector3(x, 400, z), new THREE.Vector3(0, -1, 0));
+      const hits = roots.flatMap((root) => ray.intersectObject(root, true))
+        .filter((hit) => hit.object instanceof THREE.Mesh && hit.point.y > -50)
+        .sort((a, b) => b.point.y - a.point.y);
+      assert.ok(hits.length, `过道没有地面 @ ${x},${z}`);
+      const samePlane = hits.filter((hit) => Math.abs(hit.point.y - hits[0].point.y) < 1);
+      assert.equal(samePlane.length, 1, `过道地面叠了两层 @ ${x},${z} ${samePlane.map((hit) => hit.object.name).join("/")}`);
+      return hits[0];
+    };
+    const samples: [number, number, "courtyard" | "neighborCourtyard"][] = [];
+    for (const z of [-2400, -40, 40, 700, c.sideHouse.z + 80, 4200, 8600]) {
+      samples.push([eastWall + 120, z, "courtyard"], [site.width - 80, z, "courtyard"]);
+      samples.push([site.width + 80, z, "neighborCourtyard"], [(site.width + neighborWall) / 2, z, "neighborCourtyard"], [neighborWall - 80, z, "neighborCourtyard"]);
+    }
+    let ownY = 0;
+    for (const [x, z, material] of samples) {
+      const hit = top(x, z);
+      const mesh = hit.object as THREE.Mesh;
+      assert.equal((mesh.material as THREE.Material).name, material, `${hit.object.name} @ ${x},${z}`);
+      assert.ok(Math.abs(hit.point.y) < 0.5, `完成面应在院坪 ±0，实际 ${hit.point.y} @ ${x},${z}`);
+      if (material === "courtyard") ownY = hit.point.y;
+      else assert.ok(Math.abs(hit.point.y - ownY) < 0.5, "过道两侧铺装不齐平");
+    }
+    const stone = land.fixed.getObjectByName("自家旧台地石基") as THREE.Mesh;
+    assert.ok(new THREE.Box3().setFromObject(stone).max.y < -50, "石基不能顶到铺装完成面");
+    const neighborStone = land.fixed.getObjectByName("邻居台地石基") as THREE.Mesh;
+    assert.ok(neighborStone, "应有邻居台地石基");
+    const ownBox = new THREE.Box3().setFromObject(stone);
+    const nbrBox = new THREE.Box3().setFromObject(neighborStone);
+    assert.ok(Math.abs(ownBox.min.z - nbrBox.min.z) < 1, "两家台地南缘（外沿）应持平");
+    assert.ok(Math.abs(ownBox.max.z - nbrBox.max.z) < 1, "两家台地北缘应持平");
+  } finally {
+    if (previous === undefined) delete (globalThis as { document?: Document }).document;
+    else globalThis.document = previous;
   }
 });

@@ -269,10 +269,10 @@ document.querySelector("#app")!.innerHTML = `
           <div class="section-heading"><h2>地库与入口</h2><button id="leave-garage" class="text-button">返回场地</button></div>
           <div class="notice"><span><strong>车辆路线 · 通行未确认</strong><small>道路与最低梁底待测，切口协商待确认；当前仅作模型平面筛查。</small></span></div>
           <dl class="metric-list">
-            <div><dt>地库最低净高目标</dt><dd>${formatMm(site.garageClear)} mm · 待核</dd></div>
+            <div><dt>地库净高</dt><dd id="garage-clear-readout">自家 ${formatMm(site.garageClear)} / 邻居 ${formatMm(site.neighborBeamClear)}</dd></div>
             <div><dt>预计入口净宽 · 待测</dt><dd>${formatMm(garageLayout.entry.d)} mm</dd></div>
             <div><dt>L9长 / 宽 / 高 · 不含镜</dt><dd>${formatMm(site.vehicle.length)} / ${formatMm(site.vehicle.width)} / ${formatMm(site.vehicle.height)} mm</dd></div>
-            <div><dt>居中直行单侧几何余量</dt><dd>约 ${Math.round((garageLayout.entry.d - site.vehicle.width) * 50)} cm</dd></div>
+            <div><dt>居中直行单侧几何余量</dt><dd>约 ${Math.round((garageLayout.entry.d - site.vehicle.width) / 2)} mm</dd></div>
           </dl><p class="micro">轴距 ${formatMm(site.vehicle.wheelbase)} mm，沿用项目已有车辆尺寸。上列余量只是假定入口宽度减车身宽，不含后视镜、转弯及安全余量。</p>
         </section>
         <section><h2>扫掠与风险图层</h2>
@@ -281,7 +281,7 @@ document.querySelector("#app")!.innerHTML = `
           <p id="route-summary" class="description"></p><div id="route-findings" class="route-findings" aria-label="沿途待核区段，点击定位车辆"></div>
           <p class="micro">平面扫掠包含前后悬；含镜宽、实际转弯、纵坡俯仰、底盘、驶出及两车独立进出待核。</p>
         </section>
-        <section><h2>坡道参数探索</h2><p class="micro">院坪暂定±0.000；道路标高与坡长均为待测示意值。</p><label class="select-label">接入处道路标高 · 待测 / 示意（mm）<input type="number" id="road-level" value="${Math.round(surroundings.road.entryY)}" step="100" min="-3800" max="0"/></label><label class="select-label">坡道投影长度 · 待测 / 示意（mm）<input type="number" id="ramp-length" value="5000" step="500" min="3000" max="10000"/></label><p class="calculation" id="ramp-result"></p><p class="micro">地库完成面暂${formatMm(site.garageFloor)} mm、结构预留${formatMm(site.deckStructure)} mm；${formatMm(site.garageClear)} mm为净高目标，实际梁底和柱墙待测。</p></section>
+        <section><h2>道路标高</h2><p class="micro">院坪暂定 ±0。邻居地库按现状院坪范围，整片高于自家。斜坡只做在最外层车道里。</p><label class="select-label">接入处道路标高 · 待测 / 示意（mm）<input type="number" id="road-level" value="${Math.round(surroundings.road.entryY)}" step="100" min="-3800" max="0"/></label><label class="select-label">旧坡长参数 · 外层斜坡另按车道宽度（mm）<input type="number" id="ramp-length" value="5000" step="500" min="3000" max="10000"/></label><p class="calculation" id="ramp-result"></p><p class="micro" id="garage-level-note">自家完成面 ${formatMm(site.garageFloor)}、净高 ${formatMm(site.garageClear)}。邻居完成面 ${formatMm(site.neighborGarageFloor)}、梁下净高 ${formatMm(site.neighborBeamClear)}。邻居外侧柱距外沿 ${formatMm(site.neighborBeamReach)}、距院坪边 ${formatMm(site.neighborColumnEdgeInset)}。</p></section>
         <section><div class="range-heading"><label for="route-progress">车辆沿示意路线移动</label><output id="route-output">0%</output></div><input type="range" id="route-progress" min="0" max="100" value="0" step="1"/><p id="route-status" class="description" aria-live="polite"></p><p class="micro">拖动滑杆或点击待核区段定位车辆。</p></section>
       </div>
       <div id="sources-controls" hidden><section><h2>证据状态</h2><ul class="evidence-legend"><li><i class="e-user"></i>用户提供</li><li><i class="e-photo"></i>照片估算</li><li><i class="e-design"></i>设计建议</li><li><i class="e-pending"></i>待测 / 待校核</li></ul>${check("pending-only", "只看待补测项目")}</section><section><h2>下一步现场补测</h2><ol class="measure-list"><li>道路、邻居院坪与旧房前坪的高差。</li><li>切口、保留柱墙及可用坡道的平面尺寸。</li><li>L9含镜宽、转弯参数。第二辆已按吉利星愿外观示意，不参与通行占位。</li><li>地块转折点、屋后田坎及邻居屋檐位置。</li></ol></section><button class="secondary-button" id="download-data">下载当前方案参数</button></div>
@@ -1072,6 +1072,7 @@ async function commitVillaParams(params: VillaParams, options?: { persist?: bool
     sceneUpdates.invalidate();
     refreshAreaMetrics();
     updateScene();
+    syncGarageLevelNote();
     drawPlan();
     syncVillaParamsWidthSum();
   });
@@ -2001,11 +2002,20 @@ function updateRamp() {
     return;
   }
   viewer?.updateRamp(roadY, len);
-  const grade = ((roadY - site.garageFloor) / len) * 100;
+  const step = site.neighborGarageFloor - site.garageFloor;
   $("ramp-result").textContent =
-    `示意高差 ${formatMm(Math.abs(roadY - site.garageFloor))} mm / ${formatMm(len)} mm → ${grade >= 0 ? "下坡" : "上坡"} ${Math.abs(grade).toFixed(1)}%`;
+    `外层车道从邻居院坪西界向西放坡。邻居完成面 ${formatMm(site.neighborGarageFloor)}，自家完成面 ${formatMm(site.garageFloor)}，高差 ${formatMm(step)}。`;
+  syncGarageLevelNote();
   renderRouteReview();
   updateRoute();
+}
+function syncGarageLevelNote() {
+  const note = document.getElementById("garage-level-note");
+  if (note) {
+    note.textContent = `自家完成面 ${formatMm(site.garageFloor)}、净高 ${formatMm(site.garageClear)}。邻居完成面 ${formatMm(site.neighborGarageFloor)}、梁下净高 ${formatMm(site.neighborBeamClear)}。邻居外侧柱距外沿 ${formatMm(site.neighborBeamReach)}、距院坪边 ${formatMm(site.neighborColumnEdgeInset)}。`;
+  }
+  const clear = document.getElementById("garage-clear-readout");
+  if (clear) clear.textContent = `自家 ${formatMm(site.garageClear)} / 邻居 ${formatMm(site.neighborBeamClear)}`;
 }
 function renderRouteReview() {
   if (!viewer) return;

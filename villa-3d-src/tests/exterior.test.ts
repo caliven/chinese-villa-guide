@@ -14,7 +14,7 @@ import {
   eaveTrimDesign,
   eyelidStackHeight,
   roofGutterDesign,
-  roofTileEaveLift,
+  slabToTileEaveLift,
   roofTileInset as inset,
 } from "../src/roof-options";
 import { wallWithOpenings } from "../src/primitives";
@@ -185,7 +185,7 @@ test("主辅楼天沟外边反坎高200、净宽600、压顶内倾与瓦边探�
 });
 
 test("官帽与正屋在1、4.5、10分水均只有一层外露坡面，交线两侧没有透缝或埋入瓦面", () => {
-  const m = mainRoofFootprint(), e = m.eave + roofTileEaveLift(), center = site.portico.x + site.portico.w / 2;
+  const m = mainRoofFootprint(), e = m.eave + slabToTileEaveLift(), center = site.portico.x + site.portico.w / 2;
   const x0 = m.x + inset, z0 = m.z + inset, w = m.w - 2 * inset, d = m.d - 2 * inset;
   const h = joinedHatLayout();
   const left = h.x + inset, right = h.x + h.w - inset;
@@ -224,10 +224,10 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     const mainRun = (Math.min(m.w, m.d) - 2 * inset) / 2;
     const hatRun = (h.w - 2 * inset) / 2;
     const height = (x: number, z: number, b: typeof m, rise: number, run: number) =>
-      b.eave + roofTileEaveLift() + rise * Math.min((x - b.x - inset) / run, (b.x + b.w - inset - x) / run, (z - b.z - inset) / run, (b.z + b.d - inset - z) / run, 1);
+      b.eave + slabToTileEaveLift() + rise * Math.min((x - b.x - inset) / run, (b.x + b.w - inset - x) / run, (z - b.z - inset) / run, (b.z + b.d - inset - z) / run, 1);
     for (let x = h.x + (inset + 37); x < h.x + h.w - inset - 20; x += 193)
       for (let z = m.z + (inset + 57); z < h.joinZ - 10; z += 157) {
-        const hatHeight = h.eave + roofTileEaveLift() + h.rise * Math.min((x - h.x - inset) / hatRun, (h.x + h.w - inset - x) / hatRun, (z - h.z - inset) / hatRun, 1);
+        const hatHeight = h.eave + slabToTileEaveLift() + h.rise * Math.min((x - h.x - inset) / hatRun, (h.x + h.w - inset - x) / hatRun, (z - h.z - inset) / hatRun, 1);
         const expected = Math.max(height(x, z, m, roofPitch(pitch).mainRise, mainRun), hatHeight);
         const hits = topHits(roof, x, z);
         assert.equal(hits.length, 1, `${pitch}分水交接处应只留一层屋面 @ ${x},${z}`);
@@ -239,8 +239,8 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
       assert.equal(topHits(roof.getObjectByName("屋顶瓦片与木架")!, x, h.joinZ + 17).length, 1);
     }
     const sideJoin = m.z + inset + (h.eave - m.eave) / (pitch / 10);
-    const capGeometry = hatRoofSurfaces(center, h.z, h.w, h.joinZ, h.eave + roofTileEaveLift(), h.peak, 1, h.ridgeFront);
-    const mainGeometry = hipRoofSurfaces(m.x + inset, m.z + inset, m.w - 2 * inset, m.d - 2 * inset, m.eave + roofTileEaveLift(), roofPitch(pitch).mainRise);
+    const capGeometry = hatRoofSurfaces(center, h.z, h.w, h.joinZ, h.eave + slabToTileEaveLift(), h.peak, 1, h.ridgeFront);
+    const mainGeometry = hipRoofSurfaces(m.x + inset, m.z + inset, m.w - 2 * inset, m.d - 2 * inset, m.eave + slabToTileEaveLift(), roofPitch(pitch).mainRise);
     const ridge = capGeometry.ridges[2];
     assert.ok(Math.abs(ridge.b.y - height(ridge.b.x, ridge.b.z, m, roofPitch(pitch).mainRise, mainRun)) < 1e-5, "帽脊末端必须与正屋坡面同点同高");
     for (const i of [0, 1]) {
@@ -250,7 +250,7 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
       if (pitch >= 4.5)
         assert.ok(a.clone().normalize().cross(b.normalize()).length() < 1e-8, "常用坡度下斜脊空间方向也平行");
     }
-    const drop = m.eave + roofTileEaveLift() + roofPitch(pitch).mainRise - h.peak;
+    const drop = m.eave + slabToTileEaveLift() + roofPitch(pitch).mainRise - h.peak;
     assert.ok(drop >= 50 - 1e-5, "帽顶必须低于主屋顶");
     if (pitch >= 4.5) assert.ok(Math.abs(drop - 500) < 1e-5, "常用坡度下帽顶低于主脊50cm");
     for (const x of [h.x + (inset + 1), h.x + h.w - (inset + 1)]) {
@@ -284,7 +284,7 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
         p.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
         // 只检查进入正屋瓦面进深范围的后端；前方悬挑可低于正屋瓦面外推平面。
         if (p.z < mainTileFront - 0.1) continue;
-        const mainHeight = m.eave + roofTileEaveLift() + (p.z - mainTileFront) * pitch / 10;
+        const mainHeight = m.eave + slabToTileEaveLift() + (p.z - mainTileFront) * pitch / 10;
         assert.ok(p.y >= mainHeight - 0.02, `檐底、天沟和线脚后端应斜切贴合，不穿进主屋瓦面：${object.name} pitch=${pitch} xyz=${p.toArray()} below=${mainHeight-p.y}`);
       }
     });
@@ -297,7 +297,7 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     const underside = new THREE.Box3().setFromObject(roof.getObjectByName("悬浮官帽封闭檐底")!).min.y;
     if (pitch === 4.5) {
       const expected = apronFasciaBottom(h.eave, 0);
-      assert.ok(Math.abs(underside - expected) < 60, "封闭檐底贴在三眼皮下沿");
+      assert.ok(Math.abs(underside - expected) < 60, "封闭檐底贴楼板／梁托顶平面");
       assert.ok(eyelidStackHeight() === 350, "三眼皮总高固定 350mm");
       assert.ok(h.eave - m.eave > 50, "帽檐相对正屋檐口仍留柱头净空");
     }
@@ -322,7 +322,7 @@ test("悬浮官帽两侧檐口下补齐与正屋同坡的窄带底瓦", () => {
       const hits = new THREE.Raycaster(new THREE.Vector3(x, 25000, z), new THREE.Vector3(0, -1, 0))
         .intersectObjects(underlays).filter(hit => (hit.face?.normal.y ?? 0) > 0.01);
       assert.equal(hits.length, 1, `${pitch}分水两侧瓦檐下应各有一层底瓦`);
-      const mainHeight = m.eave + roofTileEaveLift() + (z - z0) * pitch / 10;
+      const mainHeight = m.eave + slabToTileEaveLift() + (z - z0) * pitch / 10;
       assert.ok(Math.abs(hits[0].point.y - mainHeight) < 0.02, "补瓦应与正屋坡面同高");
       assert.equal(hits[0].object instanceof THREE.Mesh && hits[0].object.material, mat.villaRoof);
     }
@@ -380,7 +380,7 @@ test("露台折线瓦檐的内外转角单层相接，柱脚处留精确切口",
 test("陡坡、缓坡的筒瓦整个圆截面都收在本坡范围内，不穿过官帽交线", () => {
   const m = mainRoofFootprint(), center = site.portico.x + site.portico.w / 2;
   for (const pitch of [1,10]) {
-    const eave = m.eave + roofTileEaveLift(), rise = roofPitch(pitch).mainRise;
+    const eave = m.eave + slabToTileEaveLift(), rise = roofPitch(pitch).mainRise;
     const main = hipRoofSurfaces(m.x+inset,m.z+inset,m.w-2*inset,m.d-2*inset,eave,rise);
     const h = joinedHatLayout(pitch);
     const hat = hatRoofSurfaces(center, h.z, h.w, h.joinZ, eave, h.peak, 1, h.ridgeFront);
@@ -407,10 +407,10 @@ test("陡坡、缓坡的筒瓦整个圆截面都收在本坡范围内，不穿�
 test("两种官帽裁切后同坡瓦垄连续，人工分片线两侧没有漏铺或重复筒瓦", () => {
   const m = mainRoofFootprint(), center = site.portico.x + site.portico.w / 2;
   for (const style of ["joined", "floating"] as const) for (const pitch of [1, 4.5, 10]) {
-    const eave = m.eave + roofTileEaveLift(), rise = roofPitch(pitch).mainRise;
+    const eave = m.eave + slabToTileEaveLift(), rise = roofPitch(pitch).mainRise;
     const main = hipRoofSurfaces(m.x + inset, m.z + inset, m.w - 2 * inset, m.d - 2 * inset, eave, rise);
     const h = style === "joined" ? joinedHatLayout(pitch) : floatingHatLayout(pitch);
-    const hat = hatRoofSurfaces(center, h.z, h.w, h.joinZ, h.eave + roofTileEaveLift(), h.peak, 1, h.ridgeFront);
+    const hat = hatRoofSurfaces(center, h.z, h.w, h.joinZ, h.eave + slabToTileEaveLift(), h.peak, 1, h.ridgeFront);
     const original = [...main.faces, ...hat.faces], visible = joinRoofFaces(original);
     for (const owner of [0, 1]) {
       const group = new THREE.Group(), faces = visible.filter(face => face.owner === owner);
@@ -657,14 +657,43 @@ test("三眼皮上下连续封闭，线脚背面接到墙体范围", () => {
   gutteredRoof(group, 0, 0, 6000, 10000, 3600, 1100, mat, undefined, wall);
   const eyelid = group.getObjectByName("三眼皮檐口")!;
   group.updateMatrixWorld(true);
-  // 三眼皮自板顶 3600 往下共 350；在上下层之间水平探入应封闭。
-  for (let y = 3580; y > 3280; y -= 40) {
+  // 三眼皮自楼板顶 3600 往上共 350；在上下层之间水平探入应封闭。
+  for (let y = 3620; y < 3920; y += 40) {
     const ray = new THREE.Raycaster(new THREE.Vector3(3130, y, -1000), new THREE.Vector3(0, 0, 1));
     const hits = ray.intersectObject(eyelid, true);
     assert.ok(hits.length > 0 && hits[0].point.z < 250, `檐口在 y=${y.toFixed(0)} 透空`);
   }
   const ray = new THREE.Raycaster(new THREE.Vector3(3130, 4000, wall.z - 40), new THREE.Vector3(0, -1, 0));
   assert.ok(ray.intersectObject(eyelid, true).length > 0, "檐板背部要盖到墙边，不留悬空带");
+});
+
+test("梁托顶托住楼板底／飘檐底，楼板不沉入梁托", async () => {
+  const soffit = 10500;
+  const wall = { x: 1000, z: 1000, w: 10000, d: 8000 };
+  const group = new THREE.Group();
+  gutteredRoof(group, 0, 0, 12000, 10000, soffit, 1800, mat, undefined, wall);
+  group.updateMatrixWorld(true);
+  const tips: number[] = [];
+  group.traverse(o => {
+    if (o.name !== "梁托") return;
+    const tip = new THREE.Vector3(eaveTrimDesign.corbelLength / 2, eaveTrimDesign.corbelHeight, 0)
+      .applyMatrix4(o.matrixWorld);
+    tips.push(tip.y);
+  });
+  assert.ok(tips.length > 10);
+  for (const y of tips) assert.ok(Math.abs(y - soffit) < 1, `梁托顶 ${y} 须与飘檐底 ${soffit} 齐平`);
+  const eyelid = group.getObjectByName("三眼皮檐口")!;
+  const lid = new THREE.Box3().setFromObject(eyelid);
+  assert.ok(Math.abs(lid.min.y - soffit) < 1, "三眼皮底贴飘檐底");
+  assert.ok(Math.abs(lid.max.y - (soffit + eyelidStackHeight())) < 1, "三眼皮叠在飘檐底之上");
+
+  const { roofSlabLayout } = await import("../src/architecture");
+  const { construction } = await import("../src/data");
+  const spec = roofSlabLayout();
+  assert.equal(spec.main.top - spec.main.thickness, soffit, "主楼封顶板底＝飘檐底／梁托顶");
+  assert.equal(spec.annex.top - spec.annex.thickness, site.annex.height, "辅楼封顶板底＝辅楼屋面基准");
+  assert.equal(spec.main.thickness, construction.floorSlab);
+  assert.ok(spec.main.top > soffit, "楼板本体在梁托顶之上，不被梁托插入");
 });
 
 test("非整数模数的回纹仍左右等距，所有装饰顶点关于中线对称", () => {
@@ -1111,7 +1140,8 @@ test("悬浮官帽开间下不残留正屋重复横檐，两翼檐口仍完整",
   const m = mainRoofFootprint();
   const lids = roof.getObjectByName("正屋四坡")!.getObjectByName("三眼皮檐口")!;
   const center = site.portico.x + site.portico.w / 2;
-  const cast = (x: number) => new THREE.Raycaster(new THREE.Vector3(x, m.eave - 175, m.z - 1500),
+  // 三眼皮叠在楼板平面之上，取板顶以上中段探测两翼是否保留。
+  const cast = (x: number) => new THREE.Raycaster(new THREE.Vector3(x, m.eave + 175, m.z - 1500),
     new THREE.Vector3(0, 0, 1)).intersectObject(lids, true);
   for (const x of [frontElevation.postXs[0] + frontElevation.dividerWidth / 2 + 20, center,
     frontElevation.postXs[1] - frontElevation.dividerWidth / 2 - 20])

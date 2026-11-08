@@ -66,10 +66,12 @@ export class AssemblyExplosion {
     const lowerAttachments = [model.facadeColumns, ...["门厅一二层通高门", "挑空客厅一二层通高玻璃", "烤火房回纹横披"]
       .map(name => model.group.getObjectByName(name)).filter((root): root is THREE.Object3D => !!root)];
     let top = -Infinity, lastOffset = 0;
+    const foundation = add("地基", [model.foundation], new THREE.Vector3());
+    if (foundation) top = foundation.bounds.max.y;
     model.levels.forEach((root, i) => {
       const part = add(floorNames[i], [root, ...(i === 0 ? lowerAttachments : [])], new THREE.Vector3());
       if (!part) return;
-      lastOffset = i === 0 ? 0 : Math.max(0, top + 2400 - part.bounds.min.y);
+      lastOffset = Math.max(0, top + 2400 - part.bounds.min.y);
       part.offset.y = lastOffset;
       top = part.bounds.max.y + lastOffset;
     });
@@ -89,8 +91,14 @@ export class AssemblyExplosion {
       if (upper) upper.offset.y = Math.max(base.offset.y, base.bounds.max.y + base.offset.y + 2000 - upper.bounds.min.y);
     };
     addRoof("主楼", model.roof, model.topSlabs.main, top);
+    // 辅楼地基留原位；辅楼主体上抬，与主楼一样露出条基。
+    const annexFoundation = add("辅楼地基", [model.annexFoundation], new THREE.Vector3(), true);
     const annex = add("辅楼", [model.annex], new THREE.Vector3(), true);
-    if (annex) addRoof("辅楼", model.annexRoof, model.topSlabs.annex, annex.bounds.max.y, true);
+    if (annex) {
+      const below = annexFoundation ? annexFoundation.bounds.max.y : 0;
+      annex.offset.y = Math.max(0, below + 2400 - annex.bounds.min.y);
+      addRoof("辅楼", model.annexRoof, model.topSlabs.annex, annex.bounds.max.y + annex.offset.y, true);
+    }
     add("门厅", [model.portico], new THREE.Vector3(0, 0, -7000));
     this.labels.name = "拆分构件名称";
     model.group.add(this.labels);
@@ -152,17 +160,47 @@ export class AssemblyExplosion {
     });
   }
 
-  /** 辅楼文字保持在当前画面的右侧，旋转观察时仍与模型留开间距。 */
-  updateLabels(camera: THREE.Camera) {
-    const inverse = this.model.group.matrixWorld.clone().invert();
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).transformDirection(inverse);
-    for (const part of this.parts) {
-      if (!part.labelRight || !part.label) continue;
-      const size = part.bounds.getSize(new THREE.Vector3());
-      const halfWidth = (Math.abs(right.x) * size.x + Math.abs(right.y) * size.y + Math.abs(right.z) * size.z) / 2;
-      const home = part.bounds.getCenter(new THREE.Vector3()).addScaledVector(right, halfWidth + part.label.scale.x / 2 + 1000);
-      part.label.userData.home = home;
-      part.label.position.copy(home).addScaledVector(part.offset, this.progress);
+  /** 在屏幕两侧排成对齐的文字列，标签高度对准各构件投影的垂直中心。 */
+  updateLabels(camera: THREE.Camera, progress = this.progress) {
+    this.model.group.updateWorldMatrix(true, false);
+    camera.updateWorldMatrix(true, false);
+    const world = this.model.group.matrixWorld;
+    const inverse = world.clone().invert();
+    const visible = this.parts.filter(part => this.partVisible(part));
+    if (!visible.length) return;
+    const projections = visible.map(part => {
+      const box = part.bounds.clone().translate(part.offset.clone().multiplyScalar(progress));
+      const points: THREE.Vector3[] = [];
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z])
+        points.push(new THREE.Vector3(x, y, z).applyMatrix4(world).project(camera));
+      return { part, box, left: Math.min(...points.map(p => p.x)), right: Math.max(...points.map(p => p.x)),
+        middle: (Math.min(...points.map(p => p.y)) + Math.max(...points.map(p => p.y))) / 2 };
+    });
+    // 统一标签所在的相机深度，使透视下两列的对齐边保持一致。
+    const all = new THREE.Box3();
+    for (const item of projections) all.union(item.box);
+    const center = all.getCenter(new THREE.Vector3()).applyMatrix4(world);
+    const depth = center.clone().project(camera).z;
+    const distance = Math.max(1, -center.clone().applyMatrix4(camera.matrixWorldInverse).z);
+    const scale = new THREE.Vector3().setFromMatrixScale(world);
+    const gap = Math.max(.025, 1200 * Math.abs(scale.x) * camera.projectionMatrix.elements[0] / distance);
+    const left = Math.min(...projections.map(p => p.left)) - gap;
+    const right = Math.max(...projections.map(p => p.right)) + gap;
+    const screenRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).transformDirection(inverse);
+    const screenUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).transformDirection(inverse);
+    for (const { part, middle } of projections) {
+      const label = part.label;
+      if (!label) continue;
+      // 左侧统一右对齐、右侧统一左对齐，靠模型的边缘整齐且保留净距。
+      label.center.set(part.labelRight ? 0 : 1, .5);
+      const position = new THREE.Vector3(part.labelRight ? right : left, middle, depth).unproject(camera).applyMatrix4(inverse);
+      label.position.copy(position);
+      label.userData.home = position.clone().addScaledVector(part.offset, -progress);
+      const frameCorners: THREE.Vector3[] = [];
+      for (const x of [-label.center.x, 1 - label.center.x]) for (const y of [-.5, .5])
+        frameCorners.push(position.clone().addScaledVector(screenRight, x * label.scale.x)
+          .addScaledVector(screenUp, y * label.scale.y).addScaledVector(part.offset, 1 - progress));
+      label.userData.frameCorners = frameCorners;
     }
   }
 
@@ -180,8 +218,11 @@ export class AssemblyExplosion {
     };
     for (const part of this.parts) if (this.partVisible(part)) {
       corners(part.bounds.clone().translate(part.offset));
-      if (part.label) corners(new THREE.Box3().setFromCenterAndSize(
-        part.label.userData.home.clone().add(part.offset), new THREE.Vector3(part.label.scale.x, part.label.scale.y, part.label.scale.x)));
+      if (part.label) {
+        if (part.label.userData.frameCorners) points.push(...part.label.userData.frameCorners);
+        else corners(new THREE.Box3().setFromCenterAndSize(
+          part.label.userData.home.clone().add(part.offset), new THREE.Vector3(part.label.scale.x, part.label.scale.y, part.label.scale.x)));
+      }
     }
     return points;
   }

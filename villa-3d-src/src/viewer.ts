@@ -250,6 +250,8 @@ export class VillaViewer {
     this.sun.target.position.set(13, 2, 2);
     this.scene.add(this.sun, this.sun.target, this.ambient);
     for (const g of this.villa.levels) batch(g);
+    batch(this.villa.foundation);
+    batch(this.villa.annexFoundation);
     batch(this.villa.portico);
     batch(this.villa.facadeColumns);
     for (const g of [this.livingGlass, this.entryBay, this.eastBand, this.movingCar]) batch(g);
@@ -269,9 +271,8 @@ export class VillaViewer {
       this.land.roadsideNeighbor,
     ])
       batch(g);
-    // 行驶演示会单独隐藏停车位上的 L9，不把它合入地库的固定几何。
-    batch(this.land.garage, new Set([this.land.parked]));
-    batch(this.land.parked);
+    // 停车位车辆完全跳过合批与共面裁切，否则细部会被削成黑块。
+    batch(this.land.garage, new Set([this.land.parked, this.land.second]));
     batch(
       this.land.context,
       new Set([
@@ -499,8 +500,8 @@ export class VillaViewer {
         [19.5, 1.6, -3.5],
       ],
       garage: [
-        [48, 30, -43],
-        [26.5, -1.4, -9.5],
+        [38, 16, -30],
+        [21.5, -2.2, -6],
       ],
       // 略偏南俯视，画面上方偏北（屋后），与鸟瞰同侧习惯、不是背面机位。
       top: [
@@ -557,12 +558,12 @@ export class VillaViewer {
     const bounds = this.assembly.expandedBounds().applyMatrix4(this.mmRoot.matrixWorld);
     if (bounds.isEmpty()) return;
     this.setFloorCamera("orbit", bounds, direction);
-    this.assembly.updateLabels(this.camera);
-    const points = this.assembly.framingPoints().map(point => point.applyMatrix4(this.mmRoot.matrixWorld));
     const damping = this.controls.enableDamping;
     this.controls.enableDamping = false;
     for (let attempt = 0; attempt < 5; attempt++) {
       this.camera.updateMatrixWorld(true);
+      this.assembly.updateLabels(this.camera, 1);
+      const points = this.assembly.framingPoints().map(point => point.clone().applyMatrix4(this.mmRoot.matrixWorld));
       const projected = points.map(point => point.clone().project(this.camera));
       const left = Math.min(...projected.map(p => p.x)), right = Math.max(...projected.map(p => p.x));
       const bottom = Math.min(...projected.map(p => p.y)), top = Math.max(...projected.map(p => p.y));
@@ -576,6 +577,7 @@ export class VillaViewer {
       this.controls.update();
     }
     this.controls.enableDamping = damping;
+    this.assembly.updateLabels(this.camera);
     this.needsRender = true;
   }
   setState(next: Partial<ViewState>, allowAssembly = true) {
@@ -600,7 +602,6 @@ export class VillaViewer {
     if (s.roofStyle !== this.builtRoofStyle) this.setRoofFenShui(this.fenPending ?? this.fenShui);
     setCourtyardFinishes(this.mat, s.courtyardFinish, s.neighborCourtyardFinish);
     this.land.existing.visible = s.existing;
-    this.land.neighborDeck.visible = !s.existing && !s.garage;
     this.land.proposed.visible = !s.existing;
     this.villa.group.visible = !s.existing && !s.garage && !this.floorEditorRoot;
     this.land.context.visible = s.context && s.floor === null && !s.assemblyMode;
@@ -610,11 +611,23 @@ export class VillaViewer {
     this.land.roadsideNeighbor.visible = s.roadsideNeighbor;
     this.land.roadsideDimensions.visible = s.roadsideNeighbor && s.context;
     this.land.fixed.visible = s.floor === null;
+    // 拆分看地基时收起院坪铺装，避免条基两侧仍显瓷砖。
+    this.land.fixed.traverse(object => {
+      if (/铺装/.test(object.name)) object.visible = !s.assemblyMode;
+    });
+    // 拆分模式关掉日照投影；退出后恢复原日照阴影。
+    if (this.sun && this.sun.castShadow === s.assemblyMode) {
+      this.sun.castShadow = !s.assemblyMode;
+      this.renderer.shadowMap.needsUpdate = true;
+    }
     this.land.proposed.visible = !s.existing && s.floor === null;
     // 邻居木屋前院坪已与两侧拉平。原切口不在这块地坪上。
     this.land.cutPiece.visible = s.existing || !s.garage;
     this.land.cutOutline.visible = !s.existing && (s.garage || s.dimensions);
-    this.land.deck.visible = !s.garage;
+    // 展开拆分时收起两家院坪楼板看柱梁；合拢（含仍在拆分模式内）即恢复；地库视图仍隐藏。
+    const showYardDeck = !s.existing && !s.garage && !s.assemblyExploded;
+    this.land.deck.visible = showYardDeck;
+    this.land.neighborDeck.visible = showYardDeck;
     this.land.overlap.visible = s.overlap && !s.existing;
     this.land.dimensions.visible = s.dimensions && s.floor === null && !s.assemblyMode;
     this.land.dimensionsScheme.visible = !s.existing;
@@ -622,7 +635,8 @@ export class VillaViewer {
     this.land.columnNotes.visible =
       !s.existing && s.floor === null && (s.garage || s.dimensions);
     this.routeGroup.visible = s.garage && !s.existing;
-    this.land.parked.visible = !s.garage;
+    // 停车位上的 L9／星愿在地库视角也保留，便于核对东侧车位；路线滑杆另有一辆移动中的 L9。
+    this.land.parked.visible = !s.existing;
     this.villa.roof.visible = s.mainBuilding && s.roof && s.floor === null;
     this.villa.annexRoof.visible = s.annexBuilding && s.roof && s.floor === null;
     // 场地拆分时封顶板与天沟一起抬起；户型单层／分离视图仍敞开。
@@ -633,6 +647,11 @@ export class VillaViewer {
       if (object.userData.roofRailingMode) object.visible = object.userData.roofRailingMode === (roofCoversRailing ? "covered" : "open");
     });
     this.villa.annex.visible = s.annexBuilding && (s.floor === null || s.floor === 0);
+    // 主／辅楼地基：场地总览、拆分和一层视图可见，单看二／三楼时收起。
+    this.villa.foundation.visible =
+      s.mainBuilding && (s.floor === null || s.floor === 0 || s.assemblyMode);
+    this.villa.annexFoundation.visible =
+      s.annexBuilding && (s.floor === null || s.floor === 0 || s.assemblyMode);
     this.villa.balcony.visible =
       s.mainBuilding && s.balcony && (s.floor === null || s.floor === 2);
     this.villa.portico.visible = s.mainBuilding && s.floor === null;
@@ -777,6 +796,8 @@ export class VillaViewer {
     this.fenShui = fenShui;
     this.builtRoofStyle = this.state.roofStyle;
     for (const g of this.villa.levels) batch(g);
+    batch(this.villa.foundation);
+    batch(this.villa.annexFoundation);
     batch(this.villa.portico);
     batch(this.villa.facadeColumns);
     for (const g of [this.livingGlass, this.entryBay, this.eastBand]) batch(g);
@@ -796,8 +817,7 @@ export class VillaViewer {
       this.land.roadsideNeighbor,
     ])
       batch(g);
-    batch(this.land.garage, new Set([this.land.parked]));
-    batch(this.land.parked);
+    batch(this.land.garage, new Set([this.land.parked, this.land.second]));
     batch(
       this.land.context,
       new Set([
@@ -840,7 +860,7 @@ export class VillaViewer {
     this.assembly?.restoreHome();
     const previous = this.villa;
     const oldRoots = new Set<THREE.Object3D>([
-      ...previous.levels, previous.roof, previous.annex, previous.annexRoof, ...Object.values(previous.topSlabs),
+      ...previous.levels, previous.foundation, previous.annexFoundation, previous.roof, previous.annex, previous.annexRoof, ...Object.values(previous.topSlabs),
       previous.portico, previous.facadeColumns, previous.balcony, this.livingGlass, this.entryBay, this.eastBand,
     ]);
     const next = buildVilla(this.mat, true, this.fenShui, this.state.roofStyle, layout, previous);
@@ -852,7 +872,7 @@ export class VillaViewer {
     const eastBand = next.group.getObjectByName("烤火房回纹横披")!;
     const created: THREE.Mesh[] = [];
     for (const root of [
-      ...next.levels, next.roof, next.annex, next.annexRoof, ...Object.values(next.topSlabs), next.portico, next.facadeColumns,
+      ...next.levels, next.foundation, next.annexFoundation, next.roof, next.annex, next.annexRoof, ...Object.values(next.topSlabs), next.portico, next.facadeColumns,
       next.balcony, livingGlass, entryBay, eastBand,
     ]) {
       if (oldRoots.has(root)) continue;
@@ -937,9 +957,15 @@ export class VillaViewer {
     this.routeVisual = buildGarageRouteVisual(this.routeAssessment);
     this.routeGroup.add(this.routeVisual.group);
     this.setRouteLayers(this.routeLayers);
-    const points = this.route.getPoints(90).map(
-      (p) => new THREE.Vector3(p.x, this.routeHeight(p.x, p.z) + 80, p.z),
-    );
+    const raw = this.route.getPoints(90);
+    const points: THREE.Vector3[] = [];
+    for (const p of raw) {
+      const y = this.routeHeight(p.x, p.z) + 80;
+      const prev = points.at(-1);
+      // 高差在交界台阶处竖直落下，避免色带在两块平地面之间拉出斜坡。
+      if (prev && Math.abs(prev.y - y) > 200) points.push(new THREE.Vector3(p.x, prev.y, p.z));
+      points.push(new THREE.Vector3(p.x, y, p.z));
+    }
     this.routeGroup.add(routeRibbon(points, 1450));
     const arrows = new THREE.ConeGeometry(420, 1050, 4);
     arrows.rotateX(Math.PI / 2);

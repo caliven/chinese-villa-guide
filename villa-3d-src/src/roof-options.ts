@@ -96,7 +96,7 @@ export function withAnnexRoofDesign<T>(build: () => T): T {
 
 export function annexRoofProfile() {
   return withAnnexRoofDesign(() => ({
-    tileInset: roofTileInset, tileLift: roofTileEaveLift(), clearWidth: roofGutterDesign.clearWidth,
+    tileInset: roofTileInset, tileLift: slabToTileEaveLift(), clearWidth: roofGutterDesign.clearWidth,
     innerLipInset: gutterInnerLipInset(), outerWallTop: gutterOuterWallTop(),
   }));
 }
@@ -157,12 +157,23 @@ export function syncRoofTileInset() {
   roofTileInset = gutterInnerLipInset() - roofGutterDesign.tileOverhang;
 }
 
-/** 瓦檐相对屋面基准：内侧挡顶＋竖直间距。 */
+/**
+ * 瓦檐相对天沟基准（三眼皮顶／槽底参考面）：内侧挡顶＋竖直间距。
+ * 不含三眼皮；从楼板平面到瓦檐用 slabToTileEaveLift()。
+ */
 export function roofTileEaveLift() {
   return gutterBedTop + roofGutterDesign.innerDepth + roofGutterDesign.tileGap;
 }
 
-/** 外侧挡墙顶相对屋面基准（含顶面内倾在挡厚上的抬高）。 */
+/**
+ * 楼板／梁托顶平面 → 瓦檐：先上三眼皮，再上天沟内挡与瓦隙。
+ * 屋面基准（mainEaveY 等）＝封顶楼板顶＝梁托顶＝飘檐底＝三眼皮底。
+ */
+export function slabToTileEaveLift() {
+  return eyelidStackHeight() + roofTileEaveLift();
+}
+
+/** 外侧挡墙顶相对天沟基准（含顶面内倾在挡厚上的抬高）。 */
 export function gutterOuterWallTop() {
   return (
     gutterBedTop +
@@ -172,12 +183,12 @@ export function gutterOuterWallTop() {
   );
 }
 
-/** 内侧挡墙顶相对屋面基准。 */
+/** 内侧挡墙顶相对天沟基准。 */
 export function gutterInnerWallTop() {
   return gutterBedTop + roofGutterDesign.innerDepth;
 }
 
-/** 三眼皮总高度（最上层顶到最下层底）。 */
+/** 三眼皮总高度（最上层顶到最下层底）；叠在楼板平面之上。 */
 export function eyelidStackHeight() {
   return eyelidFixed.rises[0] + eyelidFixed.rises[1] + eyelidFixed.rises[2];
 }
@@ -188,14 +199,14 @@ export function eyelidInset(i: number) {
 }
 
 /**
- * 三眼皮最下层板底相对屋面基准（tileTop）再减去 drop。
- * 最上层顶面贴在 tileTop - drop 下沿（紧贴天沟槽底之下）。
+ * 飘檐底／梁托顶／封顶楼板平面。
+ * `tileTop` 为屋面基准（墙顶／楼板顶）；三眼皮在此面以上，不再扣减三眼皮高度。
  */
 export function apronFasciaBottom(tileTop: number, drop: number) {
-  return tileTop - drop - eyelidStackHeight();
+  return tileTop - drop;
 }
 
-/** 下沿线上沿：三眼皮最底层底面再往下 eyelidToFascia。 */
+/** 下沿线上沿：楼板／梁托顶再往下 eyelidToFascia。 */
 export function fasciaTopY(tileTop: number, drop: number) {
   return apronFasciaBottom(tileTop, drop) - eaveTrimDesign.eyelidToFascia;
 }

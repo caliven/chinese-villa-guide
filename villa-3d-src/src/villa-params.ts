@@ -21,6 +21,9 @@ import {
   circleThrough,
   rebuildCourtyardGeometry,
   syncSideDoorToLivingBridge,
+  syncGarageLevels,
+  garageLevelValues,
+  NEIGHBOR_COURTYARD_SLAB_THICKNESS,
   type Floor,
   type Room,
   type Wall,
@@ -126,6 +129,7 @@ export interface VillaParams {
   outsideWall: number;
   partition: number;
   courtyardWestTotal: number;
+  /** 中间取样总进深：由西／东两端与当前圆弧半径推算（只读派生，载入旧稿三点时可写入以定弧）。 */
   courtyardMidTotal: number;
   courtyardEastTotal: number;
   /** 中间取样点距东界的距离（毫米） */
@@ -134,6 +138,30 @@ export interface VillaParams {
   neighborWoodDepth: number;
   neighborCementDepth: number;
   neighborYardBeyondCement: number;
+  /** 自家地库净高：完成面到梁底 */
+  garageClear: number;
+  /** 自家梁底在院坪完成面以下的距离 */
+  deckStructure: number;
+  /** 地库方柱边长 */
+  garageColumnSize: number;
+  /** 地库梁宽 */
+  garageBeamWidth: number;
+  /** 院坪楼板厚（完成面到板底）；梁顶／外墙顶贴此板底 */
+  garageSlabThickness: number;
+  /** 派生：−(deckStructure + garageClear) */
+  garageFloor: number;
+  /** 邻居梁底在院坪完成面以下的距离 */
+  neighborBeamDrop: number;
+  /** 邻居地面到最低梁的净高 */
+  neighborBeamClear: number;
+  /** 邻居地面到板底的净高 */
+  neighborSlabClear: number;
+  /** 最外层进车带宽度；邻居外侧柱距地库最外沿 */
+  neighborBeamReach: number;
+  /** 邻居地库柱距院坪左右／房前边缘的内收 */
+  neighborColumnEdgeInset: number;
+  /** 派生：−(neighborBeamDrop + neighborBeamClear) */
+  neighborGarageFloor: number;
 }
 
 export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
@@ -207,6 +235,19 @@ export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
   neighborCementDepth: 2000,
   /** 与自家东界外沿齐平后的派生值；应用时按院坪东端重算 */
   neighborYardBeyondCement: 8600,
+  garageClear: 2500,
+  deckStructure: 450,
+  garageColumnSize: 400,
+  garageBeamWidth: 350,
+  garageSlabThickness: 150,
+  garageFloor: -2950,
+  neighborBeamDrop: 450,
+  neighborBeamClear: 1800,
+  // 派生：邻居已建楼板厚 150 → 板底 −150；默认 −150−(−2250)=2100
+  neighborSlabClear: 2100,
+  neighborBeamReach: 2200,
+  neighborColumnEdgeInset: 1200,
+  neighborGarageFloor: -2250,
 };
 export const DEFAULT_VILLA_PARAMS = isHalfStoreyScheme
   ? halfStoreyDefaults(THREE_STOREY_DEFAULT_PARAMS) : THREE_STOREY_DEFAULT_PARAMS;
@@ -332,6 +373,98 @@ export function courtyardAnchorSagitta(p: Pick<
   return { det, sagitta };
 }
 
+type CourtyardArcPick = Pick<
+  VillaParams,
+  "oldDepth" | "courtyardWestTotal" | "courtyardMidTotal" | "courtyardEastTotal" | "courtyardMidFromEast"
+>;
+
+/** 当前院坪三点对应的过圆。 */
+export function courtyardCircleFromParams(p: CourtyardArcPick) {
+  return circleThrough([
+    [0, p.oldDepth - p.courtyardWestTotal],
+    [LOCKED_SITE_WIDTH - p.courtyardMidFromEast, p.oldDepth - p.courtyardMidTotal],
+    [LOCKED_SITE_WIDTH, p.oldDepth - p.courtyardEastTotal],
+  ]);
+}
+
+/** 弦两端 + 半径 → 圆心候选（垂直平分线两侧）。 */
+function centersThroughSegment(a: Point, c: Point, radius: number): Point[] {
+  const [x1, z1] = a;
+  const [x3, z3] = c;
+  const d = Math.hypot(x3 - x1, z3 - z1);
+  if (d < 1 || radius < d / 2 - 1e-6) return [];
+  const mx = (x1 + x3) / 2;
+  const mz = (z1 + z3) / 2;
+  const h = Math.sqrt(Math.max(0, radius * radius - (d / 2) ** 2));
+  const ux = (x3 - x1) / d;
+  const uz = (z3 - z1) / d;
+  const nx = -uz;
+  const nz = ux;
+  return [
+    [mx + nx * h, mz + nz * h],
+    [mx - nx * h, mz - nz * h],
+  ];
+}
+
+/**
+ * 西／东两端总进深 + 保留的圆弧半径 → 中间取样总进深。
+ * 院坪外沿按单值函数 z(x)=k+sign·√(R²-(x-h)²) 取样，与 rebuild 三点过圆一致。
+ */
+export function deriveCourtyardMidTotal(
+  p: Pick<VillaParams, "oldDepth" | "courtyardWestTotal" | "courtyardEastTotal" | "courtyardMidFromEast">,
+  radius: number,
+  preferSign?: number,
+): number {
+  const a: Point = [0, p.oldDepth - p.courtyardWestTotal];
+  const c: Point = [LOCKED_SITE_WIDTH, p.oldDepth - p.courtyardEastTotal];
+  const midX = LOCKED_SITE_WIDTH - p.courtyardMidFromEast;
+  const chord = Math.hypot(c[0] - a[0], c[1] - a[1]);
+  const R = Math.max(radius, chord / 2 + 50);
+  const centers = centersThroughSegment(a, c, R);
+  const zOnChord = a[1] + ((c[1] - a[1]) * (midX - a[0])) / (c[0] - a[0] || 1);
+  if (!centers.length) return Math.round(p.oldDepth - zOnChord);
+
+  let bestZ = zOnChord;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const [h, k] of centers) {
+    const rise1 = Math.sqrt(Math.max(0, R * R - (a[0] - h) ** 2));
+    if (rise1 < 1e-6) continue;
+    const sign = a[1] >= k ? 1 : -1;
+    const rise3 = Math.sqrt(Math.max(0, R * R - (c[0] - h) ** 2));
+    if (Math.abs(k + sign * rise3 - c[1]) > 2) continue;
+    const riseM = Math.sqrt(Math.max(0, R * R - (midX - h) ** 2));
+    const zMid = k + sign * riseM;
+    // 相对弦更靠外（Z 更小）优先；preferSign 同侧再优先，避免翻到院内。
+    const sidePenalty = preferSign != null && sign !== Math.sign(preferSign) ? 1e9 : 0;
+    const score = sidePenalty + (zMid - zOnChord);
+    if (score < bestScore) {
+      bestScore = score;
+      bestZ = zMid;
+    }
+  }
+  return Math.round(p.oldDepth - bestZ);
+}
+
+/**
+ * 只改西／东端（或屋后水泥边、中间取样 X）时：保持上一版圆弧半径，重算中间总进深。
+ * 若输入里中间总进深也变了（载入旧稿／显式三点），则原样保留以重新定弧。
+ */
+export function syncCourtyardMidFromEnds(input: VillaParams, previous: VillaParams): VillaParams {
+  const endsChanged =
+    Math.abs(input.courtyardWestTotal - previous.courtyardWestTotal) > 0.5
+    || Math.abs(input.courtyardEastTotal - previous.courtyardEastTotal) > 0.5
+    || Math.abs(input.oldDepth - previous.oldDepth) > 0.5
+    || Math.abs(input.courtyardMidFromEast - previous.courtyardMidFromEast) > 0.5;
+  const midChanged = Math.abs(input.courtyardMidTotal - previous.courtyardMidTotal) > 0.5;
+  if (!endsChanged || midChanged) return input;
+  const prevCircle = courtyardCircleFromParams(previous);
+  if (!Number.isFinite(prevCircle.radius) || prevCircle.radius < 100) return input;
+  return {
+    ...input,
+    courtyardMidTotal: deriveCourtyardMidTotal(input, prevCircle.radius, prevCircle.sign),
+  };
+}
+
 /** 在两栋楼各自的实际面宽内核对院坪弧线，不能拿东侧最深处当作全场进深。 */
 export function buildingDepthLimits(p: VillaParams) {
   const circle = circleThrough([
@@ -391,12 +524,47 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
     "courtyardMidFromEast", "neighborWoodWidth", "neighborWoodDepth",
     "neighborCementDepth", "neighborYardBeyondCement",
     "outsideWall", "partition", "entranceRise",
+    "garageClear", "deckStructure", "garageColumnSize", "garageBeamWidth", "garageSlabThickness",
+    "neighborBeamDrop", "neighborBeamClear", "neighborBeamReach",
+    "neighborColumnEdgeInset",
   ];
   for (const key of positive) {
     const v = p[key];
     if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
       issues.push({ field: key, message: `${String(key)} 须为正数` });
     }
+  }
+  const garageLevels = garageLevelValues(p);
+  if (!(garageLevels.neighborFloor > garageLevels.ownFloor)) {
+    issues.push({
+      field: "neighborBeamClear",
+      message: `邻居完成面 ${garageLevels.neighborFloor} mm 须高于自家地库完成面 ${garageLevels.ownFloor} mm`,
+    });
+  }
+  if (p.neighborBeamReach < 2200) {
+    issues.push({ field: "neighborBeamReach", message: "外层车道宽／邻居外侧柱距外沿至少 2200 mm，普通车才过得去" });
+  }
+  if (p.neighborColumnEdgeInset < 400) {
+    issues.push({ field: "neighborColumnEdgeInset", message: "邻居柱距院坪边缘至少 400 mm" });
+  }
+  if (p.garageColumnSize < 300 || p.garageColumnSize > 800) {
+    issues.push({ field: "garageColumnSize", message: "地库柱边长宜在 300～800 mm" });
+  }
+  if (p.garageBeamWidth < 200 || p.garageBeamWidth > p.garageColumnSize) {
+    issues.push({ field: "garageBeamWidth", message: "地库梁宽宜在 200 mm 以上且不超过柱边长" });
+  }
+  if (p.garageSlabThickness < 120 || p.garageSlabThickness > 400) {
+    issues.push({ field: "garageSlabThickness", message: "自家院坪楼板厚宜在 120～400 mm" });
+  }
+  if (p.deckStructure - p.garageSlabThickness < 80) {
+    issues.push({ field: "deckStructure", message: "自家梁底须低于楼板底，梁截面至少约 80 mm" });
+  }
+  // 邻居院坪板厚写死 150；梁底须低于该板底。
+  if (p.neighborBeamDrop - NEIGHBOR_COURTYARD_SLAB_THICKNESS < 80) {
+    issues.push({ field: "neighborBeamDrop", message: "邻居梁底须低于已建院坪板底（厚 150），梁截面至少约 80 mm" });
+  }
+  if (!(garageLevels.neighborSlab < -1)) {
+    issues.push({ field: "neighborBeamDrop", message: "邻居板底应在院坪完成面以下" });
   }
   if (!Number.isFinite(p.floatingHatHeightOffset)) {
     issues.push({ field: "floatingHatHeightOffset", message: "悬浮官帽升降须为数字（正升、负降）" });
@@ -786,7 +954,8 @@ export function saveVillaParams(params: VillaParams) {
  * 须先通过 `validateVillaParams`；返回用于 UI 的缩放信息。
  */
 export function applyVillaParams(input: VillaParams) {
-  const params = normalizeVillaParamsLengths(input);
+  const normalized = normalizeVillaParamsLengths(input);
+  const params = syncCourtyardMidFromEnds(normalized, currentParams);
   const issues = validateVillaParams(params);
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
 
@@ -886,6 +1055,10 @@ export function applyVillaParams(input: VillaParams) {
   neighborCourtyardPlan.cementDepth = params.neighborCementDepth;
   // 先写邻居／蓝顶房再重建梯田与地库，避免路边 X 仍用旧值。
   syncNeighborFootprint(params.neighborWoodWidth, params.neighborWoodDepth);
+  const garageLevels = syncGarageLevels(synced);
+  synced.garageFloor = garageLevels.ownFloor;
+  synced.neighborGarageFloor = garageLevels.neighborFloor;
+  synced.neighborSlabClear = garageLevels.neighborSlabClear;
   syncRoadsideVillaPlacement();
   rebuildCourtyardGeometry();
   rebuildTerraceLinkage();

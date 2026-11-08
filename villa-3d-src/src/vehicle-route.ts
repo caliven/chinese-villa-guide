@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { carCorners, contains, site, type Point } from "./data.ts";
-import { garageLayout, rectangle } from "./garage-layout.ts";
+import { basementFloorY, garageLayout, rectangle } from "./garage-layout.ts";
 import { roadHeight, surroundings } from "./surroundings.ts";
 
 /**
@@ -52,10 +52,10 @@ export function rebuildVehicleRoute() {
   );
 }
 
-export function routeHeight(x: number, z: number, roadY: number, rampLength: number) {
+export function routeHeight(x: number, z: number, roadY: number, _rampLength: number) {
   const surface = roadHeight(z) + roadY - surroundings.road.entryY;
-  const t = THREE.MathUtils.clamp((x - site.width) / rampLength, 0, 1);
-  return site.garageFloor + t * (surface - site.garageFloor);
+  if (x >= surroundings.road.x) return surface;
+  return basementFloorY(x, z);
 }
 
 export function routePose(progress: number, roadY: number, rampLength: number) {

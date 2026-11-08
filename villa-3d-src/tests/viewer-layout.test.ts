@@ -178,7 +178,69 @@ test("屋顶开关只隐藏瓦屋面，完整模型保留顶板；分层及建�
   assert.equal(viewer.villa.topSlabs.annex.visible, false);
 });
 
-test("场地拆分可完整取景，切换户型时立即归位，合拢恢复原机位", () => {
+test("展开拆分收起两家院坪楼板，合拢即恢复", () => {
+  const { viewer } = fixture();
+  const previousWindow = globalThis.window;
+  globalThis.window = { matchMedia: () => ({ matches: true }) } as unknown as Window & typeof globalThis;
+  const deck = new THREE.Group();
+  const neighborDeck = new THREE.Group();
+  const land = {
+    context: new THREE.Group(),
+    neighborDeck,
+    proposed: new THREE.Group(),
+    sideNeighbor: new THREE.Group(),
+    rearNeighbor: new THREE.Group(),
+    frontNeighbor: new THREE.Group(),
+    roadsideNeighbor: new THREE.Group(),
+    roadsideDimensions: new THREE.Group(),
+    fixed: new THREE.Group(),
+    existing: new THREE.Group(),
+    cutPiece: new THREE.Group(),
+    cutOutline: new THREE.Group(),
+    deck,
+    garage: new THREE.Group(),
+    overlap: new THREE.Group(),
+    dimensions: new THREE.Group(),
+    dimensionsScheme: new THREE.Group(),
+    dimensionsCurrent: new THREE.Group(),
+    columnNotes: new THREE.Group(),
+    parked: new THREE.Group(),
+    second: new THREE.Group(),
+  };
+  try {
+    viewer.camera = new THREE.PerspectiveCamera(38, 1.6, .04, 350);
+    viewer.camera.position.set(42, 36, -49);
+    viewer.mmRoot.scale.setScalar(.001);
+    Object.assign(viewer, {
+      applyLighting: () => {}, builtRoofStyle: viewer.state.roofStyle,
+      renderer: { shadowMap: {} }, land, sun: { castShadow: true },
+      controls: { target: new THREE.Vector3(16, 2.5, 3), enableDamping: false,
+        update() { viewer.camera.lookAt(this.target); } },
+    });
+    const update = (state: Parameters<VillaViewer["setState"]>[0]) =>
+      VillaViewer.prototype.setState.call(viewer, state);
+    update({});
+    assert.equal(deck.visible, true, "默认自家院坪楼板可见");
+    assert.equal(neighborDeck.visible, true, "默认邻居前坪可见");
+    update({ assemblyMode: true, assemblyExploded: true });
+    assert.equal(deck.visible, false, "展开时收起自家院坪楼板");
+    assert.equal(neighborDeck.visible, false, "展开时收起邻居前坪");
+    update({ assemblyExploded: false });
+    assert.equal(viewer.state.assemblyMode, true, "合拢仍保留拆分模式");
+    assert.equal(deck.visible, true, "合拢后恢复自家院坪楼板");
+    assert.equal(neighborDeck.visible, true, "合拢后恢复邻居前坪");
+    update({ assemblyMode: false });
+    assert.equal(deck.visible, true);
+    assert.equal(neighborDeck.visible, true);
+    update({ garage: true });
+    assert.equal(deck.visible, false, "地库视图仍隐藏院坪楼板");
+    assert.equal(neighborDeck.visible, false);
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+test("场地拆分可完整取景，切换户型时立即归位，退出模式才恢复原机位", () => {
   const { viewer, draft } = fixture();
   const previousWindow = globalThis.window;
   globalThis.window = { matchMedia: () => ({ matches: true }) } as unknown as Window & typeof globalThis;
@@ -200,6 +262,8 @@ test("场地拆分可完整取景，切换户型时立即归位，合拢恢复�
     assert.equal(viewer.villa.topSlabs.annex.visible, true, "辅楼顶板也归屋顶下部");
     assert.equal(viewer.villa.topSlabs.main.position.y, viewer.villa.roof.position.y);
     assert.equal(viewer.villa.topSlabs.annex.position.y, viewer.villa.annexRoof.position.y);
+    assert.equal(viewer.villa.foundation.position.y, 0, "地基留在原位");
+    assert.ok(viewer.villa.levels[0].position.y > 0, "一层抬起露出地基");
     assert.ok(viewer.villa.levels[2].position.y > 0);
     assert.ok(viewer.villa.roof.position.y > viewer.villa.levels[2].position.y);
     viewer.scene.updateMatrixWorld(true);
@@ -211,6 +275,7 @@ test("场地拆分可完整取景，切换户型时立即归位，合拢恢复�
         assert.ok(Math.abs(point.x) < .95 && Math.abs(point.y) < .9, `${mesh.name} 应完整入镜`);
       }
     }
+    const framed = viewer.cameraPose();
     const originalRoof = viewer.villa.roof;
     draft.floors[1].furniture[0].x += 100;
     viewer.rebuildLayout(villaLayoutFromDraft(draft));
@@ -219,13 +284,17 @@ test("场地拆分可完整取景，切换户型时立即归位，合拢恢复�
     update({ assemblyExploded: false });
     assert.equal(viewer.villa.topSlabs.main.visible, true);
     assert.equal(viewer.villa.topSlabs.annex.visible, true);
-    assert.deepEqual(viewer.cameraPose(), home);
+    assert.deepEqual(viewer.cameraPose(), framed, "合拢只复位构件，保留当前机位");
     assert.equal(viewer.villa.levels[2].position.y, 0);
+    assert.equal(viewer.villa.foundation.position.y, 0);
+    update({ assemblyMode: false });
+    assert.deepEqual(viewer.cameraPose(), home, "退出拆分模式才恢复入场前机位");
     update({ assemblyExploded: true });
     update({ assemblyExploded: false, floor: 1 }, false);
     assert.equal(viewer.villa.roof.position.lengthSq(), 0);
     assert.equal(viewer.villa.portico.position.lengthSq(), 0);
     assert.equal(viewer.villa.annex.position.lengthSq(), 0);
+    assert.equal(viewer.villa.annexFoundation.position.lengthSq(), 0);
     assert.equal(viewer.villa.levels[1].position.lengthSq(), 0);
     assert.equal(viewer.villa.group.getObjectByName("拆分构件名称"), undefined);
   } finally { globalThis.window = previousWindow; }

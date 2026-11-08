@@ -11,8 +11,9 @@ export function buildHalfStoreyLevel(
   holes: Point[][], withLabels: boolean,
 ) {
   const m = site.main;
-  slab(parent, rect(m.x + 160, floor.front + 60, m.w - 320, m.z + m.d - floor.front - 110),
-    floor.y, construction.floorSlab, mat.floor, holes).name = "半层楼面";
+  // 与主楼一致：轮廓点即外墙外皮，楼板与之齐平。
+  slab(parent, rect(m.x, floor.front, m.w, m.z + m.d - floor.front),
+    floor.y, construction.floorSlab, mat.concrete, holes).name = "半层楼面";
   const envelope = new THREE.Group(); envelope.name = "半层坡下围护"; parent.add(envelope);
   for (const wall of facades)
     wallWithOpenings(envelope, wall.a, wall.b, floor.y, floor.height, wall.openings, mat, construction.outsideWall, false, mat.sand);

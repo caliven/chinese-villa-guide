@@ -31,6 +31,9 @@ const DERIVED_PARAM_KEYS = new Set<keyof VillaParams>([
   "westGap",
   "annexSetback",
   "neighborYardBeyondCement",
+  "garageFloor",
+  "neighborGarageFloor",
+  "courtyardMidTotal",
 ]);
 
 type ParamSection = { heading: string; note?: string; fields: Field[]; roofStyle?: boolean };
@@ -154,17 +157,37 @@ const groups: ParamGroup[] = [
   {
     id: "yard",
     title: "场地院坪",
-    note: "总进深＝屋后至老水泥边＋前院外伸。中间取样点按距东界距离计。",
+    note: "总进深＝屋后至老水泥边＋前院外伸。外沿按圆弧：改东／西两端时保持当前弧的半径，中间取样总进深自动重算；地库外沿柱距边固定、纵梁进深跟着变。",
     extras: "courtyard-finish",
     fields: [
       { key: "oldDepth", label: "屋后至老水泥边" },
       { key: "courtyardEastTotal", label: "东界总进深" },
       { key: "courtyardWestTotal", label: "西端总进深" },
-      { key: "courtyardMidTotal", label: "中间取样总进深" },
+      { key: "courtyardMidTotal", label: "中间取样总进深（两端驱动，自动）", readonly: true },
       { key: "courtyardMidFromEast", label: "中间取样距东界" },
       { key: "entranceRise", label: "一层室内抬高示意" },
       { key: "outsideWall", label: "外墙厚示意" },
       { key: "partition", label: "隔墙厚示意" },
+    ],
+    sections: [
+      {
+        heading: "地库标高",
+        note: "院坪完成面为 ±0。两家地库下面分开：柱、梁互不跨接；院坪楼板齐平、外沿一条线。柱顶贴梁底、梁顶贴楼板底。柱截面、梁宽、自家楼板厚可调；邻居院坪已建、楼板厚固定 150。外沿矮墙保持原高度、水泥色。示意值，不是联测。",
+        fields: [
+          { key: "garageClear", label: "自家地库净高" },
+          { key: "deckStructure", label: "自家梁底距院坪" },
+          { key: "garageColumnSize", label: "地库柱边长", min: 300, max: 800 },
+          { key: "garageBeamWidth", label: "地库梁宽", min: 200, max: 800 },
+          { key: "garageSlabThickness", label: "自家院坪楼板厚", min: 120, max: 400 },
+          { key: "garageFloor", label: "自家地库完成面", readonly: true, min: -20000, max: 0 },
+          { key: "neighborBeamDrop", label: "邻居梁底距院坪" },
+          { key: "neighborBeamClear", label: "邻居地面至最低梁净高" },
+          { key: "neighborSlabClear", label: "邻居地面至板底净高（板厚已建 150）", readonly: true },
+          { key: "neighborGarageFloor", label: "邻居地库完成面", readonly: true, min: -20000, max: 0 },
+          { key: "neighborBeamReach", label: "外层车道宽／邻居外侧柱距外沿", min: 2200 },
+          { key: "neighborColumnEdgeInset", label: "邻居柱距院坪边缘", min: 400 },
+        ],
+      },
     ],
   },
   {
@@ -451,6 +474,12 @@ export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = do
   const nbrYardInput = root.querySelector<HTMLInputElement>('[data-villa-param="neighborYardBeyondCement"]');
   if (nbrYardInput && document.activeElement !== nbrYardInput) {
     nbrYardInput.value = formatMm(Number(params.neighborYardBeyondCement));
+  }
+  const ownFloor = -(params.deckStructure + params.garageClear);
+  const neighborFloor = -(params.neighborBeamDrop + params.neighborBeamClear);
+  for (const [key, value] of [["garageFloor", ownFloor], ["neighborGarageFloor", neighborFloor]] as const) {
+    const input = root.querySelector<HTMLInputElement>(`[data-villa-param="${key}"]`);
+    if (input && document.activeElement !== input) input.value = formatMm(value);
   }
 }
 

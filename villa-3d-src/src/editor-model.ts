@@ -20,7 +20,7 @@ import { moveWindowDesign, windowDesign, windowInteriorSide } from "./window-des
 import { windowModel } from "./window-model";
 import { interiorRailingLayout } from "./interior-railing";
 import { attachLayoutRoofs, roofPlanModel, villaLayoutFromDraft } from "./architecture";
-import { DEFAULT_ROOF_STYLE, roofTileEaveLift, roofTileInset, type RoofStyle } from "./roof-options";
+import { DEFAULT_ROOF_STYLE, slabToTileEaveLift, roofTileInset, type RoofStyle } from "./roof-options";
 import { roofRailingVariants } from "./roof-railing-clearance";
 
 export type EditorWallHeight = 1200 | "full";
@@ -120,7 +120,7 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
     if (!isHalfStoreyScheme) roofRailingVariants(roof, group => { railings.render(group, railings.roofGuards); }, {
       x: main.x + roofTileInset, z: main.z + roofTileInset,
       w: main.w - 2 * roofTileInset, d: main.d - 2 * roofTileInset,
-      eave: main.eave + roofTileEaveLift(), slope: pitch.mainRise / pitch.mainRun,
+      eave: main.eave + slabToTileEaveLift(), slope: pitch.mainRise / pitch.mainRun,
     });
     const pitched = new THREE.Group(); pitched.name = "漫游主楼坡屋面";
     const annexPitched = new THREE.Group(); annexPitched.name = "漫游辅楼坡屋面";

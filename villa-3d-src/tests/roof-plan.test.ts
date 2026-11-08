@@ -7,7 +7,7 @@ import { floors, frontElevation, site } from "../src/data";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params";
 import { hipRoofSurfaces, type RoofFace } from "../src/roof-surfaces";
 import { roofPlanSvg, roofProjectedEdges } from "../src/roof-plan";
-import { roofTileEaveLift, roofTileInset } from "../src/roof-options";
+import { roofTileEaveLift, slabToTileEaveLift, roofTileInset } from "../src/roof-options";
 
 test("普通官帽加宽有效瓦面、前侧等坡，天沟改宽不挤占瓦面，悬浮宽度独立保留", () => {
   resetVillaParams();
@@ -18,7 +18,7 @@ test("普通官帽加宽有效瓦面、前侧等坡，天沟改宽不挤占瓦�
     assert.equal(ordinary.hat.ridgeFront - ordinary.hat.z - roofTileInset, 2675);
     assert.equal(ordinary.hat.eave, ordinary.main.eave);
     assert.equal(ordinary.hat.peak, ordinary.mainPeak);
-    const rise = ordinary.hat.peak - ordinary.hat.eave - roofTileEaveLift();
+    const rise = ordinary.hat.peak - ordinary.hat.eave - slabToTileEaveLift();
     assert.ok(Math.atan(rise / 2675) * 180 / Math.PI < 37, "默认前坡从原先约53度舒展至约36度");
     assert.equal(floating.hat.w, DEFAULT_VILLA_PARAMS.porticoWidth + 1040);
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, gutterClearWidth: 800 });

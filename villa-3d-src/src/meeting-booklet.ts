@@ -25,7 +25,7 @@ export function controlTable() {
     ["主辅楼首层完成面／两楼间连接地坪", `${elevation(floorFinish(0))}／${elevation(m.connectionY)}`, `相差${formatMm(m.connectionRise)}；通行做法待设计`],
     ["入口侧坡道：名义高差／投影长度", `${formatMm(site.entranceRise)}／${formatMm(m.rampRun)} ≈ ${m.rampGrade.toFixed(1)}%`, "几何尺度示意；适老通行待核"],
     ["墙身层高／各层完成面", `${floors.map((f) => formatMm(f.height)).join("／")}；${floors.map((_, i) => elevation(floorFinish(i))).join("／")}`, "首层抬高；楼梯高差非统一层高"],
-    ["地库地面／结构预留／净高目标", `${formatMm(site.garageFloor)}／${formatMm(site.deckStructure)}／${formatMm(site.garageClear)}`, "均为示意或目标，结构及最低净高待核"],
+    ["地库地面／结构预留／净高目标", `${formatMm(site.garageFloor)}／${formatMm(site.deckStructure)}／${formatMm(site.garageClear)}；邻居 ${formatMm(site.neighborGarageFloor)}／梁下 ${formatMm(site.neighborBeamClear)}`, "自家与邻居分开，交界平接；结构及最低净高待核"],
     ["三楼模式／主体进深", `${site.setback > 0 ? `北向内退${formatMm(site.setback)}` : "不内退"}／${formatMm(site.main.d - site.setback)}`, site.setback > 0 ? "北侧退台，三块露台分开" : "前墙与二楼齐平，仅保留中央门厅露台"],
     ["短柱柱身＋挡墙（盖板另计）", `${formatMm(frontElevation.balustradePostHeight)}＋${formatMm(frontElevation.eaveParapet)}＝${formatMm(frontElevation.balustradePostHeight + frontElevation.eaveParapet)}`, "造型尺寸；栏杆安全及连接待设计"],
   ].map((row) => `<tr>${row.map((v, i) => `<${i ? "td" : "th"}>${e(v)}</${i ? "td" : "th"}>`).join("")}</tr>`).join("")}</tbody></table>`;

@@ -235,9 +235,27 @@ export const site = {
   frontFieldDrop: 2000,
   frontHouseDrop: 1500,
   garageClear: 2500,
-  // 450 是示意结构占用，不是设计梁高。地库绝对标高尚待联测。
+  // 450 是院坪完成面到梁底的示意结构占用。梁顶贴楼板底，截面高＝梁底距院坪−楼板厚。不是已验算的梁高。
   deckStructure: 450,
+  // 地库方柱边长。农村地库常见 350～400，默认 400。
+  garageColumnSize: 400,
+  // 地库梁宽。略小于柱边，默认 350。
+  garageBeamWidth: 350,
+  // 院坪楼板厚（完成面到板底）。梁顶／外墙顶贴此板底。
+  garageSlabThickness: 150,
+  // 自家完成面 = −(结构预留 + 净高)。默认 −450 − 2500 = −2950。
   garageFloor: -2950,
+  // 邻居梁底距院坪。默认与自家结构预留相同，净高更小，所以完成面更高。
+  neighborBeamDrop: 450,
+  // 邻居地面到最低梁、到板底的净高。用户提供：梁底 1800、板底 2000。
+  neighborBeamClear: 1800,
+  neighborSlabClear: 2100, // 由邻居完成面与固定板厚 150 推导（−2250 − (−150)）
+  // 最外层进车带宽度，也是邻居外侧柱距地库最外沿的距离。至少 2200，便于普通车进出。
+  neighborBeamReach: 2200,
+  // 邻居地库柱距院坪左右／房前边缘的内收。
+  neighborColumnEdgeInset: 1200,
+  // 邻居完成面 = −(梁底距院坪 + 梁下净高)。默认 −450 − 1800 = −2250。
+  neighborGarageFloor: -2250,
   latitude: 28.153355,
   longitude: 111.156546,
   // 西端不收尖。东端与旁边木屋前的接通院坪取同一外沿。
@@ -352,7 +370,59 @@ export const frontElevation = {
   hatFront: site.main.z - 980,
   hatWidth: site.portico.w + 1040,
 };
-export const frontFieldLevel = site.garageFloor - site.frontFieldDrop;
+export let frontFieldLevel = site.garageFloor - site.frontFieldDrop;
+
+/** 邻居院坪已建，楼板厚写死；与 garage-layout 常量保持一致。 */
+export const NEIGHBOR_COURTYARD_SLAB_THICKNESS = 150;
+
+/** 由净高和梁底距院坪推两家地库标高。院坪完成面为 0。 */
+export function garageLevelValues(p: {
+  garageClear: number;
+  deckStructure: number;
+  neighborBeamDrop: number;
+  neighborBeamClear: number;
+  neighborSlabClear?: number;
+}) {
+  const ownBeam = -p.deckStructure;
+  const ownFloor = ownBeam - p.garageClear;
+  const neighborBeam = -p.neighborBeamDrop;
+  const neighborFloor = neighborBeam - p.neighborBeamClear;
+  // 邻居板底由已建楼板厚固定，不再用 neighborSlabClear 反推。
+  const neighborSlab = -NEIGHBOR_COURTYARD_SLAB_THICKNESS;
+  const neighborSlabClear = neighborSlab - neighborFloor;
+  return { ownBeam, ownFloor, neighborBeam, neighborFloor, neighborSlab, neighborSlabClear };
+}
+
+/** 把尺寸面板里的地库参数写进 site，并重算完成面。 */
+export function syncGarageLevels(input: {
+  garageClear: number;
+  deckStructure: number;
+  garageColumnSize: number;
+  garageBeamWidth: number;
+  garageSlabThickness: number;
+  neighborBeamDrop: number;
+  neighborBeamClear: number;
+  neighborSlabClear: number;
+  neighborBeamReach: number;
+  neighborColumnEdgeInset: number;
+}) {
+  const levels = garageLevelValues(input);
+  site.garageClear = input.garageClear;
+  site.deckStructure = input.deckStructure;
+  site.garageColumnSize = input.garageColumnSize;
+  site.garageBeamWidth = input.garageBeamWidth;
+  site.garageSlabThickness = input.garageSlabThickness;
+  site.neighborBeamDrop = input.neighborBeamDrop;
+  site.neighborBeamClear = input.neighborBeamClear;
+  // 邻居地面至板底净高由固定板厚反推，面板只读。
+  site.neighborSlabClear = levels.neighborSlabClear;
+  site.neighborBeamReach = input.neighborBeamReach;
+  site.neighborColumnEdgeInset = input.neighborColumnEdgeInset;
+  site.garageFloor = levels.ownFloor;
+  site.neighborGarageFloor = levels.neighborFloor;
+  frontFieldLevel = site.garageFloor - site.frontFieldDrop;
+  return levels;
+}
 
 const wall = (
   a: Point,
@@ -417,7 +487,8 @@ export const stairLayout = {
 export const construction = {
   outsideWall: 240,
   partition: 120,
-  floorSlab: 180,
+  /** 结构楼板厚度示意（mm）；不是室内地板面层。 */
+  floorSlab: 120,
   entranceTread: 300,
   entranceLandingOffset: 150,
   entranceRampRun: 2000,
@@ -901,9 +972,9 @@ export const facts: Fact[] = [
   },
   {
     label: "地库净高 / 入口",
-    value: "2500 / 2500 mm",
+    value: "自家 2500 / 邻居梁下 1800",
     source: "用户提供",
-    note: "地库最低净高为目标。柱只排两列：外沿内收0.55米一排，自家房前墙下和邻居木屋前墙下一排，中间不立柱，柱距4.2米。东端净跨大约8到10米，0.45米只是结构占用预留，梁高、跨度、承载与净高须由结构师结合勘察计算，现无承载结论。邻居木屋前的地下室按用户说明归自家，外侧用同一道约1米矮墙，上面敞开；邻居自己房子下面的地下室外侧不另加遮挡。",
+    note: "自家最低净高为目标，完成面由梁底距院坪减去净高。邻居地面到最低梁为 1800、到板底为 2000，完成面高于自家。两家地库下面分开：邻居左右各两根柱，距院坪边 1200、外侧距外沿 2200；自家柱梁止于邻居院坪西界以西。柱边长 400、梁宽 350、楼板厚 150；柱顶贴梁底、梁顶／外墙顶贴楼板底。院坪楼板齐平、外沿一条线。梁高、跨度、承载与净高须由结构师结合勘察计算，现无承载结论。",
   },
   {
     label: "道路与坡道",
@@ -927,7 +998,7 @@ export const facts: Fact[] = [
     label: "保留地坪下方净高",
     value: "道路与最低梁底标高待联测",
     source: "待测",
-    note: "地库页用橙色标出保留地坪投影及扫掠进入该投影的区段。模型板底−0.23米只用于绘图，真实最低梁底标高未知；邻居口述梁底净高1.8米、板底净高2米缺少同一基准，不能用于推算这段路面的车顶余量。拟切口协商结果待确认，未从净高待核区扣除；自家地库2.5米是目标，不是此段实测净高。",
+    note: "地库页用橙色标出保留地坪投影及扫掠进入该投影的区段。邻居完成面高于自家，交界为水平平接加竖向台阶。模型按参数画梁底和板底；道路绝对标高仍待联测。拟切口协商结果待确认。",
   },
   {
     label: "邻房、树木、道路",

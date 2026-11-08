@@ -40,17 +40,29 @@ test("完整房屋可分层、抬屋顶、分开门厅与辅楼，反复合拢�
     const upper = visibleBounds(model.levels[i], true);
     assert.ok(upper.min.y - lower.max.y >= 2399, "完整墙体、家具和楼梯之间留出观察空隙");
   }
+  const foundationPart = explosion.parts.find(p => p.name === "地基")!;
+  const firstFloor = explosion.parts.find(p => p.name === floors[0].name)!;
+  assert.ok(foundationPart);
+  assert.equal(model.foundation.position.lengthSq(), 0, "地基留在原位");
+  assert.ok(model.levels[0].position.y > 0, "一层抬起后可看见地基");
+  assert.ok(visibleBounds(model.levels[0], true).min.y - visibleBounds(model.foundation).max.y >= 2399);
   assert.ok(model.roof.position.y > model.levels[2].position.y);
   assert.ok(model.portico.position.z < -3000);
-  assert.equal(model.annex.position.lengthSq(), 0);
+  assert.equal(model.annexFoundation.position.lengthSq(), 0, "辅楼地基留在原位");
+  assert.ok(model.annex.position.y > 0, "辅楼主体抬起露出辅楼地基");
   assert.equal(model.annexRoof.position.y, model.topSlabs.annex.position.y);
-  assert.equal(model.facadeColumns.position.lengthSq(), 0);
+  assert.equal(
+    model.facadeColumns.position.y - homes.get(model.facadeColumns)!.y,
+    firstFloor.offset.y,
+    "通高包角柱随一层抬起",
+  );
   for (const name of ["门厅一二层通高门", "挑空客厅一二层通高玻璃", "烤火房回纹横披"]) {
     const root = model.group.getObjectByName(name)!;
-    assert.deepEqual(root.position, homes.get(root), `${name} 贴合一层，不独立展开`);
-    assert.ok(explosion.parts[0].roots.includes(root));
+    assert.equal(root.position.y - homes.get(root)!.y, firstFloor.offset.y, `${name} 贴合一层抬起`);
+    assert.ok(firstFloor.roots.includes(root));
   }
-  assert.ok(explosion.parts[0].roots.includes(model.facadeColumns));
+  assert.ok(firstFloor.roots.includes(model.facadeColumns));
+  assert.ok(foundationPart.roots.includes(model.foundation));
   assert.ok(!explosion.parts.some(p => /通高|顶板/.test(p.name)), "通高件归一楼，顶板归屋顶下部");
   const decor = model.roof.getObjectByName("官帽承托梁回纹")!;
   assert.ok(decor && decor.children.length > 0, "官帽回纹归属屋顶");
@@ -90,7 +102,7 @@ test("隐藏构件仍保留拆分规则，销毁后复用构件回到原位", ()
   const explosion = new AssemblyExplosion(model, floors.map(f => f.name), false);
   explosion.apply(1);
   assert.ok(model.roof.position.y > 0);
-  assert.equal(model.annex.position.lengthSq(), 0);
+  assert.ok(model.annex.position.y > 0);
   model.roof.visible = true;
   assert.ok(explosion.expandedBounds().max.y > 20000);
   explosion.dispose();
@@ -98,12 +110,14 @@ test("隐藏构件仍保留拆分规则，销毁后复用构件回到原位", ()
   assert.equal(model.annex.position.lengthSq(), 0);
 });
 
-test("主辅楼换位和不同层高时辅楼仍原位拆分，楼层按实体留缝", () => {
+test("主辅楼换位和不同层高时辅楼仍只竖向抬起，楼层按实体留缝", () => {
   try {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, buildingPlacement: "main-west", floor1Height: 4200, floor2Height: 3900 });
     const { model, explosion } = fixture();
     explosion.apply(1);
-    assert.equal(model.annex.position.lengthSq(), 0);
+    assert.equal(model.annex.position.x, 0);
+    assert.equal(model.annex.position.z, 0);
+    assert.ok(model.annex.position.y > 0);
     assert.equal(model.annexRoof.position.x, 0);
     assert.equal(model.annexRoof.position.z, 0);
     for (let i = 1; i < 3; i++) assert.ok(visibleBounds(model.levels[i], true).min.y

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { carCorners, contains, polygonArea, site } from "../src/data";
 import { garageLayout, rectangle } from "../src/garage-layout";
-import { basementColumns, roadHeight, surroundings } from "../src/surroundings";
+import { basementColumns, surroundings } from "../src/surroundings";
 import {
   assessVehicleRoute, footprintWithin, inspectFootprint, polygonsOverlap,
   routeHeight, routePose, routeRanges, vehicleRoute,
@@ -61,7 +61,8 @@ test("全程筛查覆盖保留地坪与实际模型柱，未确认的拟切口�
   assert.equal(garageLayout.retainedDeck.soffitY, null);
   assert.equal(garageLayout.proposedCut.confirmed, false);
   assert.ok(assessment.underDeck);
-  assert.ok(assessment.conflicts.some((o) => o.id === "column-5-inner"));
+  // 柱网随辅楼／门厅调整后编号会变；筛查须命中实际模型柱（当前进车路径撞外沿柱）。
+  assert.ok(assessment.conflicts.some((o) => o.id.startsWith("column-") && o.id.endsWith("-outer")));
   const cut = garageLayout.proposedCut.footprint;
   const whollyInCut = rectangle(cut[0][0] + 100, cut[0][1] + 100, 1000, 1000);
   assert.ok(footprintWithin(whollyInCut, [cut]));
@@ -75,25 +76,41 @@ test("全程筛查覆盖保留地坪与实际模型柱，未确认的拟切口�
 
 test("柱墙筛查共用实体尺寸，包括墙内包含车身的潜在投影相交", () => {
   const base = basementColumns();
+  let layoutIdx = 0;
   for (const [i, column] of base.columns.entries()) {
-    for (const [j, row] of (["outer", "inner"] as const).entries()) {
-      const model = garageLayout.columns[i * 2 + j];
-      assert.ok(contains(column[row], model.footprint));
-      assert.ok(Math.abs(polygonArea(model.footprint) - 360 ** 2) < 1);
+    const samePost =
+      Math.hypot(column.outer[0] - column.inner[0], column.outer[1] - column.inner[1])
+      < site.garageColumnSize * 0.5;
+    const rows = samePost
+      ? [{ key: "inner" as const, point: column.inner }]
+      : [
+          { key: "outer" as const, point: column.outer },
+          ...(column.mid ? [{ key: "mid" as const, point: column.mid }] : []),
+          { key: "inner" as const, point: column.inner },
+        ];
+    for (const row of rows) {
+      const model = garageLayout.columns[layoutIdx++];
+      assert.equal(model.id, `column-${i + 1}-${row.key}`);
+      assert.ok(contains(row.point, model.footprint));
+      assert.ok(Math.abs(polygonArea(model.footprint) - site.garageColumnSize ** 2) < 1);
     }
   }
+  assert.equal(layoutIdx, garageLayout.columns.length);
   const wall = garageLayout.wallSegments.at(-1)!;
   const center = wall.footprint.reduce((sum, p) => [sum[0] + p[0] / 4, sum[1] + p[1] / 4], [0, 0]);
   const probe = carCorners(center[0], center[1], Math.PI / 2);
   assert.ok(inspectFootprint(probe).obstacles.includes(wall), "外沿矮墙必须参与潜在冲突筛查");
 });
 
-test("改示意道路标高与坡长只改变高度，路线与净高未知状态保持一致", () => {
-  const z = -7350, length = 5000, roadY = -2000;
-  const surface = roadHeight(z) + roadY - surroundings.road.entryY;
-  assert.equal(routeHeight(site.width, z, roadY, length), site.garageFloor);
-  assert.ok(Math.abs(routeHeight(site.width + length / 2, z, roadY, length)
-    - (site.garageFloor + surface) / 2) < 0.01);
+test("邻居院坪内为高标高，最外层车道才有斜坡", () => {
+  const z = -4000, length = 5000, roadY = -2000;
+  const yard = surroundings.neighborYard;
+  assert.equal(routeHeight(yard.x + 1000, yard.z + 4000, roadY, length), site.neighborGarageFloor);
+  assert.equal(routeHeight(yard.x - 1000, yard.z + 4000, roadY, length), site.garageFloor);
+  const laneZ = yard.z + 800;
+  const mid = routeHeight(yard.x - 2500, laneZ, roadY, length);
+  assert.ok(mid < site.neighborGarageFloor && mid > site.garageFloor);
+  assert.equal(routeHeight(yard.x - 2500, laneZ, roadY + 600, length), mid);
   const a = routePose(0, roadY, length), b = routePose(0, roadY + 600, 9000);
   assert.equal(a.x, b.x);
   assert.equal(a.z, b.z);

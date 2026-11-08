@@ -79,14 +79,14 @@ function garageProfile(options: DrawingOptions) {
   content += `<polygon points="${[...points, ...top].join(" ")}" class="vehicle"/>`;
   content += path(`M${points.join(" L")}`, "line");
   content += text(78, y(assessment.poses[0].y) + 24, `道路段起点 ${elevation(assessment.poses[0].y)} · 模型值`, "small");
-  content += text(920, y(site.garageFloor) + 20, `库底 ${elevation(site.garageFloor)}`, "small", "end");
+  content += text(920, y(site.garageFloor) + 20, `自家 ${elevation(site.garageFloor)} · 邻居 ${elevation(site.neighborGarageFloor)}`, "small", "end");
   for (const [from, to] of routeRanges(assessment.cells, (c) => c.outside || c.obstacles.length > 0))
     content += rect(x(from), 367, x(to) - x(from), 8, "risk");
   content += text(70, 396, `红带：平面柱墙潜在冲突／越出示意通道；蓝带按车高${formatMm(site.vehicle.height)}示意，纵横比例不同。`, "small risk-text");
   for (const t of [0, .25, .5, .75, 1]) {
     content += path(`M${x(t)} 335 v6`, "dimension") + text(x(t), 354, `${Math.round(t * 100)}%`, "small", "middle");
   }
-  content += text(70, 418, `按原路线平面弧长展开（约${formatMm(vehicleRoute.getLength())}）；当前接入示意值 ${formatMm(options.roadY)}、坡长${formatMm(options.rampLength)}。`, "small muted");
+  content += text(70, 418, `按原路线平面弧长展开（约${formatMm(vehicleRoute.getLength())}）。交界为水平平接，不是斜坡；道路示意值 ${formatMm(options.roadY)}。`, "small muted");
   return sheet("S02", "地库路线标高展开", "不是整车纵向扫掠：含镜、转弯、俯仰、前后悬、底盘、驶出及第二辆车仍待校核，通行未确认。", content);
 }
 

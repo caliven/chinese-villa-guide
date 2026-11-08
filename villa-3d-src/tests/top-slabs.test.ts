@@ -40,7 +40,7 @@ test("主辅楼首层及整段过道同高，过道两端踏步与铺装一致",
   }
 });
 
-test("三层楼面均有180厚实体板；二层挑空和二三层楼梯洞不被封死", () => {
+test("三层楼面均有120厚水泥楼板；二层挑空和二三层楼梯洞不被封死", () => {
   const draft = draftWithoutFurniture(), layout = villaLayoutFromDraft(draft);
   const model = buildVilla(mat, false, site.roofFenShui, "floating", layout);
   for (const [index, name] of ["一楼楼板", "二楼楼板", "三楼楼板"].entries()) {
@@ -50,6 +50,9 @@ test("三层楼面均有180厚实体板；二层挑空和二三层楼梯洞不�
     const top = draft.floors[index].y + (index === 0 ? site.entranceRise : 0);
     assert.equal(box.max.y, top);
     assert.ok(Math.abs(box.min.y - (top - construction.floorSlab)) < .01);
+    // 楼板外缘与建筑外皮（外墙外皮）齐平，不外扩半墙厚。
+    assert.ok(Math.abs(box.min.x - site.main.x) < 1, name);
+    assert.ok(Math.abs(box.max.x - (site.main.x + site.main.w)) < 1, name);
   }
   const opening = stairOpeningBounds(fitStairToRoom(draft.stairLayout, draft.floors));
   for (const index of [1, 2]) {

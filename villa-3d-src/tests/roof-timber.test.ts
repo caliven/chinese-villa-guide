@@ -7,7 +7,7 @@ import { clonePublishedLayout } from "../src/layout-draft.ts";
 import { buildEditorModel, disposeEditorModel } from "../src/editor-model.ts";
 import { addTiledRoof, hipRoofSurfaces } from "../src/roof-surfaces.ts";
 import { addTimberRoofFrame } from "../src/roof-timber.ts";
-import { gutterInnerLipInset, roofGutterDesign, roofTileEaveLift, roofTileInset } from "../src/roof-options.ts";
+import { gutterInnerLipInset, roofGutterDesign, roofTileEaveLift, slabToTileEaveLift, roofTileInset } from "../src/roof-options.ts";
 import { resetVillaParams } from "../src/villa-params.ts";
 import type { Mats } from "../src/primitives.ts";
 
@@ -17,7 +17,7 @@ const materials = () => new Proxy({} as Mats, { get(target, key: keyof Mats) { r
 test.afterEach(resetVillaParams);
 
 test("四坡木屋盖含正脊檩、斜脊梁、檩条与椽子，并落在瓦面以下", () => {
-  const main = mainRoofFootprint(), pitch = roofPitch(site.roofFenShui), lift = roofTileEaveLift();
+  const main = mainRoofFootprint(), pitch = roofPitch(site.roofFenShui), lift = slabToTileEaveLift();
   const hip = hipRoofSurfaces(main.x + roofTileInset, main.z + roofTileInset, main.w - 2 * roofTileInset, main.d - 2 * roofTileInset, main.eave + lift, pitch.mainRise);
   const root = new THREE.Group();
   addTimberRoofFrame(root, hip, new THREE.MeshStandardMaterial({ color: "#6b4a2e" }));
@@ -38,7 +38,7 @@ test("四坡木屋盖含正脊檩、斜脊梁、檩条与椽子，并落在瓦�
 });
 
 test("斜脊梁与檐檩不探出瓦边，也不进入天沟内挡／净宽（水泥区）", () => {
-  const main = mainRoofFootprint(), pitch = roofPitch(site.roofFenShui), lift = roofTileEaveLift();
+  const main = mainRoofFootprint(), pitch = roofPitch(site.roofFenShui), lift = slabToTileEaveLift();
   const inset = roofTileInset;
   const tile = {
     minX: main.x + inset, minZ: main.z + inset,
@@ -70,7 +70,7 @@ test("斜脊梁与檐檩不探出瓦边，也不进入天沟内挡／净宽（�
 });
 
 test("斜脊筒瓦檐口端收回，圆截面不探进天沟", () => {
-  const main = mainRoofFootprint(), pitch = roofPitch(site.roofFenShui), lift = roofTileEaveLift();
+  const main = mainRoofFootprint(), pitch = roofPitch(site.roofFenShui), lift = slabToTileEaveLift();
   const inset = roofTileInset;
   const tile = {
     minX: main.x + inset, minZ: main.z + inset,

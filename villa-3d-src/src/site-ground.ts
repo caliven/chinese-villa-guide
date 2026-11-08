@@ -1,8 +1,9 @@
 import * as THREE from "three";
-import { site, frontFieldLevel, contains, type Point } from "./data";
+import { site, frontFieldLevel, contains, courtyardFront, NEIGHBOR_COURTYARD_SLAB_THICKNESS, type Point } from "./data";
 import { box, type Mats } from "./primitives";
 import { betweenContours, contourAt, contourSection } from "./contours";
 import { subtractRoofPolygon } from "./roof-surfaces";
+import { basementFloorY } from "./garage-layout";
 import {
   surroundings as c,
   groundHeight,
@@ -19,6 +20,7 @@ function surface(
   points: Point[],
   y: number,
   material: THREE.Material,
+  uvMode: "scaled" | "plan" = "scaled",
 ) {
   const shape = new THREE.Shape(
     points.map(([x, z]) => new THREE.Vector2(x, -z)),
@@ -26,8 +28,14 @@ function surface(
   const geometry = new THREE.ShapeGeometry(shape);
   geometry.rotateX(-Math.PI / 2);
   const uv = geometry.getAttribute("uv");
-  for (let i = 0; i < uv.count; i++)
-    uv.setXY(i, uv.getX(i) / 30, uv.getY(i) / 30);
+  if (uvMode === "plan") {
+    // 与院坪厚板顶面同一套平面坐标，水泥／地砖接缝能对上。
+    const pos = geometry.getAttribute("position");
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i), -pos.getZ(i));
+  } else {
+    for (let i = 0; i < uv.count; i++)
+      uv.setXY(i, uv.getX(i) / 30, uv.getY(i) / 30);
+  }
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = name;
   mesh.position.y = y;
@@ -40,34 +48,29 @@ function surface(
 function riser(
   parent: THREE.Object3D,
   points: Point[],
-  top: number,
+  top: number | ((x: number, z: number) => number),
   bottom: number | ((x: number, z: number) => number),
   mat: Mats,
 ) {
-  const vertices: number[] = [],
-    uv: number[] = [];
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const uv: number[] = [];
+  // 每站 2 顶点（底／顶），段间共享，斜坡段顶标高连续变化时不出现竖向镂空缝。
+  for (const [x, z] of points) {
+    const yBottom = typeof bottom === "number" ? bottom : bottom(x, z);
+    const yTop = typeof top === "number" ? top : top(x, z);
+    positions.push(x, yBottom, z, x, yTop, z);
+    uv.push(x / 8 + z / 8, yBottom / 8, x / 8 + z / 8, yTop / 8);
+  }
   for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1],
-      b = points[i];
-    const ya = typeof bottom === "number" ? bottom : bottom(...a);
-    const yb = typeof bottom === "number" ? bottom : bottom(...b);
-    const quad = [
-      [a[0], ya, a[1]],
-      [b[0], yb, b[1]],
-      [b[0], top, b[1]],
-      [a[0], top, a[1]],
-    ];
-    for (const index of [0, 1, 2, 0, 2, 3]) {
-      vertices.push(...quad[index]);
-      uv.push(quad[index][0] / 8 + quad[index][2] / 8, quad[index][1] / 8);
-    }
+    const a = (i - 1) * 2;
+    const b = i * 2;
+    indices.push(a, b, b + 1, a, b + 1, a + 1);
   }
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(vertices, 3),
-  );
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geometry.setIndex(indices);
   geometry.computeVertexNormals();
   const material = mat.soil.clone();
   material.side = THREE.DoubleSide;
@@ -144,10 +147,45 @@ export function buildContextGround(mat: Mats) {
   // 砖房后墙距田坎有一段窄田，路侧也要封住这段高差；否则从道路侧
   // 可以透过空心台地看到低于田面的白色房墙。
   riser(group, [[c.road.x, c.frontHouse.z + c.frontHouse.d], [c.road.x, contourAt(edges.frontLower, c.road.x)]], frontFieldLevel, c.frontHouse.y, mat);
-  // 木屋前院坪已与两侧拉平。屋基和前坪用同一块铺装，关掉整栋后不会露出一块褐色补丁。
-  surface(group, "左侧邻居木房地基", betweenContours(levelLine(c.sideHouse.z), edges.rearFirst, site.width, c.road.x), 0, mat.paving);
-  // 木屋前地下室属于自家。土坎只留在地库地面以下，上面留给地库外墙，避免把外侧封死。
-  riser(group, [[site.width, c.neighborYard.z], [c.road.x, c.neighborYard.z]], site.garageFloor, frontFieldLevel, mat);
+  // 木屋前院坪已与两侧拉平。屋基以及贴着木房西墙的过道用邻居院坪，关掉整栋后仍是同一块铺装。
+  const woodBase = surface(
+    group,
+    "左侧邻居木房地基",
+    betweenContours(levelLine(c.sideHouse.z), edges.rearFirst, site.width, c.road.x),
+    0,
+    mat.neighborCourtyard,
+    "plan",
+  );
+  woodBase.castShadow = false;
+  // 地库外沿土坎：从自家东界略叠入接上石基，再经斜坡接到马路，一张立面。
+  // 顶随水泥板底走（含斜坡）；平面略外移，避免与矮墙外皮共面闪绿。
+  {
+    const ownThick = Math.max(120, site.garageSlabThickness || 150);
+    const neighborThick = NEIGHBOR_COURTYARD_SLAB_THICKNESS;
+    const startX = site.width - 400;
+    const endX = c.road.x;
+    const samples = Math.max(48, Math.ceil((endX - startX) / 120));
+    // 土坎立面相对院坪外沿再向外（Z 减小）一点，与 18 墙外皮错开。
+    const riserOutset = 40;
+    const path: Point[] = Array.from({ length: samples + 1 }, (_, i) => {
+      const x = startX + ((endX - startX) * i) / samples;
+      const z = x <= site.width
+        ? contourAt(courtyardFront, x)
+        : c.neighborYard.z;
+      return [x, z - riserOutset] as Point;
+    });
+    const soil = mat.soil.clone();
+    soil.polygonOffset = true;
+    soil.polygonOffsetFactor = 2;
+    soil.polygonOffsetUnits = 2;
+    riser(
+      group,
+      path,
+      (x, z) => basementFloorY(x, z + riserOutset) - (x >= c.neighborYard.x ? neighborThick : ownThick) - 10,
+      frontFieldLevel,
+      { ...mat, soil },
+    );
+  }
 
   band("道路左侧外伸高地", edges.leftPlatform, edges.rearFirst, roadRight, right, c.leftPlatform.y, true);
   band("高地前方低田", villageBack, edges.leftPlatform, roadRight, right, c.frontHouse.y);

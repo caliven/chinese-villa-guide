@@ -345,7 +345,15 @@ export function materials() {
     glass: lowE,
     lowE,
     inside: std(0xf5efe2),
-    // 楼面与下层墙顶的接触由完成面显示，跨楼层开关时也不用移高楼面。
+    // 结构楼板：水泥灰。外缘与墙外皮齐平；负层级把板侧压到墙后，消除共面闪烁（与户型三维楼板同法）。
+    concrete: finishLayer(new THREE.MeshStandardMaterial({
+      name: "结构水泥楼板",
+      color: 0xa6a8a5,
+      roughness: 0.96,
+      metalness: 0,
+      envMapIntensity: 0.12,
+    }), -2),
+    // 室内地板面层（非结构楼板）；拆分看到的层底应用 concrete。
     floor: finishLayer(std(0xccb995, wallMap), 3),
     fabric: std(0xc5b89c),
     foliage: std(0x59753c),

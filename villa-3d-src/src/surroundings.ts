@@ -1,5 +1,5 @@
 import { site, floors, frontFieldLevel, courtyardFront, roadsideVilla, contains, type Point } from "./data.ts";
-import { contourAt, insetContour, smoothContour } from "./contours.ts";
+import { contourAt, contourSection, insetContour, smoothContour } from "./contours.ts";
 import { placeRoadsideVilla, roadsideToWorld } from "./roadside-villa-layout.ts";
 
 // 全部左右关系按站在北侧、面对房子描述：画面左侧为 X 增大。
@@ -40,9 +40,10 @@ const rightTerraceAdvance = 2500;
 const roadFrontZ = -26500;
 const sharedPlaneY = site.rearField;
 let roadBackZ = site.oldDepth;
-function roadGrade(z: number) {
+let roadLowY = frontHouseY;
+function roadGrade(z: number): number {
   const t = Math.min(1, Math.max(0, (z - roadFrontZ) / (roadBackZ - roadFrontZ)));
-  return frontHouseY + t * (sharedPlaneY - frontHouseY);
+  return roadLowY + t * (sharedPlaneY - roadLowY);
 }
 
 export const surroundings = {
@@ -163,9 +164,11 @@ export function syncNeighborFootprint(width: number, depth: number) {
 
 /** 蓝顶邻房仍以场地西侧余量定位；互换建筑不移动邻房或道路。 */
 export function syncRoadsideVillaPlacement() {
+  surroundings.frontHouse.y = site.garageFloor - site.frontFieldDrop - site.frontHouseDrop;
+  roadLowY = surroundings.frontHouse.y;
   const next = placeRoadsideVilla(
     site.sideGap,
-    site.garageFloor - site.frontFieldDrop - site.frontHouseDrop,
+    surroundings.frontHouse.y,
   );
   Object.assign(roadsideVilla, next);
   rebuildVillageRoad();
@@ -318,35 +321,294 @@ export function roadHeight(z: number) {
   return roadGrade(z);
 }
 
-// 地库只留两排柱：外沿内收一排，房前墙下一排。中间不立柱。柱距是示意模数。
+export type BasementColumn = {
+  x: number;
+  /** 院坪外沿内侧（楼板边梁下）。 */
+  outer: Point;
+  /** 房前／前墙线（主楼前墙或辅楼前墙）。 */
+  inner: Point;
+  /**
+   * 门厅前沿承重柱（仅凸出式门厅的 B／C 轴）。
+   * 有则纵梁按 外沿→门厅→前墙 两段落柱，对应地上门厅通高柱向下贯通。
+   */
+  mid?: Point;
+  span: number;
+  /** 自家与邻居柱网完全分开，梁不跨界。 */
+  domain: "own" | "neighbor";
+  /** 主楼承重轴优先；其余为两侧板跨／辅楼示意柱。 */
+  role: "main" | "side" | "neighbor";
+};
+
+/**
+ * 地库最里侧对齐参考（开挖北缘）：
+ * 辅楼内退段整段（含西侧）下面是实体台地、不悬空 → 地库只挖到台地南缘 Z=0；
+ * 其余（主楼及以东）→ 主楼前墙。
+ * 柱落在院坪地库内，不得伸进辅楼投影下的实体地基。
+ */
+export function garageBuildingFrontZ(x: number) {
+  const annex = site.annex;
+  // 只按辅楼面宽判断（主楼改到西侧时不能从 0 扫到辅楼东缘盖住主楼）。
+  if (x >= annex.x - 1 && x <= annex.x + annex.w + 1) return 0;
+  return site.main.z;
+}
+
+/** 辅楼段地库柱里侧：贴实体台地南缘（Z=0），整柱在院坪地库，不进辅楼地基。 */
+export function annexColumnInnerZ() {
+  return 0;
+}
+
+/** 外沿柱到房前柱的最小进深；过浅则该轴不设柱／纵梁（西端院坪几乎贴前墙时）。 */
+const MIN_GARAGE_BAY_DEPTH = 2000;
+
+/** 侧跨补柱与主楼承重轴的最小中心距，避免贴着承重柱挡车／抢位。 */
+const MIN_SIDE_CLEAR_FROM_MAIN = 2500;
+
+/**
+ * 主楼前墙向屋内下挖进深（mm）：前廊下挖悬空，承重柱／地梁落在地库净空；
+ * 再往北仍为实体台地／条基。2400 为安全示意净空，埋深与配筋待结构／地勘核定。
+ */
+export const MAIN_FRONT_GARAGE_INSET = 2400;
+
+/**
+ * 主楼前廊下挖范围（含原外伸段）：土基开洞、地库地面伸入，楼板下悬空。
+ * 南起主楼前墙外皮，北至屋内 MAIN_FRONT_GARAGE_INSET。
+ */
+export function mainFrontGaragePocket(): Point[] {
+  const main = site.main;
+  if (MAIN_FRONT_GARAGE_INSET < 100) return [];
+  return rectPoints(main.x, main.z, main.w, MAIN_FRONT_GARAGE_INSET);
+}
+
+/** 台地石基／铺装开洞：只切 Z≥0 与下挖相交段，避免洞口伸出台地轮廓导致重面。 */
+export function mainFrontPadHole(): Point[] {
+  const main = site.main;
+  const north = main.z + MAIN_FRONT_GARAGE_INSET;
+  if (north <= 1) return [];
+  return rectPoints(main.x, 0, main.w, north);
+}
+
+function rectPoints(x: number, z: number, w: number, d: number): Point[] {
+  return [[x, z], [x + w, z], [x + w, z + d], [x, z + d]];
+}
+
+/**
+ * 主楼地库承重轴（与地上门厅／开间一致，优先固定）：
+ * A／D＝前墙两角；B／C＝门厅两柱柱心。
+ * 凸出式时 B／C 另在门厅前沿落柱（与地上通高柱同轴），前墙线再各一根 → 主楼下共 6 根承重柱。
+ */
+export function mainGarageStructuralAxes() {
+  const main = site.main;
+  const porch = site.portico;
+  // 与立面包角参考同值：前墙转角内侧 120，柱心贴近包角。
+  const axisA = Math.round(main.x + 120);
+  const axisD = Math.round(main.x + main.w - 120);
+  const axisB = Math.round(porch.x);
+  const axisC = Math.round(porch.x + porch.w);
+  const wallZ = main.z;
+  const porticoZ = site.porticoStyle === "recessed" ? null : wallZ - porch.projection;
+  return {
+    axisA,
+    axisB,
+    axisC,
+    axisD,
+    wallZ,
+    porticoZ,
+    /** 前墙向屋内下挖北缘 */
+    pocketNorth: wallZ + MAIN_FRONT_GARAGE_INSET,
+    /** 前墙一排四根 */
+    wallXs: [axisA, axisB, axisC, axisD] as const,
+    /** 门厅前沿两根（平齐式无） */
+    porticoXs: porticoZ == null ? ([] as number[]) : [axisB, axisC],
+  };
+}
+
+/**
+ * 两家地库独立柱网。
+ * 自家：**先固定主楼 6 根承重柱**（前墙 A–D；凸出式另加门厅前沿 B／C），
+ * 再在主楼两侧（辅楼前、斜坡／木屋前）按行车净宽补板跨柱；邻居仍左右各两根。
+ * 弧形外沿边柱贴弧；纵梁两端落柱，门厅轴为外沿→门厅→前墙两段。
+ */
 export function basementColumns() {
   const spacing = 4200;
   const outerInset = 550;
+  const edgeInset = Math.max(300, site.neighborColumnEdgeInset);
+  const outerLane = Math.max(2200, site.neighborBeamReach);
+  const columnSize = Math.max(300, site.garageColumnSize || 400);
+  const yard = surroundings.neighborYard;
   const ourFront = insetContour(courtyardFront, outerInset);
-  const xs: number[] = [];
-  const first = 700;
-  const last = surroundings.road.x - 550;
-  for (let x = first; x <= last + 1e-3; x += spacing)
-    xs.push(Math.round(x));
-  if (last - xs[xs.length - 1] > 2400) xs.push(Math.round(last));
+  const lastOwn = yard.x - edgeInset;
+  const outerZAt = (x: number) => (x <= site.width ? contourAt(ourFront, x) : yard.z + outerInset);
+  const axes = mainGarageStructuralAxes();
+
+  const makeOwn = (
+    x: number,
+    role: "main" | "side",
+    opts?: { midZ?: number | null; minBay?: number; innerZ?: number },
+  ): BasementColumn | null => {
+    const xi = Math.round(x);
+    const outerZ = outerZAt(xi);
+    const innerZ = opts?.innerZ ?? garageBuildingFrontZ(xi);
+    const minBay = opts?.minBay ?? MIN_GARAGE_BAY_DEPTH;
+    if (innerZ - outerZ < minBay) return null;
+    const midZ = opts?.midZ;
+    const mid =
+      midZ != null && midZ < innerZ - 100 && midZ > outerZ + 100
+        ? ([xi, midZ] as Point)
+        : undefined;
+    return {
+      x: xi,
+      outer: [xi, outerZ],
+      inner: [xi, innerZ],
+      mid,
+      span: Math.round(innerZ - outerZ),
+      domain: "own",
+      role,
+    };
+  };
+
+  // —— 1. 主楼承重轴（最高优先，位置锁死）——
+  const ownColumns: BasementColumn[] = [];
+  const mainXs = new Set<number>();
+  for (const x of axes.wallXs) {
+    const col = makeOwn(x, "main", {
+      midZ: axes.porticoXs.includes(x) ? axes.porticoZ : null,
+    });
+    if (!col) continue;
+    ownColumns.push(col);
+    mainXs.add(col.x);
+  }
+
+  // —— 2. 主楼两侧：以承重边柱为端点等分，间距贴近主楼开间，不密不疏 ——
+  // 辅楼内退段下为实体地基：该带内柱里侧贴 Z=0，不进楼底。
+  const annexOut = Math.max(350, columnSize / 2);
+  const annexInnerZ = annexColumnInnerZ();
+  const ANNEX_EDGE_MIN_BAY = Math.max(250, Math.round(columnSize * 0.6));
+  const annexOuterInset = Math.min(outerInset, 220);
+  const annexOurFront = insetContour(courtyardFront, annexOuterInset);
+  const annexOuterZAt = (x: number) => contourAt(annexOurFront, x);
+  const makeAnnexOwn = (x: number): BasementColumn | null => {
+    const xi = Math.round(x);
+    const edge = contourAt(courtyardFront, xi);
+    const edgeClear = 200;
+    const usable = annexInnerZ - (edge + edgeClear);
+    if (usable < columnSize + 50) {
+      return {
+        x: xi,
+        outer: [xi, annexInnerZ],
+        inner: [xi, annexInnerZ],
+        span: 0,
+        domain: "own",
+        role: "side",
+      };
+    }
+    let outerZ = annexOuterZAt(xi);
+    if (outerZ < edge + edgeClear) outerZ = edge + edgeClear;
+    if (annexInnerZ - outerZ < Math.max(ANNEX_EDGE_MIN_BAY, columnSize + 50)) {
+      outerZ = annexInnerZ - Math.max(ANNEX_EDGE_MIN_BAY, columnSize + 50);
+    }
+    if (outerZ < edge + edgeClear) outerZ = edge + edgeClear;
+    if (annexInnerZ - outerZ < columnSize + 50) {
+      return {
+        x: xi,
+        outer: [xi, annexInnerZ],
+        inner: [xi, annexInnerZ],
+        span: 0,
+        domain: "own",
+        role: "side",
+      };
+    }
+    return {
+      x: xi,
+      outer: [xi, outerZ],
+      inner: [xi, annexInnerZ],
+      span: Math.round(annexInnerZ - outerZ),
+      domain: "own",
+      role: "side",
+    };
+  };
+
+  /** 两端固定，中间等分；跨度过大则加密开间，目标约 spacing（与主楼开间同量级）。 */
+  const evenSideXs = (fromX: number, toX: number): number[] => {
+    const span = toX - fromX;
+    if (span < spacing * 0.55) return [];
+    let nBays = Math.max(1, Math.round(span / spacing));
+    const maxBay = spacing * 1.35;
+    while (span / nBays > maxBay) nBays += 1;
+    const xs: number[] = [];
+    for (let i = 0; i <= nBays; i++) xs.push(Math.round(fromX + (span * i) / nBays));
+    return xs;
+  };
+
+  // 西：辅楼西墙外皮 → 主楼 A 轴；东：主楼 D 轴 → 邻界内侧。端点上的承重柱已有，只落侧柱。
+  const westTip = Math.round(site.annex.x - annexOut);
+  const eastTip = Math.round(lastOwn);
+  const westGrid = evenSideXs(westTip, axes.axisA);
+  const eastGrid = evenSideXs(axes.axisD, eastTip);
+  for (const x of [...westGrid, ...eastGrid]) {
+    if (mainXs.has(x) || ownColumns.some((c) => Math.abs(c.x - x) < 100)) continue;
+    // 紧贴承重轴的等分端点跳过（已是主柱）；其余须保持净距。
+    if ([...mainXs].some((mx) => Math.abs(x - mx) < MIN_SIDE_CLEAR_FROM_MAIN * 0.85)) continue;
+    const inAnnexFrontBand =
+      x >= site.annex.x - annexOut - 1 && x <= site.annex.x + site.annex.w + annexOut + 1;
+    const col = inAnnexFrontBand ? makeAnnexOwn(x) : makeOwn(x, "side");
+    if (col) ownColumns.push(col);
+  }
+  ownColumns.sort((a, b) => a.x - b.x);
+
+  const westX = Math.round(yard.x + edgeInset);
+  const eastX = Math.round(surroundings.road.x - edgeInset);
+  const neighborOuterZ = yard.z + outerLane;
+  const neighborInnerZ = surroundings.sideHouse.z - edgeInset;
+  const neighborColumns: BasementColumn[] = [westX, eastX].map((x) => ({
+    x,
+    outer: [x, neighborOuterZ] as Point,
+    inner: [x, neighborInnerZ] as Point,
+    span: Math.round(Math.abs(neighborInnerZ - neighborOuterZ)),
+    domain: "neighbor" as const,
+    role: "neighbor" as const,
+  }));
   return {
     spacing,
     outerInset,
-    columns: xs.map((x) => {
-      const onOurPlot = x <= site.width;
-      const outerZ = onOurPlot
-        ? contourAt(ourFront, x)
-        : surroundings.neighborYard.z + outerInset;
-      // 内沿取房子前墙位置：自家前墙 Z=-1，邻居木屋前墙与自家旧木房前墙对齐。
-      const innerZ = onOurPlot ? site.main.z : surroundings.sideHouse.z;
-      return {
-        x,
-        outer: [x, outerZ] as Point,
-        inner: [x, innerZ] as Point,
-        span: Math.round(Math.abs(innerZ - outerZ)),
-      };
-    }),
+    edgeInset,
+    outerLane,
+    /** 侧跨目标柱净宽示意；主楼开间以门厅／面宽分档为准。 */
+    clearSpan: spacing - columnSize,
+    mainAxes: axes,
+    ownColumns,
+    neighborColumns,
+    columns: [...ownColumns, ...neighborColumns],
   };
+}
+
+/** 在轮廓 [fromX, toX] 段上按弧长取样（含两端），用于弧形边柱。 */
+function sampleContourByArc(contour: Point[], fromX: number, toX: number, spacing: number): Point[] {
+  const section = contourSection(contour, fromX, toX);
+  if (section.length < 2) return [[fromX, contourAt(contour, fromX)]];
+  const lengths = [0];
+  for (let i = 1; i < section.length; i++) {
+    lengths.push(
+      lengths[i - 1] + Math.hypot(section[i][0] - section[i - 1][0], section[i][1] - section[i - 1][1]),
+    );
+  }
+  const total = lengths.at(-1)!;
+  if (total < 100) return [section[0], section.at(-1)!];
+  const count = Math.max(1, Math.round(total / spacing));
+  const step = total / count;
+  const points: Point[] = [];
+  for (let i = 0; i <= count; i++) {
+    const target = Math.min(total, i * step);
+    const index = lengths.findIndex((length, j) => j > 0 && length >= target - 1e-6);
+    if (index < 0) {
+      points.push(section.at(-1)!);
+      continue;
+    }
+    const span = lengths[index] - lengths[index - 1];
+    const t = span < 1e-6 ? 0 : (target - lengths[index - 1]) / span;
+    const a = section[index - 1], b = section[index];
+    points.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+  }
+  return points;
 }
 
 export function groundHeight(x: number, z: number) {

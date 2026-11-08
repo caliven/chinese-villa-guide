@@ -19,7 +19,7 @@ import {
   gutterInnerWallTop,
   frontApronSection,
   roofGutterDesign,
-  roofTileEaveLift,
+  slabToTileEaveLift,
   roofTileInset,
   roofTileThickness,
 } from "./roof-options.ts";
@@ -516,12 +516,14 @@ function eyelidGroup(parent: THREE.Object3D) {
   return g;
 }
 
-/** 自下而上三层板顶标高；最上层顶面贴在 `stackTop`。 */
-function eyelidLayerTops(stackTop: number) {
+/**
+ * 自楼板／梁托顶平面向上叠三层三眼皮；底层板底贴 `slabTop`，最上层顶＝slabTop＋总高。
+ */
+function eyelidLayerTops(slabTop: number) {
   const [bottomH, midH, topH] = eyelidFixed.rises;
-  const topTop = stackTop;
-  const midTop = topTop - topH;
-  const bottomTop = midTop - midH;
+  const bottomTop = slabTop + bottomH;
+  const midTop = bottomTop + midH;
+  const topTop = midTop + topH;
   return [
     { top: topTop, thick: topH, inset: eyelidInset(0) },
     { top: midTop, thick: midH, inset: eyelidInset(1) },
@@ -837,7 +839,7 @@ function addCorbelsAndFascia(
     { along: "x", face: wall.z + wall.d, from: wall.x, to: wall.x + wall.w, sign: 1 },
     { along: "z", face: wall.x, from: wall.z, to: wall.z + wall.d, sign: -1 },
     { along: "z", face: wall.x + wall.w, from: wall.z, to: wall.z + wall.d, sign: 1 },
-  ], stackTop - eyelidStackHeight(), mat);
+  ], stackTop, mat);
 }
 
 /** 挑檐下沿线与承托梁的平面边界，供三维实体和立面投影共用。 */
@@ -1050,7 +1052,10 @@ export function roofEaves(
   const channelHole = outline(channel);
   const innerLipHole = outline(innerFace);
   const cement = gutterCement(mat);
-  const bedY = base + gutterBedTop;
+  // base＝封顶楼板顶＝梁托顶＝飘檐底；三眼皮叠在其上，天沟再坐在三眼皮顶。
+  const slabTop = base;
+  const gutterBase = slabTop + eyelidStackHeight();
+  const bedY = gutterBase + gutterBedTop;
   const frontCut = frontTrimGap && wall
     ? rect(frontTrimGap[0], z - 1000, frontTrimGap[1] - frontTrimGap[0], wall.z - z + 1008)
     : undefined;
@@ -1066,7 +1071,7 @@ export function roofEaves(
   const outerWall = eaveSlab(
     g,
     outer,
-    base + outerWallH - wallTopGap,
+    gutterBase + outerWallH - wallTopGap,
     outerWallH - wallTopGap,
     mat.british,
     [outerInner.slice().reverse()],
@@ -1077,7 +1082,7 @@ export function roofEaves(
   const copeOh = eyelidFixed.copingOverhang;
   const copeOuter = outline(-copeOh);
   const copeInner = outline(outerT);
-  const copeTop = base + outerWallH + copeThick;
+  const copeTop = gutterBase + outerWallH + copeThick;
   const coping = eaveSlab(g, copeOuter, copeTop, copeThick, mat.british, [copeInner.slice().reverse()], frontCut);
   coping.name = "天沟外边反坎压顶";
   slopeGutterCoping(coping, copeOuter, outerT + copeOh);
@@ -1088,7 +1093,7 @@ export function roofEaves(
   const innerWall = eaveSlab(
     g,
     channelHole,
-    base + innerTop,
+    gutterBase + innerTop,
     innerTop - gutterBedTop + innerEmbed,
     cement,
     [innerLipHole.slice().reverse()],
@@ -1096,13 +1101,12 @@ export function roofEaves(
   );
   innerWall.name = "天沟内挡边";
 
-  const stackTop = base;
   if (bay) {
     const lids = eyelidGroup(g);
     const hole = wall
       ? rect(wall.x, wall.z, wall.w, wall.d)
       : bayOutline(x, z, w, d, bay.x, bay.w, bay.z, 950);
-    for (const layer of eyelidLayerTops(stackTop)) {
+    for (const layer of eyelidLayerTops(slabTop)) {
       slab(
         lids,
         bayOutline(x, z, w, d, bay.x, bay.w, bay.z, layer.inset),
@@ -1113,11 +1117,11 @@ export function roofEaves(
       );
     }
   } else {
-    tripleEyelid(g, x, z, w, d, stackTop, mat, wall, frontCut);
+    tripleEyelid(g, x, z, w, d, slabTop, mat, wall, frontCut);
   }
   if (wall) {
-    if (bay) addWallAndHatBayCorbels(g, wall, bay, stackTop, mat);
-    else addCorbelsAndFascia(g, wall, stackTop, mat, frontTrimGap);
+    if (bay) addWallAndHatBayCorbels(g, wall, bay, slabTop, mat);
+    else addCorbelsAndFascia(g, wall, slabTop, mat, frontTrimGap);
   }
   return g;
 }
@@ -1152,7 +1156,7 @@ function addWallAndHatBayCorbels(
     edges.push({ along: "x", face: wallNorth, from: Math.max(bayEast, wall.x), to: wall.x + wall.w, sign: -1,
       startInset: backInset, endInset: eaveTrimDesign.corbelCornerSpacing / 2,
       fasciaFrom: bayEast + eyelidFixed.fasciaProtrusion });
-  placeCorbelEdges(parent, edges, stackTop - eyelidStackHeight(), mat, true, hatPierCorbelCutouts());
+  placeCorbelEdges(parent, edges, stackTop, mat, true, hatPierCorbelCutouts());
   hatEaveSupport(parent, bay.x, bay.z, bay.w, stackTop, wallNorth + 8, mat, backInset);
 }
 
@@ -1173,7 +1177,8 @@ function hatEaveSupport(
   support.name = "官帽承托构件";
   parent.add(support);
   const under = hatSupportInset(), beamWidth = 200, p = eyelidFixed.fasciaProtrusion;
-  const bottom = base - eyelidStackHeight();
+  // base＝楼板／梁托顶平面；承托梁自该平面向下到下沿线。
+  const bottom = base;
   if (junctions.length) {
     for (const j of junctions) {
       const shape = new THREE.Shape(j.section.map(([z, y]) => new THREE.Vector2(-z, y)));
@@ -1225,7 +1230,7 @@ function hatEaveSupport(
     lightEdges.push({ along: "z", face: west, from: front, to: lightEnd, sign: -1 });
     lightEdges.push({ along: "z", face: east, from: front, to: lightEnd, sign: 1 });
   }
-  placeCorbelEdges(support, edges, base - eyelidStackHeight(), mat, false, hatPierCorbelCutouts(), undefined, lightEdges);
+  placeCorbelEdges(support, edges, base, mat, false, hatPierCorbelCutouts(), undefined, lightEdges);
 }
 
 // 抬高官帽只保留前檐及两侧外露段。各层后端沿正屋前坡斜切，
@@ -1272,7 +1277,10 @@ export function integratedHatEaves(
   const channel = outerT + roofGutterDesign.clearWidth;
   const innerFace = channel + innerT;
   const cement = gutterCement(mat);
-  const bedY = base + gutterBedTop;
+  // base＝官帽檐口楼板／梁托顶；三眼皮向上，天沟坐在三眼皮顶。
+  const slabTop = base;
+  const gutterBase = slabTop + eyelidStackHeight();
+  const bedY = gutterBase + gutterBedTop;
   // 槽底只在沟内，避免外皮露出水泥灰白线。
   const bed = finish(end => rim(outerT, innerFace, end), bedY, 80, cement,
     mesh => slopeGutterBed(mesh, [[x + outerT, z + outerT], [x + w - outerT, z + outerT], [x + w - outerT, z + 1000], [x + outerT, z + 1000]]));
@@ -1281,14 +1289,14 @@ export function integratedHatEaves(
   const wallTopGap = 3;
   finish(
     end => rim(0, outerT, end),
-    base + outerWallH - wallTopGap,
+    gutterBase + outerWallH - wallTopGap,
     outerWallH - wallTopGap,
     mat.british,
   ).name = "天沟外挡边";
   const copeOh = eyelidFixed.copingOverhang;
   finish(
     end => rim(-copeOh, outerT, end),
-    base + outerWallH + 30,
+    gutterBase + outerWallH + 30,
     30,
     mat.british,
     (mesh, end) => slopeGutterCoping(mesh, [[x - copeOh, end], [x - copeOh, z - copeOh],
@@ -1298,14 +1306,14 @@ export function integratedHatEaves(
   const innerEmbed = 10;
   finish(
     end => rim(channel, channel + innerT, end),
-    base + innerTop,
+    gutterBase + innerTop,
     innerTop - gutterBedTop + innerEmbed,
     cement,
   ).name = "天沟内挡边";
   // 封板只补内挡顶以上的缺口，与内挡外皮共面，避免两个面重叠造成颜色分界。
-  const tileY = base + roofTileEaveLift();
+  const tileY = slabTop + slabToTileEaveLift();
   const junctionEnd = endAt(tileY);
-  const closureBottom = Math.max(base + innerTop, mainTileEave);
+  const closureBottom = Math.max(gutterBase + innerTop, mainTileEave);
   const closureBottomEnd = endAt(closureBottom);
   if (tileY > closureBottom && junctionEnd > mainTileFront) {
     for (const sideX of [x + channel, x + w - channel]) {
@@ -1324,10 +1332,10 @@ export function integratedHatEaves(
     }
   }
   const lids = eyelidGroup(g);
-  for (const layer of eyelidLayerTops(base))
+  for (const layer of eyelidLayerTops(slabTop))
     lids.add(finish(end => rim(layer.inset, innerFace, end), layer.top, layer.thick, mat.british));
-  const underside = apronFasciaBottom(base, 0);
-  const junctions = floatingHatJunctions(z, base, mainTileEave - roofTileEaveLift(), wallFront, hatSupportInset());
+  const underside = apronFasciaBottom(slabTop, 0);
+  const junctions = floatingHatJunctions(z, slabTop, mainTileEave - slabToTileEaveLift(), wallFront, hatSupportInset());
   const soffit = new THREE.Group();
   soffit.name = "悬浮官帽封闭檐底";
   g.add(soffit);
@@ -1341,7 +1349,7 @@ export function integratedHatEaves(
     mainTileFront - sidePad,
     endAt(supportBottom) - sidePad,
   );
-  hatEaveSupport(g, x, z, w, base, sideEnd, mat, undefined, finish,
+  hatEaveSupport(g, x, z, w, slabTop, sideEnd, mat, undefined, finish,
     endAt(supportBottom + eyelidFixed.fasciaHeight), junctions);
   return g;
 }
@@ -1355,7 +1363,7 @@ export function gutteredRoof(
   cover?: THREE.Object3D,
 ) {
   const g = roofEaves(parent, x, z, w, d, base, mat, bay, wall);
-  const eaveY = base + roofTileEaveLift();
+  const eaveY = base + slabToTileEaveLift();
   const main = hipRoofSurfaces(x + roofTileInset, z + roofTileInset, w - 2 * roofTileInset, d - 2 * roofTileInset, eaveY, rise);
   const hat = bay ? hatRoofSurfaces(bay.x + bay.w / 2, bay.z, bay.w, z + d / 2, eaveY, eaveY + rise, 1, bay.ridgeFront) : null;
   const original = [...main.faces, ...(hat?.faces ?? [])];

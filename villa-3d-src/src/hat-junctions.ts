@@ -1,6 +1,6 @@
 import { frontElevation, type Point } from "./data.ts";
 import { hatPierDesign } from "./column-profiles.ts";
-import { eyelidFixed, eyelidStackHeight, fasciaBottomY } from "./roof-options.ts";
+import { eyelidFixed, fasciaBottomY } from "./roof-options.ts";
 
 export type HatJunction = { x: number; width: number; section: Point[] };
 
@@ -8,7 +8,8 @@ export type HatJunction = { x: number; width: number; section: Point[] };
 export function floatingHatJunctions(hatFront: number, hatEave: number, _mainEave: number,
   wallFront: number, supportInset: number,
   columns: Pick<typeof frontElevation, "postXs" | "postZ" | "dividerWidth"> = frontElevation): HatJunction[] {
-  const top = hatEave - eyelidStackHeight(), bottom = fasciaBottomY(hatEave, 0);
+  // hatEave＝官帽楼板／梁托顶平面；转接梁顶贴该面，底到下沿线。
+  const top = hatEave, bottom = fasciaBottomY(hatEave, 0);
   const front = Math.min(hatFront + supportInset - eyelidFixed.fasciaProtrusion,
     columns.postZ - hatPierDesign.capDepth / 2);
   const rear = Math.max(front, columns.postZ + hatPierDesign.capDepth / 2);

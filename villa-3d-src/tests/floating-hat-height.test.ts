@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { attachRoofs, buildVilla, floatingHatLayout, roofPlanModel, roofPitch } from "../src/architecture";
-import { fasciaBottomY, floatingHatDesign, roofTileEaveLift, roofTileInset } from "../src/roof-options";
+import { fasciaBottomY, floatingHatDesign, roofTileEaveLift, slabToTileEaveLift, roofTileInset } from "../src/roof-options";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, floatingHatHeightLimits, normalizeVillaParamsLengths,
   resetVillaParams, validateVillaParams, type VillaParams } from "../src/villa-params";
 import { parseVillaParamNumber, readVillaParamsFromDom, sanitizeVillaParamInput, villaParamsPanelHtml } from "../src/villa-params-ui";
@@ -93,7 +93,7 @@ test("零升降保留默认定位，正负升降保持帽体坡度和宽度，�
   const before = roofPlanModel("floating"), joined = roofPlanModel("joined");
   const run = (before.hat.w - 2 * roofTileInset) / 2;
   close(before.hat.peak, before.mainPeak - 500);
-  close(before.hat.eave, before.hat.peak - roofTileEaveLift() - run * DEFAULT_VILLA_PARAMS.roofFenShui / 10);
+  close(before.hat.eave, before.hat.peak - slabToTileEaveLift() - run * DEFAULT_VILLA_PARAMS.roofFenShui / 10);
   for (const offset of [-200, 200]) {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, floatingHatHeightOffset: offset });
     const after = roofPlanModel("floating");
@@ -124,7 +124,7 @@ test("升降上下限随主屋和门厅组合计算，边界保留净空和正�
             applyVillaParams(candidate);
             const model = roofPlanModel("floating"), h = floatingHatLayout();
             close(h.heightOffset, offset);
-            close(h.peak - model.main.eave - roofTileEaveLift(), floatingHatHeightLimits(candidate).peakLift);
+            close(h.peak - model.main.eave - slabToTileEaveLift(), floatingHatHeightLimits(candidate).peakLift);
             assert.ok(h.joinZ >= h.ridgeFront + 50 - .01);
             assert.ok(h.peak <= model.mainPeak + .01);
             assert.ok(h.eave >= model.main.eave + floatingHatDesign.minEaveLift - .01);
@@ -141,7 +141,7 @@ test("抬高、降低与上下边界的帽脊同高接入主坡，交线两侧�
   for (const offset of [-200, 200, minOffset, maxOffset]) {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, floatingHatHeightOffset: offset });
     const { main: m, hat: h } = roofPlanModel("floating"), pitch = roofPitch(DEFAULT_VILLA_PARAMS.roofFenShui);
-    const slope = DEFAULT_VILLA_PARAMS.roofFenShui / 10, lift = roofTileEaveLift(), inset = roofTileInset;
+    const slope = DEFAULT_VILLA_PARAMS.roofFenShui / 10, lift = slabToTileEaveLift(), inset = roofTileInset;
     close(h.peak, m.eave + lift + (h.joinZ - m.z - inset) * slope);
     const main = new THREE.Group(), annex = new THREE.Group();
     attachRoofs(main, annex, mat, DEFAULT_VILLA_PARAMS.roofFenShui, "floating");
@@ -183,7 +183,7 @@ test("升降后天沟槽底找坡及压顶、三眼皮的后端逐顶点贴住�
             Math.abs(positions.getX(j) - positions.getX(i)) > .02 || Math.abs(positions.getY(j) - positions.getY(i)) > .02
             || positions.getZ(j) <= positions.getZ(i) + .02);
           if (!rear) continue;
-          close(v.y, m.eave + roofTileEaveLift() + (v.z - m.z - roofTileInset) * slope,
+          close(v.y, m.eave + slabToTileEaveLift() + (v.z - m.z - roofTileInset) * slope,
             `${o.name} offset=${offset} 后端未贴合：${v.toArray()}`);
           checked++;
         }

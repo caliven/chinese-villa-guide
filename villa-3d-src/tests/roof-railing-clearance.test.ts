@@ -3,7 +3,7 @@ import test from "node:test";
 import * as THREE from "three";
 import { buildVilla, mainRoofFootprint, roofPitch, villaLayoutFromDraft } from "../src/architecture.ts";
 import { clonePublishedLayout } from "../src/layout-draft.ts";
-import { roofTileEaveLift, roofTileInset } from "../src/roof-options.ts";
+import { roofTileEaveLift, slabToTileEaveLift, roofTileInset } from "../src/roof-options.ts";
 import { clipRailingBelowRoof } from "../src/roof-railing-clearance.ts";
 import type { Mats } from "../src/primitives.ts";
 
@@ -41,7 +41,7 @@ test("各栏杆造型和坡度的新增梯段及顶板护栏均位于主屋瓦�
     const draft = clonePublishedLayout(); draft.stairLayout.railingStyle = style;
     const model = buildVilla(mat, false, slope, "floating", villaLayoutFromDraft(draft));
     const main = mainRoofFootprint(), pitch = roofPitch(slope), x = main.x + roofTileInset, z = main.z + roofTileInset;
-    const w = main.w - 2 * roofTileInset, d = main.d - 2 * roofTileInset, eave = main.eave + roofTileEaveLift(), k = pitch.mainRise / pitch.mainRun;
+    const w = main.w - 2 * roofTileInset, d = main.d - 2 * roofTileInset, eave = main.eave + slabToTileEaveLift(), k = pitch.mainRise / pitch.mainRun;
     const ceiling = (p: THREE.Vector3) => eave + k * Math.min(p.x - x, x + w - p.x, p.z - z, z + d - p.z) - 100;
     for (const root of [model.levels[2], model.topSlabs.main]) {
       const covered = root.getObjectByName("屋面避让栏杆")!, open = root.getObjectByName("完整楼梯栏杆")!;

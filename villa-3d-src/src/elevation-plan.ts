@@ -14,7 +14,7 @@ import type { Facade } from "./facades";
 import { roofProjectedEdges } from "./roof-plan";
 import { subtractRoofPolygon, type RoofFace } from "./roof-surfaces";
 import { bayOutline, hatEaveRim, frontTerraceRailRuns, terraceParapetLayout, apronSupportOutline, hatSupportInset } from "./facade-details";
-import { apronEaveDesign, frontApronSection, fasciaBottomY, gutterOuterWallTop, roofGutterDesign, roofTileEaveLift, roofTileInset, roofStyleLabels, type RoofStyle } from "./roof-options";
+import { apronEaveDesign, frontApronSection, fasciaBottomY, gutterOuterWallTop, eyelidStackHeight, roofGutterDesign, slabToTileEaveLift, roofTileInset, roofStyleLabels, type RoofStyle } from "./roof-options";
 
 export const elevationLabels = {
   north: "北立面（正立面）", south: "南立面（背立面）", east: "东立面", west: "西立面",
@@ -200,13 +200,14 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   };
   const rect = (x: number, z: number, w: number, d: number): Point[] => [[x, z], [x + w, z], [x + w, z + d], [x, z + d]];
   const mainOutline = style === "joined" ? bayOutline(r.main.x, r.main.z, r.main.w, r.main.d, r.hat.x, r.hat.w, r.hat.z, 0) : rect(r.main.x, r.main.z, r.main.w, r.main.d);
-  rim(mainOutline, r.main.eave - 350, 350 + gutterOuterWallTop(), "el-trim", r.frontTrimGap);
+  // 楼板平面以上：三眼皮＋天沟外挡；不再从檐口向下画三眼皮。
+  rim(mainOutline, r.main.eave, eyelidStackHeight() + gutterOuterWallTop(), "el-trim", r.frontTrimGap);
   owner = "annex";
-  rim(rect(r.annex.x, r.annex.z, r.annex.w, r.annex.d), r.annex.eave - 350, 350 + r.annexProfile.outerWallTop, "el-trim");
+  rim(rect(r.annex.x, r.annex.z, r.annex.w, r.annex.d), r.annex.eave, eyelidStackHeight() + r.annexProfile.outerWallTop, "el-trim");
   owner = "main";
   if (style === "floating") {
-    const end = Math.max(r.main.z, r.main.z + roofTileInset + (r.hat.eave + roofGutterDesign.clearDepth + 30 - r.main.eave - roofTileEaveLift()) / (r.pitch.fenShui / 10));
-    rim(hatEaveRim(r.hat.x, r.hat.z, r.hat.w, 0, roofGutterDesign.outerTopWidth, end), r.hat.eave - 350, 350 + gutterOuterWallTop(), "el-trim");
+    const end = Math.max(r.main.z, r.main.z + roofTileInset + (r.hat.eave + roofGutterDesign.clearDepth + 30 - r.main.eave - slabToTileEaveLift()) / (r.pitch.fenShui / 10));
+    rim(hatEaveRim(r.hat.x, r.hat.z, r.hat.w, 0, roofGutterDesign.outerTopWidth, end), r.hat.eave, eyelidStackHeight() + gutterOuterWallTop(), "el-trim");
     for (const j of floatingHatJunctions(r.hat.z, r.hat.eave, r.main.eave, model.floors[2].front, hatSupportInset(), f))
       for (const polygon of hatJunctionFaces(j))
         face(polygon.map(p => new Vector3(...p)), "el-trim", "", true, "hat-junction");

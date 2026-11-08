@@ -5,23 +5,25 @@ import { architecturalGlass, type Mats } from "./primitives";
 // 外观参照公开照片和厂商尺寸，不是这辆实车的测绘。
 // 负 Z 为车头，与路线朝向一致。后视镜只做出外观，不计入 L9 的 1.998 米车身宽。
 
-const paintOf = (color: number, roughness = 0.32) =>
-  new THREE.MeshStandardMaterial({ color, metalness: 0.62, roughness });
+const paintOf = (color: number, roughness = 0.28, metalness = 0.72) =>
+  new THREE.MeshStandardMaterial({ color, metalness, roughness });
 
-const glassOf = () => {
+const glassOf = (tint = 0x7a93a6) => {
   const material = architecturalGlass();
-  material.color.set(0x9eb4c4);
-  material.metalness = 0.15;
-  material.roughness = 0.08;
+  material.color.set(tint);
+  material.metalness = 0.12;
+  material.roughness = 0.06;
+  material.transmission = 0.72;
   return material;
 };
 
-const lampOf = (color: number) =>
+const lampOf = (color: number, intensity = 1.1) =>
   new THREE.MeshStandardMaterial({
     color,
     emissive: color,
-    emissiveIntensity: 0.85,
-    roughness: 0.4,
+    emissiveIntensity: intensity,
+    roughness: 0.22,
+    metalness: 0.05,
   });
 
 function profileBody(
@@ -29,19 +31,20 @@ function profileBody(
   profile: [number, number][],
   width: number,
   material: THREE.Material,
-  bevel = 40,
+  bevel = 28,
 ) {
   const shape = new THREE.Shape(profile.map(([z, y]) => new THREE.Vector2(z, y)));
   const geo = new THREE.ExtrudeGeometry(shape, {
     depth: width,
     bevelEnabled: true,
-    bevelThickness: bevel * 0.7,
+    bevelThickness: bevel * 0.55,
     bevelSize: bevel,
-    bevelSegments: 2,
-    curveSegments: 4,
+    bevelSegments: 5,
+    curveSegments: 10,
   });
   geo.translate(0, 0, -width / 2);
   geo.rotateY(-Math.PI / 2);
+  geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, material);
   mesh.castShadow = mesh.receiveShadow = !(material as THREE.MeshPhysicalMaterial).transmission;
   parent.add(mesh);
@@ -62,6 +65,71 @@ function part(
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
   mesh.position.set(x, y, z);
   if (rot) mesh.rotation.set(rot[0], rot[1], rot[2]);
+  mesh.castShadow = mesh.receiveShadow = !(material as THREE.MeshPhysicalMaterial).transmission;
+  parent.add(mesh);
+  return mesh;
+}
+
+function roundedBox(
+  parent: THREE.Object3D,
+  x: number,
+  y: number,
+  z: number,
+  w: number,
+  h: number,
+  d: number,
+  material: THREE.Material,
+  radius = 40,
+) {
+  const geo = new THREE.BoxGeometry(w, h, d, 2, 2, 2);
+  const pos = geo.attributes.position;
+  const hw = w / 2;
+  const hh = h / 2;
+  const hd = d / 2;
+  const r = Math.min(radius, hw * 0.35, hh * 0.35, hd * 0.35);
+  for (let i = 0; i < pos.count; i++) {
+    let px = pos.getX(i);
+    let py = pos.getY(i);
+    let pz = pos.getZ(i);
+    const sx = Math.sign(px) || 1;
+    const sy = Math.sign(py) || 1;
+    const sz = Math.sign(pz) || 1;
+    const ax = Math.abs(px);
+    const ay = Math.abs(py);
+    const az = Math.abs(pz);
+    if (ax > hw - r && ay > hh - r) {
+      const cx = hw - r;
+      const cy = hh - r;
+      const dx = ax - cx;
+      const dy = ay - cy;
+      const len = Math.hypot(dx, dy) || 1;
+      px = sx * (cx + (dx / len) * r);
+      py = sy * (cy + (dy / len) * r);
+    }
+    if (ax > hw - r && az > hd - r) {
+      const cx = hw - r;
+      const cz = hd - r;
+      const dx = ax - cx;
+      const dz = az - cz;
+      const len = Math.hypot(dx, dz) || 1;
+      px = sx * (cx + (dx / len) * r);
+      pz = sz * (cz + (dz / len) * r);
+    }
+    if (ay > hh - r && az > hd - r) {
+      const cy = hh - r;
+      const cz = hd - r;
+      const dy = ay - cy;
+      const dz = az - cz;
+      const len = Math.hypot(dy, dz) || 1;
+      py = sy * (cy + (dy / len) * r);
+      pz = sz * (cz + (dz / len) * r);
+    }
+    pos.setXYZ(i, px, py, pz);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.position.set(x, y, z);
   mesh.castShadow = mesh.receiveShadow = !(material as THREE.MeshPhysicalMaterial).transmission;
   parent.add(mesh);
   return mesh;
@@ -96,35 +164,58 @@ function wheel(
   spokes: number,
   tire: THREE.Material,
   rim: THREE.Material,
+  dish?: THREE.Material,
 ) {
   const y = radius;
-  const tireGeo = new THREE.CylinderGeometry(radius, radius, tireWidth, 28);
+  const tireGeo = new THREE.CylinderGeometry(radius, radius, tireWidth, 36);
   tireGeo.rotateZ(Math.PI / 2);
   const tireMesh = new THREE.Mesh(tireGeo, tire);
   tireMesh.position.set(x, y, z);
   tireMesh.castShadow = true;
   parent.add(tireMesh);
-  const rimGeo = new THREE.CylinderGeometry(radius * 0.68, radius * 0.68, tireWidth * 0.55, 24);
+
+  const sidewall = new THREE.Mesh(
+    new THREE.TorusGeometry(radius * 0.82, radius * 0.14, 10, 28),
+    tire,
+  );
+  sidewall.rotation.y = Math.PI / 2;
+  sidewall.position.set(x, y, z);
+  parent.add(sidewall);
+
+  const rimGeo = new THREE.CylinderGeometry(radius * 0.62, radius * 0.66, tireWidth * 0.42, 28);
   rimGeo.rotateZ(Math.PI / 2);
   const rimMesh = new THREE.Mesh(rimGeo, rim);
   rimMesh.position.set(x, y, z);
   parent.add(rimMesh);
+
+  if (dish) {
+    const plate = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius * 0.48, radius * 0.48, tireWidth * 0.12, 24),
+      dish,
+    );
+    plate.rotation.z = Math.PI / 2;
+    plate.position.set(x + Math.sign(x) * tireWidth * 0.08, y, z);
+    parent.add(plate);
+  }
+
   const hub = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius * 0.18, radius * 0.18, tireWidth * 0.62, 12),
+    new THREE.CylinderGeometry(radius * 0.16, radius * 0.16, tireWidth * 0.55, 16),
     rim,
   );
   hub.rotation.z = Math.PI / 2;
   hub.position.set(x, y, z);
   parent.add(hub);
+
+  const spokeW = spokes >= 8 ? 28 : spokes >= 5 ? 36 : 48;
   for (let i = 0; i < spokes; i++) {
     const angle = (i / spokes) * Math.PI * 2;
     const dir = new THREE.Vector3(0, Math.sin(angle), Math.cos(angle));
     const spoke = new THREE.Mesh(
-      new THREE.BoxGeometry(tireWidth * 0.28, spokes > 6 ? 35 : 55, radius * 0.5),
+      new THREE.BoxGeometry(tireWidth * 0.22, spokeW, radius * 0.46),
       rim,
     );
     spoke.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
-    spoke.position.set(x, y, z).addScaledVector(dir, radius * 0.34);
+    spoke.position.set(x, y, z).addScaledVector(dir, radius * 0.3);
     parent.add(spoke);
   }
 }
@@ -135,11 +226,12 @@ function arch(
   z: number,
   radius: number,
   material: THREE.Material,
+  width = 90,
 ) {
-  const geo = new THREE.TorusGeometry(radius, 45, 8, 18, Math.PI);
+  const geo = new THREE.TorusGeometry(radius, width * 0.42, 10, 22, Math.PI);
   geo.rotateY(Math.PI / 2);
   const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(Math.sign(x) * (Math.abs(x) - 20), radius * 0.72, z);
+  mesh.position.set(Math.sign(x) * (Math.abs(x) - 16), radius * 0.7, z);
   mesh.castShadow = true;
   parent.add(mesh);
 }
@@ -153,11 +245,38 @@ function mirror(
   glass: THREE.Material,
 ) {
   const sign = Math.sign(x) || 1;
-  part(parent, x, y, z, 220, 100, 120, material);
-  part(parent, x + sign * 80, y + 20, z + 20, 110, 70, 20, glass);
+  roundedBox(parent, x, y, z, 180, 95, 140, material, 28);
+  part(parent, x + sign * 55, y + 8, z + 8, 18, 55, 90, material);
+  part(parent, x + sign * 95, y + 12, z + 18, 8, 70, 100, glass);
 }
 
-/** 2022 款理想 L9 Max。车身尺寸沿用已确认的公开参数，黑色金属漆。 */
+function doorCrease(
+  parent: THREE.Object3D,
+  x: number,
+  y: number,
+  z: number,
+  h: number,
+  material: THREE.Material,
+) {
+  part(parent, x, y, z, 8, h, 18, material);
+}
+
+function handle(
+  parent: THREE.Object3D,
+  x: number,
+  y: number,
+  z: number,
+  material: THREE.Material,
+  hidden = false,
+) {
+  if (hidden) {
+    part(parent, x, y, z, 18, 14, 90, material);
+    return;
+  }
+  roundedBox(parent, x, y, z, 28, 22, 110, material, 8);
+}
+
+/** 2022 款理想 L9 Max。车身尺寸沿用已确认的公开参数，黑色金属漆；一体星环灯带示意。 */
 export function buildL9(_mat: Mats) {
   const g = new THREE.Group();
   g.name = "理想L9";
@@ -165,80 +284,138 @@ export function buildL9(_mat: Mats) {
   const half = v.length / 2;
   const frontAxle = -half + v.frontOverhang;
   const rearAxle = frontAxle + v.wheelbase;
-  const paint = paintOf(0x161616, 340);
-  const black = paintOf(0x0c0c0c, 550);
-  const chrome = paintOf(0xb7bcc2, 220);
-  const glass = glassOf();
-  const tire = paintOf(0x1a1a1a, 850);
-  const rim = paintOf(0xc5c8cc, 280);
-  const bodyW = 1900;
+  const paint = paintOf(0x121212, 0.26, 0.78);
+  const glossBlack = paintOf(0x0a0a0a, 0.18, 0.7);
+  const trim = paintOf(0x2a2d31, 0.4, 0.55);
+  const chrome = paintOf(0xc5cad0, 0.2, 0.9);
+  const glass = glassOf(0x6f8799);
+  const darkGlass = glassOf(0x3a4650);
+  const tire = paintOf(0x141414, 0.92, 0.05);
+  const rim = paintOf(0xd0d4d8, 0.28, 0.85);
+  const dish = paintOf(0x1c1c1c, 0.45, 0.4);
+  const bodyW = 1920;
+
+  // 侧视：尾门一段连续斜面落到后保险杠，避免直立尾板。
   profileBody(
     g,
     [
-      [-2500, 340],
-      [-2580, 520],
-      [-2540, 820],
-      [-2280, 1020],
-      [-1150, 1160],
-      [-320, 1640],
-      [150, 1720],
-      [1650, 1740],
-      [2180, 1680],
-      [2400, 1280],
-      [2560, 900],
-      [2580, 500],
-      [2400, 340],
-      [-2150, 320],
+      [-2480, 320],
+      [-2580, 420],
+      [-2600, 560],
+      [-2550, 780],
+      [-2400, 980],
+      [-2100, 1080],
+      [-1500, 1140],
+      [-900, 1180],
+      [-480, 1480],
+      [-120, 1680],
+      [220, 1740],
+      [900, 1760],
+      [1550, 1740],
+      [1950, 1680],
+      [2180, 1520],
+      [2350, 1280],
+      [2480, 980],
+      [2550, 700],
+      [2580, 480],
+      [2500, 340],
+      [2360, 300],
+      [-2100, 300],
     ],
     bodyW,
     paint,
-    35,
+    42,
   );
-  part(g, 0, 420, 50, bodyW - 120, 160, v.length - 700, black);
+
+  roundedBox(g, 0, 360, 40, bodyW + 40, 150, v.length - 520, glossBlack, 50);
+  part(g, 0, 280, -2450, bodyW - 180, 120, 220, glossBlack);
+  part(g, 0, 300, 2480, bodyW - 260, 100, 180, glossBlack);
+
+  // 天幕只落在平顶段（前风挡顶之后），避免在玻璃上方飘出一块平板。
+  roundedBox(g, 0, 1746, 520, 1200, 14, 1100, darkGlass, 12);
+  roundedBox(g, 0, 1746, 1280, 1100, 12, 520, darkGlass, 10);
+
   slopedPanel(
     g,
-    new THREE.Vector3(0, 1180, -1080),
-    new THREE.Vector3(0, 1640, -280),
-    1550,
-    30,
+    new THREE.Vector3(0, 1160, -1120),
+    new THREE.Vector3(0, 1680, -260),
+    1580,
+    22,
     glass,
+  );
+  // 后风挡贴在尾门斜面上。
+  slopedPanel(
+    g,
+    new THREE.Vector3(0, 1180, 2360),
+    new THREE.Vector3(0, 1640, 2050),
+    1460,
+    28,
+    glass,
+  );
+  // 尾门外钣金斜面（灯带贴此面，不再悬浮在车身外）。
+  slopedPanel(
+    g,
+    new THREE.Vector3(0, 720, 2520),
+    new THREE.Vector3(0, 1180, 2360),
+    1680,
+    36,
+    paint,
   );
   slopedPanel(
     g,
-    new THREE.Vector3(0, 1220, 2280),
-    new THREE.Vector3(0, 1660, 2120),
-    1420,
-    30,
-    glass,
+    new THREE.Vector3(0, 980, 2440),
+    new THREE.Vector3(0, 1120, 2385),
+    1720,
+    32,
+    lampOf(0xd64545, 1.15),
   );
-  for (const x of [-970, 970]) {
-    part(g, x, 1400, 150, 30, 400, 850, glass);
-    part(g, x, 1400, 1200, 30, 380, 700, glass);
-    part(g, x, 1360, 1850, 30, 280, 320, glass);
-    part(g, x, 1180, 720, 25, 25, 2700, chrome);
-    part(g, x, 950, 100, 35, 40, 160, chrome);
-    part(g, x, 950, 1150, 35, 40, 160, chrome);
+
+  for (const x of [-990, 990]) {
+    const s = Math.sign(x);
+    part(g, x, 1420, -120, 22, 360, 780, glass);
+    part(g, x, 1420, 780, 22, 350, 720, glass);
+    part(g, x, 1400, 1520, 22, 300, 420, glass);
+    part(g, x, 1360, 1900, 22, 220, 260, glass);
+    part(g, x, 1200, 520, 18, 18, 2860, chrome);
+    doorCrease(g, x + s * 8, 900, 280, 520, trim);
+    doorCrease(g, x + s * 8, 900, 1180, 520, trim);
+    handle(g, x + s * 12, 980, 520, chrome, true);
+    handle(g, x + s * 12, 980, 1380, chrome, true);
   }
-  part(g, 0, 900, -2620, 1620, 70, 50, lampOf(0xf2f5f8));
-  part(g, 0, 900, -2660, 140, 90, 30, chrome);
-  part(g, 0, 620, -2600, 1350, 280, 60, black);
-  part(g, 0, 400, -2600, 1450, 90, 60, black);
-  part(g, 0, 1080, 2620, 1550, 50, 40, lampOf(0xd24a4a));
-  part(g, 0, 480, 2600, 1200, 100, 50, black);
-  part(g, 0, 1800, -150, 280, 80, 220, black);
-  for (const x of [-620, 620])
-    part(g, x, 1780, 700, 40, 30, 2100, chrome);
-  mirror(g, -1080, 1220, -420, paint, glass);
-  mirror(g, 1080, 1220, -420, paint, glass);
-  for (const x of [-980, 980])
+
+  // 前星环灯贴合前脸：侧视 y≈920 时车身约在 z=-2445，灯带嵌在表面不外飘。
+  roundedBox(g, 0, 920, -2455, 1860, 34, 22, lampOf(0xf4f7fb, 1.35), 10);
+  for (const x of [-960, 960]) {
+    part(g, x, 920, -2450, 64, 30, 18, lampOf(0xf0c85a, 0.9));
+  }
+  for (const x of [-620, 620]) {
+    const s = Math.sign(x);
+    roundedBox(g, x, 620, -2505, 400, 120, 55, glossBlack, 28);
+    part(g, x + s * 40, 620, -2530, 150, 80, 22, lampOf(0xeef3f8, 0.75));
+    part(g, x - s * 90, 620, -2520, 84, 64, 18, lampOf(0xd8dee6, 0.55));
+  }
+  roundedBox(g, 0, 720, -2485, 1480, 200, 40, paint, 36);
+  part(g, 0, 430, -2510, 1400, 64, 45, trim);
+  for (let i = -3; i <= 3; i++) {
+    part(g, i * 160, 430, -2530, 90, 36, 10, glossBlack);
+  }
+
+  // 后保险杠贴斜面下沿，不再竖立尾板。
+  part(g, 0, 420, 2520, 1280, 90, 70, glossBlack);
+
+  mirror(g, -1085, 1200, -380, paint, glass);
+  mirror(g, 1085, 1200, -380, paint, glass);
+
+  for (const x of [-990, 990]) {
     for (const z of [frontAxle, rearAxle]) {
-      arch(g, x, z, 480, black);
-      wheel(g, x, z, 390, 260, 10, tire, rim);
+      arch(g, x, z, 470, glossBlack, 100);
+      wheel(g, x, z, 395, 265, 5, tire, rim, dish);
     }
+  }
   return g;
 }
 
-/** 2025 款吉利星愿。尺寸用厂商公开的 4135×1805×1570、轴距 2650。慕斯银车身，黑顶。 */
+/** 2025 款吉利星愿。尺寸用厂商公开的 4135×1805×1570、轴距 2650。慕斯银车身，黑顶悬浮。 */
 export function buildXingyuan(_mat: Mats) {
   const g = new THREE.Group();
   g.name = "吉利星愿";
@@ -246,77 +423,119 @@ export function buildXingyuan(_mat: Mats) {
   const half = length / 2;
   const frontAxle = -half + 735;
   const rearAxle = frontAxle + 2650;
-  const silver = paintOf(0xd5d8dc, 280);
-  const black = paintOf(0x1a1a1a, 500);
-  const glass = glassOf();
-  const tire = paintOf(0x1a1a1a, 850);
-  const rim = paintOf(0xe4e6e8, 300);
-  const bodyW = 1720;
+  const silver = paintOf(0xd7dbe0, 0.22, 0.78);
+  const black = paintOf(0x17191c, 0.28, 0.55);
+  const glossBlack = paintOf(0x0e0e10, 0.18, 0.65);
+  const chrome = paintOf(0xe6e9ec, 0.22, 0.88);
+  const glass = glassOf(0x6f8494);
+  const darkGlass = glassOf(0x303840);
+  const tire = paintOf(0x151515, 0.92, 0.05);
+  const rim = paintOf(0xe8eaed, 0.3, 0.82);
+  const dish = paintOf(0xb8bcc0, 0.35, 0.5);
+  const bodyW = 1700;
+
+  // 圆润小车侧视：低鼻、短前悬、上扬腰线、快背尾。
   profileBody(
     g,
     [
-      [-1860, 300],
-      [-2020, 480],
-      [-1980, 720],
-      [-1780, 900],
-      [-1280, 1000],
-      [-900, 1060],
-      [-380, 1440],
-      [50, 1520],
-      [1100, 1530],
-      [1500, 1440],
-      [1780, 1120],
-      [1960, 740],
-      [2000, 460],
-      [1780, 280],
-      [-1500, 280],
+      [-1780, 260],
+      [-1960, 360],
+      [-2020, 500],
+      [-1980, 700],
+      [-1820, 900],
+      [-1480, 1000],
+      [-1080, 1060],
+      [-620, 1120],
+      [-280, 1380],
+      [80, 1500],
+      [520, 1540],
+      [1100, 1520],
+      [1480, 1400],
+      [1720, 1180],
+      [1900, 860],
+      [2000, 560],
+      [1980, 380],
+      [1780, 260],
+      [-1500, 250],
     ],
     bodyW,
     silver,
-    70,
+    58,
   );
-  part(g, 0, 1520, 450, bodyW + 20, 120, 1850, black);
-  part(g, 0, 380, 0, bodyW - 200, 140, length - 550, black);
+
+  // 黑顶只盖平顶舱段，前缘停在风挡顶之后，避免玻璃上方飘板。
+  roundedBox(g, 0, 1492, 620, bodyW - 80, 28, 1100, black, 18);
+  roundedBox(g, 0, 1498, 600, 1180, 10, 900, darkGlass, 8);
+
+  roundedBox(g, 0, 320, 20, bodyW - 80, 120, length - 480, glossBlack, 36);
+
   slopedPanel(
     g,
-    new THREE.Vector3(0, 1080, -950),
-    new THREE.Vector3(0, 1460, -320),
-    1380,
-    30,
+    new THREE.Vector3(0, 1080, -980),
+    new THREE.Vector3(0, 1460, -280),
+    1360,
+    20,
     glass,
   );
   slopedPanel(
     g,
-    new THREE.Vector3(0, 1120, 1720),
-    new THREE.Vector3(0, 1460, 1420),
-    1200,
-    30,
+    new THREE.Vector3(0, 1120, 1680),
+    new THREE.Vector3(0, 1460, 1380),
+    1180,
+    24,
     glass,
   );
-  for (const x of [-890, 890]) {
-    part(g, x, 1280, 150, 30, 340, 720, glass);
-    part(g, x, 1280, 1050, 30, 320, 550, glass);
-    part(g, x, 1020, -150, 45, 40, 110, black);
-    part(g, x, 1020, 850, 45, 40, 110, black);
+
+  for (const x of [-880, 880]) {
+    const s = Math.sign(x);
+    part(g, x, 1280, 40, 20, 300, 700, glass);
+    part(g, x, 1280, 900, 20, 290, 560, glass);
+    part(g, x, 1240, 1400, 20, 230, 280, glass);
+    part(g, x, 1110, 360, 14, 14, 1880, chrome);
+    doorCrease(g, x + s * 6, 820, 360, 420, black);
+    handle(g, x + s * 10, 900, 520, chrome, false);
   }
-  for (const x of [-550, 550]) {
-    const sign = Math.sign(x);
-    part(g, x, 780, -2020, 460, 140, 80, lampOf(0xf7f8f4), [0, sign * 0.45, sign * -0.08]);
-    part(g, x + sign * 80, 780, -1980, 200, 80, 30, black);
+
+  // 微笑前脸：上扬水滴灯＋封闭前脸＋底部饰条
+  for (const x of [-560, 560]) {
+    const s = Math.sign(x);
+    roundedBox(g, x, 780, -1990, 420, 150, 80, black, 48);
+    part(g, x + s * 40, 800, -2025, 180, 70, 28, lampOf(0xf7f8f4, 1.05));
+    part(g, x - s * 70, 760, -2010, 120, 50, 22, lampOf(0xdde3ea, 0.7));
+    // C 形日行灯示意
+    part(g, x + s * 120, 820, -2030, 30, 90, 16, lampOf(0xffffff, 1.2));
+    part(g, x + s * 70, 860, -2030, 90, 24, 16, lampOf(0xffffff, 1.2));
+    part(g, x + s * 70, 760, -2030, 90, 24, 16, lampOf(0xffffff, 1.2));
   }
-  part(g, 0, 960, -1720, 160, 40, 20, black);
-  part(g, 0, 420, -1960, 1350, 120, 60, black);
-  for (const x of [-620, 620])
-    part(g, x, 460, -1980, 50, 160, 30, lampOf(0xf4f6f2));
-  for (const x of [-550, 550])
-    part(g, x, 820, 1940, 280, 100, 40, lampOf(0xc43838), [0, Math.sign(x) * -0.4, 0]);
-  part(g, 0, 1500, 1550, bodyW - 350, 40, 280, black);
-  mirror(g, -980, 1120, -350, black, glass);
-  mirror(g, 980, 1120, -350, black, glass);
-  for (const x of [-900, 900])
+  roundedBox(g, 0, 620, -1940, 980, 180, 50, silver, 40);
+  part(g, 0, 980, -1720, 180, 36, 18, black);
+  part(g, 0, 390, -1980, 1280, 90, 55, glossBlack);
+  for (const x of [-520, 520]) {
+    part(g, x, 390, -2005, 70, 70, 20, chrome);
+  }
+
+  // 分体尾灯贴在尾部斜面上
+  for (const x of [-540, 540]) {
+    const s = Math.sign(x);
+    roundedBox(g, x, 860, 1945, 300, 120, 50, black, 36);
+    part(g, x + s * 20, 860, 1970, 160, 70, 22, lampOf(0xd23c3c, 1.15), [0, s * -0.25, 0]);
+  }
+  roundedBox(g, 0, 480, 1940, 1180, 140, 60, silver, 30);
+  part(g, 0, 340, 1960, 900, 50, 40, glossBlack);
+
+  // 侧裙镀铬细条
+  for (const x of [-860, 860]) {
+    part(g, x, 360, 80, 12, 18, length - 900, chrome);
+  }
+
+  mirror(g, -970, 1100, -320, black, glass);
+  mirror(g, 970, 1100, -320, black, glass);
+
+  for (const x of [-900, 900]) {
     for (const z of [frontAxle, rearAxle]) {
-      arch(g, x, z, 400, black);
-      wheel(g, x, z, 326, 200, 5, tire, rim);
+      arch(g, x, z, 390, glossBlack, 80);
+      wheel(g, x, z, 320, 205, 4, tire, rim, dish);
     }
+  }
   return g;
 }

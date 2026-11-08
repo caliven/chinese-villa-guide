@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { floors, site, courtyardArcAnchors, courtyardFront, annexFurniture, frontElevation, roadsideVilla, buildingAreas, facts } from "../src/data";
 import {
   applyVillaParams,
+  courtyardCircleFromParams,
   DEFAULT_VILLA_PARAMS,
   getVillaParams,
   LOCKED_SITE_WIDTH,
@@ -179,6 +180,41 @@ test("院坪三点总进深随参数重写锚点", () => {
   assert.ok(Math.abs(contourAt(terraceContours.rearFirst, site.width / 2) - site.oldDepth) < 50);
   resetVillaParams();
   assert.ok(Math.abs(courtyardArcAnchors[0][1] - (DEFAULT_VILLA_PARAMS.oldDepth - DEFAULT_VILLA_PARAMS.courtyardWestTotal)) < 1e-6);
+});
+
+test("只改东／西端总进深时中间取样由圆弧半径驱动", () => {
+  resetVillaParams();
+  const before = getVillaParams();
+  const radiusBefore = courtyardCircleFromParams(before).radius;
+  applyVillaParams({ ...before, courtyardEastTotal: before.courtyardEastTotal + 1200 });
+  const afterEast = getVillaParams();
+  assert.notEqual(afterEast.courtyardMidTotal, before.courtyardMidTotal, "东端变后中间应重算");
+  const radiusAfterEast = courtyardCircleFromParams(afterEast).radius;
+  assert.ok(
+    Math.abs(radiusAfterEast - radiusBefore) / radiusBefore < 0.02,
+    `只改东端应近似保半径：${Math.round(radiusBefore)} → ${Math.round(radiusAfterEast)}`,
+  );
+
+  applyVillaParams({ ...afterEast, courtyardWestTotal: afterEast.courtyardWestTotal + 800 });
+  const afterWest = getVillaParams();
+  assert.notEqual(afterWest.courtyardMidTotal, afterEast.courtyardMidTotal, "西端变后中间应再重算");
+  const radiusAfterWest = courtyardCircleFromParams(afterWest).radius;
+  assert.ok(
+    Math.abs(radiusAfterWest - radiusBefore) / radiusBefore < 0.03,
+    `改西端仍近似保半径：${Math.round(radiusBefore)} → ${Math.round(radiusAfterWest)}`,
+  );
+
+  // 显式三点一并写入仍可重新定弧（半径允许变）。
+  applyVillaParams({
+    ...afterWest,
+    courtyardWestTotal: 12000,
+    courtyardMidTotal: 17000,
+    courtyardEastTotal: 21000,
+  });
+  const resetArc = getVillaParams();
+  assert.equal(resetArc.courtyardMidTotal, 17000);
+  assert.ok(Math.abs(courtyardCircleFromParams(resetArc).radius - radiusBefore) > 100, "三点齐改应能定新弧");
+  resetVillaParams();
 });
 
 test("屋后预留等场地参数应用后保持用户值，不退回默认 1.2", () => {

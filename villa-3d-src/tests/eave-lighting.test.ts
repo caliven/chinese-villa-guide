@@ -5,7 +5,7 @@ import { annexRoofFootprint, attachRoofs, floatingHatLayout, mainRoofFootprint }
 import { hatSupportInset, tiledApron } from "../src/facade-details";
 import { setEaveWashAppearance, setEaveWashVisible } from "../src/eave-lighting";
 import { visibleSurfaceMeshes, batchStatic } from "../src/render-geometry";
-import { frontApronSection, apronFasciaBottom, eaveTrimDesign, roofTileInset, roofTileEaveLift } from "../src/roof-options";
+import { frontApronSection, apronFasciaBottom, eaveTrimDesign, roofTileInset, slabToTileEaveLift } from "../src/roof-options";
 import type { Mats } from "../src/primitives";
 import { floatingHatJunctions } from "../src/hat-junctions";
 import { floors } from "../src/data";
@@ -68,7 +68,7 @@ test("悬浮官帽前檐和两侧灯带接角并延伸到线脚与主屋坡面�
   const h = floatingHatLayout(4.5), m = mainRoofFootprint();
   const fasciaTop = apronFasciaBottom(h.eave, 0) - eaveTrimDesign.eyelidToFascia;
   const mainTileFront = m.z + roofTileInset;
-  const end = Math.max(m.z, mainTileFront + (fasciaTop - m.eave - roofTileEaveLift()) / .45);
+  const end = Math.max(m.z, mainTileFront + (fasciaTop - m.eave - slabToTileEaveLift()) / .45);
   const front = h.z + hatSupportInset();
   const sides = groups.filter(g => Math.abs((g.getObjectByName("暖白灯带") as THREE.Mesh).rotation.y) > 1);
   assert.equal(sides.length, 2);
