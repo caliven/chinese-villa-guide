@@ -1,5 +1,6 @@
 import "./style.css";
 import { REAL_SCENE_REQUEST, REAL_SCENE_SCHEME } from "../../villa-3d-src/src/real-scene-protocol";
+import { isHalfStoreyScheme } from "../../villa-3d-src/src/construction-scheme";
 
 type View = "front" | "left" | "right" | "overhead" | "aerial";
 type Mode = "render" | "original" | "compare" | "model";
@@ -37,9 +38,9 @@ const views: Record<View, { label: string; original: string; render: string }> =
   },
 };
 const modes: Record<Mode, string> = {
-  render: "建成效果",
+  render: isHalfStoreyScheme ? "历史效果参考" : "建成效果",
   original: "原始照片",
-  compare: "前后对比",
+  compare: isHalfStoreyScheme ? "历史效果对比" : "前后对比",
   model: "建筑模型",
 };
 const icon = (name: "house" | "download" | "arrow" | "move") => {
@@ -68,6 +69,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <button type="button" class="download-button" id="download-image">${icon("download")}<span>下载建成效果</span></button>
     </div>
     <section class="viewer" aria-label="实景效果查看区">
+      ${isHalfStoreyScheme ? '<p class="scheme-reference-note">当前为两层半建筑模型；照片合成仍是原三层历史参考，不代表两层半效果。</p>' : ""}
       <div class="visual-bay">
         <div class="image-frame" id="image-frame">
           <img id="base-image" class="scene-image" alt="" hidden draggable="false" />
@@ -95,7 +97,7 @@ const captureView = isView(captureParam) ? captureParam : undefined;
 document.body.classList.toggle("photo-capture", !!captureView);
 document.body.classList.toggle("is-embedded", params.get("embed") === "1");
 let view: View = captureView ?? (isView(modelParam) ? modelParam : isView(viewParam) ? viewParam : "front");
-let mode: Mode = captureView || isView(modelParam) ? "model" : "render";
+let mode: Mode = captureView || isView(modelParam) || isHalfStoreyScheme ? "model" : "render";
 let model: ModelController | null = null;
 let updateId = 0;
 let imageReady = false;
@@ -195,7 +197,7 @@ function updateSelection() {
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach(button => {
     button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
   });
-  $("download-image").querySelector("span")!.textContent = mode === "model" ? "下载模型截图" : mode === "original" ? "下载原始照片" : "下载建成效果";
+  $("download-image").querySelector("span")!.textContent = mode === "model" ? "下载模型截图" : mode === "original" ? "下载原始照片" : isHalfStoreyScheme ? "下载历史效果参考" : "下载建成效果";
 }
 
 function showLoading(message: string) {

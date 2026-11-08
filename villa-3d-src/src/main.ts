@@ -1,5 +1,8 @@
 import "./style.css";
 import "./plan-designer.css";
+import { mountConstructionSwitcher } from "./construction-switcher";
+import { initializeHalfStoreyContent } from "./half-storey-content";
+import { activeConstructionScheme, constructionSchemes, isHalfStoreyScheme, schemeDirectory } from "./construction-scheme";
 import { planDesignerHtml, libraryCardsHtml, designerRoomListHtml, type LibraryCategory } from "./plan-designer";
 import { loadingOverlayHtml, withLoadingOverlay } from "./loading-overlay";
 import { DeferredSceneUpdate, FrameRedraw, villaSceneVisible } from "./deferred-scene-update";
@@ -123,6 +126,10 @@ const shapes: Record<string, string> = {
   photo:
     '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m3 17 6-5 4 4 3-3 5 4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>',
+  "assembly-enter": '<path d="m3 7 7-4 7 4-7 4-7-4Zm0 5 7 4 4-2M3 17l7 4 4-2M16 15h6m-3-3 3 3-3 3"/>',
+  "assembly-exit": '<path d="M10 4H4v16h6m3-8h9m-4-4 4 4-4 4M9 8v8"/>',
+  "assembly-explode": '<path d="m4 12 8-4 8 4-8 4-8-4ZM12 6V1m-3 3 3-3 3 3M12 18v5m-3-3 3 3 3-3"/>',
+  "assembly-collapse": '<path d="m4 12 8-3 8 3-8 3-8-3ZM12 1v6m-3-3 3 3 3-3M12 23v-6m-3 3 3-3 3 3"/>',
   reset: '<path d="M4 11a8 8 0 1 1 2 7M4 4v7h7"/>',
   save: '<path d="M12 3v12m-5-5 5 5 5-5M4 15v6h16v-6"/>',
   expand: '<path d="M9 3H3v6m12-6h6v6M3 15v6h6m6 0h6v-6"/>',
@@ -156,6 +163,7 @@ const cameraLabels: Record<string, string> = {
   garage: "地库",
 };
 
+if (isHalfStoreyScheme) initializeHalfStoreyContent();
 document.querySelector("#app")!.innerHTML = `
   ${villaParamsPanelHtml()}
   <header class="app-header">
@@ -187,6 +195,8 @@ document.querySelector("#app")!.innerHTML = `
       ${loadingOverlayHtml({ id: "loading", text: "正在构建山居场景…", hidden: false })}
       ${loadingOverlayHtml({ id: "scene-loading", text: "正在更新立体模型…" })}
       <div class="scene-tools" id="scene-tools">
+        <button type="button" class="icon-button assembly-toggle" id="model-explode" aria-pressed="false" aria-label="展开模型" title="展开模型" hidden>${icon("assembly-explode")}</button>
+        <button type="button" class="icon-button assembly-mode-button" id="assembly-mode" aria-pressed="false" aria-label="进入拆分模式" title="进入拆分模式">${icon("assembly-enter")}</button>
         <button class="icon-button" id="reset-camera" aria-label="恢复当前视角" title="恢复视角">${icon("reset")}</button>
         <button class="icon-button" id="save-view" aria-label="保存当前模型图片" title="保存视图">${icon("save")}</button>
         <button class="icon-button" id="record-view" aria-label="记录当前机位和参数为会议快照" title="记录会议快照">${icon("check")}</button>
@@ -223,11 +233,11 @@ document.querySelector("#app")!.innerHTML = `
       <section id="scene-layout-controls" class="scene-layout-controls">
         <h2><label for="scene-layout-select">当前户型</label></h2>
         <select id="scene-layout-select" aria-describedby="scene-layout-status"><option value="">（当前草稿）</option></select>
-        <p class="micro" id="scene-layout-status" role="status">一二三层同步切换，场地模型即时更新。</p>
+        <p class="micro" id="scene-layout-status" role="status">${isHalfStoreyScheme ? "一二层与半层同步切换，本方案模型即时更新。" : "一二三层同步切换，场地模型即时更新。"}</p>
       </section>
       <div id="model-controls">
         <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number" id="area-number">${buildingAreas.total.toFixed(1)}<span>m²</span></div><p class="area-caption" id="area-caption">主楼 ${buildingAreas.main.toFixed(1)}㎡ ＋ 辅楼 ${buildingAreas.annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡</p><p class="micro" id="area-micro">首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总</p><button type="button" class="secondary-button" id="open-params-from-inspector">打开尺寸设置</button></section>
-        <section><h2>模型显示</h2>${check("night-mode", "夜景模式")}<div id="eave-light-controls" class="eave-light-controls" hidden><div class="eave-preset-title">快捷灯色 <small>色温效果示意</small></div><div class="eave-presets" role="group" aria-label="洗墙灯快捷颜色">${eaveColorPresets.map(({ label, color }) => `<button type="button" class="eave-preset" data-eave-color="${color}" aria-pressed="${color === "#ff7030"}"><span class="eave-swatch" style="background:${color}" aria-hidden="true"></span>${label}</button>`).join("")}</div><label class="eave-color-label" for="eave-light-color">洗墙灯颜色<input type="color" id="eave-light-color" value="#ff7030"/></label><div class="range-heading"><label for="eave-light-brightness">洗墙灯亮度</label><output id="eave-light-brightness-output">150%</output></div><input type="range" id="eave-light-brightness" min="0" max="200" step="5" value="150"/></div>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "显示主楼与地库重叠示意")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1200 mm</option></select></label></section>
+        <section><h2>模型显示</h2>${check("night-mode", "夜景模式")}<div id="eave-light-controls" class="eave-light-controls" hidden><div class="eave-preset-title">快捷灯色 <small>色温效果示意</small></div><div class="eave-presets" role="group" aria-label="洗墙灯快捷颜色">${eaveColorPresets.map(({ label, color }) => `<button type="button" class="eave-preset" data-eave-color="${color}" aria-pressed="${color === "#ff7030"}"><span class="eave-swatch" style="background:${color}" aria-hidden="true"></span>${label}</button>`).join("")}</div><label class="eave-color-label" for="eave-light-color">洗墙灯颜色<input type="color" id="eave-light-color" value="#ff7030"/></label><div class="range-heading"><label for="eave-light-brightness">洗墙灯亮度</label><output id="eave-light-brightness-output">150%</output></div><input type="range" id="eave-light-brightness" min="0" max="200" step="5" value="150"/></div>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "显示主楼与地库重叠示意")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">${isHalfStoreyScheme ? "半层" : "三楼"}局部浅阳台 · 1200 mm</option></select></label></section>
         <section><h2>主楼屋面坡度</h2><p class="micro">分水＝水平10对应的升高。这里调整主楼与官帽；辅楼坡度在「尺寸设置 → 辅楼」单独调整。</p><div class="range-heading"><label for="fen-shui">分水</label><output id="fen-shui-output">${site.roofFenShui.toFixed(1)}</output></div><input type="range" id="fen-shui" min="1" max="10" step="0.1" value="${site.roofFenShui}"/><label class="select-label">直接输入<input type="number" id="fen-shui-number" min="1" max="10" step="0.1" value="${site.roofFenShui}"/></label><p class="calculation" id="fen-shui-result"></p></section>
         <section><h2>关键尺寸</h2><dl class="metric-list" id="metric-list"></dl></section>
         <button class="notice notice-button" id="open-garage">${icon("info")}<span><strong>地库车辆路线待校核</strong><small>查看车身扫掠、净高待核区与柱墙潜在冲突。<br/>道路与梁底待测，切口协商待确认。</small></span><span>↗</span></button>
@@ -251,7 +261,7 @@ document.querySelector("#app")!.innerHTML = `
           .join(
             "",
           )}</div><label class="select-label">日期<input type="date" id="sun-date" value="2026-09-23" min="2020-01-01" max="2100-12-31"/></label><div class="range-heading"><label for="sun-time">北京时间</label><output id="time-output">10:30</output></div><input type="range" id="sun-time" min="6" max="18" step="0.25" value="10.5"/><div class="range-ends"><span>06:00</span><span>12:00</span><span>18:00</span></div><dl class="metric-list"><div><dt>太阳高度角</dt><dd id="sun-alt"></dd></div><div><dt>方位角 · 北起顺时针</dt><dd id="sun-az"></dd></div></dl></section>
-        <section><h2>后阳台对比</h2><select id="sun-balcony" aria-label="选择南侧阳台方案"><option value="none">无连续后阳台 · 基准</option><option value="local">三楼局部浅阳台 · 1200 mm</option></select><p class="micro">浅阳台仅在三楼公共过厅外，卧室南窗保持开敞。</p><button class="primary-button" id="analyze-sun">计算两种方案的南窗遮挡</button><div id="sun-report" aria-live="polite"></div></section>
+        <section><h2>后阳台对比</h2><select id="sun-balcony" aria-label="选择南侧阳台方案"><option value="none">无连续后阳台 · 基准</option><option value="local">${isHalfStoreyScheme ? "半层" : "三楼"}局部浅阳台 · 1200 mm</option></select><p class="micro">${isHalfStoreyScheme ? "浅阳台按半层南侧独立比较，开门与坡下净高待深化。" : "浅阳台仅在三楼公共过厅外，卧室南窗保持开敞。"}</p><button class="primary-button" id="analyze-sun">计算两种方案的南窗遮挡</button><div id="sun-report" aria-live="polite"></div></section>
         <p class="micro">每半小时采样窗外竖向3点，显示直射光是否受阻；不是室内照度或法定日照时数。树木、邻房和地形为照片估算。</p>
       </div>
       <div id="garage-controls" hidden>
@@ -293,6 +303,14 @@ document.querySelector("#app")!.innerHTML = `
   <div id="toast" role="status" hidden></div>
 `;
 
+mountConstructionSwitcher();
+if (isHalfStoreyScheme) {
+  const note = document.createElement("p");
+  note.className = "micro construction-height-note";
+  note.id = "construction-height-status";
+  document.getElementById("open-params-from-inspector")!.before(note);
+}
+
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 let viewer: VillaViewer | null = null;
@@ -314,6 +332,9 @@ let tab = "model",
 let camera: CameraName = "aerial",
   isExisting = false,
   balcony = false;
+/** 各建筑方案运行环境独立保留，仅用于展示，不写入方案数据。 */
+let modelExploded = false;
+let modelAssemblyMode = false;
 let roofStyle: RoofStyle = DEFAULT_ROOF_STYLE;
 let drawingView: "floor" | "roof" | "elevation" = "floor";
 let elevationView: ElevationView = "north";
@@ -605,7 +626,7 @@ function syncLayoutVersionActions() {
   $("scene-layout-status").textContent = planLoadingTasks > 0 ? "正在载入户型，请稍候…"
     : isExisting ? "当前查看现状，切换至「新建」后可更换户型。"
     : !layoutVersionsIndex.versions.length ? "暂无已保存户型，可在分层户型中新增。"
-    : "一二三层同步切换，场地模型即时更新。";
+    : isHalfStoreyScheme ? "一二层与半层同步切换，本方案模型即时更新。" : "一二三层同步切换，场地模型即时更新。";
 }
 async function refreshLayoutVersionSelect(index?: DataVersionsIndex) {
   layoutVersionsIndex = index ?? (await loadDataVersionsIndex("户型"));
@@ -927,7 +948,7 @@ function refreshAreaMetrics() {
       ["主楼", `${formatMm(p.mainWidth)} × ${formatMm(p.mainDepth)}`],
       ["辅楼", `${formatMm(p.annexWidth)} × ${formatMm(p.annexDepth)} · 内退${formatMm(p.annexSetback)}`],
       ["子孙道", formatMm(p.lane)],
-      ["三楼模式", p.thirdFloorMode === "flush" ? "不内退" : `北向内退 ${formatMm(p.thirdSetback)}`],
+      [isHalfStoreyScheme ? "半层模式" : "三楼模式", p.thirdFloorMode === "flush" ? "不内退" : `北向内退 ${formatMm(p.thirdSetback)}`],
       [p.porticoStyle === "recessed" ? "平齐式入口" : "门厅外伸", p.porticoStyle === "recessed" ? "大门原位 · 无外伸柱廊" : formatMm(p.porticoProjection)],
       ["二楼飘檐", formatMm(p.secondFrontEave)],
       ["主楼顶檐", formatMm(p.thirdEave)],
@@ -1380,7 +1401,9 @@ function drawPlan() {
     $("toggle-layout-edit").setAttribute("aria-pressed", "false");
     document.querySelector<HTMLElement>(".layout-version-label")!.hidden = false;
     $("floor-summary-title").textContent = elevation ? elevationLabels[elevationView] : roofDrawingLabels[roofDrawingView];
-    $("floor-summary").textContent = elevation
+    $("floor-summary").textContent = isHalfStoreyScheme
+      ? "当前两层半方案：两层居住＋坡屋面内半层；半层高度包含屋面预算，屋脊最高点按10000控制。图纸随本方案参数与户型联动，坡下净高、结构与防水待深化。"
+      : elevation
       ? "四向立面采用正投影，主楼与辅楼分别出图，北侧为正门。展示当前外部门窗、门厅、三楼退台模式、露台、屋面与烟囱，标注层高、控制尺寸及相对标高。图纸与当前尺寸及户型草稿联动，细部简化，非施工图。"
       : "三层为现有顶层；屋顶层图补充三层顶板与下层露台的关系，两种官帽图显示外露坡面和真实交线。图纸随当前尺寸与门厅草稿联动，可下载 SVG。屋面排水、防水及结构仍需专业深化。";
     $("plan-orient-hint").textContent = elevation ? "正投影 · 单位 mm" : "南 ↑ · 西 →";
@@ -1749,7 +1772,7 @@ function updateScene() {
   }
   if (realScene) {
     const frame = $<HTMLIFrameElement>("real-scene-frame");
-    if (!frame.hasAttribute("src")) frame.src = "../villa-real-scene/?embed=1&ui=20261029-model";
+    if (!frame.hasAttribute("src")) frame.src = `../villa-real-scene/?embed=1&ui=20261029-model&construction=${activeConstructionScheme}`;
     sendRealSceneScheme();
     $("interaction-hint").textContent = "切换机位 · 原片对比 · 下载实景效果";
     return;
@@ -1791,6 +1814,8 @@ function updateScene() {
     balcony,
     floor: floor3d ? level : null,
     exploded: floor3d && checked("explode"),
+    assemblyExploded: tab === "model" && !garage && !isExisting && modelExploded,
+    assemblyMode: tab === "model" && !garage && !isExisting && modelAssemblyMode,
     garage,
     overlap: checked("overlap"),
     mainBuilding: checked("main-building"),
@@ -1799,7 +1824,24 @@ function updateScene() {
     rearNeighbor: checked("neighbor-rear"),
     frontNeighbor: checked("neighbor-front"),
     roadsideNeighbor: checked("neighbor-roadside"),
-  });
+  }, tab === "model" && !garage && !isExisting);
+  const assemblyButton = $<HTMLButtonElement>("model-explode");
+  const modeButton = $<HTMLButtonElement>("assembly-mode");
+  const assemblyAvailable = tab === "model" && !garage && !isExisting;
+  const inAssemblyMode = assemblyAvailable && modelAssemblyMode;
+  modeButton.hidden = !assemblyAvailable;
+  const modeAction = inAssemblyMode ? "退出拆分模式" : "进入拆分模式";
+  modeButton.innerHTML = icon(inAssemblyMode ? "assembly-exit" : "assembly-enter");
+  modeButton.title = modeAction;
+  modeButton.setAttribute("aria-label", modeAction);
+  modeButton.setAttribute("aria-pressed", String(inAssemblyMode));
+  // 展开／合拢仅在拆分模式内提供，退出模式始终保留独立入口。
+  assemblyButton.hidden = !inAssemblyMode;
+  const assemblyAction = modelExploded ? "合拢模型" : "展开模型";
+  assemblyButton.innerHTML = icon(modelExploded ? "assembly-collapse" : "assembly-explode");
+  assemblyButton.title = assemblyAction;
+  assemblyButton.setAttribute("aria-label", assemblyAction);
+  assemblyButton.setAttribute("aria-pressed", String(inAssemblyMode && modelExploded));
   active("[data-roof-style]", b => b.dataset.roofStyle === roofStyle);
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-roof-style]"))
     button.disabled = isExisting && tab === "model";
@@ -1816,7 +1858,7 @@ function updateScene() {
         ? "南侧日照与遮挡"
         : isExisting
           ? "老房现状"
-          : "新建方案";
+          : constructionSchemes[activeConstructionScheme];
   $("scene-subtitle").textContent = garage
     ? "车身平面扫掠 · 净高待测 · 切口协商待确认"
     : floor3d
@@ -2446,6 +2488,16 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   }
+});
+$("model-explode").addEventListener("click", () => {
+  modelAssemblyMode = true;
+  modelExploded = !modelExploded;
+  updateScene();
+});
+$("assembly-mode").addEventListener("click", () => {
+  modelAssemblyMode = !modelAssemblyMode;
+  modelExploded = modelAssemblyMode;
+  updateScene();
 });
 for (const id of ["roof", "night-mode", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside"])
   $(id).addEventListener("change", updateScene);
@@ -3185,7 +3237,7 @@ updateFenShui();
 // 否则首帧用 data.ts 占位，方案应用后门厅会左右弹一下再回正。
 {
   let boot = await loadCurrentScheme();
-  if (!boot) {
+  if (!boot && !isHalfStoreyScheme) {
     const legacy = migrateLegacyLocalStorage();
     if (legacy) {
       boot = { ...resetSchemeDocument(), ...legacy, schema: "anhua-villa-scheme-v1", id: "current", title: "从浏览器缓存迁移", savedAt: formatSavedAt() };
@@ -3194,13 +3246,13 @@ updateFenShui();
       toast("已将浏览器旧缓存迁到方案文件，请确认后点「保存到文件」");
     }
   }
-  clearLegacyLocalStorage();
+  if (!isHalfStoreyScheme) clearLegacyLocalStorage();
   if (boot) {
     await applySchemeDocument(boot);
   } else {
     applyVillaParams(DEFAULT_VILLA_PARAMS);
     fillVillaParamsDom(DEFAULT_VILLA_PARAMS, document, { force: true });
-    setSchemeStatus("使用初始化默认值；改完请「保存到文件」写入 public/scheme/current.json");
+    setSchemeStatus(`使用${constructionSchemes[activeConstructionScheme]}默认值；改完请「保存到文件」写入 public/${schemeDirectory()}/current.json`);
   }
   await refreshSizeVersionSelect();
   await refreshLayoutVersionSelect();
@@ -3208,8 +3260,11 @@ updateFenShui();
   const initial = await loadInitialLayoutVersion(layoutVersionsIndex);
   if (initial) {
     try {
-      await applyLayoutVersion(initial.document, true);
-      activeLayoutVersionFile = initial.file;
+      // 两层半当前稿包含未另存为版本的编辑，刷新时不能被初始户型覆盖。
+      const preferVersion = !isHalfStoreyScheme || !boot?.layoutDraft || !!getDefaultLayoutVersionFile(layoutVersionsIndex);
+      if (preferVersion) await applyLayoutVersion(initial.document, true);
+      if (preferVersion || JSON.stringify(boot?.layoutDraft) === JSON.stringify(initial.document.layoutDraft))
+        activeLayoutVersionFile = initial.file;
       await refreshLayoutVersionSelect(layoutVersionsIndex);
       drawPlan();
       const defaultFile = getDefaultLayoutVersionFile(layoutVersionsIndex);

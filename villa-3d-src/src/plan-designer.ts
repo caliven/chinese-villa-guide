@@ -1,3 +1,4 @@
+import { isHalfStoreyScheme } from "./construction-scheme";
 import { loadingOverlayHtml } from "./loading-overlay";
 import { createFurniture, type FurnitureKind } from "./furniture-catalog";
 import { floorplanCategories, getFloorplanFurniture } from "./floorplan-catalog";
@@ -49,7 +50,7 @@ export function planDesignerHtml(floorNames: string[]) {
       <div class="designer-view-switch" role="group" aria-label="户型显示方式"><button type="button" data-plan-mode="2d" class="active" aria-pressed="true">2D 平面</button><button type="button" data-plan-mode="3d" aria-pressed="false">3D 场景</button></div>
       <div class="floor-pills"><button data-floor="-1" type="button">院坪</button>${floorNames.map((name, i) => `<button data-floor="${i}" type="button" class="${i === 0 ? "active" : ""}">${escapeHtml(name)}</button>`).join("")}<button data-roof-plan type="button">屋顶</button><button data-elevation-plan type="button">立面图</button></div>
       <div class="plan-toolbar-actions">
-        <label class="layout-version-label"><span>选择户型</span><select id="layout-version-select" aria-label="选择已保存的户型版本（一二三楼一体）"><option value="">（当前草稿）</option></select></label>
+        <label class="layout-version-label"><span>选择户型</span><select id="layout-version-select" aria-label="${isHalfStoreyScheme ? "选择已保存的户型版本（一二层与半层一体）" : "选择已保存的户型版本（一二三楼一体）"}"><option value="">（当前草稿）</option></select></label>
         <details class="designer-file-menu"><summary>文件 ${designerIcon("chevron")}</summary><div class="designer-menu-pop">
           <button type="button" id="layout-new-version">新增户型</button><button type="button" id="layout-copy-version" title="复制当前三层户型，包含未保存的编辑">复制户型</button><button type="button" id="layout-rename-version">重命名</button><button type="button" id="layout-set-default" title="在当前浏览器中，刷新后自动载入此版本已保存的三层户型；未保存的编辑请先保存">设为默认户型</button><button type="button" id="layout-delete-version" class="designer-danger">删除版本</button>
           <hr/><button type="button" id="layout-export">导出定稿 JSON</button><label class="layout-file-button">导入 JSON<input type="file" id="layout-import" accept="application/json,.json"/></label><button type="button" id="layout-reset">恢复正式数据</button>
@@ -136,7 +137,7 @@ export function planDesignerHtml(floorNames: string[]) {
         <section class="designer-display-options"><h2>显示设置</h2><button type="button" data-designer-display="chair-clearance" aria-pressed="true" title="圆桌桌缘外550 mm的拉椅讨论留位；随桌子位置和直径变化">餐厅拉椅范围</button><button type="button" data-designer-display="room-clearance" aria-pressed="false">家具使用讨论留位</button><label>辅楼前圆桌情景<select id="designer-dining-mode" aria-label="平面图辅楼圆桌情景"><option value="full">室外圆桌 · 6座</option><option value="daily">圆桌收起 · 日常</option></select></label><button type="button" data-design-issue="D08">记录房间深化意见 ↗</button></section>
       </aside>
     </div>
-    <div class="designer-status"><span id="plan-orient-hint">南 ↑ · 西 →</span><span>单位 mm</span><span>三层户型联动</span><span id="layout-save-status" class="layout-save-status" aria-live="polite"></span><span id="designer-status-hint" class="designer-status-hint">选择模型后拖入图纸 · Ctrl/⌘ + 滚轮缩放</span><span>概念方案 · 待实测与设计</span></div>
+    <div class="designer-status"><span id="plan-orient-hint">南 ↑ · 西 →</span><span>单位 mm</span><span>${isHalfStoreyScheme ? "一二层与半层户型联动" : "三层户型联动"}</span><span id="layout-save-status" class="layout-save-status" aria-live="polite"></span><span id="designer-status-hint" class="designer-status-hint">选择模型后拖入图纸 · Ctrl/⌘ + 滚轮缩放</span><span>概念方案 · 待实测与设计</span></div>
   </div>`;
 }
 

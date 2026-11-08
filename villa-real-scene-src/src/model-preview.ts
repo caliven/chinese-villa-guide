@@ -77,7 +77,7 @@ export class ModelPreview {
     root.add(villa.group);
     this.scene.add(root);
     this.collectResources(villa.group);
-    for (const part of [...villa.levels, villa.annex, villa.roof, villa.annexRoof, villa.portico]) batchScene(part);
+    for (const part of [...villa.levels, villa.annex, villa.roof, villa.annexRoof, villa.portico, villa.facadeColumns]) batchScene(part);
     root.updateMatrixWorld(true);
     this.bounds = new THREE.Box3().setFromObject(villa.group);
     if (!photoView) {

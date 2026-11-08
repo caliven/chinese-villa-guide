@@ -1,4 +1,5 @@
 import { isRailingStyle } from "./railing-options";
+import { schemeStorageKey } from "./construction-scheme";
 import { designIssues } from "./design-data";
 import { projectMeta } from "./project-meta";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
@@ -30,7 +31,7 @@ export interface DesignSession {
   schema: 1; revision: string; brief: string;
   notes: Record<string, IssueNote>; snapshots: MeetingSnapshot[];
 }
-export const sessionKey = "anhua-villa-design-meeting-v1";
+export const sessionKey = schemeStorageKey("anhua-villa-design-meeting-v1");
 export const emptySession = (): DesignSession => ({ schema: 1, revision: projectMeta.revision, brief: "", notes: {}, snapshots: [] });
 const object = (v: unknown): Record<string, unknown> => {
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("资料结构不是对象");

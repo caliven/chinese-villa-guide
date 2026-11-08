@@ -1,5 +1,6 @@
 import { porticoFrontZ, hasThirdFloorSideTerraces } from "./building-variants";
 import * as THREE from "three";
+import { isHalfStoreyScheme } from "./construction-scheme";
 import { floors, site, frontElevation, type Point } from "./data";
 import { annexChimneyModel, roofPlanModel, type VillaLayoutLive } from "./architecture";
 import { bayOutline, hatEaveRim } from "./facade-details";
@@ -8,7 +9,7 @@ import type { RoofFace } from "./roof-surfaces";
 
 export type RoofDrawingView = "slab" | RoofStyle;
 export const roofDrawingLabels: Record<RoofDrawingView, string> = {
-  slab: "屋顶层平面", ...roofStyleLabels,
+  slab: isHalfStoreyScheme ? "半层楼面与屋面投影" : "屋顶层平面", ...roofStyleLabels,
 };
 const n = (v: number) => Math.round(v);
 const pts = (p: Point[]) => p.map(([x, z]) => `${n(x)},${n(z)}`).join(" ");
@@ -142,7 +143,7 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
   };
   const canopyOutline: Point[] = [[h.x, m.z], [h.x, h.z], [h.x + h.w, h.z], [h.x + h.w, m.z]];
   const terraceBack = frontElevation.terraceBack;
-  const terraces = [
+  const terraces = isHalfStoreyScheme ? [] : [
     ...(hasThirdFloorSideTerraces() ? [
       { name: "西侧", x: site.main.x, z: frontElevation.terraceFront, w: p.x - site.main.x, d: floors[2].front + 40 - frontElevation.terraceFront },
       { name: "东侧", x: p.x + p.w, z: frontElevation.terraceFront, w: site.main.x + site.main.w - p.x - p.w, d: floors[2].front + 40 - frontElevation.terraceFront },
@@ -157,7 +158,7 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
       + polygon(mainOutline(0), "roof-projection") + polygon(box(a.x, a.z, a.w, a.d), "roof-projection")
       + (selected === "floating" ? `<polyline points="${pts(canopyOutline)}" class="roof-projection"/>` : "")
       + (model.slabs.stairHole ? polygon(model.slabs.stairHole, "roof-stair-hole") + label(model.slabs.stairHole[0][0], model.slabs.stairHole[0][1] - 250, "楼梯洞口", "roof-small") : "")
-      + label(site.main.x + site.main.w / 2, floors[2].front + 3500, "主楼 · 三层顶板范围")
+      + label(site.main.x + site.main.w / 2, floors[2].front + 3500, isHalfStoreyScheme ? "主楼 · 半层楼面范围" : "主楼 · 三层顶板范围")
       + label(site.main.x + site.main.w / 2, floors[2].front + 4100, `模型屋面基准 ${height(m.eave)}`, "roof-small")
       + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d / 2, "辅楼 · 一层顶板", "roof-small")
       + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d / 2 + 600, `模型屋面基准 ${height(a.eave)}`, "roof-small")
@@ -192,7 +193,9 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
 
 export function roofPlan(view: RoofDrawingView, style: RoofStyle, layout?: VillaLayoutLive | null) {
   const model = roofPlanModel(view === "slab" ? style : view, layout);
-  const note = view === "slab"
+  const note = isHalfStoreyScheme && view === "slab"
+    ? "此图为坡屋面下的半层楼面与屋面投影，不另设完整第三层顶板；楼梯到半层终止。坡下可用净高、开窗、结构和防水待深化。"
+    : view === "slab"
     ? "顶板范围与三层露台投影分开表示；楼梯洞通向坡屋面下的顶板空间，坡屋面完整。楼梯净高、顶板开洞、承托与结构做法待设计核定。"
     : `蓝灰＝主辅楼瓦面，浅褐＝官帽，灰环＝天沟；粗绿线＝屋脊，褐色虚线＝谷线，灰色虚线＝下层墙体／露台投影，蓝箭头＝坡向。天沟净宽：主楼 ${n(roofGutterDesign.clearWidth)}、辅楼 ${n(model.annexProfile.clearWidth)}；雨水口位置、天沟排水分区与防水节点待设计。`;
   return `<div class="plan-sheets"><section class="plan-sheet roof-plan-sheet"><div class="plan-sheet-head"><h3>屋顶设计图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择屋顶图纸">${(Object.keys(roofDrawingLabels) as RoofDrawingView[]).map(key => `<button type="button" data-roof-drawing-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${roofDrawingLabels[key]}</button>`).join("")}<button type="button" id="download-roof-svg" class="secondary-button">下载 SVG</button></div></div><div class="roof-plan-meta"><span>长度／模型相对标高：mm</span><span>主楼出檐 ${n(site.thirdEave)}</span><span>辅楼出檐 ${n(site.eave)}</span><span>主楼瓦檐 ${height(model.main.eave + roofTileEaveLift())}</span><span>辅楼瓦檐 ${height(model.annex.eave + model.annexProfile.tileLift)}</span><span>官帽瓦檐 ${height(model.hat.eave + roofTileEaveLift())}</span><span>方案示意 · 非施工图</span></div>${roofPlanSvg(view, style, layout)}<p class="roof-plan-note">${note}</p></section></div>`;

@@ -1,5 +1,8 @@
 import { frontApronOutline, entranceApproachLayout, porticoElevation, recessedPortico, mirroredBuildings, recessedFloor, recessedFootprint, porticoFrontZ, porticoWallZ, mainLocalX, annexLocalX, hasThirdFloorSideTerraces, frontTerracePosts } from "./building-variants";
 import * as THREE from "three";
+import { isHalfStoreyScheme } from "./construction-scheme";
+import { clipHalfStorey } from "./half-storey";
+import { buildHalfStoreyLevel } from "./half-storey-model";
 import { orthogonalFloorGeometry } from "./floor-geometry";
 import {
   site,
@@ -447,6 +450,7 @@ export type VillaModel = {
   /** 顶板与瓦屋面独立，关闭屋顶时仍保留建筑封顶。 */
   topSlabs: { main: THREE.Group; annex: THREE.Group };
   portico: THREE.Group;
+  facadeColumns: THREE.Group;
   labels: THREE.Group[];
   /** 字符串是构建当时的快照，不受后续原地编辑草稿影响。 */
   signatures: { structure: string; levels: string[]; annex: string; front: string };
@@ -507,7 +511,11 @@ export function buildVilla(
   layout?: VillaLayoutLive | null,
   reuse?: VillaModel,
 ): VillaModel {
-  return withLayoutContext(layout, () => buildVillaInContext(mat, withLabels, fenShui, roofStyle, layout, reuse));
+  return withLayoutContext(layout, () => {
+    const model = buildVillaInContext(mat, withLabels, fenShui, roofStyle, layout, reuse);
+    if (isHalfStoreyScheme) clipHalfStorey(model.levels[2]);
+    return model;
+  });
 }
 
 function buildVillaInContext(
@@ -550,6 +558,7 @@ function buildVillaInContext(
   const topSlabs = reuseStatic ? reuse!.topSlabs : { main: new THREE.Group(), annex: new THREE.Group() };
   if (!reuseStatic) {
     for (const key of ["main", "annex"] as const) {
+      if (isHalfStoreyScheme && key === "main") continue;
       const spec = topSlabLayout[key], root = topSlabs[key];
       root.name = key === "main" ? "主楼三层顶板" : "辅楼一层顶板";
       const holes = key === "main" ? topSlabLayout.stairHole : null;
@@ -573,6 +582,12 @@ function buildVillaInContext(
     g.name = `floor-${index + 1}`;
     levels.push(g);
     group.add(g);
+    const exterior = new THREE.Group();
+    if (index === 2 && !isHalfStoreyScheme) {
+      exterior.name = "三楼飘檐与露台";
+      exterior.userData.assemblyPart = true;
+      g.add(exterior);
+    }
     const front = floor.front,
       back = m.z + m.d,
       base = floor.y,
@@ -580,6 +595,18 @@ function buildVillaInContext(
     const opening = stairOpeningBounds(stairGeom);
     const holes =
       stairPresent && index > 0 ? [rect(opening.x, opening.z, opening.w, opening.d)] : [];
+    if (isHalfStoreyScheme && index === 2) {
+      labels.push(buildHalfStoreyLevel(g, floor, mat, layoutFacades[index], holes, withLabels));
+      if (stairPresent) {
+        const incoming = new THREE.Group(); incoming.userData.incomingStair = true; incoming.visible = false;
+        const prev = floorList[index - 1];
+        stairs(incoming, stairGeom.x, stairGeom.z, prev.y, prev.height, mat, stairGeom.axis, stairGeom, false);
+        railings.render(incoming, railings.stories[index - 1]);
+        g.add(incoming);
+        railings.render(g, railings.stairGuards[index]);
+      }
+      return;
+    }
     const hasLivingVoid = livingVoid.w > 0 && livingVoid.d > 0;
     // 楼板外缘收进墙身。三楼北缘若停在 Z=-1，会和二楼北墙外皮共面，缩放时闪成黄带。
     const inset = 50;
@@ -651,12 +678,12 @@ function buildVillaInContext(
       const terracePosts = frontTerracePosts();
       // 两侧楼板仍接到门厅楼板边，不往前加长。中间仍由墙隔开。
       if (sideTerraces) elevation.sideTerraces.forEach((terrace, i) => {
-        pavedTerrace(g, rect(terrace.x, elevation.terraceFront, terrace.w, (floor.front + 40) - elevation.terraceFront), base, 180, mat)
+        pavedTerrace(exterior, rect(terrace.x, elevation.terraceFront, terrace.w, (floor.front + 40) - elevation.terraceFront), base, 180, mat)
           .name = i === 0 ? "三楼左侧露台" : "三楼右侧露台";
       });
       // 平台北缘让进檐口。南缘收到三楼前墙外，不并入两侧露台。
       pavedTerrace(
-        g,
+        exterior,
         rect(site.portico.x, elevation.centerFront, site.portico.w, elevation.terraceBack - elevation.centerFront),
         base,
         220,
@@ -664,7 +691,7 @@ function buildVillaInContext(
       ).name = "外伸门厅三楼平台";
       const shortPosts = new THREE.Group();
       shortPosts.name = sideTerraces ? "四根露台短柱" : "中央露台两根短柱";
-      g.add(shortPosts);
+      exterior.add(shortPosts);
       // 四根将军柱立在挡墙顶：柱心落在露台直角的挡墙中线交点，石板／栏杆对中柱侧。
       const parapet = elevation.eaveParapet;
       const postBase = base + parapet;
@@ -675,7 +702,7 @@ function buildVillaInContext(
           central ? porticoColumnOuterWidth(post.w) : Infinity);
       }
       for (const run of frontTerraceRailRuns(floor.front))
-        glassBalustrade(g, run.a, run.b, postBase, mat, false, run);
+        glassBalustrade(exterior, run.a, run.b, postBase, mat, false, run);
       const front = elevation.terraceFront;
       const back = sideTerraces ? elevation.terraceBack : floor.front + 40;
       const eave = site.secondFrontEave;
@@ -684,7 +711,7 @@ function buildVillaInContext(
       // 屋檐里有一道比露台地面高 50 厘米的墙。瓦从墙顶往外坡下，把这道墙挡住。
       const parapetWall = new THREE.Group();
       parapetWall.name = "三楼屋檐内50厘米挡墙";
-      g.add(parapetWall);
+      exterior.add(parapetWall);
       // 折角外移后仍从外缘起算固定挡墙厚，栏杆居中落在墙顶；不再补到原柱轴内皮。
       const { thick: parapetThick, westOuter, eastOuter, middleOuter } = terraceParapetLayout();
       const parapetInside: Point[] = inner.map((p, i) => [
@@ -705,7 +732,7 @@ function buildVillaInContext(
         slab(parapetWall, rect(x, sideTerraces ? front : middleOuter, parapetThick, elevation.postZ - 250 - (sideTerraces ? front : middleOuter)),
           base + parapet, parapet, mat.sand).name = "门厅露台侧挡墙接官帽柱";
       // 内外檐线同步随柱宽偏移，出檐和落差仍沿用原参数。
-      tiledApron(g, inner, outer, base + parapet, elevation.tiledEaveDrop, mat,
+      tiledApron(exterior, inner, outer, base + parapet, elevation.tiledEaveDrop, mat,
         terracePosts.map(post => {
           const footWidth = post.w + 80;
           return rect(post.x - footWidth / 2, post.z - footWidth / 2, footWidth, footWidth);
@@ -714,7 +741,7 @@ function buildVillaInContext(
       const doorCuts: [number, number][] = floorWalls[0].openings.map(o => [m.x + o.at - o.w / 2 - 60, m.x + o.at + o.w / 2 + 60]);
       for (const terrace of [...(sideTerraces ? elevation.sideTerraces : []), { x: site.portico.x, w: site.portico.w }])
         for (const [x0, x1] of subtractIntervals([terrace.x, terrace.x + terrace.w], doorCuts))
-          box(g, (x0 + x1) / 2, base + 55, floor.front + 3,
+          box(exterior, (x0 + x1) / 2, base + 55, floor.front + 3,
             x1 - x0, 110, 18, mat.terraceEdge, false);
     }
     // 隔墙画到外皮时，端头和外围墙面共面，外面会看到一条白竖线。端头埋进墙身 2cm。
@@ -789,7 +816,7 @@ function buildVillaInContext(
         room.kind === "bath" ? 0.36 : 0.58,
       );
     }
-    if (stairPresent)
+    if (stairPresent && (!isHalfStoreyScheme || index < 2))
       stairs(
         g, stairGeom.x, stairGeom.z,
         base + (index === 0 ? site.entranceRise : 0),
@@ -799,7 +826,8 @@ function buildVillaInContext(
         stairGeom,
         false,
       );
-    if (index === 2) roofRailingVariants(g, group => { railings.render(group, railings.stories[index]); }, railingRoof);
+    if (index === 2 && isHalfStoreyScheme) { /* 半层终止上行，不再增加屋顶层楼梯和栏杆。 */ }
+    else if (index === 2) roofRailingVariants(g, group => { railings.render(group, railings.stories[index]); }, railingRoof);
     else railings.render(g, railings.stories[index]);
     if (stairPresent && index > 0) {
       // 单层剖看仍显示下层通来的实体梯段；全楼与分离视图关闭，避免重叠。
@@ -858,7 +886,7 @@ function buildVillaInContext(
       const eaveY = mainRoofFootprint().eave;
       const upperCornerTop = fasciaBottomY(eaveY, 0);
       for (const [x, outward] of [[elevation.cornerWestX, -1], [elevation.cornerEastX, 1]])
-        referenceUpperCornerPilaster(g, x, floor.front, base, upperCornerTop - base, outward, mat);
+        referenceUpperCornerPilaster(exterior, x, floor.front, base, upperCornerTop - base, outward, mat);
       // 悬浮官帽檐口更高，柱身与正面装饰随其上抬；原有官帽仍贴正屋檐口。
       const hatLayout = roofStyle === "floating" ? floatingHatLayout(fenShui) : joinedHatLayout(fenShui);
       const hatEaveY = hatLayout.eave;
@@ -867,7 +895,7 @@ function buildVillaInContext(
       const pierTop = fasciaBot;
       const hatPosts = new THREE.Group();
       hatPosts.name = "三楼官帽柱";
-      g.add(hatPosts);
+      exterior.add(hatPosts);
       // 贴前墙官帽柱与门厅柱共用堂屋开间两端的X轴线。
       // 四面雕花采用包角柱同系列，原有／悬浮共用造型。
       for (const x of elevation.postXs)
@@ -890,19 +918,14 @@ function buildVillaInContext(
         openingFrame(g, mainFrontOpeningX(11150), base + wingSill, front - 70, 2750 * sw, wingHead, mat, { bottom: !hasThirdFloorSideTerraces() });
         openingFrame(g, site.portico.x + site.portico.w / 2, base, porticoWallZ(front) - 70, 3100 * sw, Math.min(DEFAULT_DOOR_HEIGHT, thirdHead), mat, { bottom: false });
       }
-      // 回纹贴在官帽实际承托梁的下沿线，纹高收进线脚；不再浮在后方门窗上方。
-      const fasciaMid = fasciaBot + eyelidFixed.fasciaHeight / 2;
-      const hatWest = hatLayout.x;
-      const supportInset = hatSupportInset();
-      meander(g, hatWest + supportInset + 120, fasciaMid,
-        frontElevation.hatFront + supportInset - eyelidFixed.fasciaProtrusion,
-        hatLayout.w - 2 * supportInset - 240, mat, 70);
     }
     // 屋后一二层、二三层交界的白条已去掉。三楼檐口下这一道留在瓦下。
     if (index === 2)
       box(g, m.x + m.w / 2, base + h - 160, back + 20, m.w + 60, 170, 160, mat.trim);
   });
   const portico = reuseStatic ? reuse!.portico : new THREE.Group();
+  const facadeColumns = reuseStatic ? reuse!.facadeColumns : new THREE.Group();
+  facadeColumns.name = "主楼通高包角柱";
   portico.name = recessedPortico() ? "平齐式入口" : "凸出式通高门厅";
   const porchFront = porticoFrontZ();
   if (!reuseStatic) {
@@ -930,20 +953,20 @@ function buildVillaInContext(
     // 左右包角柱包住正面与侧面的直角；外凸量＝方案尺寸「包角柱突出墙面」。
     // 两侧包角柱用同系列外展斜肩；下沿线及梁托连续绕过，侧线南端与瓦檐齐平。
     const frontCornerTop = apron.columnTopY;
-    referenceCornerPilaster(portico, elevation.cornerWestX, m.z - 120, 0, frontCornerTop, -1, mat, apron.fasciaBottomY);
-    referenceCornerPilaster(portico, elevation.cornerEastX, m.z - 120, 0, frontCornerTop, 1, mat, apron.fasciaBottomY);
+    referenceCornerPilaster(facadeColumns, elevation.cornerWestX, m.z - 120, 0, frontCornerTop, -1, mat, apron.fasciaBottomY);
+    referenceCornerPilaster(facadeColumns, elevation.cornerEastX, m.z - 120, 0, frontCornerTop, 1, mat, apron.fasciaBottomY);
     // 屋后两根贴墙外角；柱顶对正屋环形天沟下沿线，同样留约10厘米。
     const rearZ = m.z + m.d;
     const rearCornerTop = cornerPilasterTopY(mainRoofFootprint().eave);
-    cornerPilaster(portico, m.x, rearZ, 0, rearCornerTop, mat, -1, 1);
-    cornerPilaster(portico, m.x + m.w, rearZ, 0, rearCornerTop, mat, 1, 1);
+    cornerPilaster(facadeColumns, m.x, rearZ, 0, rearCornerTop, mat, -1, 1);
+    cornerPilaster(facadeColumns, m.x + m.w, rearZ, 0, rearCornerTop, mat, 1, 1);
     if (!recessedPortico()) referencePorticoBeam(portico, site.portico.x + site.portico.w / 2,
       columnZ - PORTICO_BEAM_DEPTH / 2, fasciaBot,
       elevation.postXs[1] - elevation.postXs[0], columnSize, mat);
     entranceApproach(portico, mat);
+    if (!recessedPortico()) slab(portico, rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 15, 180, mat.paving).name = "门厅地坪投影计入首层合计";
   }
   if (levels[0] !== reuse?.levels[0]) {
-    if (!recessedPortico()) slab(levels[0], rect(site.portico.x, porchFront, site.portico.w, site.portico.projection), 15, 180, mat.paving).name = "门厅地坪投影计入首层合计";
     // 两楼之间整段过道与首层齐平，门外不再叠加另一色的连接板。
     const laneX = Math.min(m.x + m.w, site.annex.x + site.annex.w);
     const laneFront = Math.max(m.z, site.annex.z);
@@ -1041,10 +1064,10 @@ function buildVillaInContext(
     else { const placeholder = new THREE.Group(); placeholder.name = frontNames[2]; group.add(placeholder); }
   }
   // 所有可能抛错的构造完成后才迁移复用对象，避免构造失败拆掉当前可见场景。
-  group.add(roof, balcony, annex, annexRoof, topSlabs.main, topSlabs.annex, portico, ...levels);
+  group.add(roof, balcony, annex, annexRoof, topSlabs.main, topSlabs.annex, portico, facadeColumns, ...levels);
   if (reuseFront)
     for (const name of frontNames) { const detail = reuse!.group.getObjectByName(name); if (detail) group.add(detail); }
-  return { group, levels, roof, balcony, annex, annexRoof, topSlabs, portico, labels, signatures };
+  return { group, levels, roof, balcony, annex, annexRoof, topSlabs, portico, facadeColumns, labels, signatures };
 }
 
 /** 屋顶层平面与三维封顶共用轮廓和楼梯洞。 */
@@ -1056,7 +1079,7 @@ export function roofSlabLayout(layout?: VillaLayoutLive | null) {
     const hole = stairOpeningBounds(stair);
     const a = site.annex;
     return {
-      main: { outline: recessedFootprint(topFloor.front), top: topFloor.y + topFloor.height, thickness: construction.floorSlab },
+      main: { outline: recessedFootprint(topFloor.front), top: topFloor.y + (isHalfStoreyScheme ? 0 : topFloor.height), thickness: construction.floorSlab },
       annex: { outline: rect(a.x, a.z, a.w, a.d), top: a.height, thickness: construction.floorSlab },
       stairHole: floorsHaveStair(floorList) ? rect(hole.x, hole.z, hole.w, hole.d) : null,
     };
@@ -1211,7 +1234,7 @@ export function annexChimneyModel() {
   return { x, z, base, capY: base + 1600 };
 }
 
-function floatingHat(parent: THREE.Object3D, mainRoof: THREE.Object3D, mat: Mats, fenShui: number) {
+function floatingHat(parent: THREE.Object3D, mainRoof: THREE.Object3D, mat: Mats, fenShui: number, baseParent = parent) {
   const h = floatingHatLayout(fenShui), center = h.x + h.w / 2;
   const m = mainRoofFootprint();
   const tileLift = roofTileEaveLift();
@@ -1236,8 +1259,8 @@ function floatingHat(parent: THREE.Object3D, mainRoof: THREE.Object3D, mat: Mats
   cap.name = "悬浮官帽接入正屋";
   group.add(cap);
   addTiledRoof(cap, visible.filter(face => face.owner === 1), mat.villaRoof, mat.villaRoofJoint, hat.ridges, original);
-  // 三眼皮／梁托／下沿线由 integratedHatEaves 生成；柱身与正面装饰在三楼立面按悬浮檐高加高，与原有官帽共用造型。
-  integratedHatEaves(cap, h.x, h.z, h.w, h.eave, mat, m.z + roofTileInset, m.eave + tileLift, fenShui / 10, floors[2].front);
+  // 三眼皮／梁托／下沿线由 integratedHatEaves 生成；柱身在三楼立面按悬浮檐高加高。
+  integratedHatEaves(baseParent, h.x, h.z, h.w, h.eave, mat, m.z + roofTileInset, m.eave + tileLift, fenShui / 10, floors[2].front);
 }
 
 export function attachRoofs(
@@ -1250,6 +1273,13 @@ export function attachRoofs(
   const main = mainRoofFootprint();
   const pitch = roofPitch(fenShui);
   const bay = joinedHatLayout(fenShui);
+  // 瓦面和木构与下方天沟、线脚独立，合拢仍沿用同一组真实坐标。
+  const covers = [new THREE.Group(), new THREE.Group()];
+  for (const cover of covers) {
+    cover.name = "屋顶瓦片与木架";
+    cover.userData.assemblyPart = true;
+  }
+  const [mainCover, annexCover] = covers;
   // 梁托／下沿线贴三楼外墙皮：北墙在退台后的 floors[2].front，不是一层前墙。
   const mainWall = {
     x: site.main.x,
@@ -1260,18 +1290,28 @@ export function attachRoofs(
   const mainRoof = roofStyle === "floating"
     ? roofEaves(roof, main.x, main.z, main.w, main.d, main.eave, mat, undefined, mainWall,
       floatingHatTrimGap())
-    : gutteredRoof(roof, main.x, main.z, main.w, main.d, main.eave, pitch.mainRise, mat, bay, mainWall);
+    : gutteredRoof(roof, main.x, main.z, main.w, main.d, main.eave, pitch.mainRise, mat, bay, mainWall, mainCover);
   mainRoof.name = "正屋四坡";
-  if (roofStyle === "floating") floatingHat(roof, mainRoof, mat, fenShui);
+  if (roofStyle === "floating") floatingHat(mainCover, mainCover, mat, fenShui, roof);
   else {
-    // 官帽前檐梁托／下沿线已由 roofEaves 的 bay 前／左／右生成；柱间回纹在三楼立面下沿线高度。
+    // 官帽前檐梁托／下沿线已由 roofEaves 的 bay 前／左／右生成。
     const hat = new THREE.Group();
     hat.name = "中央官帽横梁";
     roof.add(hat);
   }
+  if (!isHalfStoreyScheme) {
+    // 回纹是官帽承托梁的装饰，与瓦屋面共同生成、升降和重建。
+    const layout = roofStyle === "floating" ? floatingHatLayout(fenShui) : bay;
+    const supportInset = hatSupportInset();
+    const decor = new THREE.Group(); decor.name = "官帽承托梁回纹"; roof.add(decor);
+    meander(decor, layout.x + supportInset + 120,
+      fasciaBottomY(layout.eave, 0) + eyelidFixed.fasciaHeight / 2,
+      frontElevation.hatFront + supportInset - eyelidFixed.fasciaProtrusion,
+      layout.w - 2 * supportInset - 240, mat, 70);
+  }
   const annex = annexRoofFootprint();
   const annexWall = { x: site.annex.x, z: site.annex.z, w: site.annex.w, d: site.annex.d };
-  withAnnexRoofDesign(() => gutteredRoof(annexRoof, annex.x, annex.z, annex.w, annex.d, annex.eave, pitch.annexRise, mat, undefined, annexWall));
+  withAnnexRoofDesign(() => gutteredRoof(annexRoof, annex.x, annex.z, annex.w, annex.d, annex.eave, pitch.annexRise, mat, undefined, annexWall, annexCover));
   // 瓦下补农村四坡常见木屋盖：正脊檩、斜脊梁、檩条与椽子（示意，非结构验算）。
   const tileLift = roofTileEaveLift();
   const mainHip = hipRoofSurfaces(
@@ -1279,20 +1319,22 @@ export function attachRoofs(
     main.w - 2 * roofTileInset, main.d - 2 * roofTileInset,
     main.eave + tileLift, pitch.mainRise,
   );
-  addTimberRoofFrame(mainRoof, mainHip, mat.wood);
+  addTimberRoofFrame(mainCover, mainHip, mat.wood);
   const annexProfile = annexRoofProfile();
   const annexHip = hipRoofSurfaces(
     annex.x + annexProfile.tileInset, annex.z + annexProfile.tileInset,
     annex.w - 2 * annexProfile.tileInset, annex.d - 2 * annexProfile.tileInset,
     annex.eave + annexProfile.tileLift, pitch.annexRise,
   );
-  addTimberRoofFrame(annexRoof, annexHip, mat.wood);
+  addTimberRoofFrame(annexCover, annexHip, mat.wood);
   // 烟囱相对辅楼檐口＋坡起定位，避免墙高变化后出口低于瓦面。
   const { x: chimneyX, z: chimneyZ, base: roofYAtChimney, capY } = annexChimneyModel();
   const stackH = 1600;
   const stackMid = roofYAtChimney + stackH / 2 - 200;
-  box(annexRoof, chimneyX, stackMid, chimneyZ, 460, stackH + 400, 460, mat.stone);
-  box(annexRoof, chimneyX, capY + 60, chimneyZ, 720, 120, 720, mat.dark);
+  box(annexCover, chimneyX, stackMid, chimneyZ, 460, stackH + 400, 460, mat.stone);
+  box(annexCover, chimneyX, capY + 60, chimneyZ, 720, 120, 720, mat.dark);
   for (const x of [chimneyX - 200, chimneyX + 200])
-    box(annexRoof, x, capY - 140, chimneyZ, 45, 320, 45, mat.metal);
+    box(annexCover, x, capY - 140, chimneyZ, 45, 320, 45, mat.metal);
+  roof.add(mainCover);
+  annexRoof.add(annexCover);
 }

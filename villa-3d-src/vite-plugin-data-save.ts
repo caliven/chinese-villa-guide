@@ -1,3 +1,4 @@
+import { assertConstructionScope, isConstructionScheme, type ConstructionScheme } from "./src/construction-scheme.ts";
 import type { Plugin } from "vite";
 import { cp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,12 +9,14 @@ type DataKind = "尺寸" | "户型";
 
 type SaveBody = {
   kind: DataKind;
-  document: { id?: string; title?: string };
+  constructionScheme?: ConstructionScheme;
+  document: { id?: string; title?: string; constructionScheme?: ConstructionScheme };
   index?: { schema: string; kind: DataKind; versions: unknown[] } | null;
 };
 
 type DeleteBody = {
   kind: DataKind;
+  constructionScheme?: ConstructionScheme;
   file: string;
   index?: { schema: string; kind: DataKind; versions: unknown[] } | null;
 };
@@ -24,9 +27,9 @@ const dataRoot = path.resolve(pluginDir, "data");
 const emptyIndex = (kind: DataKind) =>
   `${JSON.stringify({ schema: "anhua-villa-data-versions-v1", kind, versions: [] }, null, 2)}\n`;
 
-async function ensureDataDirs() {
+async function ensureDataDirs(root = dataRoot) {
   for (const kind of ["尺寸", "户型"] as const) {
-    const dir = path.join(dataRoot, kind);
+    const dir = path.join(root, kind);
     await mkdir(dir, { recursive: true });
     const indexPath = path.join(dir, "index.json");
     try {
@@ -53,7 +56,7 @@ function safeVersionFileName(file: string): string | null {
   return name;
 }
 
-async function handleSave(req: IncomingMessage, res: ServerResponse) {
+async function handleSave(req: IncomingMessage, res: ServerResponse, root: string) {
   try {
     const raw = await readBody(req);
     const body = JSON.parse(raw.toString("utf8")) as SaveBody;
@@ -63,7 +66,11 @@ async function handleSave(req: IncomingMessage, res: ServerResponse) {
       res.end(JSON.stringify({ ok: false, error: "kind 须为 尺寸 或 户型" }));
       return;
     }
-    const dir = path.join(dataRoot, body.kind);
+    const scheme = body.constructionScheme ?? "three-storey";
+    if (!isConstructionScheme(scheme)) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: "无效的建筑方案" })); return; }
+    const scopedRoot = scheme === "two-and-half" ? path.join(root, "two-and-half") : root;
+    const dir = path.join(scopedRoot, body.kind);
+    try { assertConstructionScope(body.document, scheme); } catch { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: "文件不属于当前方案" })); return; }
     await mkdir(dir, { recursive: true });
     const id = typeof body.document?.id === "string" && body.document.id
       ? body.document.id
@@ -84,7 +91,7 @@ async function handleSave(req: IncomingMessage, res: ServerResponse) {
     res.end(
       JSON.stringify({
         ok: true,
-        path: `data/${body.kind}/${fileName}`,
+        path: `${scheme === "two-and-half" ? "data/two-and-half" : "data"}/${body.kind}/${fileName}`,
         files: body.index ? 2 : 1,
       }),
     );
@@ -95,7 +102,7 @@ async function handleSave(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
-async function handleDelete(req: IncomingMessage, res: ServerResponse) {
+async function handleDelete(req: IncomingMessage, res: ServerResponse, root: string) {
   try {
     const raw = await readBody(req);
     const body = JSON.parse(raw.toString("utf8")) as DeleteBody;
@@ -112,7 +119,10 @@ async function handleDelete(req: IncomingMessage, res: ServerResponse) {
       res.end(JSON.stringify({ ok: false, error: "无效的版本文件名" }));
       return;
     }
-    const dir = path.join(dataRoot, body.kind);
+    const scheme = body.constructionScheme ?? "three-storey";
+    if (!isConstructionScheme(scheme)) { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: "无效的建筑方案" })); return; }
+    const scopedRoot = scheme === "two-and-half" ? path.join(root, "two-and-half") : root;
+    const dir = path.join(scopedRoot, body.kind);
     const target = path.join(dir, fileName);
     if (!target.startsWith(dir + path.sep)) {
       res.statusCode = 403;
@@ -131,7 +141,7 @@ async function handleDelete(req: IncomingMessage, res: ServerResponse) {
     }
     res.statusCode = 200;
     res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ ok: true, path: `data/${body.kind}/${fileName}` }));
+    res.end(JSON.stringify({ ok: true, path: `${scheme === "two-and-half" ? "data/two-and-half" : "data"}/${body.kind}/${fileName}` }));
   } catch (error) {
     res.statusCode = 500;
     res.setHeader("content-type", "application/json");
@@ -139,28 +149,28 @@ async function handleDelete(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
-async function handleDataApi(req: IncomingMessage, res: ServerResponse, next: () => void) {
+async function handleDataApi(req: IncomingMessage, res: ServerResponse, next: () => void, root: string) {
   if (req.url === "/__data_save" && req.method === "POST") {
-    await handleSave(req, res);
+    await handleSave(req, res, root);
     return;
   }
   if (req.url === "/__data_delete" && req.method === "POST") {
-    await handleDelete(req, res);
+    await handleDelete(req, res, root);
     return;
   }
   next();
 }
 
 /** 把 data/ 下文件以 ./data/... 提供给页面；POST /__data_save 写入、/__data_delete 删除版本。 */
-export function dataSavePlugin(): Plugin {
+export function dataSavePlugin(root = dataRoot): Plugin {
   return {
     name: "data-save",
     async buildStart() {
-      await ensureDataDirs();
+      await ensureDataDirs(root);
     },
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        await handleDataApi(req, res, next);
+        await handleDataApi(req, res, next, root);
       });
       // 开发时把 data/ 挂到 /data，便于 fetch('./data/尺寸/...')
       server.middlewares.use(async (req, res, next) => {
@@ -176,7 +186,7 @@ export function dataSavePlugin(): Plugin {
             res.end("Forbidden");
             return;
           }
-          const filePath = path.join(dataRoot, rel);
+          const filePath = path.join(root, rel);
           const data = await readFile(filePath);
           res.statusCode = 200;
           res.setHeader("content-type", "application/json; charset=utf-8");
@@ -190,13 +200,13 @@ export function dataSavePlugin(): Plugin {
     },
     configurePreviewServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        await handleDataApi(req, res, next);
+        await handleDataApi(req, res, next, root);
       });
     },
     async writeBundle(options) {
       const outDir = options.dir ?? path.resolve(pluginDir, "../villa-3d");
-      await ensureDataDirs();
-      await cp(dataRoot, path.join(outDir, "data"), { recursive: true });
+      await ensureDataDirs(root);
+      await cp(root, path.join(outDir, "data"), { recursive: true });
     },
   };
 }

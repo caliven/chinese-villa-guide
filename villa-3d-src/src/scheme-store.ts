@@ -15,6 +15,8 @@ import {
   type LayoutDraft,
 } from "./layout-draft.ts";
 import type { CourtyardDimLayout } from "./courtyard-dim-drag.ts";
+import { activeConstructionScheme, assertConstructionScope, isHalfStoreyScheme, schemeDirectory, schemeStorageKey, type ConstructionScheme } from "./construction-scheme.ts";
+import { validateHalfStoreyParams } from "./half-storey.ts";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes.ts";
 import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options.ts";
 import {
@@ -27,10 +29,11 @@ import {
 } from "./units.ts";
 
 export const schemeSchema = "anhua-villa-scheme-v1";
-export const schemeCurrentUrl = "./scheme/current.json";
-export const schemeVersionsIndexUrl = "./scheme/versions/index.json";
+export const schemeCurrentUrl = `./${schemeDirectory()}/current.json`;
+export const schemeVersionsIndexUrl = `./${schemeDirectory()}/versions/index.json`;
 
 export type SchemeDocument = {
+  constructionScheme?: ConstructionScheme;
   schema: typeof schemeSchema;
   /** 长度单位；缺省或 "m" 视为旧米制稿，读入时迁成毫米。 */
   units: typeof LENGTH_UNITS;
@@ -97,6 +100,7 @@ export function migrateSchemeRawToMm(raw: Record<string, unknown>): Record<strin
 export function createEmptyScheme(title = "当前方案"): SchemeDocument {
   return {
     schema: schemeSchema,
+    constructionScheme: activeConstructionScheme,
     units: LENGTH_UNITS,
     id: "current",
     title,
@@ -110,12 +114,13 @@ export function createEmptyScheme(title = "当前方案"): SchemeDocument {
   };
 }
 
-export function parseSchemeDocument(input: unknown): SchemeDocument {
+export function parseSchemeDocument(input: unknown, expectedScheme: ConstructionScheme = activeConstructionScheme): SchemeDocument {
   if (!isRecord(input)) throw new Error("方案文件不是对象");
+  assertConstructionScope(input, expectedScheme);
   if (input.schema !== schemeSchema) throw new Error(`方案版本应为 ${schemeSchema}`);
   const raw = migrateSchemeRawToMm(input);
   const villaParams = normalizeVillaParamsLengths(isRecord(raw.villaParams) ? raw.villaParams : {});
-  const issues = validateVillaParams(villaParams);
+  const issues = [...validateVillaParams(villaParams), ...(expectedScheme === "two-and-half" && !isHalfStoreyScheme ? validateHalfStoreyParams(villaParams) : [])];
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
 
   let layoutDraft: LayoutDraft | null = null;
@@ -133,6 +138,7 @@ export function parseSchemeDocument(input: unknown): SchemeDocument {
   return {
     schema: schemeSchema,
     units: LENGTH_UNITS,
+    constructionScheme: expectedScheme,
     id: typeof raw.id === "string" && raw.id ? raw.id : "current",
     title: typeof raw.title === "string" && raw.title ? raw.title : "方案",
     savedAt: typeof raw.savedAt === "string" ? raw.savedAt : formatSavedAt(),
@@ -160,6 +166,7 @@ export function buildSchemeDocument(input: {
 }): SchemeDocument {
   return {
     schema: schemeSchema,
+    constructionScheme: activeConstructionScheme,
     units: LENGTH_UNITS,
     id: input.id ?? "current",
     title: input.title ?? "当前方案",
@@ -217,7 +224,7 @@ export async function loadSchemeVersionsIndex(): Promise<SchemeVersionsIndex> {
 }
 
 export async function loadSchemeVersion(file: string): Promise<SchemeDocument | null> {
-  const raw = await fetchJson(`./scheme/versions/${file}`);
+  const raw = await fetchJson(`./${schemeDirectory()}/versions/${encodeURIComponent(file)}`);
   if (raw == null) return null;
   try {
     return parseSchemeDocument(raw);
@@ -259,6 +266,7 @@ export async function persistSchemeFile(
 
   const body = {
     kind: opts.kind,
+    constructionScheme: activeConstructionScheme,
     document: opts.document,
     current: opts.current ?? null,
     index: opts.index ?? null,
@@ -295,7 +303,7 @@ export async function persistSchemeFile(
     return {
       ok: true,
       via: "download",
-      message: "已下载 current.json（仅此一个文件），请放到 villa-3d-src/public/scheme/ 后重新构建",
+      message: `已下载 current.json（仅此一个文件），请放到 villa-3d-src/public/${schemeDirectory()}/ 后重新构建`,
     };
   }
   const file = `${opts.document.id}.json`;
@@ -361,14 +369,14 @@ export function formatSavedAtDisplay(savedAt: string, withSeconds = false) {
 export function migrateLegacyLocalStorage(): Partial<SchemeDocument> | null {
   try {
     const out: Partial<SchemeDocument> = {};
-    const paramsRaw = localStorage.getItem("anhua-villa-params-v1");
+    const paramsRaw = localStorage.getItem(schemeStorageKey("anhua-villa-params-v1"));
     if (paramsRaw) {
       const parsed = JSON.parse(paramsRaw) as Record<string, unknown>;
       const rawParams = isRecord(parsed) && isMeterLengthPayload(parsed) ? migrateVillaParamsToMm(parsed) : parsed;
       const merged = normalizeVillaParamsLengths(rawParams);
       if (validateVillaParams(merged).length === 0) out.villaParams = merged;
     }
-    const layoutRaw = localStorage.getItem("anhua-villa-layout-draft-v1");
+    const layoutRaw = localStorage.getItem(schemeStorageKey("anhua-villa-layout-draft-v1"));
     if (layoutRaw) {
       try {
         const layoutJson = JSON.parse(layoutRaw) as unknown;
@@ -379,7 +387,7 @@ export function migrateLegacyLocalStorage(): Partial<SchemeDocument> | null {
         /* ignore */
       }
     }
-    const dimRaw = localStorage.getItem("anhua-villa-courtyard-dim-layout-v1");
+    const dimRaw = localStorage.getItem(schemeStorageKey("anhua-villa-courtyard-dim-layout-v1"));
     if (dimRaw) {
       const parsed = JSON.parse(dimRaw) as unknown;
       if (isRecord(parsed)) {
@@ -393,9 +401,9 @@ export function migrateLegacyLocalStorage(): Partial<SchemeDocument> | null {
           maxAbs > 0 && maxAbs < 50 ? migrateCourtyardDimLayoutToMm(courtyardDimLayout) : courtyardDimLayout;
       }
     }
-    const roof = localStorage.getItem("anhua-villa-roof-style-v1");
+    const roof = localStorage.getItem(schemeStorageKey("anhua-villa-roof-style-v1"));
     if (roof) out.roofStyle = parseRoofStyle(roof);
-    const finishes = localStorage.getItem("anhua-villa-courtyard-finishes-v1");
+    const finishes = localStorage.getItem(schemeStorageKey("anhua-villa-courtyard-finishes-v1"));
     if (finishes) {
       const value = JSON.parse(finishes) as Record<string, unknown>;
       out.courtyardFinish = parseCourtyardFinish(value.courtyardFinish);
@@ -418,7 +426,7 @@ export function clearLegacyLocalStorage() {
   ];
   for (const key of keys) {
     try {
-      localStorage.removeItem(key);
+      localStorage.removeItem(schemeStorageKey(key));
     } catch {
       /* ignore */
     }

@@ -46,6 +46,8 @@ import { formatMm, isMeterLengthPayload, migrateVillaParamsToMm } from "./units.
 import { porticoColumnCenters, porticoColumnOuterWidth, porticoWestOffset } from "./frontage-geometry.ts";
 import { terraceParapetLayout } from "./facade-details.ts";
 import { interiorRailing, isRailingStyle, type RailingStyle } from "./railing-options.ts";
+import { isHalfStoreyScheme } from "./construction-scheme.ts";
+import { halfStoreyDefaults, initializeHalfStorey, validateHalfStoreyParams } from "./half-storey.ts";
 
 export const LOCKED_SITE_WIDTH = 21000;
 /** @deprecated 已改存 scheme 文件，仅供旧迁移识别。 */
@@ -134,7 +136,7 @@ export interface VillaParams {
   neighborYardBeyondCement: number;
 }
 
-export const DEFAULT_VILLA_PARAMS: VillaParams = {
+export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
   livingRailingStyle: "glass",
   stairRailingStyle: "wood",
   porticoStyle: "projecting",
@@ -206,6 +208,8 @@ export const DEFAULT_VILLA_PARAMS: VillaParams = {
   /** 与自家东界外沿齐平后的派生值；应用时按院坪东端重算 */
   neighborYardBeyondCement: 8600,
 };
+export const DEFAULT_VILLA_PARAMS = isHalfStoreyScheme
+  ? halfStoreyDefaults(THREE_STOREY_DEFAULT_PARAMS) : THREE_STOREY_DEFAULT_PARAMS;
 
 /** 旧稿共用屋面字段到辅楼独立字段的对应关系；用于补齐和单位迁移后的继承。 */
 export const ANNEX_ROOF_PARAM_KEYS = {
@@ -354,7 +358,7 @@ export function buildingDepthLimits(p: VillaParams) {
 }
 
 export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
-  const issues: VillaParamsIssue[] = [];
+  const issues: VillaParamsIssue[] = isHalfStoreyScheme ? validateHalfStoreyParams(p) : [];
   for (const field of ["livingRailingStyle", "stairRailingStyle"] as const) {
     if (p[field] !== undefined && !isRailingStyle(p[field])) issues.push({ field, message: "栏杆造型无效" });
   }
@@ -927,6 +931,7 @@ export function applyVillaParams(input: VillaParams) {
     return i === 2 ? clampThirdFloorNorth(resizeThirdFloorFront(next, nz + site.setback), nz + site.setback) : next;
   });
   replaceArray(floors, nextFloors);
+  if (isHalfStoreyScheme) initializeHalfStorey();
 
   replaceArray(
     annexRooms,

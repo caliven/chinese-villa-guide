@@ -3,8 +3,10 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseSchemeDocument, type SchemeDocument, type SchemeVersionsIndex } from "./src/scheme-store.ts";
+import { assertConstructionScope, isConstructionScheme, type ConstructionScheme } from "./src/construction-scheme.ts";
 
 type SaveBody = {
+  constructionScheme: ConstructionScheme;
   kind: "current" | "version";
   document: SchemeDocument;
   /** 保存版本时一并更新的当前稿 */
@@ -23,22 +25,25 @@ function safeVersionId(value: unknown): value is string {
     !/[/\\\u0000-\u001f<>:"|?*]/.test(value) && value.toLowerCase() !== "index";
 }
 
-function parseSaveDocument(value: unknown): SchemeDocument {
+function parseSaveDocument(value: unknown, scheme: ConstructionScheme): SchemeDocument {
   if (!isRecord(value) || !isRecord(value.villaParams) || typeof value.id !== "string" || !value.id ||
     typeof value.title !== "string" || !value.title || typeof value.savedAt !== "string" || !Number.isFinite(Date.parse(value.savedAt))) {
     throw new Error("方案文件缺少有效的编号、名称、保存时间或尺寸参数");
   }
-  return parseSchemeDocument(value);
+  assertConstructionScope(value, scheme);
+  return parseSchemeDocument(value, scheme);
 }
 
 /** 先验证全部方案及版本索引，任何一部分失败都不能开始写文件。 */
 function parseSaveBody(value: unknown): SaveBody {
   if (!isRecord(value) || (value.kind !== "current" && value.kind !== "version")) throw new Error("无效的保存类型");
-  const document = parseSaveDocument(value.document);
+  const constructionScheme = value.constructionScheme ?? "three-storey";
+  if (!isConstructionScheme(constructionScheme)) throw new Error("无效的建筑方案");
+  const document = parseSaveDocument(value.document, constructionScheme);
   const current = value.current == null
     ? { ...document, id: "current", title: "当前方案" }
-    : parseSaveDocument(value.current);
-  if (value.kind === "current") return { kind: value.kind, document, current };
+    : parseSaveDocument(value.current, constructionScheme);
+  if (value.kind === "current") return { kind: value.kind, constructionScheme, document, current };
   if (!safeVersionId(document.id)) throw new Error("无效的版本编号");
   if (!isRecord(value.index) || value.index.schema !== "anhua-villa-scheme-versions-v1" || !Array.isArray(value.index.versions)) {
     throw new Error("版本保存缺少有效的版本目录");
@@ -54,7 +59,7 @@ function parseSaveBody(value: unknown): SaveBody {
   if (!versions.some(item => item.id === document.id && item.file === `${document.id}.json`)) {
     throw new Error("版本目录未包含本次保存的版本");
   }
-  return { kind: value.kind, document, current, index: { schema: "anhua-villa-scheme-versions-v1", versions } };
+  return { kind: value.kind, constructionScheme, document, current, index: { schema: "anhua-villa-scheme-versions-v1", versions } };
 }
 
 /**
@@ -82,32 +87,34 @@ export function schemeSavePlugin(root = path.resolve(pluginDir, "public/scheme")
             res.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "保存数据无效" }));
             return;
           }
-          await mkdir(path.join(root, "versions"), { recursive: true });
+          const targetRoot = body.constructionScheme === "two-and-half" ? path.join(root, "two-and-half") : root;
+          const publicPath = body.constructionScheme === "two-and-half" ? "public/scheme/two-and-half" : "public/scheme";
+          await mkdir(path.join(targetRoot, "versions"), { recursive: true });
 
           if (body.kind === "current") {
-            const file = path.join(root, "current.json");
+            const file = path.join(targetRoot, "current.json");
             await writeFile(file, `${JSON.stringify(body.document, null, 2)}\n`, "utf8");
             res.statusCode = 200;
             res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ ok: true, path: "public/scheme/current.json", files: 1 }));
+            res.end(JSON.stringify({ ok: true, path: `${publicPath}/current.json`, files: 1 }));
             return;
           }
 
           const fileName = `${body.document.id}.json`;
           await writeFile(
-            path.join(root, "versions", fileName),
+            path.join(targetRoot, "versions", fileName),
             `${JSON.stringify(body.document, null, 2)}\n`,
             "utf8",
           );
           if (body.index) {
             await writeFile(
-              path.join(root, "versions", "index.json"),
+              path.join(targetRoot, "versions", "index.json"),
               `${JSON.stringify(body.index, null, 2)}\n`,
               "utf8",
             );
           }
           await writeFile(
-            path.join(root, "current.json"),
+            path.join(targetRoot, "current.json"),
             `${JSON.stringify(body.current, null, 2)}\n`,
             "utf8",
           );
@@ -116,7 +123,7 @@ export function schemeSavePlugin(root = path.resolve(pluginDir, "public/scheme")
           res.end(
             JSON.stringify({
               ok: true,
-              path: `public/scheme/versions/${fileName}`,
+              path: `${publicPath}/versions/${fileName}`,
               files: 3,
             }),
           );

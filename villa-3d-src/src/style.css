@@ -590,6 +590,10 @@ input[type="range"] {
 .scene-tools .icon-button {
   backdrop-filter: blur(10px);
 }
+.assembly-mode-button[aria-pressed="true"] {
+  color: #fff;
+  background: #3e5e4c;
+}
 .camera-bar {
   position: absolute;
   bottom: 12px;
@@ -2005,6 +2009,11 @@ body.plan-editor-focus .plan-toolbar {
   color: #8a9385;
   margin: 0 0 20px;
 }
+.scene-tools .assembly-toggle[aria-pressed="true"] {
+  background: var(--green);
+  color: var(--white);
+  border-color: var(--green);
+}
 .primary-button,
 .secondary-button {
   width: 100%;
@@ -3276,3 +3285,9 @@ dialog .secondary-button {
   fill: #536151;
   pointer-events: none;
 }
+
+/* 建筑方案选择保持在公共顶栏；两套工作台各自保留状态。 */
+.construction-picker { display: flex; align-items: center; gap: 8px; margin-left: 16px; font-size: 12px; white-space: nowrap; }
+.construction-picker select { max-width: 132px; border: 1px solid var(--line, #cbd3cc); border-radius: 6px; padding: 6px 8px; background: #f5f4ef; color: #284b3b; font: inherit; }
+.construction-height-note { color: #365b49; line-height: 1.6; }
+html[data-construction="two-and-half"] [data-villa-param="floor3Height"] { min-width: 90px; }

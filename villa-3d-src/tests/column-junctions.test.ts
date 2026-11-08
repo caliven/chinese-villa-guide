@@ -78,7 +78,8 @@ test("三楼包角及两种官帽的柱冠止于对应下沿线，立面与三�
     const villa = buildVilla(mat, false, 4.5, style);
     try {
       villa.group.updateMatrixWorld(true);
-      const corners = villa.levels[2].children.filter(o => o.name === "三楼包角柱");
+      const corners: THREE.Object3D[] = [];
+      villa.levels[2].traverse(o => { if (o.name === "三楼包角柱") corners.push(o); });
       assert.equal(corners.length, 2);
       for (const c of corners) {
         assert.equal(c.position.z, floors[2].front);

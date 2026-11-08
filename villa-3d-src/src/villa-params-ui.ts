@@ -14,6 +14,7 @@ import {
 import { courtyardFinishLabels } from "./courtyard-finishes";
 import { DEFAULT_ROOF_STYLE, roofStyleLabels } from "./roof-options";
 import { VILLA_PARAM_NON_LENGTH, formatMm } from "./units";
+import { isHalfStoreyScheme } from "./construction-scheme";
 
 type Field = {
   key: keyof VillaParams;
@@ -121,10 +122,10 @@ const groups: ParamGroup[] = [
     fields: [
       { key: "mainWidth", label: "主楼面宽" },
       { key: "mainDepth", label: "主楼进深" },
-      { key: "floor1Height", label: "一层层高" },
+      { key: "floor1Height", label: isHalfStoreyScheme ? "院坪至二层地面（含入户抬高）" : "一层层高" },
       { key: "floor2Height", label: "二层层高" },
-      { key: "floor3Height", label: "三层层高" },
-      { key: "thirdSetback", label: "三楼北向退台" },
+      { key: "floor3Height", label: isHalfStoreyScheme ? "半层地面至屋脊最高点（含屋面）" : "三层层高" },
+      { key: "thirdSetback", label: isHalfStoreyScheme ? "半层北向退台" : "三楼北向退台" },
       { key: "cornerProject", label: "包角柱突出墙面", min: 50, max: 500 },
     ],
   },
@@ -268,8 +269,8 @@ function paneBodyHtml(g: ParamGroup, params: VillaParams) {
   const extras = g.extras === "courtyard-finish" ? courtyardFinishGroupHtml() : "";
   const choices = g.id === "site" ? variantChoices("buildingPlacement", "主辅楼位置", buildingPlacementLabels, params)
     : g.id === "portico" ? variantChoices("porticoStyle", "门厅造型", porticoStyleLabels, params)
-    : g.id === "main" ? variantChoices("thirdFloorMode", "三楼模式", thirdFloorModeLabels, params)
-      + '<p class="micro">不内退：三楼两翼与二楼前墙齐平，取消两侧露台、栏杆和短柱，保留中央门厅露台。退台尺寸暂存，切回北向内退时恢复。</p>' : "";
+    : g.id === "main" ? variantChoices("thirdFloorMode", isHalfStoreyScheme ? "半层模式" : "三楼模式", thirdFloorModeLabels, params)
+      + (isHalfStoreyScheme ? '<p class="micro">调整半层坡下围护的北侧范围；屋脊最高点按层高总预算控制，不生成原三楼露台与官帽高柱。</p>' : '<p class="micro">不内退：三楼两翼与二楼前墙齐平，取消两侧露台、栏杆和短柱，保留中央门厅露台。退台尺寸暂存，切回北向内退时恢复。</p>') : "";
   return `${g.note ? `<p class="micro">${g.note}</p>` : ""}${choices}${body}${extras}`;
 }
 
@@ -410,6 +411,11 @@ export function hasPendingVillaParamChanges(root: ParentNode = document): boolea
 
 /** 只刷新全局摘要／派生数，不改写任何输入框（避免打断正在输入）。 */
 export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = document) {
+  const height = root.querySelector("#construction-height-status");
+  if (height) {
+    const applied = getVillaParams();
+    height.textContent = `已应用屋脊最高点 ${formatMm(applied.floor1Height + applied.floor2Height + applied.floor3Height)} / 10000 · 屋面构造已计入半层预算`;
+  }
   const west = derivedWestGap(params);
   const setback = derivedAnnexSetback(params);
   const ok = west > 1 && setback >= -1e-6;

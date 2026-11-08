@@ -20,7 +20,7 @@ export default defineConfig({
         if (!url.startsWith(prefix)) return next();
         const relative = url.slice(prefix.length);
         const base = relative.startsWith("data/") ? modelRoot : path.join(modelRoot, "public");
-        if (!relative.startsWith("data/") && relative !== "scheme/current.json") return next();
+        if (!relative.startsWith("data/") && !/^scheme\/(?:two-and-half\/)?current\.json$/.test(relative)) return next();
         const file = path.resolve(base, relative);
         if (!file.startsWith(base + path.sep) || !file.endsWith(".json") || !existsSync(file)) return next();
         res.setHeader("Content-Type", "application/json; charset=utf-8");

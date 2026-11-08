@@ -1352,6 +1352,7 @@ export function gutteredRoof(
   base: number, rise: number, mat: Mats,
   bay?: { x: number; w: number; z: number; ridgeFront?: number },
   wall?: WallFootprint,
+  cover?: THREE.Object3D,
 ) {
   const g = roofEaves(parent, x, z, w, d, base, mat, bay, wall);
   const eaveY = base + roofTileEaveLift();
@@ -1359,9 +1360,9 @@ export function gutteredRoof(
   const hat = bay ? hatRoofSurfaces(bay.x + bay.w / 2, bay.z, bay.w, z + d / 2, eaveY, eaveY + rise, 1, bay.ridgeFront) : null;
   const original = [...main.faces, ...(hat?.faces ?? [])];
   const visible = hat ? joinRoofFaces(original) : original;
-  addTiledRoof(g, visible.filter(face => face.owner === 0), mat.villaRoof, mat.villaRoofJoint, main.ridges, original);
+  addTiledRoof(cover ?? g, visible.filter(face => face.owner === 0), mat.villaRoof, mat.villaRoofJoint, main.ridges, original);
   if (hat)
-    addTiledRoof(g, visible.filter(face => face.owner === 1), mat.villaRoof, mat.villaRoofJoint, hat.ridges, original).name = "中央官帽";
+    addTiledRoof(cover ?? g, visible.filter(face => face.owner === 1), mat.villaRoof, mat.villaRoofJoint, hat.ridges, original).name = "中央官帽";
   return g;
 }
 

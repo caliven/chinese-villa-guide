@@ -1,4 +1,6 @@
 import { mirroredBuildings, mirrorFacade, mainLocalX, hasThirdFloorSideTerraces } from "./building-variants.ts";
+import { isHalfStoreyScheme } from "./construction-scheme.ts";
+import { halfStoreyFacades, halfStoreyRoof } from "./half-storey.ts";
 import { floors, site, frontElevation, circulation, stairLayout, annexRooms, type Point } from "./data.ts";
 import {
   DOOR_OPENING,
@@ -57,6 +59,7 @@ const ANNEX_W0 = 4500;
 
 /** 正屋檐口完成面标高＝三层层高累加（默认 10.5）。 */
 export function mainEaveY() {
+  if (isHalfStoreyScheme) return halfStoreyRoof().wallTop;
   return floors[0].height + floors[1].height + floors[2].height;
 }
 
@@ -183,6 +186,7 @@ export function facades(index: number, frontage = frontElevation): Facade[] {
 }
 
 function unmirroredFacades(index: number, frontage: typeof frontElevation): Facade[] {
+  if (isHalfStoreyScheme && index === 2) return halfStoreyFacades();
   if (index === 3) {
     const ax = site.annex.x;
     const aw = site.annex.w;

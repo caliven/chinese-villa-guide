@@ -19,6 +19,7 @@ import { buildGarageRouteVisual, routeColors } from "./garage-route-visual";
 import { southWindowProbes } from "./design-data";
 import type { CameraPose } from "./design-session";
 import { projectMeta } from "./project-meta";
+import { AssemblyExplosion, ASSEMBLY_DURATION } from "./assembly-explosion";
 
 export type CameraName =
   "aerial" | "north" | "south" | "courtyard" | "garage" | "top" | "roadside";
@@ -36,6 +37,8 @@ export interface ViewState {
   balcony: boolean;
   floor: number | null;
   exploded: boolean;
+  assemblyExploded: boolean;
+  assemblyMode: boolean;
   garage: boolean;
   overlap: boolean;
   sideNeighbor: boolean;
@@ -59,6 +62,8 @@ export const defaultView: ViewState = {
   balcony: false,
   floor: null,
   exploded: false,
+  assemblyExploded: false,
+  assemblyMode: false,
   garage: false,
   overlap: false,
   sideNeighbor: true,
@@ -186,6 +191,9 @@ export class VillaViewer {
   private zoomRaycaster = new THREE.Raycaster();
   private zoomAnchor = new THREE.Vector3();
   private zoomDelta = new THREE.Vector3();
+  private assembly?: AssemblyExplosion;
+  private assemblyHomeCamera?: CameraPose;
+  private assemblyCameraMotion?: { from: CameraPose; to: CameraPose; start: number };
 
   constructor(public host: HTMLElement, layout: VillaLayoutLive | null = null, roofStyle = DEFAULT_ROOF_STYLE) {
     // 首次直接构建已载入的户型和屋面，避免先建默认模型再整栋替换。
@@ -243,6 +251,7 @@ export class VillaViewer {
     this.scene.add(this.sun, this.sun.target, this.ambient);
     for (const g of this.villa.levels) batch(g);
     batch(this.villa.portico);
+    batch(this.villa.facadeColumns);
     for (const g of [this.livingGlass, this.entryBay, this.eastBand, this.movingCar]) batch(g);
     for (const g of [
       this.villa.roof,
@@ -327,16 +336,34 @@ export class VillaViewer {
       );
       this.onCompass(Math.atan2(north.x, north.y));
     });
+    this.controls.addEventListener("start", () => { this.assemblyCameraMotion = undefined; });
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.resize();
     this.setCamera("aerial");
     this.setState({ ...defaultView, roofStyle });
     this.setSun("2026-09-23", 10.5);
-    this.renderer.setAnimationLoop(() => {
+    this.renderer.setAnimationLoop((time) => {
       if (document.hidden || host.clientWidth === 0) return;
+      if (this.assembly?.update(time)) {
+        this.renderer.shadowMap.needsUpdate = true;
+        this.needsRender = true;
+      }
+      if (this.assemblyCameraMotion) {
+        const { from, to, start } = this.assemblyCameraMotion;
+        const t = Math.min(1, Math.max(0, (time - start) / ASSEMBLY_DURATION));
+        const ease = t * t * (3 - 2 * t);
+        this.restoreCameraPose({
+          position: from.position.map((v, i) => THREE.MathUtils.lerp(v, to.position[i], ease)) as CameraPose["position"],
+          target: from.target.map((v, i) => THREE.MathUtils.lerp(v, to.target[i], ease)) as CameraPose["target"],
+          zoom: THREE.MathUtils.lerp(from.zoom, to.zoom, ease),
+        });
+        if (t === 1) this.assemblyCameraMotion = undefined;
+      }
+      if (!this.state.assemblyMode && this.assembly?.progress === 0 && !this.assemblyCameraMotion) this.assemblyHomeCamera = undefined;
       // 跟随屏幕刷新率更新拖动和阻尼，不再强制隔 32ms 才画一帧。静止时不重复绘制。
       if ((this.controls.enabled && this.controls.update()) || this.needsRender) {
+        this.assembly?.updateLabels(this.camera);
         this.renderer.render(this.scene, this.camera);
         this.needsRender = false;
       }
@@ -394,7 +421,7 @@ export class VillaViewer {
   /** 户型工作台按中间画布居中取景，不沿用场地页为侧栏预留的偏移。 */
   floorEditorRoot: THREE.Object3D | null = null;
   floorEditorBounds: (() => THREE.Box3) | null = null;
-  setFloorCamera(mode: "orbit" | "top" = "orbit", targetBounds?: THREE.Box3) {
+  setFloorCamera(mode: "orbit" | "top" = "orbit", targetBounds?: THREE.Box3, directionOverride?: THREE.Vector3) {
     const level = this.state.floor ?? 0;
     this.scene.updateMatrixWorld(true);
     const bounds = targetBounds?.clone() ?? this.floorEditorBounds?.() ?? new THREE.Box3().setFromObject(this.villa.levels[level]);
@@ -407,7 +434,7 @@ export class VillaViewer {
     if (!targetBounds && !this.state.exploded) center.y = toM(floors[level].y + (level === 0 ? site.entranceRise : 0));
     const height = Math.max(size.z, size.x / Math.max(.5, this.camera.aspect));
     const distance = height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.2;
-    const direction = mode === "top" ? new THREE.Vector3(0, 1, -.0001) : new THREE.Vector3(.35, 1.5, -1).normalize();
+    const direction = directionOverride ?? (mode === "top" ? new THREE.Vector3(0, 1, -.0001) : new THREE.Vector3(.35, 1.5, -1).normalize());
     const damping = this.controls.enableDamping;
     this.controls.enableDamping = false;
     this.controls.update();
@@ -434,7 +461,15 @@ export class VillaViewer {
     this.needsRender = true;
   }
   setCamera(name: CameraName) {
+    this.assemblyCameraMotion = undefined;
     this.activeCamera = name;
+    if (this.state.assemblyExploded && this.assembly && name !== "garage") {
+      const direction = name === "south" ? new THREE.Vector3(.35, .55, 1)
+        : name === "north" || name === "courtyard" ? new THREE.Vector3(0, .4, -1)
+        : new THREE.Vector3(.7, .65, -1);
+      this.fitAssemblyCamera(name === "top" ? new THREE.Vector3(0, 1, -.0001) : direction.normalize());
+      return;
+    }
     const roadside = surroundings.roadsideVilla;
     // 数据为毫米，相机在世界米。
     const roadsideEye = roadsideToWorld(roadside, -15000, -23000).map(toM);
@@ -515,10 +550,50 @@ export class VillaViewer {
     this.controls.enableDamping = damping;
     this.needsRender = true;
   }
-  setState(next: Partial<ViewState>) {
+  /** 用各构件实际投影取景，避免整栋大包络的空角把模型挤得过小。 */
+  private fitAssemblyCamera(direction = new THREE.Vector3(.7, .65, -1).normalize()) {
+    if (!this.assembly) return;
+    this.mmRoot.updateMatrixWorld(true);
+    const bounds = this.assembly.expandedBounds().applyMatrix4(this.mmRoot.matrixWorld);
+    if (bounds.isEmpty()) return;
+    this.setFloorCamera("orbit", bounds, direction);
+    this.assembly.updateLabels(this.camera);
+    const points = this.assembly.framingPoints().map(point => point.applyMatrix4(this.mmRoot.matrixWorld));
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      this.camera.updateMatrixWorld(true);
+      const projected = points.map(point => point.clone().project(this.camera));
+      const left = Math.min(...projected.map(p => p.x)), right = Math.max(...projected.map(p => p.x));
+      const bottom = Math.min(...projected.map(p => p.y)), top = Math.max(...projected.map(p => p.y));
+      const distance = this.camera.position.distanceTo(this.controls.target);
+      const halfHeight = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * distance;
+      const shift = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion).multiplyScalar((left + right) / 2 * halfHeight * this.camera.aspect)
+        .addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion), (bottom + top) / 2 * halfHeight);
+      this.controls.target.add(shift);
+      this.camera.position.add(shift).sub(this.controls.target)
+        .multiplyScalar(Math.max((right - left) / 1.68, (top - bottom) / 1.42) * 1.02).add(this.controls.target);
+      this.controls.update();
+    }
+    this.controls.enableDamping = damping;
+    this.needsRender = true;
+  }
+  setState(next: Partial<ViewState>, allowAssembly = true) {
     const wasExploded = this.state.exploded;
+    const wasAssembly = this.state.assemblyExploded;
+    const wasAssemblyMode = this.state.assemblyMode;
+    this.assembly?.restoreHome();
     Object.assign(this.state, next);
     const s = this.state;
+    // 展开和模式独立：合拢只复位构件，退出模式才恢复场地环境与原机位。
+    if (s.assemblyExploded) s.assemblyMode = true;
+    if (!allowAssembly || s.existing || s.garage || s.floor !== null) {
+      s.assemblyExploded = false;
+      s.assemblyMode = false;
+      this.clearAssembly();
+      if (this.assemblyHomeCamera) this.restoreCameraPose(this.assemblyHomeCamera);
+      this.assemblyHomeCamera = undefined;
+    }
     this.applyLighting();
     setEaveWashVisible(this.villa.group, s.night);
     setEaveWashAppearance(this.villa.group, s.eaveLightColor, s.eaveLightBrightness, s.night);
@@ -528,7 +603,7 @@ export class VillaViewer {
     this.land.neighborDeck.visible = !s.existing && !s.garage;
     this.land.proposed.visible = !s.existing;
     this.villa.group.visible = !s.existing && !s.garage && !this.floorEditorRoot;
-    this.land.context.visible = s.context && s.floor === null;
+    this.land.context.visible = s.context && s.floor === null && !s.assemblyMode;
     this.land.sideNeighbor.visible = s.sideNeighbor;
     this.land.rearNeighbor.visible = s.rearNeighbor;
     this.land.frontNeighbor.visible = s.frontNeighbor;
@@ -541,7 +616,7 @@ export class VillaViewer {
     this.land.cutOutline.visible = !s.existing && (s.garage || s.dimensions);
     this.land.deck.visible = !s.garage;
     this.land.overlap.visible = s.overlap && !s.existing;
-    this.land.dimensions.visible = s.dimensions && s.floor === null;
+    this.land.dimensions.visible = s.dimensions && s.floor === null && !s.assemblyMode;
     this.land.dimensionsScheme.visible = !s.existing;
     this.land.dimensionsCurrent.visible = s.existing;
     this.land.columnNotes.visible =
@@ -550,10 +625,10 @@ export class VillaViewer {
     this.land.parked.visible = !s.garage;
     this.villa.roof.visible = s.mainBuilding && s.roof && s.floor === null;
     this.villa.annexRoof.visible = s.annexBuilding && s.roof && s.floor === null;
-    // 完整房屋保留封顶；单层／分离视图继续敞开，便于查看户型。
+    // 场地拆分时封顶板与天沟一起抬起；户型单层／分离视图仍敞开。
     this.villa.topSlabs.main.visible = s.mainBuilding && s.floor === null && !s.exploded;
     this.villa.topSlabs.annex.visible = s.annexBuilding && s.floor === null && !s.exploded;
-    const roofCoversRailing = s.roof && s.floor === null && !s.exploded;
+    const roofCoversRailing = s.roof && s.floor === null && !s.exploded && !s.assemblyExploded;
     for (const root of [this.villa.levels[2], this.villa.topSlabs.main]) root.traverse(object => {
       if (object.userData.roofRailingMode) object.visible = object.userData.roofRailingMode === (roofCoversRailing ? "covered" : "open");
     });
@@ -561,6 +636,7 @@ export class VillaViewer {
     this.villa.balcony.visible =
       s.mainBuilding && s.balcony && (s.floor === null || s.floor === 2);
     this.villa.portico.visible = s.mainBuilding && s.floor === null;
+    this.villa.facadeColumns.visible = s.mainBuilding && s.floor === null;
     const lowerFront =
       s.mainBuilding && !s.exploded && (s.floor === null || s.floor < 2);
     this.livingGlass.visible = lowerFront;
@@ -591,8 +667,41 @@ export class VillaViewer {
       this.camera.position.copy(pos);
       this.controls.target.copy(target);
     }
+    if (s.assemblyMode && !this.assembly) {
+      this.assembly = new AssemblyExplosion(this.villa, floors.map(f => f.name));
+      // 重建模型后沿用拆分状态，不从零闪回。
+      if (wasAssembly) this.assembly.apply(1);
+    }
+    if (this.assembly) {
+      const now = performance.now();
+      const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      this.assembly.setExpanded(s.assemblyExploded, animate, now);
+      this.assembly.apply();
+      if (s.assemblyMode !== wasAssemblyMode) {
+        const from = this.cameraPose();
+        let to: CameraPose;
+        if (s.assemblyMode) {
+          this.assemblyHomeCamera ??= from;
+          this.fitAssemblyCamera();
+          to = this.cameraPose();
+        } else {
+          to = this.assemblyHomeCamera ?? from;
+        }
+        this.restoreCameraPose(animate ? from : to);
+        this.assemblyCameraMotion = animate ? { from, to, start: now } : undefined;
+        if (!s.assemblyMode && !animate) this.assemblyHomeCamera = undefined;
+      } else if (s.assemblyExploded !== wasAssembly) {
+        // 保留当前观察方向、缩放与平移；中途合拢也停止入场镜头动画。
+        this.assemblyCameraMotion = undefined;
+      }
+    }
     this.renderer.shadowMap.needsUpdate = true;
     this.needsRender = true;
+  }
+  private clearAssembly() {
+    this.assembly?.dispose();
+    this.assembly = undefined;
+    this.assemblyCameraMotion = undefined;
   }
   // 沿画面右侧平移镜头和观察点，模型在屏幕上整体向左。比例按当前视野宽度。
   private shiftFrameLeft(pos: THREE.Vector3, target: THREE.Vector3) {
@@ -626,6 +735,7 @@ export class VillaViewer {
       }
       this.fenShui = next;
       this.builtRoofStyle = this.state.roofStyle;
+      this.clearAssembly();
       const keep = new Set<THREE.Material>(Object.values(this.mat));
       for (const root of [this.villa.roof, this.villa.annexRoof])
         disposeReplaced(root, this.scene, keep);
@@ -638,6 +748,7 @@ export class VillaViewer {
         batch(root);
       }
       disposeDetached(created, this.scene, keep);
+      this.setState({});
       setEaveWashVisible(this.villa.group, this.state.night);
       setEaveWashAppearance(this.villa.group, this.state.eaveLightColor, this.state.eaveLightBrightness, this.state.night);
       this.renderer.shadowMap.needsUpdate = true;
@@ -650,6 +761,7 @@ export class VillaViewer {
    * layout：传入覆盖用草稿几何；undefined＝保持现有 layoutLive；null＝清回源码默认户型。
    */
   rebuildAfterParams(fenShui = site.roofFenShui, layout?: VillaLayoutLive | null) {
+    this.clearAssembly();
     if (layout !== undefined) this.layoutLive = layout;
     const keep = new Set<THREE.Material>(Object.values(this.mat));
     for (const root of [this.villa.group, this.land.context, this.land.fixed, this.land.existing, this.land.proposed, this.land.dimensions]) {
@@ -666,6 +778,7 @@ export class VillaViewer {
     this.builtRoofStyle = this.state.roofStyle;
     for (const g of this.villa.levels) batch(g);
     batch(this.villa.portico);
+    batch(this.villa.facadeColumns);
     for (const g of [this.livingGlass, this.entryBay, this.eastBand]) batch(g);
     for (const g of [
       this.villa.roof,
@@ -724,20 +837,22 @@ export class VillaViewer {
 
   /** 户型变化只更新受影响楼层／构件，场地、道路、邻房及车辆路线保持原对象。 */
   rebuildLayout(layout: VillaLayoutLive | null) {
+    this.assembly?.restoreHome();
     const previous = this.villa;
     const oldRoots = new Set<THREE.Object3D>([
       ...previous.levels, previous.roof, previous.annex, previous.annexRoof, ...Object.values(previous.topSlabs),
-      previous.portico, previous.balcony, this.livingGlass, this.entryBay, this.eastBand,
+      previous.portico, previous.facadeColumns, previous.balcony, this.livingGlass, this.entryBay, this.eastBand,
     ]);
     const next = buildVilla(this.mat, true, this.fenShui, this.state.roofStyle, layout, previous);
     this.layoutLive = layout;
-    if (next === previous) return;
+    if (next === previous) { this.assembly?.apply(); return; }
+    this.clearAssembly();
     const livingGlass = next.group.getObjectByName("挑空客厅一二层通高玻璃")!;
     const entryBay = next.group.getObjectByName("门厅一二层通高门")!;
     const eastBand = next.group.getObjectByName("烤火房回纹横披")!;
     const created: THREE.Mesh[] = [];
     for (const root of [
-      ...next.levels, next.roof, next.annex, next.annexRoof, ...Object.values(next.topSlabs), next.portico,
+      ...next.levels, next.roof, next.annex, next.annexRoof, ...Object.values(next.topSlabs), next.portico, next.facadeColumns,
       next.balcony, livingGlass, entryBay, eastBand,
     ]) {
       if (oldRoots.has(root)) continue;

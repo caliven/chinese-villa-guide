@@ -1,6 +1,8 @@
 import { orthogonalFloorGeometry as editorFloorGeometry } from "./floor-geometry";
 import { recessedFloor, recessedFootprint, recessedPortico, porticoFrontZ } from "./building-variants";
 import * as THREE from "three";
+import { isHalfStoreyScheme } from "./construction-scheme";
+import { clipHalfStorey } from "./half-storey";
 import { site, construction, isPhysicalWall, wallRoleOf, type Point, type Wall, type Room } from "./data";
 import { resolveLayoutFacades } from "./facade-layout";
 import { continuousGlazing } from "./continuous-glazing";
@@ -105,15 +107,17 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
       : outline;
     // 单面材质＋更深层次，避免双面共面和与墙顶抢像素。
     const slabMat = finishLayer(new THREE.MeshStandardMaterial({ color: "#d5d0c5", roughness: .95 }), -2);
-    const slab = surface(roof, [slabOutline], holes, top.y + top.height, slabMat, construction.floorSlab);
-    walkSurfaces.push(slab);
+    if (!isHalfStoreyScheme) {
+      const slab = surface(roof, [slabOutline], holes, top.y + top.height, slabMat, construction.floorSlab);
+      walkSurfaces.push(slab);
+    }
     const fenShui = options.fenShui ?? site.roofFenShui;
     const style = options.roofStyle ?? DEFAULT_ROOF_STYLE;
     const layout = villaLayoutFromDraft(draft);
     const plan = roofPlanModel(style, layout, fenShui);
     const main = plan.main, pitch = plan.pitch;
     // 与完整房屋相同：显示坡屋面时裁切顶板洞边栏杆，避免穿出瓦面。
-    roofRailingVariants(roof, group => { railings.render(group, railings.roofGuards); }, {
+    if (!isHalfStoreyScheme) roofRailingVariants(roof, group => { railings.render(group, railings.roofGuards); }, {
       x: main.x + roofTileInset, z: main.z + roofTileInset,
       w: main.w - 2 * roofTileInset, d: main.d - 2 * roofTileInset,
       eave: main.eave + roofTileEaveLift(), slope: pitch.mainRise / pitch.mainRun,
@@ -255,7 +259,7 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
       const model = furnish(group, furniture, base, mat);
       model.userData.layoutSelection = { kind: "furniture", floor, index, annex };
     });
-    if (!annex && hasStair) {
+    if (!annex && hasStair && (!isHalfStoreyScheme || floor < 2)) {
       const model = new THREE.Group(); group.add(model); model.userData.layoutSelection = { kind: "stair" };
       stairs(model, stair.x, stair.z, base, data.height - (floor === 0 ? site.entranceRise : 0), mat, stair.axis, stair, false);
       if (options.walking) model.traverse(object => { if (object instanceof THREE.Mesh) walkSurfaces.push(object); });
@@ -311,6 +315,7 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
       };
       labelGroup.add(sprite);
     }
+    if (isHalfStoreyScheme && floor === 2 && !annex) clipHalfStorey(group);
     group.updateMatrixWorld(true); batchStatic(group, new Set(walkSurfaces));
     return group;
   };

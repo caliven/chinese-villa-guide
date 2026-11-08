@@ -1,7 +1,8 @@
+import { isHalfStoreyScheme } from "./construction-scheme";
 // 版本描述沟通资料的口径，不代表测绘、审批或专业验收。
 export const projectMeta = {
-  revision: "沟通方案 03",
-  date: "2026-10-15",
+  revision: isHalfStoreyScheme ? "两层半独立方案 01" : "沟通方案 03",
+  date: isHalfStoreyScheme ? "2026-11-06" : "2026-10-15",
   status: "概念模型 · 实测与专业设计待补",
   datum: "院坪暂定 ±0.000；非绝对高程",
   realSceneBase: "4f1cd12",

@@ -179,7 +179,19 @@ export function batchStatic(root: THREE.Object3D, skip = new Set<THREE.Object3D>
 
 /** 场地模型按楼层及独立开关合批，家具无需单独绘制。 */
 export function batchScene(root: THREE.Object3D, skip = new Set<THREE.Object3D>()) {
-  batch(root, skip, false);
+  // 拆分子组必须保留独立几何；不能把瓦面、天沟或露台合进同一批网格。
+  const boundaries = new Set(skip);
+  const parts: THREE.Object3D[] = [];
+  root.traverse(obj => {
+    if (obj === root || !obj.userData.assemblyPart) return;
+    for (let parent = obj.parent; parent && parent !== root; parent = parent.parent)
+      if (parent.userData.assemblyPart || skip.has(parent)) return;
+    if (skip.has(obj)) return;
+    boundaries.add(obj);
+    parts.push(obj);
+  });
+  for (const part of parts) batchScene(part, skip);
+  batch(root, boundaries, false);
 }
 
 function batch(root: THREE.Object3D, skip: Set<THREE.Object3D>, preserveSelection: boolean) {

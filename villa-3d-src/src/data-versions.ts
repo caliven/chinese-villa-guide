@@ -1,3 +1,4 @@
+import { activeConstructionScheme, assertConstructionScope, dataDirectory, type ConstructionScheme } from "./construction-scheme";
 /**
  * 尺寸／户型版本：写入仓库 data/尺寸、data/户型，三层户型一体存取。
  */
@@ -45,6 +46,7 @@ export type DataVersionsIndex = {
 
 /** 尺寸版本：方案参数及相关外观／院坪选择（不含户型草稿）。 */
 export type SizeVersionDocument = {
+  constructionScheme?: ConstructionScheme;
   schema: typeof sizeDocSchema;
   /** 长度单位；缺省或 "m" 视为旧米制稿，读入时迁成毫米。 */
   units: typeof LENGTH_UNITS;
@@ -60,6 +62,7 @@ export type SizeVersionDocument = {
 
 /** 户型版本：一二三楼一体（LayoutDraft.floors 必为 3 层）。 */
 export type LayoutVersionDocument = {
+  constructionScheme?: ConstructionScheme;
   schema: typeof layoutDocSchema;
   /** 长度单位；缺省或 "m" 视为旧米制稿，读入时迁成毫米。 */
   units: typeof LENGTH_UNITS;
@@ -85,11 +88,11 @@ export function dataKindDir(kind: DataKind) {
 }
 
 export function dataIndexUrl(kind: DataKind) {
-  return `./data/${encodeURIComponent(kind)}/index.json`;
+  return `./${dataDirectory()}/${encodeURIComponent(kind)}/index.json`;
 }
 
 export function dataVersionUrl(kind: DataKind, file: string) {
-  return `./data/${encodeURIComponent(kind)}/${encodeURIComponent(file)}`;
+  return `./${dataDirectory()}/${encodeURIComponent(kind)}/${encodeURIComponent(file)}`;
 }
 
 /** 中文前缀＋日期时间，如 尺寸-20261017-143052 */
@@ -117,6 +120,7 @@ export function buildSizeVersionDocument(input?: {
   const now = new Date();
   const title = input?.title ?? makeDataVersionTitle("尺寸", now);
   return {
+    constructionScheme: activeConstructionScheme,
     schema: sizeDocSchema,
     units: LENGTH_UNITS,
     id: input?.id ?? title,
@@ -140,6 +144,7 @@ export function buildLayoutVersionDocument(
   const now = new Date();
   const title = input?.title ?? makeDataVersionTitle("户型", now);
   return {
+    constructionScheme: activeConstructionScheme,
     schema: layoutDocSchema,
     units: LENGTH_UNITS,
     id: input?.id ?? title,
@@ -151,6 +156,7 @@ export function buildLayoutVersionDocument(
 
 export function parseSizeVersionDocument(input: unknown): SizeVersionDocument {
   if (!isRecord(input)) throw new Error("尺寸文件不是对象");
+  assertConstructionScope(input);
   if (input.schema !== sizeDocSchema) throw new Error(`尺寸版本应为 ${sizeDocSchema}`);
   const rawParams = isRecord(input.villaParams) ? input.villaParams : {};
   const meter =
@@ -174,6 +180,7 @@ export function parseSizeVersionDocument(input: unknown): SizeVersionDocument {
   const issues = validateVillaParams(villaParams);
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
   return {
+    constructionScheme: activeConstructionScheme,
     schema: sizeDocSchema,
     units: LENGTH_UNITS,
     id: typeof raw.id === "string" && raw.id ? raw.id : "尺寸",
@@ -189,6 +196,7 @@ export function parseSizeVersionDocument(input: unknown): SizeVersionDocument {
 
 export function parseLayoutVersionDocument(raw: unknown): LayoutVersionDocument {
   if (!isRecord(raw)) throw new Error("户型文件不是对象");
+  assertConstructionScope(raw);
   if (raw.schema !== layoutDocSchema) throw new Error(`户型版本应为 ${layoutDocSchema}`);
   if (raw.layoutDraft == null) throw new Error("户型版本缺少 layoutDraft");
   const meter =
@@ -197,6 +205,7 @@ export function parseLayoutVersionDocument(raw: unknown): LayoutVersionDocument 
   const layoutDraft = parseLayoutDraftManaged(JSON.stringify(draftRaw));
   if (layoutDraft.floors.length !== 3) throw new Error("户型版本必须包含一二三楼共三层");
   return {
+    constructionScheme: activeConstructionScheme,
     schema: layoutDocSchema,
     units: LENGTH_UNITS,
     id: typeof raw.id === "string" && raw.id ? raw.id : "户型",
@@ -305,7 +314,7 @@ export async function persistDataVersion(body: PersistBody): Promise<DataPersist
     res = await fetch("/__data_save", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, constructionScheme: activeConstructionScheme }),
     });
   } catch {
     /* 静态服务无写入接口时走下载 */
@@ -329,7 +338,7 @@ export async function persistDataVersion(body: PersistBody): Promise<DataPersist
   return {
     ok: true,
     via: "download",
-    message: `已下载 ${file}；请放到 villa-3d-src/data/${body.kind}/ 并更新 index.json。本次页面内可继续使用，刷新前请完成文件保存（npm run dev 可自动写入）`,
+    message: `已下载 ${file}；请放到 villa-3d-src/${dataDirectory()}/${body.kind}/ 并更新 index.json。本次页面内可继续使用，刷新前请完成文件保存（npm run dev 可自动写入）`,
   };
 }
 
@@ -378,7 +387,7 @@ export async function deleteDataVersion(body: DeleteBody): Promise<DataPersistRe
     res = await fetch("/__data_delete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind: body.kind, file, index }),
+      body: JSON.stringify({ kind: body.kind, file, index, constructionScheme: activeConstructionScheme }),
     });
   } catch {
     /* 静态服务无删除接口 */
@@ -397,6 +406,6 @@ export async function deleteDataVersion(body: DeleteBody): Promise<DataPersistRe
   return {
     ok: true,
     via: "download",
-    message: `已下载更新后的 index.json；请删掉 villa-3d-src/data/${body.kind}/${file} 并替换同目录 index（npm run dev 可自动删除）`,
+    message: `已下载更新后的 index.json；请删掉 villa-3d-src/${dataDirectory()}/${body.kind}/${file} 并替换同目录 index（npm run dev 可自动删除）`,
   };
 }

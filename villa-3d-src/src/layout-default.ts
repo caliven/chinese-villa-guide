@@ -1,7 +1,8 @@
 import { isSessionDataVersion, loadLayoutVersion, type DataVersionsIndex, type LayoutVersionDocument } from "./data-versions";
+import { schemeStorageKey } from "./construction-scheme";
 
 // 这里只保存默认版本的引用；户型内容仍从 data/户型 的 JSON 读取。
-const defaultLayoutKey = "anhua-villa-default-layout-v1";
+const defaultLayoutKey = schemeStorageKey("anhua-villa-default-layout-v1");
 
 export function getDefaultLayoutVersionFile(index: DataVersionsIndex): string {
   try {

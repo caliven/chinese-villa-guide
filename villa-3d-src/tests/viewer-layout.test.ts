@@ -6,6 +6,7 @@ import { clonePublishedLayout, ensureExteriorManaged } from "../src/layout-draft
 import { site, frontElevation } from "../src/data.ts";
 import { VillaViewer, defaultView } from "../src/viewer.ts";
 import type { Mats } from "../src/primitives.ts";
+import { visibleSurfaceMeshes } from "../src/render-geometry";
 
 // 三维几何测试不创建 WebGL；只为标签的 CanvasTexture 提供绘图替身。
 const context = new Proxy({ measureText: () => ({ width: 100 }) }, {
@@ -175,4 +176,57 @@ test("屋顶开关只隐藏瓦屋面，完整模型保留顶板；分层及建�
   update({ mainBuilding: true, annexBuilding: false });
   assert.equal(viewer.villa.topSlabs.main.visible, true);
   assert.equal(viewer.villa.topSlabs.annex.visible, false);
+});
+
+test("场地拆分可完整取景，切换户型时立即归位，合拢恢复原机位", () => {
+  const { viewer, draft } = fixture();
+  const previousWindow = globalThis.window;
+  globalThis.window = { matchMedia: () => ({ matches: true }) } as unknown as Window & typeof globalThis;
+  try {
+    viewer.camera = new THREE.PerspectiveCamera(38, 1.6, .04, 350);
+    viewer.camera.position.set(42, 36, -49);
+    viewer.mmRoot.scale.setScalar(.001);
+    Object.assign(viewer, {
+      applyLighting: () => {}, builtRoofStyle: viewer.state.roofStyle,
+      renderer: { shadowMap: {} }, land: new Proxy({}, { get: () => new THREE.Group() }),
+      controls: { target: new THREE.Vector3(16, 2.5, 3), enableDamping: false,
+        update() { viewer.camera.lookAt(this.target); } },
+    });
+    const home = viewer.cameraPose();
+    viewer.setState = VillaViewer.prototype.setState.bind(viewer);
+    const update = (state: Parameters<VillaViewer["setState"]>[0], animate = true) => VillaViewer.prototype.setState.call(viewer, state, animate);
+    update({ assemblyExploded: true });
+    assert.equal(viewer.villa.topSlabs.main.visible, true, "主楼顶板随天沟抬起，楼层顶部敞开");
+    assert.equal(viewer.villa.topSlabs.annex.visible, true, "辅楼顶板也归屋顶下部");
+    assert.equal(viewer.villa.topSlabs.main.position.y, viewer.villa.roof.position.y);
+    assert.equal(viewer.villa.topSlabs.annex.position.y, viewer.villa.annexRoof.position.y);
+    assert.ok(viewer.villa.levels[2].position.y > 0);
+    assert.ok(viewer.villa.roof.position.y > viewer.villa.levels[2].position.y);
+    viewer.scene.updateMatrixWorld(true);
+    viewer.camera.updateMatrixWorld(true);
+    for (const mesh of visibleSurfaceMeshes(viewer.villa.group)) {
+      const bounds = new THREE.Box3().setFromObject(mesh);
+      for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
+        const point = new THREE.Vector3(x, y, z).project(viewer.camera);
+        assert.ok(Math.abs(point.x) < .95 && Math.abs(point.y) < .9, `${mesh.name} 应完整入镜`);
+      }
+    }
+    const originalRoof = viewer.villa.roof;
+    draft.floors[1].furniture[0].x += 100;
+    viewer.rebuildLayout(villaLayoutFromDraft(draft));
+    assert.equal(viewer.villa.roof, originalRoof, "拆分中的局部更新仍复用原屋顶");
+    assert.ok(viewer.villa.levels[2].position.y > 0, "重建后保持拆分，不叠加旧偏移");
+    update({ assemblyExploded: false });
+    assert.equal(viewer.villa.topSlabs.main.visible, true);
+    assert.equal(viewer.villa.topSlabs.annex.visible, true);
+    assert.deepEqual(viewer.cameraPose(), home);
+    assert.equal(viewer.villa.levels[2].position.y, 0);
+    update({ assemblyExploded: true });
+    update({ assemblyExploded: false, floor: 1 }, false);
+    assert.equal(viewer.villa.roof.position.lengthSq(), 0);
+    assert.equal(viewer.villa.portico.position.lengthSq(), 0);
+    assert.equal(viewer.villa.annex.position.lengthSq(), 0);
+    assert.equal(viewer.villa.levels[1].position.lengthSq(), 0);
+    assert.equal(viewer.villa.group.getObjectByName("拆分构件名称"), undefined);
+  } finally { globalThis.window = previousWindow; }
 });

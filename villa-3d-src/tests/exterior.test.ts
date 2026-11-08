@@ -236,7 +236,7 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     // 后端已完全埋入正屋，不再留下独立的横向后檐或后坡断边。
     for (let x = h.x + 400; x < h.x + h.w - 400; x += 271) {
       assert.equal(topHits(cap, x, h.joinZ + 17).length, 0);
-      assert.equal(topHits(main, x, h.joinZ + 17).length, 1);
+      assert.equal(topHits(roof.getObjectByName("屋顶瓦片与木架")!, x, h.joinZ + 17).length, 1);
     }
     const sideJoin = m.z + inset + (h.eave - m.eave) / (pitch / 10);
     const capGeometry = hatRoofSurfaces(center, h.z, h.w, h.joinZ, h.eave + roofTileEaveLift(), h.peak, 1, h.ridgeFront);
@@ -258,7 +258,7 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
       assert.ok(heights.every(hits => hits.length === 1), "左右交线两侧都应封闭");
       assert.ok(Math.abs(heights[0][0].point.y - heights[1][0].point.y) < 5, "交界高度须连续");
     }
-    const eaves = cap.getObjectByName("前檐及两侧融入正屋的天沟")!;
+    const eaves = roof.getObjectByName("前檐及两侧融入正屋的天沟")!;
     eaves.updateMatrixWorld(true);
     const mainTileFront = m.z + inset;
     const innerWall = eaves.getObjectByName("天沟内挡边") as THREE.Mesh;
@@ -288,7 +288,7 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
         assert.ok(p.y >= mainHeight - 0.02, `檐底、天沟和线脚后端应斜切贴合，不穿进主屋瓦面：${object.name} pitch=${pitch} xyz=${p.toArray()} below=${mainHeight-p.y}`);
       }
     });
-    const fascia = cap.getObjectByName("天沟外挡边")!;
+    const fascia = eaves.getObjectByName("天沟外挡边")!;
     // 前挡顶宽 300，探测起点须越过前反坎，只查是否误加后天沟横档。
     for (let z = h.z + roofGutterDesign.outerTopWidth + 50; z < h.z + h.d; z += 173) {
       const hits = new THREE.Raycaster(new THREE.Vector3(center, 25000, z), new THREE.Vector3(0, -1, 0)).intersectObject(fascia);
@@ -1023,8 +1023,8 @@ test("三楼正面窗侧不残留横槽，包角柱外展斜肩止于连续下�
       "三楼正面窗边不能残留独立横槽");
   }
   assert.ok(villa.levels[1].getObjectByName("水包砂凹槽")!.children.length > 0, "下层原有墙面分缝保留");
-  const outer = villa.portico.children.filter(o => o.name === "包角柱" && o.position.z < site.main.z);
-  const shoulders = villa.portico.children.filter(o => o.name === "包角柱外展斜肩");
+  const outer = villa.facadeColumns.children.filter(o => o.name === "包角柱" && o.position.z < site.main.z);
+  const shoulders = villa.facadeColumns.children.filter(o => o.name === "包角柱外展斜肩");
   assert.equal(villa.portico.getObjectByName("包角柱退进承托柱颈"), undefined);
   assert.equal(outer.length, 2); assert.equal(shoulders.length, 2);
   const top = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop).porticoTopY;

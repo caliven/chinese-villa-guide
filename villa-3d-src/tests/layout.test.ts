@@ -353,12 +353,13 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   assert.ok(mainGutter.getObjectByName("天沟外挡边"));
   const crown = villa.roof.getObjectByName("中央官帽")!;
   const crownBounds = new THREE.Box3().setFromObject(crown);
+  const roofBounds = new THREE.Box3().setFromObject(villa.roof);
   const pitch = roofPitch(site.roofFenShui);
   assert.ok(Math.abs(pitch.mainRise - site.roofRise) < 1e-6);
-  assert.ok(bounds.max.y > 10500 + pitch.mainRise);
+  assert.ok(roofBounds.max.y > 10500 + pitch.mainRise);
   const steeper = buildVilla(mats, false, 6, "joined");
-  assert.ok(new THREE.Box3().setFromObject(steeper.roof).max.y > bounds.max.y + 500);
-  assert.ok(Math.abs(crownBounds.max.y - bounds.max.y) < 30, `官帽脊 ${crownBounds.max.y} 与正屋脊 ${bounds.max.y} 未齐平`);
+  assert.ok(new THREE.Box3().setFromObject(steeper.roof).max.y > roofBounds.max.y + 500);
+  assert.ok(Math.abs(crownBounds.max.y - roofBounds.max.y) < 30, `官帽脊 ${crownBounds.max.y} 与正屋脊 ${roofBounds.max.y} 未齐平`);
   assert.ok(crownBounds.min.z < floors[2].front - 800 - 1000, "官帽瓦面应比两侧前檐更靠前");
   const leftTerrace = villa.levels[2].getObjectByName("三楼左侧露台")!;
   const rightTerrace = villa.levels[2].getObjectByName("三楼右侧露台")!;

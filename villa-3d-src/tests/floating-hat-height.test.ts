@@ -212,7 +212,7 @@ test("仅修改升降仍触发模型重建，三楼官帽柱、转接梁及灯�
         assert.equal(joints.length, 2);
         for (const joint of joints) close(new THREE.Box3().setFromObject(joint).min.y, top);
         assert.deepEqual(new THREE.Box3().setFromObject(updated.levels[2].getObjectByName("三楼包角柱")!), corner);
-        const lights = updated.roof.getObjectByName("悬浮官帽")!;
+        const lights = updated.roof.getObjectByName("前檐及两侧融入正屋的天沟")!;
         const strips: THREE.Object3D[] = [];
         lights.traverse(o => { if (o.name === "暖白灯带") strips.push(o); });
         assert.ok(strips.length > 0);
