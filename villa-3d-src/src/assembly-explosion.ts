@@ -75,11 +75,18 @@ export class AssemblyExplosion {
       part.offset.y = lastOffset;
       top = part.bounds.max.y + lastOffset;
     });
-    const exterior = model.levels[2].getObjectByName("三楼飘檐与露台");
-    if (exterior) {
-      const part = add("三楼飘檐与露台", [exterior], new THREE.Vector3(0, lastOffset, -5000));
-      if (part) top = Math.max(top, part.bounds.max.y + lastOffset);
+    const bedding = model.levels[2].getObjectByName("三层飘檐水泥坡面");
+    const apronTiles = model.levels[2].getObjectByName("三层飘檐瓦片");
+    const apronBase = bedding && add(bedding.name, [bedding], new THREE.Vector3(0, lastOffset, -5000));
+    if (apronTiles) {
+      const cover = add(apronTiles.name, [apronTiles], new THREE.Vector3(0, lastOffset, -5000));
+      if (cover) {
+        if (apronBase) cover.offset.y = Math.max(lastOffset,
+          apronBase.bounds.max.y + apronBase.offset.y + 900 - cover.bounds.min.y);
+        top = Math.max(top, cover.bounds.max.y + cover.offset.y);
+      }
     }
+    if (apronBase) top = Math.max(top, apronBase.bounds.max.y + apronBase.offset.y);
     add("后阳台", [model.balcony], new THREE.Vector3(0, lastOffset, 0));
     const addRoof = (name: string, roof: THREE.Group, slab: THREE.Group, below: number, labelRight = false) => {
       const base = add(`${name}楼板与天沟`, [roof, slab], new THREE.Vector3(), labelRight);
@@ -99,7 +106,7 @@ export class AssemblyExplosion {
       annex.offset.y = Math.max(0, below + 2400 - annex.bounds.min.y);
       addRoof("辅楼", model.annexRoof, model.topSlabs.annex, annex.bounds.max.y + annex.offset.y, true);
     }
-    add("门厅", [model.portico], new THREE.Vector3(0, 0, -7000));
+    add(model.portico.name === "平齐式入口" ? "入口平台" : "门厅柱梁与入口平台", [model.portico], new THREE.Vector3(0, 0, -7000));
     this.labels.name = "拆分构件名称";
     model.group.add(this.labels);
     this.apply(0);

@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
 import { AssemblyExplosion } from "../src/assembly-explosion";
+import { batchScene } from "../src/render-geometry";
 import { buildVilla, villaLayoutFromDraft } from "../src/architecture";
-import { floors, site } from "../src/data";
+import { construction, floors, site } from "../src/data";
+import { cornerPedestalTop } from "../src/entrance-carvings";
 import {
   FOUNDATION_FOOTING_DEPTH,
+  PLINTH_CORNER_INSET,
   buildFoundation,
+  exteriorPlinthBand,
+  firstFloorPlinthTop,
   foundationSegments,
   porticoFoundationSegments,
   raiseOpeningsToFinish,
@@ -19,6 +24,23 @@ const mat = new Proxy({} as Mats, {
   get(target, key: keyof Mats) {
     return target[key] ??= new THREE.MeshPhysicalMaterial() as never;
   },
+});
+
+test("勒脚四向转角斜接封闭，合批前后近角射线无拼接孔", () => {
+  const root = new THREE.Group();
+  const points: [number, number][] = [[0, 0], [2000, 0], [2000, 2000], [0, 2000]];
+  exteriorPlinthBand(root, points.map((a, i) => ({ a, b: points[(i + 1) % 4] })),
+    450, 650, [1000, 1000], mat.british);
+  for (const batched of [false, true]) {
+    if (batched) batchScene(root);
+    root.updateMatrixWorld(true);
+    for (const [x, z] of points) for (const offset of [131, 139, 147]) {
+      const sx = x === 0 ? -1 : 1, sz = z === 0 ? -1 : 1;
+      const ray = new THREE.Raycaster(new THREE.Vector3(x + sx * 1000, 550, z + sz * offset),
+        new THREE.Vector3(-sx, 0, 0));
+      assert.ok(ray.intersectObject(root, true).length, `转角 ${x},${z} 距轴线 ${offset} 应封闭`);
+    }
+  }
 });
 
 test("一层洞口随室内抬高改相对墙底，门洞落到完成面", () => {
@@ -158,9 +180,83 @@ test("抬高参数变化时地基层高度联动；结构楼板为120厚水泥�
       const mesh = root.getObjectByName(name)! as THREE.Mesh;
       const box = new THREE.Box3().setFromObject(mesh);
       assert.ok(Math.abs(box.max.y - box.min.y - 120) < 1, name);
-      assert.equal(mesh.material, mat.concrete, name);
+      assert.deepEqual(mesh.material, name === "三楼楼板" ? [mat.concrete, mat.british] : mat.concrete, name);
     }
   } finally {
     resetVillaParams();
   }
+});
+
+test("一层勒脚与四根包角柱脚方座同为英国棕且顶齐平", () => {
+  const model = buildVilla(mat, false);
+  const plinthTop = firstFloorPlinthTop();
+  assert.equal(plinthTop, cornerPedestalTop(undefined, site.entranceRise));
+  assert.ok(plinthTop > site.entranceRise, "勒脚顶应高于地基抬高层");
+  const band = model.levels[0].getObjectByName("外墙英国棕勒脚");
+  assert.ok(band, "主楼一层应有外墙勒脚带");
+  const bandBox = new THREE.Box3().setFromObject(band!);
+  assert.ok(Math.abs(bandBox.max.y - plinthTop) < 2, "勒脚顶对齐包角柱脚");
+  assert.ok(Math.abs(bandBox.min.y - site.entranceRise) < 2, "勒脚从室内抬高起接");
+  assert.equal(model.annex.getObjectByName("外墙英国棕勒脚"), undefined, "辅楼墙面不设英国棕勒脚");
+  let annexBeamCount = 0;
+  model.annexFoundation.traverse(obj => {
+    if (!(obj instanceof THREE.Mesh) || obj.material !== mat.british) return;
+    annexBeamCount++;
+    assert.ok(new THREE.Box3().setFromObject(obj).max.y <= site.entranceRise, "辅楼英国棕仅到地基梁顶");
+  });
+  assert.ok(annexBeamCount > 0, "辅楼地基梁保留英国棕");
+  // 勒脚须接到转角附近，禁止墙厚级内收在包角柱旁露白麻。
+  assert.ok(PLINTH_CORNER_INSET < construction.outsideWall * 0.2, "转角内收不得接近墙厚");
+  for (const [root, label] of [[model.levels[0], "主楼"]] as const) {
+    const plinth = root.getObjectByName("外墙英国棕勒脚");
+    assert.ok(plinth, `${label}须有勒脚`);
+    const pieces = plinth!.children.filter(c => c instanceof THREE.Mesh);
+    assert.ok(pieces.length >= 3, `${label}勒脚应覆盖多面外墙`);
+  }
+  const corners = model.facadeColumns.children.filter(o => o.name === "包角柱");
+  assert.equal(corners.length, 4);
+  for (const col of corners) {
+    let britishBase = false;
+    col.updateWorldMatrix(true, true);
+    col.traverse(obj => {
+      if (!(obj instanceof THREE.Mesh) || obj.material !== mat.british) return;
+      const box = new THREE.Box3().setFromObject(obj);
+      if (box.min.y < plinthTop * 0.45 && box.max.y > plinthTop * 0.25) britishBase = true;
+    });
+    assert.ok(britishBase, "包角柱脚方座应为英国棕");
+    // 前包角三联双心：花板居中且明显小于方座，侧面原点对齐 L 形外皮中心。
+    const plinthDecor = col.getObjectByName("包角柱柱脚三联双心纹");
+    if (plinthDecor) {
+      const local = new THREE.Box3().setFromObject(plinthDecor);
+      const mid = (local.min.y + local.max.y) / 2;
+      const h = local.max.y - local.min.y;
+      assert.ok(Math.abs(mid - plinthTop / 2) < 40, "柱脚花纹应在方座截面垂直居中");
+      // 与门厅柱脚 min(span-180,440*s)／760*s ≈ 0.58 同口径，略小于方座。
+      assert.ok(h > plinthTop * 0.5 && h < plinthTop * 0.7, "方花板比例应对齐门厅柱脚");
+    }
+    const side = col.getObjectByName("包角柱侧面");
+    if (side) {
+      const project = 150, leg = 500;
+      assert.ok(Math.abs(side.position.z - (leg - project) / 2) < 1, "侧面花纹应在截面居中");
+    }
+  }
+});
+
+
+test("门厅后主楼地基内部保留实体基层，拆分时留原位且合拢贴住楼板底", () => {
+  const model = buildVilla(mat, false);
+  const fill = model.foundation.getObjectByName("主楼地基内部实体基层");
+  assert.ok(fill);
+  const before = new THREE.Box3().setFromObject(fill);
+  assert.ok(before.min.y > 0);
+  assert.equal(before.max.y, site.entranceRise - construction.floorSlab);
+  const x = site.main.x + site.main.w / 2;
+  const z = site.main.z + construction.outsideWall + 400;
+  const hits = new THREE.Raycaster(new THREE.Vector3(x, 1000, z), new THREE.Vector3(0, -1, 0)).intersectObject(fill, true);
+  assert.ok(hits.length, "前墙内侧原镂空处必须有实体顶面");
+  const explosion = new AssemblyExplosion(model, floors.map(f => f.name), false);
+  explosion.apply(1);
+  const after = new THREE.Box3().setFromObject(fill);
+  assert.ok(after.equals(before), "实体基层应随地基留原位");
+  explosion.dispose();
 });

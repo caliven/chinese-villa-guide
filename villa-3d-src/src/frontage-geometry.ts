@@ -1,6 +1,17 @@
 /** 门厅柱脚／柱头最外层饰线，和 entrance-carvings.ts 共用。 */
 export const PORTICO_COLUMN_MAX_TRIM = 50;
 
+/** 参考图一层包角柱脚缩放；造型方座顶＝760×此值。 */
+export const CORNER_PEDESTAL_SCALE = 0.82;
+
+/**
+ * 包角柱脚方座顶相对院坪的高度。
+ * `rise` 取室内抬高时，方座不低于完成面，与外墙英国棕勒脚顶齐平。
+ */
+export function cornerPedestalTop(scale = CORNER_PEDESTAL_SCALE, rise = 0) {
+  return Math.max(760 * scale, rise);
+}
+
 /** 柱间雕花横梁的实体进深，沿两根门厅柱的截面中线居中。 */
 export const PORTICO_BEAM_DEPTH = 500;
 

@@ -122,12 +122,12 @@ test("尺寸、分水与草稿门厅联动，屋面计算不改写参数和用�
   } finally { resetVillaParams(); }
 });
 
-test("屋顶层表示楼梯洞，楼梯删除后不残留洞口，SVG可独立显示", () => {
+test("完整三层屋顶层封闭，楼梯删除后保持封闭，SVG可独立显示", () => {
   resetVillaParams();
   const draft = clonePublishedLayout();
   const svg = roofPlanSvg("slab", "joined", villaLayoutFromDraft(draft));
   assert.match(svg, /三层顶板范围/);
-  assert.match(svg, /楼梯洞口/);
+  assert.doesNotMatch(svg, /楼梯洞口/);
   draft.floors.forEach(floor => floor.rooms = floor.rooms.filter(r => r.kind !== "stair"));
   assert.doesNotMatch(roofPlanSvg("slab", "joined", villaLayoutFromDraft(draft)), /楼梯洞口/);
   for (const view of ["slab", "joined", "floating"] as const) {

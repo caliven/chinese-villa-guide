@@ -1092,6 +1092,22 @@ export function buildSite(mat: Mats) {
     mat.soil,
     soilHoles,
   ).name = "自家场地土基";
+  // 自家及邻居地库共用连续地底封面，开挖孔只表达其上方的净空。
+  // 封面略低于土基底面，避免与原有底面共面闪动。
+  const undersideBoundary: Point[] = [
+    [0, platformNorth],
+    [surroundings.road.x, platformNorth],
+    [surroundings.road.x, surroundings.neighborYard.z],
+    ...courtyardFront.slice().reverse(),
+  ];
+  const undersideShape = new THREE.Shape(undersideBoundary.map(([x, z]) => new THREE.Vector2(x, z)));
+  const undersideGeometry = new THREE.ShapeGeometry(undersideShape);
+  undersideGeometry.rotateX(Math.PI / 2);
+  const underside = new THREE.Mesh(undersideGeometry, mat.soil);
+  underside.name = "自家及邻居地库地底封面";
+  underside.position.y = frontFieldLevel - 2;
+  underside.receiveShadow = true;
+  fixed.add(underside);
   // 看见的地面与前院、邻居过道同一完成面。厚板侧壁会在水泥边闪成细线，铺装只留朝上的面。
   // 石基顶面留在铺装以下，避免鸟瞰时两层共面闪成格子。
   // 台地石基／铺装落在 [platformSouth, platformNorth]；仅主楼前廊下挖开洞，辅楼段保持实体。
@@ -1641,7 +1657,8 @@ function addGarageBeams(
     const yard = surroundings.neighborYard;
     const first = byX[0], last = byX.at(-1)!;
     const xTip0 = BEAM_EDGE_STOP;
-    const xTip1 = yard.x - BEAM_EDGE_STOP;
+    // 东端接到分界墙中线，覆盖边柱柱头；其余外沿仍按板边退距收头。
+    const xTip1 = yard.x;
     const arcEdge = insetContour(courtyardFront, columns.outerInset);
 
     type Post = { x: number; z: number; row: "outer" | "mid" | "inner"; axis: number };
@@ -1742,8 +1759,9 @@ function addGarageBeams(
       spanBeam(last.inner[0], last.inner[1], xTip1, last.inner[1], "邻居房前横梁东挑");
     }
     for (const [i, column] of byX.entries()) {
+      // 外侧纵梁越过外沿柱向院坪前缘悬挑，柱中心至梁端 2000。
       spanBeam(
-        column.outer[0], column.outer[1],
+        column.outer[0], column.outer[1] - 2000,
         column.inner[0], column.inner[1],
         `邻居纵梁 C${i + 1}`,
       );

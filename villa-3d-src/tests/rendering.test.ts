@@ -1,17 +1,70 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { batchScene, batchStatic, removeCoplanarOverlap, visibleSurfaceMeshes } from "../src/render-geometry";
-import { architecturalGlass, box, wallWithOpenings, type Mats } from "../src/primitives";
+import { alignArchitecturalTextures, batchScene, batchStatic, removeCoplanarOverlap, visibleSurfaceMeshes } from "../src/render-geometry";
+import { architecturalGlass, box, rect, slab, wallWithOpenings, type Mats } from "../src/primitives";
 import { floorplanFurnitureModel } from "../src/floorplan-furniture";
 import { facades } from "../src/facades";
 import { floors, site } from "../src/data";
+
+test("建筑贴图跨盒子与挤出板连续，重复对齐及拆分合拢不改变铺贴", () => {
+  const root = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ map: new THREE.Texture() });
+  const left = box(root, 500, 50, 0, 1000, 100, 200, material);
+  const right = slab(root, rect(1000, -100, 1000, 200), 100, 100, material.clone());
+  alignArchitecturalTextures(root, new Set([material]));
+  const samples = (mesh: THREE.Mesh) => {
+    const p = mesh.geometry.getAttribute("position"), n = mesh.geometry.getAttribute("normal"), uv = mesh.geometry.getAttribute("uv");
+    const result: number[][] = [];
+    for (let i = 0; i < p.count; i++) {
+      const point = new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(mesh.matrixWorld);
+      if (Math.abs(point.x - 1000) < .01 && n.getY(i) > .5)
+        result.push([point.z, uv.getX(i), uv.getY(i)]);
+    }
+    return result;
+  };
+  const a = samples(left), b = samples(right);
+  assert.ok(a.length && b.length);
+  for (const sample of a) assert.ok(b.some(other => other.every((v, i) => Math.abs(v - sample[i]) < .01)));
+  const geometry = left.geometry;
+  alignArchitecturalTextures(root, new Set([material]));
+  assert.equal(left.geometry, geometry, "重复构建复用已对齐几何");
+  right.position.y += 1000;
+  right.position.y -= 1000;
+  assert.deepEqual(samples(right), b);
+});
 
 function hits(root: THREE.Object3D, x: number, z: number) {
   root.updateMatrixWorld(true);
   return new THREE.Raycaster(new THREE.Vector3(x, 8, z), new THREE.Vector3(0, -1, 0))
     .intersectObject(root, true).filter((h) => (h.object as THREE.Mesh).isMesh && Math.abs(h.point.y - 1) < 1e-5);
 }
+
+test("台地前廊开洞内壁朝向净空，合批后仍能遮住后方土基", () => {
+  for (const reverseOutline of [false, true]) for (const reverseHole of [false, true]) {
+    const group = new THREE.Group();
+    const material = new THREE.MeshStandardMaterial();
+    const outline = rect(0, 0, 6000, 6000);
+    const hole = rect(1000, 0, 4000, 2400);
+    slab(group, reverseOutline ? outline.reverse() : outline, -130, 2970, material,
+      [reverseHole ? hole.reverse() : hole]);
+    for (const batched of [false, true]) {
+      if (batched) batchScene(group);
+      group.updateMatrixWorld(true);
+      const origin = new THREE.Vector3(3000, -800, 1200);
+      for (const direction of [new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(1, 0, 0)]) {
+        const hit = new THREE.Raycaster(origin, direction).intersectObject(group, true)[0];
+        assert.ok(hit, "从前廊净空观察必须命中石基内壁");
+        assert.equal((hit.object as THREE.Mesh).material, material);
+        assert.ok(hit.face!.normal.dot(direction) < 0, "内壁正面须朝向观察者");
+      }
+      assert.equal(new THREE.Raycaster(origin, new THREE.Vector3(0, 1, 0)).intersectObject(group, true).length, 0,
+        "下挖洞口须保持敞开");
+    }
+    group.traverse(object => { if (object instanceof THREE.Mesh) object.geometry.dispose(); });
+    material.dispose();
+  }
+});
 
 test("主辅楼四向墙角、墙顶和门窗洞口各面的贴图保留真实二维尺寸", () => {
   const material = new THREE.MeshStandardMaterial();

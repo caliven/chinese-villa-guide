@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { meanderBandOutlines } from "./meander-pattern.ts";
 import { site, type Point } from "./data.ts";
 import { facades } from "./facades.ts";
 import type { ExteriorOpeningDraft } from "./layout-draft.ts";
@@ -56,15 +57,21 @@ export function entryAssemblyDesign(entry: EntryAssembly) {
     for (const xx of [p.x - 12, p.x + p.w]) rect(xx, p.y - 12, 12, p.h + 24, "bead", "门厅上窗玻璃压条");
     for (const yy of [p.y - 12, p.y + p.h]) rect(p.x, yy, p.w, 12, "bead", "门厅上窗玻璃压条");
   }
-  // 上窗恢复中式回字花格，叠于玻璃外侧，并随洞口宽高缩放。
-  const lattice = 18, cellW = w / 6, cellH = glassH / 5;
-  for (let i = 1; i < 6; i++) rect(x + i * cellW - lattice / 2, glassBottom, lattice, glassH, "relief", "门厅上窗花格竖线");
-  for (let j = 1; j < 5; j++) rect(x, glassBottom + j * cellH - lattice / 2, w, lattice, "relief", "门厅上窗花格横线");
-  for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) {
-    const inset = Math.min(cellW, cellH) * .22, left = x + i * cellW + inset, right = x + (i + 1) * cellW - inset;
-    const low = glassBottom + j * cellH + inset, high = glassBottom + (j + 1) * cellH - inset;
-    for (const xx of [left, right - lattice]) rect(xx, low, lattice, high - low, "relief", "门厅上窗回字花格");
-    for (const yy of [low, high - lattice]) rect(left, yy, right - left, lattice, "relief", "门厅上窗回字花格");
+  // 花格使用同一套完整回纹，逐块玻璃排布，单元留在实际型材净空内。
+  for (const pane of upperWindow.panes) {
+    const rows = Math.max(1, Math.floor((pane.h - 48) / 480));
+    const pitch = (pane.h - 48) / rows;
+    for (let row = 0; row < rows; row++) {
+      const centerY = pane.y + 24 + (row + .5) * pitch;
+      for (const path of meanderBandOutlines(pane.w - 48, Math.min(420, pitch * .82))) {
+        const outline = path.map(([xx, yy]): Point => [pane.x + pane.w / 2 + xx, centerY + yy]);
+        const xs = outline.map(point => point[0]), ys = outline.map(point => point[1]);
+        parts.push({
+          x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
+          role: "relief", name: "门厅上窗正反单回纹花格", outline,
+        });
+      }
+    }
   }
   for (const xx of [x - edge, x + w]) rect(xx, entry.bottom, edge, entry.top - entry.bottom, "frame", "门厅通高门头边框");
   for (const yy of [entry.bottom, entry.top - edge]) rect(x, yy, w, edge, "frame", "门厅通高门头横框");
@@ -78,7 +85,7 @@ export function entryAssemblyDesign(entry: EntryAssembly) {
     for (const yy of [low, high - 20]) rect(left, yy, right - left, 20, "relief", "大门扇装饰线");
   }
   for (const side of [-1, 1]) rect(entry.at + side * 90 - 14, doorBottom + (doorTop - doorBottom) * .4, 28, 600, "handle", "大门执手");
-  // 层间深色装饰板的浅回纹压线，仍属于同一套门窗。
+  // 层间深色装饰板的矩形边框压线，仍属于同一套门窗。
   const bandInset = 85, bandH = glassBottom - doorTop - bandInset * 2;
   for (const yy of [doorTop + bandInset, glassBottom - bandInset - 15]) rect(x + bandInset, yy, w - bandInset * 2, 15, "relief", "门厅装饰板压线");
   for (const xx of [x + bandInset, x + w - bandInset - 15]) rect(xx, doorTop + bandInset, 15, bandH, "relief", "门厅装饰板压线");
@@ -115,10 +122,16 @@ export function integratedEntry(parent: THREE.Object3D, entry: EntryAssembly, ma
     // 门窗在外墙皮前安装，装饰板覆盖层间楼板端头。
     const z = outward * (glass ? 165 : base ? 140 : part.role === "handle" ? 215 : part.role === "bead" ? 240 : 185);
     if (part.outline) {
-      const path = clipPart(clipPart(part.outline, 1, bottom, 1), 1, top, -1);
-      if (path.length < 3) continue;
-      const shape = new THREE.Shape(path.map(([x, y]) => new THREE.Vector2(x, y - bottom)));
-      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 8, bevelEnabled: false, steps: 1 });
+      // 回纹为凹多边形，跨剖切标高时先拆成凸片，保留被裁开的独立笔画。
+      const paths = part.y < bottom || part.y + part.h > top
+        ? THREE.ShapeUtils.triangulateShape(part.outline.map(point => new THREE.Vector2(...point)), [])
+          .map(indices => indices.map(index => part.outline![index]))
+        : [part.outline];
+      const clipped = paths.map(path => clipPart(clipPart(path, 1, bottom, 1), 1, top, -1))
+        .filter(path => path.length >= 3);
+      if (!clipped.length) continue;
+      const shapes = clipped.map(path => new THREE.Shape(path.map(([x, y]) => new THREE.Vector2(x, y - bottom))));
+      const geometry = new THREE.ExtrudeGeometry(shapes, { depth: 8, bevelEnabled: false, steps: 1 });
       geometry.translate(0, 0, z - 4);
       const mesh = new THREE.Mesh(geometry, material); mesh.name = part.name; group.add(mesh);
     } else box(glass ? upperGlass : group, part.x + part.w / 2, (lo + hi) / 2 - bottom, z, part.w, hi - lo, depth, material, false).name = part.name;

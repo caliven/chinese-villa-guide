@@ -78,7 +78,7 @@ test("二楼两侧梁托竖脚位于真实墙皮外，长梁托及小出檐仍�
     try {
       villa.group.updateMatrixWorld(true);
       const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
-      const board = bounds(apron.getObjectByName("无天沟连续挑檐板")!);
+      const board = bounds(villa.levels[2].getObjectByName("三楼楼板")!);
       for (const [face, sign] of [[site.main.x - construction.outsideWall / 2, -1],
         [site.main.x + site.main.w + construction.outsideWall / 2, 1]]) {
         const row = corbelsIn(apron).filter(c => Math.abs(c.position.x - face + sign * 8) < .1);

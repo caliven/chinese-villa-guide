@@ -99,7 +99,7 @@ test("漫游可经开启的通楼门与过道进入辅楼", () => {
   disposeEditorModel(editor.root, new THREE.Scene());
 });
 
-test("真实楼板和踏步支持双跑及三跑楼梯上下至顶板，覆盖旋转和镜像", () => {
+test("真实楼板和踏步支持双跑及三跑楼梯上下至三层，覆盖旋转和镜像", () => {
   for (const model of ["double", "triple"] as const) for (const axis of ["x", "z"] as const)
     for (const direction of ["positive", "negative"] as const) for (const lowerSide of ["min", "max"] as const) {
       const draft = clonePublishedLayout();
@@ -127,16 +127,16 @@ test("真实楼板和踏步支持双跑及三跑楼梯上下至顶板，覆盖�
           assert.ok(Math.hypot(pos.x - destination.x, pos.z - destination.z) < .08, `${model} ${axis} ${direction} ${lowerSide}: 无法到达 ${JSON.stringify(point)}, 位置 ${pos.toArray()}`);
         }
       };
-      for (let floor = 1; floor <= 3; floor++) {
+      for (let floor = 1; floor <= 2; floor++) {
         move(points);
-        const y = floor === 3 ? draft.floors[2].y + draft.floors[2].height : draft.floors[floor].y;
+        const y = draft.floors[floor].y;
         near(pos.y, y / 1000 + 1.6);
-        if (floor < 3) {
+        if (floor < 2) {
           // 在上层沿楼梯出口前的楼面回到下一段起点。
           move([points[3], points[0]]);
         }
       }
-      for (let floor = 2; floor >= 0; floor--) {
+      for (let floor = 1; floor >= 0; floor--) {
         move([...points].reverse());
         near(pos.y, (draft.floors[floor].y + (floor === 0 ? site.entranceRise : 0)) / 1000 + 1.6);
         if (floor > 0) move([points[0], points[3]]);

@@ -55,13 +55,15 @@ test("飘檐折角向柱外沿偏移，柱位与门厅控制区保留且柱顶�
       assert.ok(Math.abs(bounds.max.y - apron.columnTopY) < 0.1, "雕花柱帽须下收，不占用梁托／下沿线高度");
       assert.ok(bounds.max.y < apron.fasciaBottomY - 1, "柱帽顶须低于下沿线，折角线脚连续");
     }
-    const lowerEave = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+    const lowerEave = villa.levels[2].getObjectByName("三楼楼板")!;
     const eaveBounds = new THREE.Box3().setFromObject(lowerEave);
     const outline = frontApronOutline(e.terraceBack, site.secondFrontEave);
     assert.ok(Math.abs(eaveBounds.min.z - outline[3][1]) < 50,
       "瓦檐外缘随拐角外移，仍由承托线挑出二楼前檐");
-    assert.ok(Math.abs(new THREE.Box3().setFromObject(villa.levels[2].getObjectByName("外伸门厅三楼平台")!).min.z - e.porticoColumnZ) < 0.01,
-      "三楼门厅平台北缘仍与柱心对齐");
+    const platform = new THREE.Raycaster(new THREE.Vector3(site.portico.x + site.portico.w / 2,
+      floors[2].y + 10, e.porticoColumnZ + 10), new THREE.Vector3(0, -1, 0)).intersectObject(lowerEave);
+    assert.ok(platform.length && Math.abs(platform[0].point.y - floors[2].y) < .01,
+      "统一楼板覆盖门厅平台柱心控制线");
   } finally {
     villa.group.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose(); });
   }

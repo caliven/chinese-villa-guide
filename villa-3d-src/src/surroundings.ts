@@ -436,7 +436,8 @@ export function basementColumns() {
   const columnSize = Math.max(300, site.garageColumnSize || 400);
   const yard = surroundings.neighborYard;
   const ourFront = insetContour(courtyardFront, outerInset);
-  const lastOwn = yard.x - edgeInset;
+  // 自家东侧两根边柱外皮贴分界线；邻居柱的退距只作用邻居柱网。
+  const lastOwn = yard.x - columnSize / 2;
   const outerZAt = (x: number) => (x <= site.width ? contourAt(ourFront, x) : yard.z + outerInset);
   const axes = mainGarageStructuralAxes();
 

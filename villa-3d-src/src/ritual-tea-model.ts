@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { addMeanderBand } from "./meander-pattern.ts";
 import type { Furniture } from "./data.ts";
 
 export const SHRINE_HEIGHT = 1280;
@@ -61,11 +62,8 @@ export function ritualTeaModel(f: Furniture) {
       box("描金边框", side * 370, 235, 101, 10, 820, 4, gold);
       box("供台托臂", side * 410, 0, 95, 60, 100, 100);
       curve("卷草冠饰", [[side * 510, 1215, -40], [side * 350, 1260, -40], [side * 160, 1230, -40], [0, 1268, -40]], 12);
-      // 透空回纹，不用实心块遮住龛内神榜。
-      for (const y of [340, 580, 820]) {
-        box("回纹竖边", side * 470, y, -90, 10, 120, 10, gold);
-        box("回纹横边", side * 470, y + 110, -90, 45, 10, 10, gold);
-      }
+      for (const y of [400, 640, 880])
+        addMeanderBand(g, side * 470, y, -93, 50, 50, gold, 10);
     }
     plaque("祖德流芳", 0, 1105, 99, 640, 85);
     plaque("天地君亲师位", 0, 650, 101, 130, 700, true);

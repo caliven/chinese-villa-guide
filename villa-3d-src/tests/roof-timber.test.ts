@@ -99,7 +99,7 @@ test("斜脊筒瓦檐口端收回，圆截面不探进天沟", () => {
   assert.ok(maxOut <= 1, `斜脊筒瓦檐口端不得探出瓦角，实际外探 ${maxOut.toFixed(1)} mm`);
 });
 
-test("完整房屋与漫游顶板均挂木梁架和瓦屋面；顶板洞口四边有栏杆", () => {
+test("完整房屋与漫游顶板均挂木梁架和瓦屋面，顶板封闭", () => {
   const draft = clonePublishedLayout();
   const mat = materials();
   const layout = villaLayoutFromDraft(draft);
@@ -114,7 +114,7 @@ test("完整房屋与漫游顶板均挂木梁架和瓦屋面；顶板洞口四�
   const roof = editor.root.getObjectByName("漫游屋顶层")!;
   const rails: THREE.Object3D[] = [];
   roof.traverse(child => { if (child.userData.railingEndpoints) rails.push(child); });
-  assert.ok(rails.length >= 3, "顶板洞口须有栏杆，上跑通口侧横封");
+  assert.equal(rails.length, 0, "封闭顶板无需生成洞口护栏");
   const slab = roof.children.find(child => child instanceof THREE.Mesh) as THREE.Mesh;
   const material = slab.material as THREE.MeshStandardMaterial;
   assert.ok(material.polygonOffset && material.polygonOffsetFactor > 0);

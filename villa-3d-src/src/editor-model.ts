@@ -11,7 +11,7 @@ import { draftHasStair, facadeOpeningToWallOpening, type LayoutDraft } from "./l
 import { roomAreaLabels, roomFillGeometry, roomLabelPosition } from "./design-data";
 import { roomOutline } from "./room-geometry";
 import { finishLayer, furnish, stairs, interiorOpeningModel, exteriorDoorModel, type Mats } from "./primitives";
-import { joinedWallSpan, partitionProfile, wallJunctionPeers } from "./partition-geometry";
+import { joinedWallSpan, partitionCeilingGap, partitionProfile, wallJunctionPeers } from "./partition-geometry";
 import { fitStairToRoom, stairOpeningBounds, stairShape } from "./stair-geometry";
 import { batchStatic, visibleSurfaceMeshes } from "./render-geometry";
 import type { SelectionItem } from "./layout-editor";
@@ -19,9 +19,8 @@ import type { OpeningKind } from "./openings";
 import { moveWindowDesign, windowDesign, windowInteriorSide } from "./window-design";
 import { windowModel } from "./window-model";
 import { interiorRailingLayout } from "./interior-railing";
-import { attachLayoutRoofs, roofPlanModel, villaLayoutFromDraft } from "./architecture";
-import { DEFAULT_ROOF_STYLE, slabToTileEaveLift, roofTileInset, type RoofStyle } from "./roof-options";
-import { roofRailingVariants } from "./roof-railing-clearance";
+import { attachLayoutRoofs, roofSlabLayout, villaLayoutFromDraft } from "./architecture";
+import { DEFAULT_ROOF_STYLE, type RoofStyle } from "./roof-options";
 
 export type EditorWallHeight = 1200 | "full";
 interface EditorModelOptions {
@@ -90,38 +89,16 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
   if (options.walking) {
     // 漫游才显示顶板与坡屋面；普通分层视图仍可从上方观察三楼室内。
     const roof = new THREE.Group(); roof.name = "漫游屋顶层"; root.add(roof);
-    const top = draft.floors[2];
-    const opening = stairOpeningBounds(stair);
-    // 洞口略放大，侧板离开下层墙面，减轻共面闪线；栏杆仍按真实洞口内收布置。
-    const holePad = 30;
-    const holes = hasStair ? [footprint({ x: opening.x - holePad, z: opening.z - holePad, w: opening.w + 2 * holePad, d: opening.d + 2 * holePad })] : [];
-    const outline = recessedFootprint(top.front);
-    const edgeInset = 80;
-    const xs = outline.map(p => p[0]), zs = outline.map(p => p[1]);
-    const slabOutline = outline.length === 4
-      ? footprint({
-        x: Math.min(...xs) + edgeInset, z: Math.min(...zs) + edgeInset,
-        w: Math.max(...xs) - Math.min(...xs) - 2 * edgeInset,
-        d: Math.max(...zs) - Math.min(...zs) - 2 * edgeInset,
-      })
-      : outline;
+    const layout = villaLayoutFromDraft(draft);
+    const spec = roofSlabLayout(layout).main;
     // 单面材质＋更深层次，避免双面共面和与墙顶抢像素。
     const slabMat = finishLayer(new THREE.MeshStandardMaterial({ color: "#d5d0c5", roughness: .95 }), -2);
     if (!isHalfStoreyScheme) {
-      const slab = surface(roof, [slabOutline], holes, top.y + top.height, slabMat, construction.floorSlab);
+      const slab = surface(roof, [spec.outline], [], spec.top, slabMat, spec.thickness);
       walkSurfaces.push(slab);
     }
     const fenShui = options.fenShui ?? site.roofFenShui;
     const style = options.roofStyle ?? DEFAULT_ROOF_STYLE;
-    const layout = villaLayoutFromDraft(draft);
-    const plan = roofPlanModel(style, layout, fenShui);
-    const main = plan.main, pitch = plan.pitch;
-    // 与完整房屋相同：显示坡屋面时裁切顶板洞边栏杆，避免穿出瓦面。
-    if (!isHalfStoreyScheme) roofRailingVariants(roof, group => { railings.render(group, railings.roofGuards); }, {
-      x: main.x + roofTileInset, z: main.z + roofTileInset,
-      w: main.w - 2 * roofTileInset, d: main.d - 2 * roofTileInset,
-      eave: main.eave + slabToTileEaveLift(), slope: pitch.mainRise / pitch.mainRun,
-    });
     const pitched = new THREE.Group(); pitched.name = "漫游主楼坡屋面";
     const annexPitched = new THREE.Group(); annexPitched.name = "漫游辅楼坡屋面";
     roof.add(pitched, annexPitched);
@@ -218,7 +195,7 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
       const index = part.sourceIndex ?? partIndex;
       if (!isPhysicalWall(part)) return;
       const selection: SelectionItem = { kind: "wall", floor, index, annex };
-      const profile = partitionProfile(part, storyHeight, !annex && hasStair ? stair : undefined, annex ? 200 : 150);
+      const profile = partitionProfile(part, storyHeight, !annex && hasStair && floor < draft.floors.length - 1 ? stair : undefined, partitionCeilingGap(floor, annex));
       wall(group, part.a, part.b, base, Math.min(height, profile.height), wallRoleOf(part) === "bearing" ? construction.outsideWall : construction.partition,
         profile.opening ? [{ ...profile.opening, interior: true, selection: { kind: "door", floor, index, annex } }] : [], selection, joinedWallSpan(part, peers).join, profile.height);
     });
@@ -259,7 +236,7 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
       const model = furnish(group, furniture, base, mat);
       model.userData.layoutSelection = { kind: "furniture", floor, index, annex };
     });
-    if (!annex && hasStair && (!isHalfStoreyScheme || floor < 2)) {
+    if (!annex && hasStair && floor < draft.floors.length - 1) {
       const model = new THREE.Group(); group.add(model); model.userData.layoutSelection = { kind: "stair" };
       stairs(model, stair.x, stair.z, base, data.height - (floor === 0 ? site.entranceRise : 0), mat, stair.axis, stair, false);
       if (options.walking) model.traverse(object => { if (object instanceof THREE.Mesh) walkSurfaces.push(object); });
@@ -276,6 +253,7 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
     if (!annex) {
       const guard = new THREE.Group(); guard.name = "挑空自动栏杆"; group.add(guard);
       if (floor === 1) railings.render(guard, railings.livingGuards[floor]);
+      railings.render(group, railings.windowGuards[floor]);
       if (hasStair && floor > 0) railings.render(group, railings.stairGuards[floor]);
     }
     const labelGroup = new THREE.Group(); labelGroup.name = "编辑房间标签"; labels.push(labelGroup); group.add(labelGroup);

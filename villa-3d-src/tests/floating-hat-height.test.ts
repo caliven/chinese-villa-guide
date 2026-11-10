@@ -162,33 +162,40 @@ test("抬高、降低与上下边界的帽脊同高接入主坡，交线两侧�
   }
 });
 
-test("升降后天沟槽底找坡及压顶、三眼皮的后端逐顶点贴住主坡，避免接缝悬空", () => {
+test("升降后天沟／三眼皮后端保持直角收头，不沿主坡斜切，且不穿出瓦面", () => {
   for (const offset of [-200, 200, 500]) {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, floatingHatHeightOffset: offset });
-    const { main: m } = roofPlanModel("floating"), slope = DEFAULT_VILLA_PARAMS.roofFenShui / 10;
+    const { main: m, hat } = roofPlanModel("floating"), slope = DEFAULT_VILLA_PARAMS.roofFenShui / 10;
     const main = new THREE.Group(), annex = new THREE.Group();
     attachRoofs(main, annex, mat, DEFAULT_VILLA_PARAMS.roofFenShui, "floating");
     main.updateMatrixWorld(true);
     try {
       const eaves = main.getObjectByName("前檐及两侧融入正屋的天沟")!;
+      const mainTileFront = m.z + roofTileInset;
+      const mainTileEave = m.eave + slabToTileEaveLift();
       let checked = 0;
       eaves.traverse(o => {
         if (!(o instanceof THREE.Mesh) || o.name === "悬浮官帽柱顶封闭转接梁" || o.parent?.userData.eaveWash) return;
+        if (o.name === "官帽与正屋交接侧封板" || o.name === "官帽天沟端头封板") return;
         const positions = o.geometry.getAttribute("position");
-        // 同一X横截面中每个上下端顶点都应接到该标高的主屋坡面，而非只用顶面Z。
+        let maxZ = -Infinity;
+        const rearIdx: number[] = [];
         for (let i = 0; i < positions.count; i++) {
           const v = new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(o.matrixWorld);
-          if (v.z < m.z + roofTileInset - .1) continue;
-          const rear = Array.from({ length: positions.count }, (_, j) => j).every(j =>
-            Math.abs(positions.getX(j) - positions.getX(i)) > .02 || Math.abs(positions.getY(j) - positions.getY(i)) > .02
-            || positions.getZ(j) <= positions.getZ(i) + .02);
-          if (!rear) continue;
-          close(v.y, m.eave + slabToTileEaveLift() + (v.z - m.z - roofTileInset) * slope,
-            `${o.name} offset=${offset} 后端未贴合：${v.toArray()}`);
+          if (v.z > maxZ) { maxZ = v.z; rearIdx.length = 0; rearIdx.push(i); }
+          else if (Math.abs(v.z - maxZ) < 1) rearIdx.push(i);
+          if (v.z < mainTileFront - .1) continue;
+          const roofY = mainTileEave + (v.z - mainTileFront) * slope;
+          assert.ok(v.y <= roofY + 0.5, `${o.name} offset=${offset} 穿瓦：${v.toArray()}`);
           checked++;
+        }
+        if (maxZ > mainTileFront && rearIdx.length >= 2) {
+          const zs = rearIdx.map(i => new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(o.matrixWorld).z);
+          assert.ok(Math.max(...zs) - Math.min(...zs) < 2, `${o.name} offset=${offset} 后端应直角收头`);
         }
       });
       assert.ok(checked > 30);
+      assert.ok(hat.eave > m.eave, "升降后帽檐仍高于正屋檐口");
     } finally { dispose(main); dispose(annex); }
   }
 });

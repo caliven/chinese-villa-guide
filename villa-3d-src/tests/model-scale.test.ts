@@ -148,7 +148,7 @@ test("双跑和三跑楼梯各方向的实际踏步平台与平面包络同尺�
       const actual = bounds(slabs), footprint = shape.footprint;
       close(actual.min.x, footprint.x); close(actual.min.z, footprint.z);
       close(actual.max.x, footprint.x + footprint.w); close(actual.max.z, footprint.z + footprint.d);
-      close(actual.min.y, 450); close(actual.max.y, 450 + height - (shape.model === "double" ? height / shape.risers : 0));
+      close(actual.min.y, 450); close(actual.max.y, 450 + height);
     }
   }
 });

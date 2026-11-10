@@ -153,21 +153,38 @@ test("两种官帽主辅楼均拆出带楼板的天沟基座和瓦片木架，�
   }
 });
 
-test("三楼飘檐、退台露台、玻璃栏杆与柱饰同组前移，房间和楼梯保留在三楼主体", () => {
-  const { model, explosion } = fixture();
-  const exterior = model.levels[2].getObjectByName("三楼飘檐与露台")!;
-  for (const name of ["三楼栏杆下飘檐", "三楼左侧露台", "三楼右侧露台", "三楼通透玻璃栏板与细金属框", "三楼官帽柱"])
-    assert.ok(exterior.getObjectByName(name), name);
-  assert.equal(exterior.getObjectByName("三楼楼板"), undefined);
-  const before = visibleBounds(exterior), body = visibleBounds(model.levels[2], true);
-  explosion.apply(1);
-  const after = visibleBounds(exterior), movedBody = visibleBounds(model.levels[2], true);
-  assert.equal(after.min.z - before.min.z, -5000);
-  assert.equal(after.max.z - before.max.z, -5000, "沿退台绕行的飘檐整体平移");
-  assert.equal(movedBody.min.z, body.min.z);
-  assert.ok(after.max.z < movedBody.min.z, "飘檐组与房间主体分开可见");
-  explosion.dispose();
-  assert.deepEqual(visibleBounds(exterior), before);
+test("三楼外侧组只带瓦片、玻璃栏杆和短柱，楼板、挡墙、承托和高柱随三层主体", () => {
+  for (const style of ["joined", "floating"] as const) for (const batched of [false, true]) {
+    const model = buildVilla(mat, false, DEFAULT_VILLA_PARAMS.roofFenShui, style);
+    const thirdFloor = model.levels[2];
+    const exterior = thirdFloor.getObjectByName("三楼飘檐与露台")!;
+    const independentNames = ["裁切拼接的蓝釉瓦面", "三楼通透玻璃栏板与细金属框", "四根露台短柱"];
+    assert.deepEqual(new Set(exterior.children.map(child => child.name)), new Set(independentNames));
+    const bodyNames = ["三楼楼板", "三楼屋檐内挡墙", "梁托", "连续转角下沿线", "三楼官帽柱", "三楼包角柱"];
+    for (const name of bodyNames) {
+      assert.ok(thirdFloor.getObjectByName(name), name);
+      assert.equal(exterior.getObjectByName(name), undefined, `${name} 应归三层主体`);
+    }
+    if (batched) batchScene(thirdFloor);
+    const explosion = new AssemblyExplosion(model, floors.map(f => f.name), false);
+    model.group.updateMatrixWorld(true);
+    const matrices = new Map(visibleSurfaceMeshes(thirdFloor).map(mesh => [mesh, mesh.matrixWorld.clone()]));
+    const before = visibleBounds(exterior), body = visibleBounds(thirdFloor, true);
+    for (const progress of [.4, 1]) {
+      explosion.apply(progress);
+      const after = visibleBounds(exterior), movedBody = visibleBounds(thirdFloor, true);
+      assert.equal(after.min.z - before.min.z, -5000 * progress);
+      assert.equal(after.max.z - before.max.z, -5000 * progress, "瓦片、栏杆和短柱同步前移");
+      assert.equal(movedBody.min.z, body.min.z);
+      assert.equal(movedBody.max.z, body.max.z, "露台楼板、承托与高柱保留三层水平位置");
+      assert.equal(after.min.y - before.min.y, movedBody.min.y - body.min.y, "两组同步随三层抬高");
+      if (progress === 1) assert.ok(after.max.z < movedBody.min.z, "外侧组与三层主体分开可见");
+    }
+    explosion.dispose();
+    model.group.updateMatrixWorld(true);
+    for (const [mesh, matrix] of matrices) assert.deepEqual(mesh.matrixWorld, matrix, "所有三层实体精确归位");
+    assert.deepEqual(visibleBounds(exterior), before);
+  }
 });
 
 test("旋转观察时辅楼及其屋顶标注均留在模型画面右侧", () => {

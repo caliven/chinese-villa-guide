@@ -1,6 +1,6 @@
 import { smoothContour } from "./contours.ts";
 import { placeRoadsideVilla } from "./roadside-villa-layout.ts";
-import { roofGutterDesign, annexRoofGutterDesign, roofTileInset } from "./roof-options.ts";
+import { apronEaveDesign, floorSlabThickness, roofGutterDesign, annexRoofGutterDesign, roofTileInset } from "./roof-options.ts";
 import { areaM2 } from "./units.ts";
 import { porticoColumnCenters } from "./frontage-geometry.ts";
 import { getFloorplanFurniture, type FloorplanFurnitureId } from "./floorplan-catalog.ts";
@@ -348,9 +348,9 @@ export const frontElevation = {
   cornerLeg: 500,
   cornerWestX: site.main.x + 120,
   cornerEastX: site.main.x + site.main.w - 120,
-  // 短柱立在屋檐内挡墙上，不是直接立在露台地面。柱身 800，加 500 墙约 1300。
+  // 短柱立在瓦内沿挡墙顶，挡墙高度由板顶、瓦厚与坡瓦落差推导。
   balustradePostHeight: 800,
-  eaveParapet: 500,
+  eaveParapet: apronEaveDesign.parapetHeight,
   // 两侧露台短柱柱身（中间两根与门厅柱同截面，见 balustradePosts）。盖板另在柱身外每边加 100。
   shortPostWidth: 600,
   // 柱心在北沿：内侧到前墙＝外伸−半柱（默认 2000−400＝1600）。三楼短柱与门厅柱同轴。
@@ -365,7 +365,7 @@ export const frontElevation = {
     { x: 20105, z: site.main.z - 120 - 75, w: 600 },
   ],
   // 三楼瓦檐从挡墙顶落到外沿的高差，水平出檐是 secondFrontEave。380 是造型。
-  tiledEaveDrop: 380,
+  tiledEaveDrop: apronEaveDesign.tileDrop,
   hatEave: 10650,
   hatFront: site.main.z - 980,
   hatWidth: site.portico.w + 1040,
@@ -488,7 +488,7 @@ export const construction = {
   outsideWall: 240,
   partition: 120,
   /** 结构楼板厚度示意（mm）；不是室内地板面层。 */
-  floorSlab: 120,
+  floorSlab: floorSlabThickness,
   entranceTread: 300,
   entranceLandingOffset: 150,
   entranceRampRun: 2000,
@@ -959,7 +959,7 @@ export const facts: Fact[] = [
     label: "梁板与屋脊",
     value: "示意构件",
     source: "设计建议",
-    note: "院坪结构占用暂0.45米，主楼檐口10.5米。主楼、辅楼四坡默认4.5分水，主辅楼可在各自尺寸面板独立调整，当前探索值见面板及导出图册；这是设计坡度，不是测绘。默认使用按2026-10-15用户参考图近似的悬浮官帽，帽脊默认低于主脊约50厘米，纵脊直接接入正屋前坡，前斜脊与主屋两侧斜脊平行，檐底贴近屋面；后侧及两侧后段融入正屋。普通官帽作为可选造型，与正屋同脊高、檐口相连，瓦面独立加宽、前部起脊点后移。正屋与辅楼的檐口和主体尺寸不随造型切换改变。天沟净宽、净深及挡墙顶面找坡按用户要求设置；其他屋脊、抬高量与构件仍为造型示意，非实测或结构施工尺寸。",
+    note: "院坪结构占用暂0.45米，主楼檐口10.5米。主楼、辅楼四坡默认4.5分水，主辅楼可在各自尺寸面板独立调整，当前探索值见面板及导出图册；这是设计坡度，不是测绘。默认使用按2026-10-15用户参考图近似的悬浮官帽，帽脊默认低于主脊约50厘米，纵脊直接接入正屋前坡，前斜脊与主屋两侧斜脊平行；侧檐天沟／三眼皮／檐底在接入正屋处竖直直角收头并做端头封板与竖向隔板，不再沿坡斜切。普通官帽作为可选造型，与正屋同脊高、檐口相连，瓦面独立加宽、前部起脊点后移。正屋与辅楼的檐口和主体尺寸不随造型切换改变。天沟净宽、板顶起砌高度及压顶找坡按用户要求设置；其他屋脊、抬高量与构件仍为造型示意，非实测或结构施工尺寸。",
   },
   {
     label: "天沟净尺寸与挡墙顶面",
@@ -968,7 +968,7 @@ export const facts: Fact[] = [
       return `主楼：${describe(roofGutterDesign)}；辅楼：${describe(annexRoofGutterDesign)}（长度 mm）`;
     },
     source: "用户提供",
-    note: "净宽600、外边反坎高200、内侧250、外边顶宽300、槽底找坡默认1°、压顶外飘三眼皮20毫米来自本轮方案；外边反坎立面与压顶、三眼皮同为英国棕。瓦至内挡顶与瓦边探入沿用前轮。内挡厚55毫米为模型取值。三眼皮出檐与级高、下沿线凸出／高度为固定造型。",
+    note: "净宽600、外挡从结构板顶起砌200（不含压顶）、内挡从同一板顶起砌250、外挡顶宽300；槽底在板上以30厚起步，默认找坡1°。楼板与最下层外伸板共120厚，外伸部分英国棕；上两级三眼皮按2∶3分配外挡高度，水平级差最多100。压顶沟侧至少30厚，外侧向上找坡并外飘20。槽底与55厚内挡为水泥灰。",
   },
   {
     label: "地库净高 / 入口",

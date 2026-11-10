@@ -106,61 +106,29 @@ test("主楼和辅楼按各自外包络独立出图与导出", () => {
   }
 });
 
-test("东西侧柱位檐下为连续下沿线与梁托，折角不被实心柱块隔断", async () => {
+test("三层统一楼板与立面同标高，檐下不再投影下挂墙梁", async () => {
   const THREE = await import("three");
   const { buildVilla } = await import("../src/architecture");
-  const { frontApronSection } = await import("../src/roof-options");
-  const { elevationShell } = await import("../src/elevation-plan");
   const mat = new Proxy({} as import("../src/primitives").Mats, {
-    get(target, key: keyof import("../src/primitives").Mats) {
-      return target[key] ??= new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide }) as never;
-    },
+    get(target, key: keyof import("../src/primitives").Mats) { return target[key] ??= new THREE.MeshPhysicalMaterial() as never; },
   });
-  const contains = (poly: number[][], x: number, y: number) => {
-    let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const [xi, yi] = poly[i], [xj, yj] = poly[j];
-      if ((yi > y) !== (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi) inside = !inside;
-    }
-    return inside;
-  };
   resetVillaParams();
   for (const style of ["joined", "floating"] as const) {
     const villa = buildVilla(mat, false, 4.5, style);
-    villa.group.updateMatrixWorld(true);
+    const plate = villa.levels[2].getObjectByName("三楼楼板")!;
+    const bounds = new THREE.Box3().setFromObject(plate);
     const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
-    const section = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
-    assert.equal(apron.getObjectByName("柱帽上实体柱颈"), undefined, "折角不得用实心柱颈隔断梁托");
-    assert.equal(villa.group.getObjectByName("门厅柱退进承托柱颈"), undefined, "门厅折角不得保留隔断柱颈");
-    let corbels = 0;
-    apron.traverse(o => { if (o.name === "梁托") corbels++; });
-    assert.ok(corbels > 8, `${style} 折角两侧应保留连续梁托`);
-    const fasciaY = (section.fasciaBottomY + section.fasciaTopY) / 2;
-    const seatY = (section.soffitY + floors[2].y) / 2;
+    assert.equal(apron.getObjectByName("挑檐连续承托梁"), undefined);
+    assert.equal(apron.getObjectByName("四处柱位实体承台"), undefined);
+    assert.ok(apron.getObjectByName("连续转角下沿线"));
     for (const view of ["east", "west"] as const) {
       const { surfaces } = elevationShell(view, style);
-      const visible = visibleElevationPolygons(surfaces, view);
-      for (const post of frontElevation.balustradePosts) {
-        for (const y of [fasciaY, seatY]) {
-          const origin = new THREE.Vector3(view === "east" ? 100000 : -100000, y, post.z);
-          const ray = new THREE.Raycaster(origin, new THREE.Vector3(view === "east" ? -1 : 1, 0, 0));
-          assert.ok(ray.intersectObject(apron, true).some(hit => {
-            if (Math.abs(hit.point.x - post.x) > (post.w + 80) / 2 + 1) return false;
-            let parent: THREE.Object3D | null = hit.object;
-            while (parent) {
-              if (["挑檐连续承托梁", "承托梁下沿", "四处柱位实体承台", "连续转角下沿线", "梁托"].includes(parent.name)) return true;
-              parent = parent.parent;
-            }
-            return false;
-          }), `${style}/${view} 柱位 ${post.z} 标高 ${y} 的三维承托实体`);
-          const u = projectElevation(new THREE.Vector3(post.x, y, post.z), view)[0];
-          assert.ok(surfaces.some((surface, i) => surface.occludes !== false && visible[i].some(poly => contains(poly, u, -y))),
-            `${style}/${view} 柱位 ${post.z} 标高 ${y} 的投影不可出现背景空洞`);
-        }
-        const u = projectElevation(new THREE.Vector3(post.x, fasciaY, post.z), view)[0];
-        assert.ok(surfaces.some(surface => surface.part === "apron-support" && contains(surface.points.map(point => projectElevation(point, view)), u, -fasciaY)),
-          `${style}/${view} 柱位下沿线高度应有连续投影`);
-      }
+      const slab = surfaces.filter(surface => surface.part === "third-floor-slab");
+      assert.ok(slab.length > 0);
+      assert.equal(Math.min(...slab.flatMap(surface => surface.points.map(point => point.y))), bounds.min.y);
+      assert.equal(Math.max(...slab.flatMap(surface => surface.points.map(point => point.y))), bounds.max.y);
+      assert.ok(surfaces.filter(surface => surface.part === "apron-support").every(surface =>
+        surface.points.every(point => point.y <= bounds.min.y)), "下沿线位于楼板底以下");
     }
   }
 });

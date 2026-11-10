@@ -39,6 +39,7 @@ import {
   eaveTrimDesign,
   roofTileInset,
   syncRoofTileInset,
+  gutterBedTop,
 } from "./roof-options.ts";
 import { rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings.ts";
 import { rebuildGarageLayout } from "./garage-layout.ts";
@@ -86,9 +87,9 @@ export interface VillaParams {
   annexEave: number;
   roofFenShui: number;
   gutterClearWidth: number;
-  /** 天沟外边反坎高度（槽底以上） */
+  /** 天沟外边反坎从结构板顶起砌的高度，不含压顶 */
   gutterClearDepth: number;
-  /** 天沟内侧反坎高度；默认高于外侧，满水外溢 */
+  /** 天沟内侧反坎从结构板顶起砌的高度；默认高于外挡 */
   gutterInnerDepth: number;
   /** 外边反坎顶部宽度 */
   gutterOuterTopWidth: number;
@@ -702,7 +703,7 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
     const bedDeg = normalizeGutterBedSlopeDegrees(roof.bed);
     const halfSpan = Math.max(500, Math.min(roof.w, roof.d) / 2);
     const bedRise = Math.tan((bedDeg * Math.PI) / 180) * halfSpan;
-    if (bedRise >= roof.depth - 20) issues.push({ field: roof.bedField,
+    if (gutterBedTop + bedRise >= roof.depth - 20) issues.push({ field: roof.bedField,
       message: `${roof.name}天沟找坡 ${bedDeg}° 在约 ${formatMm(halfSpan)} mm 跨度上抬升 ${formatMm(bedRise)} mm，将高过外挡 ${roof.depth} mm；请减小找坡或加深外侧反坎` });
   }
 

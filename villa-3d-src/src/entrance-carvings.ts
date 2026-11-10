@@ -1,7 +1,15 @@
 import * as THREE from "three";
-import { frontElevation } from "./data.ts";
+import { addMeanderBand } from "./meander-pattern.ts";
+import { frontElevation, site } from "./data.ts";
 import { box, type Mats } from "./primitives.ts";
-import { PORTICO_BEAM_DEPTH, PORTICO_COLUMN_MAX_TRIM } from "./frontage-geometry.ts";
+import {
+  CORNER_PEDESTAL_SCALE,
+  PORTICO_BEAM_DEPTH,
+  PORTICO_COLUMN_MAX_TRIM,
+  cornerPedestalTop,
+} from "./frontage-geometry.ts";
+
+export { CORNER_PEDESTAL_SCALE, cornerPedestalTop };
 import { cornerOutline, cornerShoulderProfile, upperCornerProfile, type ColumnCourse } from "./column-profiles.ts";
 
 type XY = [number, number];
@@ -62,8 +70,8 @@ function ribbon(points: XY[], thickness: number, closed = false) {
 }
 
 function strokes(parent: THREE.Object3D, paths: XY[][], thickness: number,
-  front: number, mat: THREE.Material, closed = false) {
-  return carvedShape(parent, paths.map(path => ribbon(path, thickness, closed)), front, 12, mat);
+  front: number, mat: THREE.Material, closed = false, depth = 12) {
+  return carvedShape(parent, paths.map(path => ribbon(path, thickness, closed)), front, depth, mat);
 }
 
 function frame(parent: THREE.Object3D, x: number, y: number, w: number, h: number,
@@ -90,9 +98,11 @@ function curve(parent: THREE.Object3D, path: THREE.Path, x: number, y: number,
 }
 
 // 圆形几何团寿纹：外圈、中心横档、上下左右的回折笔画，留出清晰的深色负形。
-function seal(parent: THREE.Object3D, y: number, r: number, front: number, mat: Mats) {
+// stroke：柱身上段用浅石；英国棕柱脚用古铜，与包角柱脚同色系。
+function seal(parent: THREE.Object3D, y: number, r: number, front: number, mat: Mats,
+  stroke: THREE.Material = mat.carvedStone) {
   const g = group(parent, "圆形几何团寿浮雕");
-  circle(g, 0, y, r, front, mat.carvedStone, r * 0.065);
+  circle(g, 0, y, r, front, stroke, r * 0.065);
   const paths: XY[][] = [
     [[-.76,.08],[.76,.08]], [[-.76,-.08],[.76,-.08]],
     [[-.6,.27],[-.18,.27],[-.18,.78]],
@@ -104,7 +114,7 @@ function seal(parent: THREE.Object3D, y: number, r: number, front: number, mat: 
     [[.6,-.27],[.18,-.27],[.18,-.78]],
     [[.6,-.42],[.36,-.42],[.36,-.6]],
   ];
-  strokes(g, paths.map(p => p.map(([x, yy]) => [x * r, y + yy * r])), r * 0.068, front - 1, mat.carvedStone);
+  strokes(g, paths.map(p => p.map(([x, yy]) => [x * r, y + yy * r])), r * 0.068, front - 1, stroke);
   return g;
 }
 
@@ -117,6 +127,9 @@ function sealBoss(parent: THREE.Object3D, y: number, r: number, mat: Mats) {
   seal(boss, y, r * 0.87, -31, mat);
 }
 
+const HEART_PATH: XY[] = [[-.45,.31],[-.45,.62],[-.22,.69],[0,.49],[.22,.69],[.45,.62],[.45,.31],
+  [.16,0],[.16,-.21],[.43,-.52],[.43,-.68],[.12,-.68],[0,-.54],[-.12,-.68],[-.43,-.68],[-.43,-.52],[-.16,-.21],[-.16,0]];
+
 // 门厅柱的双心折线带。两条内外轮廓形成截图中的浅色折线及深色间隙。
 function heartBand(parent: THREE.Object3D, y: number, w: number, h: number, front: number, mat: Mats, count?: number) {
   const g = group(parent, "深底双心折线纹带");
@@ -124,15 +137,53 @@ function heartBand(parent: THREE.Object3D, y: number, w: number, h: number, fron
   frame(g, 0, y, w + 14, h + 14, front - 12, mat.carvedStone, 14);
   const cells = count ?? Math.max(2, Math.round(w / (h * 1.12)));
   const pitch = w / cells, paths: XY[][] = [];
-  const heart: XY[] = [[-.45,.31],[-.45,.62],[-.22,.69],[0,.49],[.22,.69],[.45,.62],[.45,.31],
-    [.16,0],[.16,-.21],[.43,-.52],[.43,-.68],[.12,-.68],[0,-.54],[-.12,-.68],[-.43,-.68],[-.43,-.52],[-.16,-.21],[-.16,0]];
   for (let i = 0; i < cells; i++) {
     const x = -w / 2 + (i + .5) * pitch;
     for (const s of [1, .62])
-      paths.push(heart.map(([xx, yy]) => [x + xx * pitch * s, y + yy * h * .64 * s]));
+      paths.push(HEART_PATH.map(([xx, yy]) => [x + xx * pitch * s, y + yy * h * .64 * s]));
   }
   strokes(g, paths, Math.min(14, h * .062), front - 18, mat.carvedStone, true);
   return g;
+}
+
+/**
+ * 柱脚方花板边长：与门厅柱 `min(span-180, 440*s)` 同口径，
+ * s 按造型方座顶 760 归一，使包角柱／门厅柱方板相对柱脚比例一致。
+ */
+export function plinthPanelSize(faceW: number, pedestalTop: number) {
+  const s = pedestalTop / 760;
+  return Math.min(Math.max(180, faceW - 180), 440 * s);
+}
+
+/**
+ * 英国棕柱脚三联双心纹：市面水包砂勒脚多为同色系凹凸，不用浅石跳色。
+ * 深凹底＋同色外框＋略暖古铜浮雕；方板大小对齐门厅柱脚比例。
+ */
+function cornerPlinthOrnament(face: THREE.Object3D, faceW: number, pedestalTop: number, mat: Mats) {
+  const plinth = group(face, "包角柱柱脚三联双心纹");
+  const panelH = plinthPanelSize(faceW, pedestalTop);
+  const panelW = panelH;
+  const panelY = pedestalTop / 2;
+  plinth.position.z = -6;
+  // 深凹底：比英国棕更深，形成阴影腔
+  box(plinth, 0, panelY, 16, panelW, panelH, 36, mat.carvingDark);
+  // 外框／内线脚与座身同色，只靠凸出读轮廓
+  frame(plinth, 0, panelY, panelW + 22, panelH + 22, -14, mat.british, 16);
+  frame(plinth, 0, panelY, panelW - 12, panelH - 12, -28, mat.british, 10);
+  // 纹带底板再退一档；双心折线用古铜，仍在深咖色系内，不跳浅色
+  const bandH = Math.min(panelH * 0.46, 155);
+  const bandW = panelW * 0.78;
+  box(plinth, 0, panelY, -8, bandW, bandH, 14, mat.carvingDark);
+  const cells = 3;
+  const pitch = bandW / cells;
+  const paths: XY[][] = [];
+  for (let i = 0; i < cells; i++) {
+    const x = -bandW / 2 + (i + 0.5) * pitch;
+    for (const s of [1, 0.62])
+      paths.push(HEART_PATH.map(([xx, yy]) => [x + xx * pitch * s, panelY + yy * bandH * 0.64 * s]));
+  }
+  strokes(plinth, paths, Math.min(14, bandH * 0.075), -38, mat.bronze, true, 16);
+  return plinth;
 }
 
 // 包角柱用方折回纹，与门厅柱的双心带分开。
@@ -140,14 +191,7 @@ function keyBand(parent: THREE.Object3D, y: number, w: number, h: number, mat: M
   const g = group(parent, "包角柱深底回纹带");
   box(g, 0, y, -8, w, h, 22, mat.carvingDark);
   frame(g, 0, y, w + 14, h + 14, -35, mat.carvedStone, 14);
-  const count = Math.max(2, Math.round(w / h)), pitch = (w - 30) / count;
-  const paths: XY[][] = [];
-  for (let i = 0; i < count; i++) {
-    const x = -w/2 + 15 + (i+.5) * pitch;
-    paths.push([[-.49,-.36],[-.49,.36],[.34,.36],[.34,-.08],[-.12,-.08],[-.12,.13],[.12,.13]]
-      .map(([xx, yy]) => [x + xx * pitch, y + yy * h]));
-  }
-  strokes(g, paths, 16, -36, mat.carvedStone);
+  addMeanderBand(g, 0, y, -36, w - 50, h * .7, mat.carvedStone);
   return g;
 }
 
@@ -286,10 +330,12 @@ function octagonalCourse(parent: THREE.Object3D, y0: number, y1: number, w: numb
 }
 
 type Course = [number, number, number, "stone" | "dark" | "brown", number?];
+/** 柱脚造型分段；brown 上沿为 760×s，更高的勒脚由调用方补棕带到 cornerPedestalTop。 */
 function courses(height: number, s: number): Course[] {
+  // 柱脚方座整段英国棕，顶线与一层外墙勒脚齐平；柱身上段仍为石色／柱冠棕。
   return [
-    [0,90*s,PORTICO_COLUMN_MAX_TRIM,"stone"],[90*s,160*s,25,"stone"],
-    [160*s,700*s,27,"stone"],[700*s,760*s,47,"stone"],
+    [0,90*s,PORTICO_COLUMN_MAX_TRIM,"brown"],[90*s,160*s,25,"brown"],
+    [160*s,700*s,27,"brown"],[700*s,760*s,47,"brown"],
     [760*s,810*s,35,"stone"],[810*s,880*s,14,"stone",38],
     [880*s,920*s,38,"stone"],[1160*s,1210*s,25,"stone"],
     [height-1190*s,height-1140*s,23,"stone"],
@@ -334,9 +380,10 @@ export function referencePorticoColumn(parent: THREE.Object3D, x: number, z: num
     const plinth = group(face,"柱脚深底团寿花板");
     plinth.position.z = -27;
     const size = Math.min(span-180,440*s);
+    // 与包角柱脚同色系：深凹底＋英国棕框＋古铜团寿，不在勒脚跳浅石。
     box(plinth,0,430*s,-9,size,size,18,mat.carvingDark);
-    frame(plinth,0,430*s,size+18,size+18,-29,mat.carvedStone,18);
-    seal(plinth,430*s,size*.43,-35,mat);
+    frame(plinth,0,430*s,size+18,size+18,-29,mat.british,18);
+    seal(plinth,430*s,size*.43,-35,mat,mat.bronze);
     cloudPanel(face,1065*s,span*.69,235*s,mat);
     apron(face,930*s,span*.89,s,mat);
   }
@@ -348,7 +395,7 @@ export function referenceCornerPilaster(parent: THREE.Object3D, cornerX: number,
   const g = group(parent,"包角柱");
   g.userData.ornamentReference = "corner-carving-2026-10-15";
   g.position.set(cornerX,base,cornerZ);
-  const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg, s = .82;
+  const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg, s = CORNER_PEDESTAL_SCALE;
   const outer = outward*project, inner = -outward*leg;
   const outline = (v: number) => cornerOutline(project, leg, outward, v);
   const placeL = (y0: number,y1: number,lip: number,material: THREE.Material,topLip=lip) => {
@@ -363,22 +410,27 @@ export function referenceCornerPilaster(parent: THREE.Object3D, cornerX: number,
   placeL(0,height,0,mat.carvedStone);
   for (const [lo,hi,lip,tone,topLip=lip] of courses(height,s))
     placeL(lo,hi,Math.min(40,lip),tone==="brown"?mat.british:tone==="dark"?mat.carvingDark:mat.carvedStone,Math.min(40,topLip));
-  const dress = (face: THREE.Object3D,w: number) => {
-    const top=capitalFace(face,height,w,s,mat,false);
-    shaftFace(face,1240*s,top,w,mat,false);
-    cloudPanel(face,1065*s,w*.83,235*s,mat);
-    const size=w*.81, plinth=group(face,"包角柱柱脚三联双心纹");
-    plinth.position.z=-27;
-    heartBand(plinth,430*s,size,145*s,-19,mat,3);
-    frame(plinth,0,430*s,size+70,430*s,-27,mat.carvedStone,16);
+  // 正／侧面共用同一饰面宽：L 形外皮全长 project+leg，花纹在截面居中。
+  const faceSpan = project + leg - 70;
+  const pedestalTop = cornerPedestalTop(s, site.entranceRise);
+  // 室内抬高超过造型方座时，把英国棕补到勒脚顶，避免柱脚矮于外墙带。
+  const coursePedestal = 760 * s;
+  if (pedestalTop > coursePedestal + 1)
+    placeL(coursePedestal, pedestalTop, 40, mat.british);
+  const dress = (face: THREE.Object3D, w: number) => {
+    const top = capitalFace(face, height, w, s, mat, false);
+    shaftFace(face, 1240 * s, top, w, mat, false);
+    cloudPanel(face, 1065 * s, w * .83, 235 * s, mat);
+    cornerPlinthOrnament(face, w, pedestalTop, mat);
   };
-  const front=group(g,"包角柱正面");
-  front.position.set((outer+inner)/2,0,-project);
-  dress(front,leg+project-70);
-  const side=group(g,"包角柱侧面");
-  side.position.set(outer,0,leg/2);
-  side.rotation.y=outward>0?-Math.PI/2:Math.PI/2;
-  dress(side,leg-60);
+  const front = group(g, "包角柱正面");
+  front.position.set((outer + inner) / 2, 0, -project);
+  dress(front, faceSpan);
+  const side = group(g, "包角柱侧面");
+  // 侧面外皮从 z=-project 到 z=leg，中心 (leg-project)/2，与正面同宽居中。
+  side.position.set(outer, 0, (leg - project) / 2);
+  side.rotation.y = outward > 0 ? -Math.PI / 2 : Math.PI / 2;
+  dress(side, faceSpan);
   return g;
 }
 
@@ -396,13 +448,14 @@ export function referenceUpperCornerPilaster(parent: THREE.Object3D, x: number, 
   g.position.set(x, base, z);
   const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg;
   columnProfileMeshes(g, upperCornerProfile(project, leg, outward, height), mat);
+  const faceSpan = project + leg - 70;
   const front = group(g, "三楼包角柱正面");
-  front.position.set(outward*(project-leg)/2, 0, -project);
-  upperColumnFace(front, height, leg+project-70, mat);
+  front.position.set(outward * (project - leg) / 2, 0, -project);
+  upperColumnFace(front, height, faceSpan, mat);
   const side = group(g, "三楼包角柱侧面");
-  side.position.set(outward*project, 0, leg/2);
-  side.rotation.y = outward > 0 ? -Math.PI/2 : Math.PI/2;
-  upperColumnFace(side, height, leg-60, mat);
+  side.position.set(outward * project, 0, (leg - project) / 2);
+  side.rotation.y = outward > 0 ? -Math.PI / 2 : Math.PI / 2;
+  upperColumnFace(side, height, faceSpan, mat);
   return g;
 }
 
@@ -423,10 +476,33 @@ function rosette(parent: THREE.Object3D, y: number, r: number, mat: Mats) {
   circle(g,0,y,r*.17,-85,mat.carvingInset,9);
 }
 
+/** 实体前皮向上外展斜接板底，梁托根部全高落在实体内。 */
+function porticoCorbelBacking(parent: THREE.Object3D, width: number, depth: number, height: number, mat: Mats) {
+  const mesh = box(parent, 0, height / 2, depth / 2, width, height, depth, mat.carvedStone);
+  mesh.name = "门厅梁托斜接实体靠背";
+  mesh.geometry = mesh.geometry.clone();
+  mesh.geometry.scale(width, height, depth);
+  mesh.scale.set(1, 1, 1);
+  const positions = mesh.geometry.getAttribute("position");
+  const rake = Math.min(60, height * .2, depth * .25);
+  for (let i = 0; i < positions.count; i++)
+    if (positions.getY(i) > 0) positions.setZ(i, positions.getZ(i) - rake);
+  positions.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  mesh.geometry.computeBoundingBox();
+  mesh.geometry.computeBoundingSphere();
+  return mesh;
+}
+
 export function referencePorticoBeam(parent: THREE.Object3D, center: number, front: number,
-  top: number, span: number, columnWidth: number, mat: Mats) {
+  top: number, span: number, columnWidth: number, mat: Mats,
+  backing?: { face: number; top: number; width: number }) {
   const g=group(parent,"参考图门厅雕花横梁");
   g.position.set(center,top,front);
+  if (backing) {
+    const support = porticoCorbelBacking(g, backing.width, PORTICO_BEAM_DEPTH, backing.top - top, mat);
+    support.position.z += backing.face - front;
+  }
   // 横梁留在既有柱头净空内：上方方块饰、中央花板、下沿连续回纹。
   // 梁体止于柱内皮并少量嵌接，不再横穿整块柱头；饰面只布置在柱间净跨内。
   const clear=span-columnWidth-120, w=span-columnWidth+16, h=670;
@@ -455,14 +531,8 @@ export function referencePorticoBeam(parent: THREE.Object3D, center: number, fro
     frame(g,side*panelW*.278,-405,panelW*.42+25,panelH+24,-31,mat.carvedStone,12);
   }
   rosette(g,-398,156,mat);
-  const keyW=clear-80, count=Math.max(10,Math.round(keyW/220)), keyPitch=keyW/count;
-  const paths:XY[][]=[];
-  for(let i=0;i<count;i++) {
-    const x=-keyW/2+(i+.5)*keyPitch;
-    paths.push([[-.48,-35],[-.48,41],[.28,41],[.28,-10],[-.05,-10]]
-      .map(([xx,yy])=>[x+xx*keyPitch,-580+yy]));
-  }
-  strokes(g,paths,12,-33,mat.carvingInset);
+  const keyW=clear-80;
+  addMeanderBand(g,0,-580,-33,keyW,76,mat.carvingInset);
   for(const y of [-525,-635]) box(g,0,y,-21,keyW+40,18,36,mat.carvedStone);
   // 两侧阶梯及竖向托角沿柱截面中线居中，从柱子内缘开始向跨中收短。
   for(const side of [-1,1]) {
@@ -477,5 +547,88 @@ export function referencePorticoBeam(parent: THREE.Object3D, center: number, fro
     mesh.name="门廊竖向托角";
     mesh.position.x=inner; mesh.position.y=-720;
   }
+  return g;
+}
+
+/** 门厅侧枋分上部如意带、中部卷草与团寿、下部回纹，线脚贯入柱墙。 */
+export function referencePorticoReturnBeam(parent: THREE.Object3D, faceX: number, fromZ: number, toZ: number,
+  outward: number, slabBottom: number, fasciaBottom: number, depth: number, mat: Mats,
+  ornamentRange?: { from: number; to: number }) {
+  const span = toZ - fromZ;
+  if (span <= 40) return;
+  const g = group(parent, "门厅柱顶如意卷草侧枋");
+  g.position.set(faceX, fasciaBottom, (fromZ + toZ) / 2);
+  g.rotation.y = -outward * Math.PI / 2;
+  const backingHeight = slabBottom - fasciaBottom;
+  porticoCorbelBacking(g, span, depth, backingHeight, mat);
+  // 枋身贯入柱头与主墙，窄倒角沿整根石枋收边，避免外贴花板的厚边。
+  const body = polygon([[-span / 2, 0], [span / 2, 0], [span / 2, -670], [-span / 2, -670]]);
+  carvedShape(g, body, 0, depth, mat.carvedStone, 2).name = "门厅侧枋实体";
+  for (const [y, height, projection] of [[-20, 28, 14], [-52, 16, 9], [-525, 18, 10], [-635, 18, 12], [-660, 12, 7]])
+    box(g, 0, y, 0, span, height, projection * 2, mat.carvedStone)
+      .name = "门厅侧枋通长分层线脚";
+
+  const ornamentFrom = Math.max(fromZ + 70, ornamentRange?.from ?? fromZ + 70);
+  const ornamentTo = Math.min(toZ - 70, ornamentRange?.to ?? toZ - 70);
+  const ornamentSpan = ornamentTo - ornamentFrom;
+  if (ornamentSpan < 180) return g;
+  const frieze = group(g, "门厅侧枋如意卷草浅浮雕");
+  // 局部X向与世界Z向随左右镜像，图案在实际露出的净段内居中。
+  frieze.position.x = outward * ((ornamentFrom + ornamentTo) / 2 - (fromZ + toZ) / 2);
+  const scale = Math.min(1, ornamentSpan / 1000);
+  const keyWidth = ornamentSpan - 40 * scale;
+  const engraving = mat.carvingInset.clone();
+  engraving.name = "侧枋同色浅刻阴线";
+  engraving.color.lerp(mat.carvedStone.color, .55);
+
+  // 上部如意锦带，与中段舒展卷草分开，按净长完整排布。
+  const ruyi = new THREE.Path();
+  ruyi.moveTo(-.43, -.18);
+  ruyi.lineTo(-.26, -.18);
+  ruyi.bezierCurveTo(-.26, .18, -.12, .35, 0, .12);
+  ruyi.bezierCurveTo(.12, .35, .26, .18, .26, -.18);
+  ruyi.lineTo(.43, -.18);
+  const ruyiCount = Math.max(1, Math.round(ornamentSpan / 260));
+  const ruyiPitch = (ornamentSpan - 80 * scale) / ruyiCount;
+  for (let i = 0; i < ruyiCount; i++) {
+    const x = -ornamentSpan / 2 + 40 * scale + (i + .5) * ruyiPitch;
+    curve(frieze, ruyi, x, -140, ruyiPitch, 85 * scale, -4, engraving, 9 * scale);
+    curve(frieze, ruyi, x, -140, ruyiPitch, 85 * scale, -11, mat.carvedStone, 5 * scale);
+  }
+
+  // 中部团寿与柱冠同源，两侧卷草向梁端舒展，端头卷耳收住净段。
+  const scroll = new THREE.Path();
+  scroll.moveTo(-.5, 0);
+  scroll.bezierCurveTo(-.34, .12, -.31, .72, -.05, .72);
+  scroll.bezierCurveTo(.23, .72, .34, .3, .12, .08);
+  scroll.bezierCurveTo(-.04, -.08, -.14, .2, .02, .31);
+  scroll.bezierCurveTo(.16, .4, .28, -.1, .5, -.03);
+  const lowerScroll = new THREE.Path();
+  lowerScroll.moveTo(-.5, -.08);
+  lowerScroll.bezierCurveTo(-.28, -.1, -.24, -.72, .02, -.72);
+  lowerScroll.bezierCurveTo(.26, -.72, .3, -.3, .1, -.27);
+  lowerScroll.bezierCurveTo(-.03, -.24, .02, -.5, .14, -.48);
+  lowerScroll.bezierCurveTo(.29, -.45, .3, -.09, .5, -.03);
+  const endScroll = new THREE.Path();
+  endScroll.moveTo(0, 0);
+  endScroll.lineTo(0, -.69);
+  endScroll.bezierCurveTo(0, -.98, .72, -1, .78, -.68);
+  endScroll.bezierCurveTo(.83, -.42, .38, -.38, .4, -.65);
+  const scrollWidth = (ornamentSpan - 360 * scale) / 2;
+  for (const side of [-1, 1]) {
+    const center = side * (70 * scale + scrollWidth / 2);
+    for (const path of [scroll, lowerScroll]) {
+      curve(frieze, path, center, -345, side * scrollWidth, 130 * scale, -4, engraving, 15 * scale);
+      curve(frieze, path, center, -345, side * scrollWidth, 130 * scale, -12, mat.carvedStone, 9 * scale);
+    }
+    const end = side * (ornamentSpan / 2 - 30 * scale);
+    curve(frieze, endScroll, end, -110, -side * 80 * scale, 360 * scale, -4, engraving, 17 * scale);
+    curve(frieze, endScroll, end, -110, -side * 80 * scale, 360 * scale, -13, mat.carvedStone, 11 * scale);
+  }
+  const medallion = group(frieze, "侧枋柱冠呼应团寿");
+  circle(medallion, 0, -345, 61 * scale, -6, engraving, 5 * scale);
+  seal(medallion, -345, 51 * scale, -12, mat);
+
+  addMeanderBand(frieze, 0, -580, -3, keyWidth, 76 * scale, engraving, 4);
   return g;
 }

@@ -137,7 +137,8 @@ test("不内退组合支持两种门厅、主辅楼位置和官帽，撤销旧�
     for (const style of ["joined", "floating"] as const) {
       const model = buildVilla(mat, false, 4.5, style, layout);
       assert.ok(model.group.getObjectByName("中央露台两根短柱"));
-      assert.ok(model.group.getObjectByName("外伸门厅三楼平台"));
+      assert.ok(model.group.getObjectByName("三楼楼板"));
+      assert.equal(model.group.getObjectByName("外伸门厅三楼平台"), undefined, "门厅平台已并入统一楼板");
       for (const name of ["三楼左侧露台", "三楼右侧露台", "四根露台短柱"]) assert.equal(model.group.getObjectByName(name), undefined);
       model.group.traverse(o => { if (o instanceof THREE.Mesh) {
         const p = o.geometry.getAttribute("position");

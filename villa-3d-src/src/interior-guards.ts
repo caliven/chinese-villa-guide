@@ -1,4 +1,4 @@
-import { construction, isPhysicalWall, wallRoleOf, type Floor, type Point } from "./data";
+import { construction, isPhysicalWall, site, wallRoleOf, type Floor, type Point } from "./data";
 import { recessedFootprint } from "./building-variants";
 import type { VoidDraft, StairDraft } from "./layout-draft";
 import { polygonContainsPoint, roomOutline } from "./room-geometry";
@@ -7,8 +7,25 @@ import { railingThickness, type RailingStyle } from "./railing-options";
 
 export type GuardSegment = [Point, Point];
 type Boundary = { a: Point; b: Point };
+export type GuardFacade = Boundary & { openings?: { at: number; w: number; entryAssembly?: string }[] };
 const rect = (r: { x: number; z: number; w: number; d: number }): Point[] =>
   [[r.x, r.z], [r.x + r.w, r.z], [r.x + r.w, r.z + r.d], [r.x, r.z + r.d]];
+
+/** 二层入口固定上窗内侧设独立防护，装饰门头及玻璃不代替栏杆。 */
+export function entryWindowGuards(boundaries: GuardFacade[]): GuardSegment[] {
+  return boundaries.flatMap(face => {
+    const dx = face.b[0] - face.a[0], dz = face.b[1] - face.a[1];
+    const length = Math.hypot(dx, dz);
+    if (length < 1) return [];
+    let nx = -dz / length, nz = dx / length;
+    const centerX = site.main.x + site.main.w / 2, centerZ = site.main.z + site.main.d / 2;
+    if (nx * (centerX - face.a[0]) + nz * (centerZ - face.a[1]) < 0) { nx *= -1; nz *= -1; }
+    const inset = construction.outsideWall / 2 + 200;
+    const point = (at: number): Point => [face.a[0] + dx * at / length + nx * inset, face.a[1] + dz * at / length + nz * inset];
+    return (face.openings ?? []).filter(opening => opening.entryAssembly && opening.w > 120)
+      .map(opening => [point(opening.at - opening.w / 2 + 60), point(opening.at + opening.w / 2 - 60)] as GuardSegment);
+  });
+}
 
 function wallPolygon(wall: Boundary, pad: number): Point[] {
   const [a, b] = [wall.a, wall.b], length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
@@ -72,11 +89,11 @@ export function livingVoidGuards(living: VoidDraft, floor: Floor, boundaries: Bo
   return supportedSegments(expanded.map((p, i) => [p, expanded[(i + 1) % 4]]), floor, boundaries, holes, style);
 }
 
-export function stairFloorGuards(stair: StairDraft, floor: Floor, boundaries: Boundary[], style: RailingStyle, living?: VoidDraft): GuardSegment[] {
+export function stairFloorGuards(stair: StairDraft, floor: Floor, boundaries: Boundary[], style: RailingStyle, living?: VoidDraft, passages: "both" | "upper" = "both"): GuardSegment[] {
   const hole = stairOpeningBounds(stair), center: Point = [hole.x + hole.w / 2, hole.z + hole.d / 2];
   const inset = railingThickness(style) / 2 + 20;
   const shape = stairShape(stair), railInset = Math.max(60, inset);
-  const candidates = stairOpeningRails(stair).map(([a, b]): GuardSegment => {
+  const candidates = stairOpeningRails(stair, passages).map(([a, b]): GuardSegment => {
     const dx = b[0] - a[0], dz = b[1] - a[1], length = Math.hypot(dx, dz);
     let nx = -dz / length, nz = dx / length;
     if (nx * ((a[0] + b[0]) / 2 - center[0]) + nz * ((a[1] + b[1]) / 2 - center[1]) < 0) { nx *= -1; nz *= -1; }

@@ -40,7 +40,7 @@ test("主辅楼首层及整段过道同高，过道两端踏步与铺装一致",
   }
 });
 
-test("三层楼面均有120厚水泥楼板；二层挑空和二三层楼梯洞不被封死", () => {
+test("三层楼面均有120厚楼板；三层含连续挑檐，二层挑空和二三层楼梯洞保留", () => {
   const draft = draftWithoutFurniture(), layout = villaLayoutFromDraft(draft);
   const model = buildVilla(mat, false, site.roofFenShui, "floating", layout);
   for (const [index, name] of ["一楼楼板", "二楼楼板", "三楼楼板"].entries()) {
@@ -50,9 +50,10 @@ test("三层楼面均有120厚水泥楼板；二层挑空和二三层楼梯洞�
     const top = draft.floors[index].y + (index === 0 ? site.entranceRise : 0);
     assert.equal(box.max.y, top);
     assert.ok(Math.abs(box.min.y - (top - construction.floorSlab)) < .01);
-    // 楼板外缘与建筑外皮（外墙外皮）齐平，不外扩半墙厚。
-    assert.ok(Math.abs(box.min.x - site.main.x) < 1, name);
-    assert.ok(Math.abs(box.max.x - (site.main.x + site.main.w)) < 1, name);
+    // 三层将外伸檐板并入整体，其余楼板仍与建筑外皮齐平。
+    const projection = index === 2 ? construction.outsideWall / 2 + site.secondFrontEave : 0;
+    assert.ok(Math.abs(box.min.x - (site.main.x - projection)) < 1, name);
+    assert.ok(Math.abs(box.max.x - (site.main.x + site.main.w + projection)) < 1, name);
   }
   const opening = stairOpeningBounds(fitStairToRoom(draft.stairLayout, draft.floors));
   for (const index of [1, 2]) {
@@ -63,7 +64,7 @@ test("三层楼面均有120厚水泥楼板；二层挑空和二三层楼梯洞�
   assert.equal(hit(model.levels[1].getObjectByName("二楼楼板")!, v.x + v.w / 2, v.z + v.d / 2, draft.floors[1].y + 100), undefined);
 });
 
-test("关闭瓦屋面仍有独立双面顶板；楼梯洞随退台、凹口和换位更新", () => {
+test("关闭瓦屋面仍有独立双面封闭顶板，随退台、凹口和换位更新", () => {
   for (const buildingPlacement of ["main-east", "main-west"] as const)
     for (const thirdFloorMode of ["setback", "flush"] as const) {
       applyVillaParams({ ...DEFAULT_VILLA_PARAMS, buildingPlacement, thirdFloorMode, porticoStyle: "recessed" });
@@ -87,22 +88,67 @@ test("关闭瓦屋面仍有独立双面顶板；楼梯洞随退台、凹口和�
         assert.ok(roofPlanSvg("slab", "floating", layout).includes(`points="${points}" class="roof-slab"`), "二维／三维顶板范围须同源");
       }
       const opening = stairOpeningBounds(fitStairToRoom(draft.stairLayout, draft.floors));
-      assert.equal(hit(model.topSlabs.main.getObjectByName("主楼三层顶板实体")!, opening.x + opening.w / 2, opening.z + opening.d / 2, spec.main.top + 100), undefined, "顶板须在楼梯位置开洞");
-      assert.ok(roofPlanSvg("slab", "floating", layout).includes(`points="${spec.stairHole!.map(([x, z]) => `${Math.round(x)},${Math.round(z)}`).join(" ")}" class="roof-stair-hole"`));
+      assert.ok(hit(model.topSlabs.main.getObjectByName("主楼三层顶板实体")!, opening.x + opening.w / 2, opening.z + opening.d / 2, spec.main.top + 100), "坡屋面下顶板须封闭");
+      assert.equal(spec.stairHole, null);
+      assert.ok(!roofPlanSvg("slab", "floating", layout).includes('class="roof-stair-hole"'));
       const front = Math.min(...spec.main.outline.map(p => p[1]));
       assert.ok(hit(model.topSlabs.main, draft.portico.x + draft.portico.w / 2, front + 100, spec.main.top + 100), "平齐门厅不再切中央凹口");
     }
 });
 
-test("复用场景时删除楼梯须恢复完整顶板", () => {
+test("复用场景删除楼梯后仍保留完整顶板", () => {
   const draft = draftWithoutFurniture(), layout = villaLayoutFromDraft(draft);
   const previous = buildVilla(mat, false, site.roofFenShui, "floating", layout);
-  const hole = roofSlabLayout(layout).stairHole!;
-  const x = (hole[0][0] + hole[2][0]) / 2, z = (hole[0][1] + hole[2][1]) / 2;
+  const hole = stairOpeningBounds(fitStairToRoom(draft.stairLayout, draft.floors));
+  const x = hole.x + hole.w / 2, z = hole.z + hole.d / 2;
   const top = roofSlabLayout(layout).main.top;
-  assert.equal(hit(previous.topSlabs.main.getObjectByName("主楼三层顶板实体")!, x, z, top + 100), undefined);
+  assert.ok(hit(previous.topSlabs.main.getObjectByName("主楼三层顶板实体")!, x, z, top + 100));
   draft.floors.forEach(floor => floor.rooms = floor.rooms.filter(room => room.kind !== "stair"));
   const next = buildVilla(mat, false, site.roofFenShui, "floating", villaLayoutFromDraft(draft), previous);
-  assert.notEqual(next.topSlabs.main, previous.topSlabs.main);
+  assert.equal(next.topSlabs.main, previous.topSlabs.main);
   assert.ok(hit(next.topSlabs.main.getObjectByName("主楼三层顶板实体")!, x, z, top + 100));
+});
+
+test("完整三层楼梯在三层终止，封闭顶板与顶层洞口防护一致", () => {
+  const draft = draftWithoutFurniture(), layout = villaLayoutFromDraft(draft);
+  const before = JSON.stringify(draft);
+  const model = buildVilla(mat, false, site.roofFenShui, "floating", layout);
+  const outgoing = model.levels[2].children.filter(child => child instanceof THREE.Mesh && child.material === mat.paving);
+  assert.equal(outgoing.length, 0, "三楼不能继续生成上行踏步");
+  assert.ok(model.levels[2].children.some(child => child.userData.incomingStair), "保留二楼上来的楼梯副本");
+  assert.equal(roofSlabLayout(layout).stairHole, null);
+  assert.equal(JSON.stringify(draft), before, "旧户型稿载入后保持原始数据");
+});
+
+test("各层内墙封到实际板底，顶层不再按已取消的上行梯段压低", () => {
+  const draft = draftWithoutFurniture();
+  draft.floors.forEach(floor => floor.partitions = [{ a: [15000, 5300], b: [17000, 5300], role: "partition" }]);
+  const model = buildVilla(mat, false, site.roofFenShui, "floating", villaLayoutFromDraft(draft));
+  for (const [index, top] of [3480, 7080, 10500].entries()) {
+    const walls: THREE.Mesh[] = [];
+    model.levels[index].traverse(object => {
+      if (object instanceof THREE.Mesh && object.material === mat.inside) walls.push(object);
+    });
+    assert.equal(walls.length, 1);
+    assert.ok(Math.abs(new THREE.Box3().setFromObject(walls[0]).max.y - top) < .01);
+  }
+});
+
+test("二层入口固定窗内侧防护高1100，柱脚和中点均落在真实楼板上", () => {
+  const draft = draftWithoutFurniture();
+  const model = buildVilla(mat, false, site.roofFenShui, "floating", villaLayoutFromDraft(draft));
+  const guard = model.levels[1].getObjectByName("二层入口窗内防护栏")!;
+  const bounds = new THREE.Box3().setFromObject(guard);
+  assert.ok(Math.abs(bounds.min.y - 3600) < .01);
+  assert.ok(Math.abs(bounds.max.y - 4700) < .01);
+  const slab = model.levels[1].getObjectByName("二楼楼板")!;
+  guard.traverse(object => {
+    const ends = object.userData.railingEndpoints as number[][] | undefined;
+    if (!ends) return;
+    for (const t of [0, .5, 1]) {
+      const x = ends[0][0] + (ends[1][0] - ends[0][0]) * t;
+      const z = ends[0][2] + (ends[1][2] - ends[0][2]) * t;
+      assert.ok(Math.abs(hit(slab, x, z, 3700)!.point.y - 3600) < .01);
+    }
+  });
 });

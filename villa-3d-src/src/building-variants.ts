@@ -11,7 +11,10 @@ export const porticoStyleLabels = { projecting: "凸出式门厅", recessed: "�
 export const buildingPlacementLabels = { "main-east": "主楼东 · 辅楼西", "main-west": "主楼西 · 辅楼东" } as const;
 export const thirdFloorModeLabels = { setback: "北向内退", flush: "不内退" } as const;
 export const hasThirdFloorSideTerraces = () => site.setback > 0;
-export const frontTerracePosts = () => hasThirdFloorSideTerraces() ? frontElevation.balustradePosts : frontElevation.balustradePosts.slice(1, 3);
+export const frontTerracePosts = () => {
+  const posts = terraceParapetLayout().cornerPosts;
+  return hasThirdFloorSideTerraces() ? posts : posts.slice(1, 3);
+};
 export const recessedPortico = () => site.porticoStyle === "recessed";
 export const mirroredBuildings = () => site.buildingPlacement === "main-west";
 export const porticoFrontZ = () => site.main.z - (recessedPortico() ? 0 : site.portico.projection);

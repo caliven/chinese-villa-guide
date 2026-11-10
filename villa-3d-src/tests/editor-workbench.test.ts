@@ -7,7 +7,7 @@ import { buildEditorModel, disposeEditorModel, editorFloorGeometry, editorModelB
 import { clonePublishedLayout, removeStairFromDraft } from "../src/layout-draft.ts";
 import { floorPlan, planSourceFromDraft } from "../src/plan.ts";
 import { roomAreaLabels, roomAreas } from "../src/design-data.ts";
-import { site, type Point } from "../src/data.ts";
+import { construction, site, type Point } from "../src/data.ts";
 import type { Mats } from "../src/primitives.ts";
 import { selectionBounds } from "../src/layout-scene.ts";
 import { parseLayoutVersionDocument } from "../src/data-versions.ts";
@@ -149,7 +149,7 @@ test("三维剖切/全高墙保留真实墙索引与家具身份，构建不改�
   full.levels[0].traverse(object => { if (object.userData.layoutSelection?.kind === "wall") fullWalls.push(object); });
   assert.deepEqual(walls.map(wall => wall.userData.layoutSelection.index), [1]);
   assert.equal(walls[0].userData.editorWallHeight, 1200);
-  assert.equal(fullWalls[0].userData.editorWallHeight, draft.floors[0].height - site.entranceRise - 150);
+  assert.equal(fullWalls[0].userData.editorWallHeight, draft.floors[0].height - site.entranceRise - construction.floorSlab);
   const furniture: THREE.Object3D[] = [];
   cut.annex.traverse(object => { if (object.userData.layoutSelection?.kind === "furniture") furniture.push(object); });
   assert.equal(furniture.length, draft.annexFurniture.length);
@@ -170,7 +170,7 @@ test("单层剖看补上从下层通来的梯段，完整和分离模型不重�
   for (const cut of [1200, "full"] as const) for (const floor of [0, 1, 2]) {
     const model = buildEditorModel(draft, materials(), cut, { floors: [floor] });
     const objects = stairObjects(model.root);
-    assert.equal(objects.length, floor > 0 ? 2 : 1, `${floor + 1}层 ${cut} 必须有实际梯段`);
+    assert.equal(objects.length, floor === 1 ? 2 : 1, `${floor + 1}层 ${cut} 必须有实际梯段`);
     const expectedBounds = new THREE.Box3();
     objects.forEach(object => expectedBounds.union(new THREE.Box3().setFromObject(object)));
     assert.ok(selectionBounds(model.root, { kind: "stair" })?.equals(expectedBounds), "定位应包含上下梯段，不能只取最后一个梯段");
@@ -187,7 +187,7 @@ test("单层剖看补上从下层通来的梯段，完整和分离模型不重�
   for (const overview of [false, true]) {
     const model = buildEditorModel(draft, materials(), 1200, { overview });
     const objects = stairObjects(model.root);
-    assert.equal(objects.length, draft.floors.length);
+    assert.equal(objects.length, draft.floors.length - 1);
     assert.ok(objects.every(object => !object.userData.incomingStair), "已构造下层时不叠加来梯副本");
     disposeEditorModel(model.root, new THREE.Scene());
   }

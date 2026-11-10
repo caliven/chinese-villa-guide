@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { canonicalRailingStyle, railingStyleLabels, type RailingStyle } from "./railing-options.ts";
 import type { RailingJoints, RailingEndJoint } from "./railing-network.ts";
 import { handrailGeometry, type HandrailSample } from "./railing-handrail.ts";
+import { orthogonalFloorGeometry } from "./floor-geometry.ts";
+import type { Point } from "./data.ts";
 
 function marbleTexture() {
   const size = 64, pixels = new Uint8Array(size * size * 4);
@@ -87,6 +89,44 @@ export function railingModel(parent: THREE.Object3D, a: THREE.Vector3, b: THREE.
     if (x1 - x0 < 1 || high - low < 1) return;
     return section(x0, x1, [[-depth / 2, low], [depth / 2, low], [depth / 2, high], [-depth / 2, high]], mat, name);
   };
+  // 梯段下沿随实际踏步起落，不能随扶手插值线悬空数百毫米。
+  const footedPanel = (x0: number, x1: number, low: number, top: (x: number, foot: number) => number, depth: number, mat: THREE.Material, name: string) => {
+    const breaks = [x0, ...(footing ?? []).map(point => point.t * length).filter(x => x > x0 && x < x1), x1];
+    const lower: THREE.Vector2[] = [], upper: THREE.Vector2[] = [];
+    for (let i = 1; i < breaks.length; i++) {
+      const left = breaks[i - 1], right = breaks[i];
+      if (right - left < .001) continue;
+      const foot = supportLocal((left + right) / 2);
+      lower.push(new THREE.Vector2(left, foot + low), new THREE.Vector2(right, foot + low));
+      upper.push(new THREE.Vector2(left, top(left, foot)), new THREE.Vector2(right, top(right, foot)));
+    }
+    if (!lower.length) return;
+    const shape = new THREE.Shape([...lower, ...upper.reverse()]);
+    shape.closePath();
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, steps: 1 });
+    geometry.translate(0, 0, -depth / 2);
+    return add(geometry, mat, name);
+  };
+  const footedLowerRail = (depth: number, mat: THREE.Material, name: string) => {
+    const breaks = [0, ...(footing ?? []).map(point => point.t * length).filter(x => x > 0 && x < length), length];
+    const outlines: Point[][] = [];
+    const rectangle = (left: number, low: number, right: number, high: number): Point[] =>
+      [[left, low], [right, low], [right, high], [left, high]];
+    let previousFoot: number | undefined;
+    for (let i = 1; i < breaks.length; i++) {
+      const left = breaks[i - 1], right = breaks[i];
+      if (right - left < .001) continue;
+      const foot = supportLocal((left + right) / 2);
+      outlines.push(rectangle(left, foot + 50, right, foot + 85));
+      if (previousFoot !== undefined && Math.abs(foot - previousFoot) > .001)
+        outlines.push(rectangle(left - 17.5, Math.min(foot, previousFoot) + 50, left + 17.5, Math.max(foot, previousFoot) + 85));
+      previousFoot = foot;
+    }
+    // 合并踏步横段和竖向接头，避免薄条在踢面处自交或叠面闪烁。
+    const geometry = orthogonalFloorGeometry(outlines, [], depth / 2, depth, true, "union");
+    geometry.rotateX(-Math.PI / 2);
+    return add(geometry, mat, name);
+  };
   if (style === "marble") {
     // 柱身竖直落到踏步，柱头上缘按扶手坡度收口；柱间不生成墙板。
     const upright = (x: number, width: number, base: number, topOffset: number, depth: number, mat: THREE.Material, name: string) => {
@@ -130,7 +170,8 @@ export function railingModel(parent: THREE.Object3D, a: THREE.Vector3, b: THREE.
     }
     handrail(110, 18, 4, -50, stone, "扶手下沿线");
     handrail(140, 50, 8, 0, stone, "连续石材扶手");
-    if (!footing && Math.abs(delta) < 1) panel(0, length, 0, 45, 110, stone, "石质下横梁");
+    if (footing) footedLowerRail(110, stone, "石质下横梁");
+    else if (Math.abs(delta) < 1) panel(0, length, 0, 45, 110, stone, "石质下横梁");
     return group;
   }
   const postWidth = style === "wood" ? 80 : 45;
@@ -150,18 +191,22 @@ export function railingModel(parent: THREE.Object3D, a: THREE.Vector3, b: THREE.
     for (let i = 0; i < bays; i++) {
       const left = postWidth + (length - postWidth) * i / bays + 12;
       const right = (length - postWidth) * (i + 1) / bays - 12;
-      panel(left, right, lowerRail, height - 90, 16, glass, "独立玻璃片");
+      if (footing) footedPanel(left, right, 50, x => bottom(x) + height - 90, 16, glass, "独立玻璃片");
+      else panel(left, right, lowerRail, height - 90, 16, glass, "独立玻璃片");
       for (const x of [left, right]) for (const y of [220, height - 220])
         box(x, bottom(x) + y, 24, 36, 30, metal, "玻璃夹件");
     }
   } else {
-    panel(0, length, lowerRail - 35, lowerRail, style === "wood" ? 60 : 28, material, "下横档");
+    if (footing) footedLowerRail(style === "wood" ? 60 : 28, material, "下横档");
+    else panel(0, length, lowerRail - 35, lowerRail, style === "wood" ? 60 : 28, material, "下横档");
     const width = style === "wood" ? 34 : 18;
     const count = Math.max(1, Math.ceil(length / (style === "wood" ? 115 : 105)));
     for (let i = 1; i < count; i++) {
       const x = length * i / count;
       if (Array.from({ length: bays + 1 }, (_, j) => postAt(j)).some(p => Math.abs(x - p) < (postWidth + width) / 2 + 5)) continue;
-      box(x, bottom(x) + (lowerRail + height - 55) / 2, width, height - 55 - lowerRail, width, material, "竖向栏条");
+      const low = footing ? supportLocal(x) + 85 : bottom(x) + lowerRail;
+      const top = bottom(x) + height - 55;
+      box(x, (low + top) / 2, width, top - low, width, material, "竖向栏条");
     }
   }
   return group;

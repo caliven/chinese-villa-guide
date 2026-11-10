@@ -302,11 +302,13 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   );
   assert.ok(fromAbove.intersectObject(eastRamp, true).length > 0, "东侧坡道顶面应封闭");
   assert.ok(Math.abs(approachBounds.max.y - site.entranceRise) < 30);
-  const porch = villa.levels[2].getObjectByName("外伸门厅三楼平台")!;
+  const porch = villa.levels[2].getObjectByName("三楼楼板")!;
   // 平台北缘沿用门厅柱心控制线，飘檐折角另按柱宽比例外移。
-  assert.ok(Math.abs(new THREE.Box3().setFromObject(porch).min.z - frontElevation.centerFront) < 0.01);
+  const platformHits = new THREE.Raycaster(new THREE.Vector3(site.portico.x + site.portico.w / 2,
+    floors[2].y + 10, frontElevation.centerFront + 10), new THREE.Vector3(0, -1, 0)).intersectObject(porch);
+  assert.ok(platformHits.length && Math.abs(platformHits[0].point.y - floors[2].y) < .01);
   assert.equal(frontElevation.centerFront, frontElevation.porticoColumnZ);
-  const lowerEave = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+  const lowerEave = porch;
   // 前凸门厅同样出檐；外缘线脚和瓦垄另有不到5cm的建模厚度。
   const lowerEaveBounds = new THREE.Box3().setFromObject(lowerEave);
   assert.ok(Math.abs(lowerEaveBounds.min.z - frontApronOutline(frontElevation.terraceBack, site.secondFrontEave)[3][1]) < 50);
@@ -361,13 +363,11 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   assert.ok(new THREE.Box3().setFromObject(steeper.roof).max.y > roofBounds.max.y + 500);
   assert.ok(Math.abs(crownBounds.max.y - roofBounds.max.y) < 30, `官帽脊 ${crownBounds.max.y} 与正屋脊 ${roofBounds.max.y} 未齐平`);
   assert.ok(crownBounds.min.z < floors[2].front - 800 - 1000, "官帽瓦面应比两侧前檐更靠前");
-  const leftTerrace = villa.levels[2].getObjectByName("三楼左侧露台")!;
-  const rightTerrace = villa.levels[2].getObjectByName("三楼右侧露台")!;
-  const leftBox = new THREE.Box3().setFromObject(leftTerrace);
-  const rightBox = new THREE.Box3().setFromObject(rightTerrace);
-  const centerBox = new THREE.Box3().setFromObject(porch);
-  assert.ok(Math.abs(leftBox.max.x - centerBox.min.x) < 20);
-  assert.ok(Math.abs(centerBox.max.x - rightBox.min.x) < 20);
+  for (const terrace of frontElevation.sideTerraces) {
+    const hits = new THREE.Raycaster(new THREE.Vector3(terrace.x + terrace.w / 2, floors[2].y + 10,
+      frontElevation.terraceFront + 100), new THREE.Vector3(0, -1, 0)).intersectObject(porch);
+    assert.ok(hits.length && Math.abs(hits[0].point.y - floors[2].y) < .01, "露台与室内由同一楼板覆盖");
+  }
   assert.equal(villa.levels[2].getObjectByName("三楼两端贴墙角柱"), undefined, "三楼左右墙角不再做装饰柱");
   assert.ok(villa.levels[2].getObjectByName("三楼官帽柱"), "三楼官帽柱应保留");
   // 柱身进深 500、中心在前墙外皮以南 250 → 柱身北皮与一层前墙外皮同面。

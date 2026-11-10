@@ -1,7 +1,29 @@
 import * as THREE from "three";
 import { recessedPortico, porticoFrontZ } from "./building-variants";
 import { construction, site, wallRoleOf, type Point, type Wall } from "./data";
-import { box, type Mats, type Opening } from "./primitives";
+import { CORNER_PEDESTAL_SCALE, cornerPedestalTop } from "./frontage-geometry";
+import { box, slab, finishLayer, type Mats, type Opening } from "./primitives";
+
+/** 一层外墙英国棕勒脚顶：与包角柱脚方座顶同值（已含室内抬高下限）。 */
+export function firstFloorPlinthTop(rise = site.entranceRise) {
+  return cornerPedestalTop(CORNER_PEDESTAL_SCALE, rise);
+}
+
+/**
+ * 洞口先落到室内完成面，再改成相对勒脚顶（可负 sill），供横槽避让用。
+ * 勿直接 raiseOpeningsToFinish(..., plinthTop)，否则门洞 sill 会被夹成 0。
+ */
+export function openingsRelativeToPlinth(
+  openings: Opening[],
+  rise: number,
+  plinthTop: number,
+): Opening[] {
+  const delta = plinthTop - rise;
+  return raiseOpeningsToFinish(openings, rise).map(o => ({
+    ...o,
+    sill: o.sill - delta,
+  }));
+}
 
 /** 条形基础示意：墙下地梁＋埋深垫层；外皮与墙外皮齐平，不向外挑。非施工图。 */
 export type FoundationMode = "strip";
@@ -157,4 +179,100 @@ export function buildFoundation(
   for (const segment of segments) stripAlong(root, segment.a, segment.b, segment.thickness, rise, pad, plinth);
   fillCorners(root, segments, rise, pad, plinth);
   return root;
+}
+
+/** 勒脚贴面相对墙外皮的净空；须大于 0，否则与白麻墙共面闪烁。 */
+export const PLINTH_WALL_CLEARANCE = 10;
+/** 勒脚贴面厚度。 */
+export const PLINTH_VENEER = 18;
+/**
+ * 独立端头仅内收贴面半厚，相接墙转角改用内外皮斜接，禁止用墙厚级内收。
+ * 共面闪动靠净空 + finishLayer 解决，不靠大段留空。
+ */
+export const PLINTH_CORNER_INSET = PLINTH_VENEER / 2;
+
+/**
+ * 一层外墙外皮上的英国棕勒脚带：从室内抬高接到包角柱脚方座顶，
+ * 与地基地梁同色，门洞处断开。
+ * 贴面内表相对墙外皮留净空，转角内外皮斜接，用更高 finishLayer 防闪。
+ */
+export function exteriorPlinthBand(
+  parent: THREE.Object3D,
+  walls: { a: Point; b: Point; openings?: Opening[] }[],
+  y0: number,
+  y1: number,
+  interior: Point,
+  material: THREE.Material,
+  wallThickness = construction.outsideWall,
+) {
+  const h = y1 - y0;
+  if (h < 10) return;
+  const g = new THREE.Group();
+  g.name = "外墙英国棕勒脚";
+  parent.add(g);
+  const veneer = PLINTH_VENEER;
+  const clearance = PLINTH_WALL_CLEARANCE;
+  const face = wallThickness / 2 + clearance + veneer / 2;
+  const endInset = PLINTH_CORNER_INSET;
+  const skin = material instanceof THREE.MeshStandardMaterial
+    ? finishLayer(material.clone(), 6)
+    : material;
+  const frames = walls.map(wall => {
+    const dx = wall.b[0] - wall.a[0], dz = wall.b[1] - wall.a[1];
+    const length = Math.hypot(dx, dz);
+    let nx = -dz / length, nz = dx / length;
+    if (((wall.a[0] + wall.b[0]) / 2 - interior[0]) * nx
+      + ((wall.a[1] + wall.b[1]) / 2 - interior[1]) * nz < 0) { nx = -nx; nz = -nz; }
+    return { wall, nx, nz };
+  });
+  for (const wall of walls) {
+    const [ax, az] = wall.a;
+    const [bx, bz] = wall.b;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dz);
+    if (len < endInset * 2 + 50) continue;
+    const ux = dx / len;
+    const uz = dz / len;
+    let nx = -uz;
+    let nz = ux;
+    const midX = (ax + bx) / 2;
+    const midZ = (az + bz) / 2;
+    if ((midX - interior[0]) * nx + (midZ - interior[1]) * nz < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    // 相接墙的饰面在同一斜接线上收口，内外皮分别求交；不在角上留半块贴面宽的孔。
+    const corner = (point: Point) => frames.find(frame => frame.wall !== wall
+      && [frame.wall.a, frame.wall.b].some(end => Math.hypot(end[0] - point[0], end[1] - point[1]) < 1)
+      && 1 + nx * frame.nx + nz * frame.nz > 1e-4);
+    const startCorner = corner(wall.a), endCorner = corner(wall.b);
+    const cuts: [number, number][] = [];
+    for (const opening of wall.openings ?? []) {
+      if (opening.sill > h + 1) continue;
+      cuts.push([opening.at - opening.w / 2 - 40, opening.at + opening.w / 2 + 40]);
+    }
+    cuts.sort((p, q) => p[0] - q[0]);
+    let cursor = startCorner ? 0 : endInset;
+    const spans: [number, number][] = [];
+    const limit = endCorner ? len : len - endInset;
+    for (const [c0, c1] of cuts) {
+      const left = Math.max(cursor, Math.min(limit, c0));
+      if (left - cursor > 40) spans.push([cursor, left]);
+      cursor = Math.max(cursor, Math.min(limit, c1));
+    }
+    if (limit - cursor > 40) spans.push([cursor, limit]);
+    const edgePoint = (s: number, distance: number): Point => {
+      const joint = s === 0 ? startCorner : s === len ? endCorner : undefined;
+      const denominator = joint ? 1 + nx * joint.nx + nz * joint.nz : 1;
+      return [ax + ux * s + (nx + (joint?.nx ?? 0)) * distance / denominator,
+        az + uz * s + (nz + (joint?.nz ?? 0)) * distance / denominator];
+    };
+    for (const [s0, s1] of spans) {
+      const inner = face - veneer / 2, outer = face + veneer / 2;
+      const mesh = slab(g, [edgePoint(s0, inner), edgePoint(s1, inner),
+        edgePoint(s1, outer), edgePoint(s0, outer)], y1, h, skin);
+      mesh.castShadow = false;
+    }
+  }
 }

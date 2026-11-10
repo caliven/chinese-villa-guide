@@ -7,13 +7,17 @@ export type RoofStyle = keyof typeof roofStyleLabels;
 export const DEFAULT_ROOF_STYLE: RoofStyle = "floating";
 export const roofStylePreferenceKey = "anhua-villa-roof-style-v1";
 
-/** 槽底相对屋面基准的抬高（毫米）；找坡以此为最低排水口标高。 */
+/** 室内楼板与外伸檐板共用的结构厚度（毫米）。 */
+export const floorSlabThickness = 120;
+
+/** 槽底找坡层在结构板顶以上的最低厚度（毫米）。 */
 export const gutterBedTop = 30;
+export const gutterCopingThickness = 30;
 
 /**
  * 天沟设计参数（毫米、度）。可由方案尺寸「主楼／辅楼」改写。
- * - clearDepth：外边反坎高度（槽底以上）
- * - innerDepth：内侧反坎高度，默认高于外侧，满水时外溢
+ * - clearDepth：外边反坎从结构板顶起砌的高度，不含压顶
+ * - innerDepth：内侧反坎从同一结构板顶起砌的高度
  * - outerTopWidth：外边反坎顶部宽度（不含压顶外飘）
  * - innerWallThickness：内侧反坎厚度（模型取值，非用户口述）
  * - tileGap：瓦檐底到内侧挡墙顶的竖直间距
@@ -36,14 +40,14 @@ export let roofGutterDesign = {
 };
 
 /**
- * 三眼皮固定造型（毫米）。出檐台阶与级高差不进参数面板。
+ * 三眼皮造型（毫米）。最下级共用结构板，上两级随外挡高度分配。
  * 最上层外沿与屋面外轮廓齐平；默认 thirdEave=800 时下层出檐 600。
  */
 export const eyelidFixed = {
   /** 每一级比下一级多探出 */
   stepExtra: 100,
-  /** 级间高度差：自下而上（底层板厚含缝、中层、上层至槽底） */
-  rises: [100, 100, 150] as const,
+  /** 最下级就是结构板；上两级按100∶150分配外挡高度。 */
+  rises: [floorSlabThickness, 100, 150] as const,
   /** 石材压顶相对三眼皮外沿再飘出 */
   copingOverhang: 20,
   /** 下沿线突出墙体 */
@@ -125,27 +129,29 @@ export function gutterInnerLipInset() {
 /** 封闭瓦面挤出厚度（毫米）；略薄于旧值，减轻瓦底与天沟构件共面闪线。 */
 export const roofTileThickness = 50;
 
-/** 二楼顶部的无天沟瓦挑檐，采用独立薄檐板，不套用屋顶三眼皮。造型尺寸，非结构尺寸。 */
+/** 二楼顶部的无天沟瓦挑檐；檐板与室内结构板同厚、同标高。 */
 export const apronEaveDesign = {
-  boardThickness: 120,
-  fasciaDrop: 300,
+  boardThickness: floorSlabThickness,
+  tileDrop: 380,
+  /** 水泥坡面外沿起厚，坡面向内随瓦檐升高。 */
+  beddingThickness: 40,
+  get parapetHeight() { return this.beddingThickness + this.tileDrop + roofTileThickness; },
   fasciaHeight: 100,
   fasciaProtrusion: 100,
-  supportDepth: 280,
   parapetThickness: 280,
-  /** 柱位承台每侧比短柱脚多出60，与下沿线连成完整节点。 */
-  postSeatOverhang: 60,
   /** 雕花柱冠与下沿线之间的外展斜肩高度，不占梁托空档。 */
   cornerCapitalDrop: 180,
 };
 
-export function frontApronSection(parapetTop: number, drop: number) {
-  const tileOuterY = parapetTop - drop;
-  const boardOuterTop = tileOuterY - roofTileThickness;
+export function frontApronSection(parapetTop: number, drop: number,
+  slabTop = parapetTop - drop - roofTileThickness - apronEaveDesign.beddingThickness) {
+  const tileOuterY = slabTop + apronEaveDesign.beddingThickness + roofTileThickness;
+  const tileInnerY = tileOuterY + drop;
+  const boardOuterTop = slabTop;
   const soffitY = boardOuterTop - apronEaveDesign.boardThickness;
-  const fasciaTopY = soffitY - apronEaveDesign.fasciaDrop;
+  const fasciaTopY = soffitY - eaveTrimDesign.corbelHeight;
   const fasciaBottomY = fasciaTopY - apronEaveDesign.fasciaHeight;
-  return { tileOuterY, boardOuterTop, soffitY, fasciaTopY, fasciaBottomY,
+  return { tileInnerY, tileOuterY, boardOuterTop, soffitY, fasciaTopY, fasciaBottomY,
     columnTopY: fasciaBottomY - apronEaveDesign.cornerCapitalDrop,
     porticoTopY: fasciaBottomY };
 }
@@ -158,49 +164,48 @@ export function syncRoofTileInset() {
 }
 
 /**
- * 瓦檐相对天沟基准（三眼皮顶／槽底参考面）：内侧挡顶＋竖直间距。
- * 不含三眼皮；从楼板平面到瓦檐用 slabToTileEaveLift()。
+ * 瓦檐相对结构板顶：内侧挡顶＋竖直间距。
  */
 export function roofTileEaveLift() {
-  return gutterBedTop + roofGutterDesign.innerDepth + roofGutterDesign.tileGap;
+  return roofGutterDesign.innerDepth + roofGutterDesign.tileGap;
 }
 
 /**
- * 楼板／梁托顶平面 → 瓦檐：先上三眼皮，再上天沟内挡与瓦隙。
- * 屋面基准（mainEaveY 等）＝封顶楼板顶＝梁托顶＝飘檐底＝三眼皮底。
+ * 板底／梁托顶 → 瓦檐：一层结构板厚＋内挡高度＋瓦隙。
+ * 三眼皮是外挡外侧的阶梯造型，不额外抬高天沟和瓦面。
  */
 export function slabToTileEaveLift() {
-  return eyelidStackHeight() + roofTileEaveLift();
+  return floorSlabThickness + roofTileEaveLift();
 }
 
-/** 外侧挡墙顶相对天沟基准（含顶面内倾在挡厚上的抬高）。 */
+/** 压顶最高点相对结构板顶；沟内侧保留完整压顶厚度，外侧向上找坡。 */
 export function gutterOuterWallTop() {
   return (
-    gutterBedTop +
     roofGutterDesign.clearDepth +
-    roofGutterDesign.outerTopWidth *
+    gutterCopingThickness +
+    (roofGutterDesign.outerTopWidth + eyelidFixed.copingOverhang) *
       Math.tan((roofGutterDesign.copingSlopeDegrees * Math.PI) / 180)
   );
 }
 
-/** 内侧挡墙顶相对天沟基准。 */
+/** 内侧挡墙顶相对结构板顶。 */
 export function gutterInnerWallTop() {
-  return gutterBedTop + roofGutterDesign.innerDepth;
+  return roofGutterDesign.innerDepth;
 }
 
-/** 三眼皮总高度（最上层顶到最下层底）；叠在楼板平面之上。 */
+/** 三眼皮总高含最下层结构板；上两级与外挡同顶。 */
 export function eyelidStackHeight() {
-  return eyelidFixed.rises[0] + eyelidFixed.rises[1] + eyelidFixed.rises[2];
+  return floorSlabThickness + roofGutterDesign.clearDepth;
 }
 
 /** 第 i 层（0＝最上层／最外）相对外沿的水平内收。 */
 export function eyelidInset(i: number) {
-  return eyelidFixed.stepExtra * i;
+  return Math.min(eyelidFixed.stepExtra, roofGutterDesign.outerTopWidth / 3) * i;
 }
 
 /**
  * 飘檐底／梁托顶／封顶楼板平面。
- * `tileTop` 为屋面基准（墙顶／楼板顶）；三眼皮在此面以上，不再扣减三眼皮高度。
+ * `tileTop` 为屋面板底基准（墙顶）。梁托与共同结构板底贴合。
  */
 export function apronFasciaBottom(tileTop: number, drop: number) {
   return tileTop - drop;

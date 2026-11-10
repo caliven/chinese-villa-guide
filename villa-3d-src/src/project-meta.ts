@@ -1,4 +1,4 @@
-import { isHalfStoreyScheme } from "./construction-scheme";
+import { isHalfStoreyScheme } from "./construction-scheme.ts";
 // 版本描述沟通资料的口径，不代表测绘、审批或专业验收。
 export const projectMeta = {
   revision: isHalfStoreyScheme ? "两层半独立方案 01" : "沟通方案 03",

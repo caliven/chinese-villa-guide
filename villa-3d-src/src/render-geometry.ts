@@ -14,6 +14,40 @@ const areaEpsilon = 0.1;
 const lengthEpsilon = 1e-4;
 const normalEpsilon = 1e-7;
 
+/** 连续建筑饰面按合拢模型坐标铺贴，避免分段盒子／挤出线脚各自重起纹理。 */
+export function alignArchitecturalTextures(root: THREE.Object3D, surfaces: Set<THREE.Material>) {
+  root.updateWorldMatrix(true, true);
+  const inverse = root.matrixWorld.clone().invert();
+  root.traverse(object => {
+    if (!(object instanceof THREE.Mesh) || object instanceof THREE.InstancedMesh) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    if (!materials.every(material => {
+      const surface = material as THREE.MeshStandardMaterial;
+      return surface.map && [...surfaces].some(candidate => candidate instanceof THREE.MeshStandardMaterial
+        && candidate.map === surface.map && candidate.color.equals(surface.color));
+    })) return;
+    const transform = inverse.clone().multiply(object.matrixWorld);
+    const normalMatrix = new THREE.Matrix3().getNormalMatrix(transform);
+    const geometry = object.geometry;
+    const positions = geometry.getAttribute("position"), normals = geometry.getAttribute("normal");
+    if (!normals) return;
+    const uv = new Float32Array(positions.count * 2);
+    const point = new THREE.Vector3(), normal = new THREE.Vector3();
+    for (let i = 0; i < positions.count; i++) {
+      point.fromBufferAttribute(positions, i).applyMatrix4(transform);
+      normal.fromBufferAttribute(normals, i).applyNormalMatrix(normalMatrix);
+      const top = Math.abs(normal.y) >= Math.max(Math.abs(normal.x), Math.abs(normal.z));
+      uv[i * 2] = top || Math.abs(normal.z) >= Math.abs(normal.x) ? point.x : point.z;
+      uv[i * 2 + 1] = top ? -point.z : point.y;
+    }
+    const previous = geometry.getAttribute("uv");
+    if (previous?.count === positions.count && uv.every((value, i) => value === previous.array[i])) return;
+    const mapped = geometry.clone();
+    mapped.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    object.geometry = mapped;
+  });
+}
+
 // 缩放碰撞只检查当前可见的实体表面，标签、路线和隐藏组不能挡住镜头。
 export function visibleSurfaceMeshes(root: THREE.Object3D) {
   const meshes: THREE.Mesh[] = [];

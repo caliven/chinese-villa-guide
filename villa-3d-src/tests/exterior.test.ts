@@ -63,7 +63,7 @@ test("改天沟外侧／内侧高度与瓦至内挡顶间距后挡墙与瓦檐�
   const shallow = new THREE.Group(), deep = new THREE.Group(), tallGap = new THREE.Group();
   applyVillaParams({
     ...DEFAULT_VILLA_PARAMS,
-    gutterClearDepth: 120,
+    gutterClearDepth: 160,
     gutterInnerDepth: 220,
     gutterTileGap: 20,
     gutterCopingSlope: 0,
@@ -156,7 +156,7 @@ test("主辅楼天沟外边反坎高200、净宽600、压顶内倾与瓦边探�
         const copeInner = height(copings, outerT * 0.7);
         assert.ok(copeOuter > copeInner, `${tag} 压顶应外高内低`);
         const direction = new THREE.Vector3(nx, 0, nz);
-        const outerCrest = height(outerWalls, outerT * 0.5);
+        const outerCrest = height(outerWalls, outerT * 0.85);
         const wallHit = new THREE.Raycaster(
           point(midChannel, outerCrest - roofGutterDesign.clearDepth * 0.5),
           direction.clone().negate(),
@@ -219,7 +219,7 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     main.traverse((o) => {
       if (o.name === "天沟外挡边") outerMinZ = Math.min(outerMinZ, new THREE.Box3().setFromObject(o).min.z);
     });
-    assert.ok(Math.abs(outerMinZ - m.z) < 0.1, "主屋前檐外挡保留完整直线（压顶可外飘）");
+    assert.ok(Math.abs(outerMinZ - m.z - 200) < 0.1, "主屋前檐外挡内芯收在下层板边，外侧由两级三眼皮接出");
     const h = floatingHatLayout(pitch), center = h.x + h.w / 2;
     const mainRun = (Math.min(m.w, m.d) - 2 * inset) / 2;
     const hatRun = (h.w - 2 * inset) / 2;
@@ -266,28 +266,50 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     eaves.traverse(object => {
       if (object instanceof THREE.Mesh && object.name === "官帽与正屋交接侧封板") closures.push(object);
     });
-    assert.equal(closures.length, 2, "两侧均有与内挡衔接的封板");
+    assert.equal(closures.length, 2, "两侧均有竖向收头封板");
+    const endCaps: THREE.Mesh[] = [];
+    eaves.traverse(object => {
+      if (object instanceof THREE.Mesh && object.name === "官帽天沟端头封板") endCaps.push(object);
+    });
+    assert.equal(endCaps.length, 2, "左右天沟均有直角端头封板");
     for (const closure of closures) {
       assert.equal(closure.material, innerWall.material, "封板与内挡共用材质");
       assert.equal(closure.receiveShadow, innerWall.receiveShadow, "封板与内挡接收相同的阴影");
       assert.equal(closure.castShadow, innerWall.castShadow);
       assert.ok(new THREE.Box3().setFromObject(closure).min.y >= h.eave + 30 + roofGutterDesign.innerDepth - 0.02,
         "封板只延伸内挡顶部，不与内挡面重叠");
+      const box = new THREE.Box3().setFromObject(closure);
+      assert.ok(box.max.z - box.min.z <= 45, "侧封为竖向薄板，不再沿坡拉成斜口");
     }
+    // 侧檐各层共用竖直后端面：同层后端 Z 一致，不按顶点标高斜切。
+    const rearZs = new Map<string, number[]>();
     eaves.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return;
-      // 转接梁按柱冠接到墙顶，本来就在瓦面下方；其轮廓由 column-junctions 专项校验。
-      // 探入加大后瓦边越过梁后端，不能把梁当作沿瓦面斜切的天沟／线脚。
       if (object.name === "悬浮官帽柱顶封闭转接梁") return;
+      if (object.name === "官帽与正屋交接侧封板" || object.name === "官帽天沟端头封板") return;
+      if (object.parent?.userData.eaveWash) return;
       const positions = object.geometry.getAttribute("position"), p = new THREE.Vector3();
+      let maxZ = -Infinity;
       for (let i = 0; i < positions.count; i++) {
         p.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
-        // 只检查进入正屋瓦面进深范围的后端；前方悬挑可低于正屋瓦面外推平面。
+        maxZ = Math.max(maxZ, p.z);
         if (p.z < mainTileFront - 0.1) continue;
         const mainHeight = m.eave + slabToTileEaveLift() + (p.z - mainTileFront) * pitch / 10;
-        assert.ok(p.y >= mainHeight - 0.02, `檐底、天沟和线脚后端应斜切贴合，不穿进主屋瓦面：${object.name} pitch=${pitch} xyz=${p.toArray()} below=${mainHeight-p.y}`);
+        assert.ok(p.y <= mainHeight + 0.5, `檐底、天沟和线脚不得穿出主屋瓦面：${object.name} pitch=${pitch} xyz=${p.toArray()}`);
+      }
+      if (maxZ > mainTileFront) {
+        const zs = rearZs.get(object.name) ?? [];
+        for (let i = 0; i < positions.count; i++) {
+          p.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
+          if (Math.abs(p.z - maxZ) < 1) zs.push(p.z);
+        }
+        rearZs.set(object.name, zs);
       }
     });
+    for (const [name, zs] of rearZs) {
+      const spread = Math.max(...zs) - Math.min(...zs);
+      assert.ok(spread < 2, `${name} 后端应为直角收头，Z 散度 ${spread}`);
+    }
     const fascia = eaves.getObjectByName("天沟外挡边")!;
     // 前挡顶宽 300，探测起点须越过前反坎，只查是否误加后天沟横档。
     for (let z = h.z + roofGutterDesign.outerTopWidth + 50; z < h.z + h.d; z += 173) {
@@ -298,7 +320,7 @@ test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋�
     if (pitch === 4.5) {
       const expected = apronFasciaBottom(h.eave, 0);
       assert.ok(Math.abs(underside - expected) < 60, "封闭檐底贴楼板／梁托顶平面");
-      assert.ok(eyelidStackHeight() === 350, "三眼皮总高固定 350mm");
+      assert.equal(eyelidStackHeight(), construction.floorSlab + roofGutterDesign.clearDepth, "三眼皮包含下层结构板和外挡外侧造型");
       assert.ok(h.eave - m.eave > 50, "帽檐相对正屋檐口仍留柱头净空");
     }
     assert.ok(eaves.getObjectByName("檐下梁托与下沿线"), "悬浮官帽前／侧檐应有梁托与下沿线");
@@ -768,7 +790,9 @@ test("两种官帽梁托都有实体背梁，端头收在最下层檐板内，�
 
 test("三楼飘檐七段都有实际坡瓦，阴角梁托不相撞，下沿线端头不外甩", async () => {
   const { buildVilla } = await import("../src/architecture");
-  const apron = buildVilla(mat, false).levels[2].getObjectByName("三楼栏杆下飘檐")!;
+  const thirdFloor = buildVilla(mat, false).levels[2];
+  const apron = thirdFloor.getObjectByName("三楼栏杆下飘檐")!;
+  const tiles = thirdFloor.getObjectByName("三楼飘檐与露台")!;
   const e = frontElevation;
   const west = e.sideTerraces[0].x, east = e.sideTerraces[1].x + e.sideTerraces[1].w;
   const cw = site.portico.x, ce = cw + site.portico.w;
@@ -781,7 +805,7 @@ test("三楼飘檐七段都有实际坡瓦，阴角梁托不相撞，下沿线�
     [(ce + east) / 2, e.terraceFront - 250],
     [east + 250, (e.terraceFront + e.terraceBack) / 2],
   ];
-  for (const [x, z] of samples) assert.equal(topHits(apron, x, z).length, 1, `坡瓦应覆盖 ${x},${z}`);
+  for (const [x, z] of samples) assert.equal(topHits(tiles, x, z).length, 1, `坡瓦应覆盖 ${x},${z}`);
   const corbels: THREE.Box3[] = [];
   apron.traverse(o => { if (o.name === "梁托") corbels.push(new THREE.Box3().setFromObject(o)); });
   for (let a = 0; a < corbels.length; a++) for (let b = a + 1; b < corbels.length; b++) {
@@ -790,7 +814,8 @@ test("三楼飘檐七段都有实际坡瓦，阴角梁托不相撞，下沿线�
   }
   const fascia = apron.getObjectByName("连续转角下沿线")!;
   assert.ok(new THREE.Box3().setFromObject(fascia).max.z <= e.terraceBack + 1, "下沿线开口端应停在靠墙收口线");
-  assert.ok(apron.getObjectByName("无天沟连续挑檐板"));
+  assert.ok(thirdFloor.getObjectByName("三楼楼板"));
+  assert.equal(apron.getObjectByName("无天沟连续挑檐板"), undefined, "檐板归统一楼板实体");
   apron.traverse(o => {
     if (!o.name.startsWith("无天沟")) assert.doesNotMatch(o.name, /天沟|三眼皮/, "二楼挑檐不得含天沟或屋顶三眼皮");
   });
@@ -805,7 +830,7 @@ test("无天沟挑檐瓦盖至外缘、檐底封闭，梁托顶面贴住薄檐�
   assert.ok(edge && inside && inside.point.y > edge.point.y + 300, "坡瓦须铺到檐边，并朝外降低");
   for (const z of [-790, -500, -20]) {
     const hits = new THREE.Raycaster(new THREE.Vector3(2000, 6500, z), new THREE.Vector3(0, 1, 0)).intersectObject(deck, true);
-    assert.ok(hits.length && Math.abs(hits[0].point.y - 7150) < 1, "檐底应是封闭水平板");
+    assert.ok(hits.length && Math.abs(hits[0].point.y - frontApronSection(7700, 380).soffitY) < 1, "檐底应与三楼结构板底齐平");
   }
   let corbels = 0;
   group.traverse(o => {
@@ -816,8 +841,8 @@ test("无天沟挑檐瓦盖至外缘、檐底封闭，梁托顶面贴住薄檐�
     assert.ok(hits.length && hits[0].distance < 2, "梁托端头须贴住檐底，不悬空");
   });
   assert.ok(corbels >= 3);
-  assert.ok(Math.abs(edge.point.y - new THREE.Box3().setFromObject(deck).min.y - 170) < 8,
-    "瓦下仅露薄檐板，不能重新出现厚重沟槽挡边");
+  assert.ok(Math.abs(edge.point.y - frontApronSection(7700, 380).tileOuterY) < 8,
+    "瓦外沿由板顶加瓦厚定位");
 });
 
 test("门厅团花及柱身垂花按实际尺寸倒角，不扩成穿出横梁和柱面的大片", () => {
@@ -872,17 +897,17 @@ test("门厅柱帽下收、折角梁托与下沿线连续，横梁接到下沿�
     }
   }
   assert.ok(corbels.length > 8, "折角两侧应有连续梁托，不被柱位挖空");
-  const support = apron.getObjectByName("挑檐连续承托梁")!;
-  assert.ok(support, "梁托背面应有连续实体承托梁，不能只剩孤立下沿线");
+  assert.equal(apron.getObjectByName("挑檐连续承托梁"), undefined, "梁托背后不另挂墙梁");
+  const plate = villa.levels[2].getObjectByName("三楼楼板")!;
   for (const corbel of corbels) {
-    const point = new THREE.Vector3(12, eaveTrimDesign.corbelHeight * .5, 0).applyMatrix4(corbel.matrixWorld);
-    const direction = new THREE.Vector3(-1, 0, 0).transformDirection(corbel.matrixWorld);
-    const hits = new THREE.Raycaster(point, direction).intersectObject(support, true);
-    assert.ok(hits.length && hits[0].distance < 16, "梁托背面要贴连续梁，不得悬空");
+    const tip = new THREE.Vector3(eaveTrimDesign.corbelLength - 10, eaveTrimDesign.corbelHeight - 1, 0)
+      .applyMatrix4(corbel.matrixWorld);
+    const hits = new THREE.Raycaster(tip, new THREE.Vector3(0, 1, 0)).intersectObject(plate, true);
+    assert.ok(hits.length && hits[0].distance < 2, "梁托端头直接贴统一楼板底");
   }
 });
 
-test("露台短柱脚处的檐底由实体承台封闭，不留贯穿方洞", async () => {
+test("露台短柱脚处由统一楼板承托，不留贯穿方洞", async () => {
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
@@ -890,22 +915,22 @@ test("露台短柱脚处的檐底由实体承台封闭，不留贯穿方洞", as
   const section = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
   for (const [i, post] of frontElevation.balustradePosts.slice(1, 3).entries()) {
     const x = post.x + (i === 0 ? 100 : -100), z = frontElevation.centerFront - 20;
-    const hits = new THREE.Raycaster(new THREE.Vector3(x, section.fasciaBottomY - 1, z), new THREE.Vector3(0, 1, 0)).intersectObject(apron, true);
+    const hits = new THREE.Raycaster(new THREE.Vector3(x, section.fasciaBottomY - 1, z), new THREE.Vector3(0, 1, 0)).intersectObject(villa.levels[2].getObjectByName("三楼楼板")!, true);
     assert.ok(hits.length && hits[0].point.y <= section.soffitY + 1, "柱脚附近仰视须有封闭承台或檐底，不能从方洞透到上方");
   }
 });
 
-test("四根露台短柱的整块柱座落在实体承台上，不只以柱心或一条挡墙承托", async () => {
+test("四根露台短柱的整块柱座落在统一楼板上", async () => {
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
   const posts = villa.levels[2].getObjectByName("四根露台短柱")!.children;
-  const seats = villa.levels[2].getObjectByName("四处柱位实体承台")!;
+  const seats = villa.levels[2].getObjectByName("三楼楼板")!;
   for (const post of posts) {
     const foot = post.children.filter(o => o instanceof THREE.Mesh)
       .map(o => new THREE.Box3().setFromObject(o)).sort((a, b) => a.min.y - b.min.y)[0];
     assert.ok(Math.abs(foot.min.y - floors[2].y) < .1, "柱座须延伸到露台标高，不能停在坡瓦上方");
-    assert.ok(seats && seats.children.length === 4, "四处柱位均须有实际承台");
+    assert.ok(seats instanceof THREE.Mesh, "四处柱位共用同一楼板实体");
     for (const x of [foot.min.x + 4, (foot.min.x + foot.max.x) / 2, foot.max.x - 4])
       for (const z of [foot.min.z + 4, (foot.min.z + foot.max.z) / 2, foot.max.z - 4]) {
         const hits = new THREE.Raycaster(new THREE.Vector3(x, foot.min.y + 10, z), new THREE.Vector3(0, -1, 0))
@@ -922,7 +947,7 @@ test("二楼飘檐下沿线与柱位连续，柱间灯带上方不被柱颈遮�
   villa.group.updateMatrixWorld(true);
   const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
   const fascia = apron.getObjectByName("连续转角下沿线")!;
-  const seats = apron.getObjectByName("四处柱位实体承台")!;
+  const seats = villa.levels[2].getObjectByName("三楼楼板")!;
   const e = frontElevation, s = frontApronSection(floors[2].y + e.eaveParapet, e.tiledEaveDrop);
   const d = site.secondFrontEave;
   const sideWallFaces: [number, number] = [
@@ -937,12 +962,13 @@ test("二楼飘檐下沿线与柱位连续，柱间灯带上方不被柱颈遮�
   );
   const fasciaDepth = apronEaveDesign.fasciaProtrusion;
   const inPostFoot = (x: number, z: number) => e.balustradePosts.some(post => {
-    const half = (post.w + 80) / 2 + apronEaveDesign.postSeatOverhang;
+    const half = (post.w + 80) / 2;
     return Math.abs(x - post.x) <= half && Math.abs(z - post.z) <= half;
   });
   assert.ok(fascia, "连续转角下沿线须存在");
   assert.equal(apron.getObjectByName("挑檐封檐竖板"), undefined, "外缘不得另加封檐竖板遮罩");
-  assert.ok(seats, "四处柱位实体承台须存在");
+  assert.ok(seats, "统一楼板须承托四处柱位");
+  assert.equal(apron.getObjectByName("四处柱位实体承台"), undefined);
   for (let i = 0; i < inner.length - 1; i++) for (const t of [.05, .25, .5, .75, .95]) {
     const lerp = (points: Point[], axis: 0 | 1) => points[i][axis] * (1-t) + points[i+1][axis] * t;
     const ix = lerp(inner,0), iz = lerp(inner,1), ox = lerp(outer,0), oz = lerp(outer,1);
@@ -962,7 +988,7 @@ test("露台玻璃栏杆端头止于柱侧，金属立框落到挡墙顶，不�
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
   const columns: THREE.Box3[] = [];
-  const wall = villa.levels[2].getObjectByName("三楼屋檐内50厘米挡墙")!;
+  const wall = villa.levels[2].getObjectByName("三楼屋檐内挡墙")!;
   villa.levels[2].getObjectByName("四根露台短柱")!.traverse(o => {
     if (o instanceof THREE.Mesh) columns.push(new THREE.Box3().setFromObject(o));
   });

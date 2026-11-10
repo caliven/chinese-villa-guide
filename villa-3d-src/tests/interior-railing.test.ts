@@ -93,7 +93,7 @@ test("两跑／三跑、双轴与反向楼梯均使用所选造型，踏步包�
       assert.ok(rails.every(child => child.userData.railingStyle === canonicalRailingStyle(style)));
       const treads = root.children.filter(child => child instanceof THREE.Mesh);
       const bound = new THREE.Box3(); treads.forEach(child => bound.union(new THREE.Box3().setFromObject(child)));
-      assert.ok(Math.abs(bound.max.y - (model === "triple" ? 3600 : 3600 * (stairShape(stair).risers - 1) / stairShape(stair).risers)) < 1);
+      assert.ok(Math.abs(bound.max.y - 3600) < 1);
       assert.ok(Math.abs(bound.min.x - stairShape(stair).footprint.x) < 1);
     }
   }
@@ -386,7 +386,7 @@ test("顶板洞口只留上跑到达通口，下跑侧横封，中间出口不�
           const t = Math.max(0, Math.min(1, ((lowerEntry.x - a[0]) * dx + (lowerEntry.z - a[1]) * dz) / len2));
           return Math.hypot(lowerEntry.x - a[0] - t * dx, lowerEntry.z - a[1] - t * dz) < railingThickness(style);
         }), `${model}/${axis}/${direction}/${lowerSide}/${style}下跑侧须有横向封口`);
-        assert.ok(interiorRailingLayout([{ ...floor, y: 0 }, { ...floor, y: 3600 }, roofFloor], stair, draft.livingVoid, [[], [], []], true).roofGuards.length >= 3);
+        assert.equal(interiorRailingLayout([{ ...floor, y: 0 }, { ...floor, y: 3600 }, roofFloor], stair, draft.livingVoid, [[], [], []], true).roofGuards.length, 0);
       }
     }
 });

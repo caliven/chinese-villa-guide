@@ -36,18 +36,13 @@ test("倾斜变换后的栏杆按屋面裁切，原几何保持完整", () => {
   assert.equal(original.getAttribute("position").count, 24);
 });
 
-test("各栏杆造型和坡度的新增梯段及顶板护栏均位于主屋瓦面下", () => {
+test("各栏杆造型和坡度均不生成通往坡屋面下的上行梯段或裁短护栏", () => {
   for (const style of ["wood", "steel", "glass", "marble"] as const) for (const slope of [3, 5]) {
     const draft = clonePublishedLayout(); draft.stairLayout.railingStyle = style;
     const model = buildVilla(mat, false, slope, "floating", villaLayoutFromDraft(draft));
-    const main = mainRoofFootprint(), pitch = roofPitch(slope), x = main.x + roofTileInset, z = main.z + roofTileInset;
-    const w = main.w - 2 * roofTileInset, d = main.d - 2 * roofTileInset, eave = main.eave + slabToTileEaveLift(), k = pitch.mainRise / pitch.mainRun;
-    const ceiling = (p: THREE.Vector3) => eave + k * Math.min(p.x - x, x + w - p.x, p.z - z, z + d - p.z) - 100;
     for (const root of [model.levels[2], model.topSlabs.main]) {
-      const covered = root.getObjectByName("屋面避让栏杆")!, open = root.getObjectByName("完整楼梯栏杆")!;
-      assert.ok(covered && open); assert.ok(covered.visible && !open.visible);
-      const result = checkVertices(covered, ceiling);
-      assert.ok(result.count > 0); assert.ok(result.highest < .02, `${style} ${slope}: 越出屋面 ${result.highest}`);
+      assert.equal(root.getObjectByName("屋面避让栏杆"), undefined);
+      assert.equal(root.getObjectByName("完整楼梯栏杆"), undefined);
     }
   }
 });

@@ -35,7 +35,8 @@ import { ensureFurnitureWallClearance } from "./layout-align";
 import type { LayoutDraft, StairDraft, PorticoDraft, VoidDraft, ExteriorOpeningDraft } from "./layout-draft";
 import { draftHasStair } from "./layout-draft";
 import { stairShape, stairWellBounds, fitStairToRoom } from "./stair-geometry";
-import { livingVoidGuards, stairFloorGuards } from "./interior-guards";
+import { entryWindowGuards, livingVoidGuards, stairFloorGuards, type GuardSegment } from "./interior-guards";
+import { resolveLayoutFacades } from "./facade-layout";
 import { canonicalRailingStyle, resolvedRailingStyle, railingStyleLabels, railingThickness } from "./railing-options";
 import { bedLayout, furnitureHasFacing, furnitureHasUseZone, furnitureLocalBounds, isRoundFurniture } from "./furniture-catalog";
 import { floorplanFurnitureSymbol } from "./floorplan-furniture";
@@ -287,6 +288,7 @@ export interface PlanSource {
   exteriorManaged: boolean;
   /** 无楼梯房间时不画踏步／命中框，避免只剩「楼梯」字或空踏步。 */
   stairPresent: boolean;
+  entryGuards?: GuardSegment[];
 }
 
 export function planSourceFromPublished(index: number): PlanSource {
@@ -304,6 +306,7 @@ export function planSourceFromPublished(index: number): PlanSource {
     exteriorOpenings: [],
     exteriorManaged: false,
     stairPresent: floors.some((f) => f.rooms.some((r) => r.kind === "stair")),
+    entryGuards: index === 1 ? entryWindowGuards(resolveLayoutFacades().facades[1]) : [],
   };
 }
 
@@ -323,6 +326,7 @@ export function planSourceFromDraft(draft: LayoutDraft, index: number): PlanSour
       ? { ...item, opening: { ...item.opening, kind: "window" as const } } : item),
     exteriorManaged: draft.exteriorManaged,
     stairPresent: draftHasStair(draft),
+    entryGuards: index === 1 ? entryWindowGuards(resolveLayoutFacades(draft).facades[1]) : [],
   };
 }
 
@@ -618,7 +622,7 @@ function roomFillShape(r: Room, floorIndex: number, partitions: Wall[] | undefin
 
 /** 一层返跑在头顶，不能把其投影填成落地房间；上层表达完整梯井。 */
 function stairPlan(s: StairDraft, floorIndex: number, editable: boolean, roomId: string) {
-  const halfTop = isHalfStoreyScheme && floorIndex === 2;
+  const terminalTop = floorIndex === 2;
   const g = stairShape(s), well = stairWellBounds(s);
   const box = (b: typeof well, cls: string) => rect(b.x, b.z, b.w, b.d, `class="${cls}"`);
   const path = (a: number, l: number, b: number, m: number, cls: string) => {
@@ -632,11 +636,11 @@ function stairPlan(s: StairDraft, floorIndex: number, editable: boolean, roomId:
         ? path(f.cross, f.along + i * f.tread, f.cross + f.crossSize, f.along + i * f.tread, "step-line")
         : path(f.cross + i * f.tread, f.along, f.cross + i * f.tread, f.along + f.alongSize, "step-line")).join("");
       const length = f.axis === "along" ? f.alongSize : f.crossSize;
-      const sign = halfTop ? -f.sign : f.sign;
+      const sign = terminalTop ? -f.sign : f.sign;
       const pt = (t: number) => g.point(f.cross + (f.axis === "across" ? length * t : f.crossSize / 2), f.along + (f.axis === "along" ? length * t : f.alongSize / 2));
       const a = pt(sign > 0 ? .2 : .8), b = pt(sign > 0 ? .8 : .2);
       const len = Math.hypot(b.x - a.x, b.z - a.z), u = (b.x - a.x) / len, v = (b.z - a.z) / len;
-      const arrow = `<path d="M${a.x} ${a.z} L${b.x} ${b.z} M${b.x - u * 140 - v * 80} ${b.z - v * 140 + u * 80} L${b.x} ${b.z} L${b.x - u * 140 + v * 80} ${b.z - v * 140 - u * 80}" class="stair-arrow"/>${text(a.x, a.z, halfTop ? "下" : "上", "stair-note")}`;
+      const arrow = `<path d="M${a.x} ${a.z} L${b.x} ${b.z} M${b.x - u * 140 - v * 80} ${b.z - v * 140 + u * 80} L${b.x} ${b.z} L${b.x - u * 140 + v * 80} ${b.z - v * 140 - u * 80}" class="stair-arrow"/>${text(a.x, a.z, terminalTop ? "下" : "上", "stair-note")}`;
       return `<g data-stair-flight="${index + 1}">${box(f.bounds, overhead ? "stair-overhead" : "stair-flight")}${!overhead ? lines : ""}
         ${!overhead ? rect(f.bounds.x, f.bounds.z, f.bounds.w, f.bounds.d, `class="edit-hit" ${editable ? 'data-edit="stair"' : ''} fill="transparent"`) : ""}
         <g pointer-events="none">${!overhead ? arrow : ""}</g></g>`;
@@ -666,7 +670,7 @@ function stairPlan(s: StairDraft, floorIndex: number, editable: boolean, roomId:
     ${treads(g.lowerAcross, g.lowerStart, g.lowerTreads)}
     ${floorIndex > 0 ? treads(g.upperAcross, g.upperStart, g.upperTreads) : ""}
     ${hits}
-    <g pointer-events="none">${arrow(g.lowerAcross, halfTop, halfTop ? "下" : "上")}
+    <g pointer-events="none">${arrow(g.lowerAcross, terminalTop, terminalTop ? "下" : "上")}
     ${floorIndex > 0 ? arrow(g.upperAcross, false, "下") : text(free.x, free.z, "梯下可用", "stair-note")}
     ${text(label.x, label.z, "楼梯", "stair-note")}
     ${text(size.x, size.z, `梯间 ${Math.round(well.w)}×${Math.round(well.d)}`, "stair-size")}
@@ -946,9 +950,9 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
   const elevation = porticoElevation(porch);
   const porchFront = elevation.porticoColumnZ;
   const posts = porticoPosts(porch);
-  const terracePosts = hasThirdFloorSideTerraces() ? elevation.balustradePosts : elevation.balustradePosts.slice(1, 3);
   const wallFace = src.thirdFront;
   const rail = terraceParapetLayout(elevation, porch);
+  const terracePosts = hasThirdFloorSideTerraces() ? rail.cornerPosts : rail.cornerPosts.slice(1, 3);
   const terraceRails = `<path d="${hasThirdFloorSideTerraces() ? `M${rail.wingWestX} ${wallFace} V${rail.sideZ} H${rail.leftX} M${rail.wingEastX} ${wallFace} V${rail.sideZ} H${rail.rightX} ` : ""}M${rail.leftX} ${elevation.postZ} V${rail.middleZ} H${rail.rightX} V${elevation.postZ}" class="balustrade"/>`;
   const columnPattern = `plan-column-${building}-${index}`;
   const s = `<defs><pattern id="${columnPattern}" patternUnits="userSpaceOnUse" width="140" height="140" patternTransform="rotate(45)"><rect width="140" height="140" fill="#c4cec1"/><path d="M0 0 V140" stroke="#788876" stroke-width="25"/></pattern><pattern id="void" patternUnits="userSpaceOnUse" width="280" height="280" patternTransform="rotate(45)"><rect width="280" height="280" fill="#f4f3ee"/><path d="M0 0 V280" stroke="#d8d6cc" stroke-width="45"/></pattern></defs>`;
@@ -985,8 +989,9 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
   const livingStyle = resolvedRailingStyle(src.livingVoid.railingStyle, "living"), stairStyle = resolvedRailingStyle(stair.railingStyle, "stair");
   const boundaries = recessFrontFacades(facades(index, elevation), f.front);
   const autoGuards = isAnnex ? "" : [
+    ...(src.entryGuards ?? []).map(segment => ({ segment, style: "steel" as const, type: "entry-window" })),
     ...(index === 1 ? livingVoidGuards(src.livingVoid, f, boundaries, livingStyle, src.stairPresent ? stair : undefined).map(segment => ({ segment, style: livingStyle, type: "living" })) : []),
-    ...(index > 0 && src.stairPresent ? stairFloorGuards(stair, f, boundaries, stairStyle, index === 1 ? src.livingVoid : undefined).map(segment => ({ segment, style: stairStyle, type: "stair" })) : []),
+    ...(index > 0 && src.stairPresent ? stairFloorGuards(stair, f, boundaries, stairStyle, index === 1 ? src.livingVoid : undefined, index === 2 ? "upper" : "both").map(segment => ({ segment, style: stairStyle, type: "stair" })) : []),
   ].map(({ segment, style, type }) => ({ segment, style: canonicalRailingStyle(style), type }))
     .map(({ segment: [a, b], style, type }) => `<path data-auto-guard="${type}" data-railing-style="${style}" d="M${a[0]} ${a[1]} L${b[0]} ${b[1]}" fill="none" stroke="${style === "marble" ? "#b8ad99" : style === "wood" ? "#865632" : style === "glass" ? "#70a6aa" : "#384744"}" stroke-width="${railingThickness(style)}" pointer-events="none"><title>自动栏杆 · ${railingStyleLabels[style]}</title></path>`).join("");
   const stairBounds = stairShape(stair).footprint;

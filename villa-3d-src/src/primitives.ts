@@ -272,6 +272,7 @@ export function materials() {
       roughness: 0.87,
     });
   const darkMap = darkStoneMap();
+  const sandMap = sandCoat();
   const lowE = architecturalGlass(true);
   const courtyardConcrete = new THREE.MeshStandardMaterial({
     name: "普通灰色水泥院坪",
@@ -400,14 +401,15 @@ export function materials() {
     // 白麻水包砂。色相是涂料搭配，不是色卡实测。贴图本身已是白麻，这里不再叠暖色。
     sand: new THREE.MeshStandardMaterial({
       color: 0xffffff,
-      map: sandCoat(),
+      map: sandMap,
       roughness: 0.94,
     }),
-    // 英国棕取深咖底色，对照外墙涂料和英国棕花岗岩（Tan Brown），不用偏橘红的英国红棕。不是色卡实测。
+    // 英国棕水包砂：施工同为水包砂，仅涂料色为深咖；共用白麻麻点贴图，用色相乘出英国棕。
     british: finishLayer(new THREE.MeshStandardMaterial({
-      name: "低红度深咖英国棕",
+      name: "英国棕水包砂",
       color: 0x494039,
-      roughness: 0.74,
+      map: sandMap,
+      roughness: 0.94,
     }), 3),
   };
 }
@@ -493,10 +495,12 @@ export function slab(
   const shape = new THREE.Shape(
     points.map(([x, z]) => new THREE.Vector2(x, -z)),
   );
-  for (const h of holes)
-    shape.holes.push(
-      new THREE.Path(h.map(([x, z]) => new THREE.Vector2(x, -z))),
-    );
+  for (const hole of holes) {
+    const vertices = hole.map(([x, z]) => new THREE.Vector2(x, -z));
+    // 洞口须与外轮廓反向，确保内壁朝向净空；否则从洞内看会透到土基。
+    if (THREE.ShapeUtils.isClockWise(vertices)) vertices.reverse();
+    shape.holes.push(new THREE.Path(vertices));
+  }
   const geo = new THREE.ExtrudeGeometry(shape, {
     depth: thickness,
     bevelEnabled: false,
@@ -687,8 +691,9 @@ export function wallWithOpenings(
   }
   shape.lineTo(end, 0);
   shape.lineTo(end, height);
-  // 通高玻璃从墙顶向下开到窗台，不能用内孔，内孔贴到外轮廓时挤出会破。
-  for (const o of openings.filter((item) => item.span === "lower").sort((p, q) => q.at - p.at)) {
+  // 通高玻璃从墙顶向下开到窗台，不能用内孔。
+  // 落地洞口已从底边扣除，不能再从顶边重复折返，否则轮廓自交、墙垛缺面。
+  for (const o of openings.filter((item) => item.span === "lower" && item.sill > 1).sort((p, q) => q.at - p.at)) {
     const x0 = Math.max(0, o.at - o.w / 2),
       x1 = Math.min(len, o.at + o.w / 2),
       y0 = Math.max(20, o.sill);
@@ -1314,6 +1319,9 @@ export function stairs(
     put(returnAcross, y2 - treadThick / 2, shape.run - tread * (i + 0.5), flight, treadThick, tread);
     put(returnAcross, y2 - rise / 2, shape.run - tread * i - riserThick / 2, flight, rise, riserThick);
   }
+  // 平台前及楼层出口各有最后一级踢面，厚度收在梯段内。
+  put(flightAcross, rise * (shape.lowerRisers - .5), shape.run - riserThick / 2, flight, rise, riserThick);
+  put(returnAcross, height - rise / 2, shape.upperStart + riserThick / 2, flight, rise, riserThick);
   // 休息平台：薄楼板
   put(
     flight + gap / 2,

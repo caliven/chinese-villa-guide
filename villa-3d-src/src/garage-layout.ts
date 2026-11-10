@@ -193,17 +193,19 @@ export function buildGarageLayout(): GarageLayout {
   };
   // 两家地库在院坪西界断开：隔墙只挡内区，最外层车道留给进车斜坡。
   const lane = outerLaneDepth();
-  const partitionZ0 = surroundings.neighborYard.z + lane;
-  const partitionZ1 = surroundings.sideHouse.z;
+  const eastColumn = columns.ownColumns.at(-1);
+  const partitionX = eastColumn?.x ?? yardWest - columnWidth / 2;
+  const partitionZ0 = Math.max(surroundings.neighborYard.z + lane, eastColumn?.outer[1] ?? -Infinity);
+  const partitionZ1 = Math.min(surroundings.sideHouse.z, eastColumn?.inner[1] ?? Infinity);
   let partitionWall: GarageObstacle | null = null;
   if (partitionZ1 - partitionZ0 > 400) {
     partitionWall = {
       id: "garage-partition",
       label: "两家地库分隔墙",
       kind: "wall",
-      footprint: rectangle(yardWest - wallThick / 2, partitionZ0, wallThick, partitionZ1 - partitionZ0),
+      footprint: rectangle(partitionX - wallThick / 2, partitionZ0, wallThick, partitionZ1 - partitionZ0),
       bottom: levels.ownFloor,
-      top: slabSoffitAt(yardWest),
+      top: beamSoffitAt(partitionX),
     };
   }
   const fullOuterWallPath = transitionWall

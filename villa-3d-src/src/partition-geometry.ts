@@ -1,4 +1,4 @@
-import { construction, isPhysicalWall, wallRoleOf, type Wall } from "./data";
+import { construction, floors, isPhysicalWall, wallRoleOf, type Wall } from "./data";
 import { physicalWallJoinExtensions, type PhysicalWallStroke } from "./room-geometry";
 import { interiorOpeningProfile } from "./openings";
 import { stairSoffitClearHeight, type StairSoffitGeom } from "./primitives";
@@ -23,7 +23,9 @@ export function joinedWallSpan(wall: Pick<Wall, "a" | "b">, peers: readonly Phys
 }
 
 /** 户型三维和完整房屋共用的隔墙净高，标高始终相对本层完成面。 */
-export function partitionProfile(part: Wall, storyHeight: number, stair?: StairSoffitGeom, ceilingGap = 150) {
+export const partitionCeilingGap = (floor: number, annex = false) => annex || floor === floors.length - 1 ? 0 : construction.floorSlab;
+
+export function partitionProfile(part: Wall, storyHeight: number, stair?: StairSoffitGeom, ceilingGap = construction.floorSlab) {
   let height = Math.max(0, storyHeight - ceilingGap);
   if (stair) {
     const clearances: number[] = [];

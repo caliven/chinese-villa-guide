@@ -1,9 +1,9 @@
-import type { VillaParams, VillaParamsIssue } from "./villa-params";
-import { site, floors } from "./data";
-import { roofTileInset, roofTileEaveLift } from "./roof-options";
-import { clipRailingBelowRoof } from "./roof-railing-clearance";
+import type { VillaParams, VillaParamsIssue } from "./villa-params.ts";
+import { site, floors } from "./data.ts";
+import { floorSlabThickness, roofTileInset, slabToTileEaveLift } from "./roof-options.ts";
+import { clipRailingBelowRoof } from "./roof-railing-clearance.ts";
 import type { Object3D, Vector3 } from "three";
-import type { Facade } from "./facades";
+import type { Facade } from "./facades.ts";
 
 /** 两层半独立初始参数：首层参数含450抬高，半层高度是到脊瓦最高点的总预算。 */
 export function halfStoreyDefaults(base: VillaParams): VillaParams {
@@ -27,10 +27,10 @@ export function validateHalfStoreyParams(p: VillaParams): VillaParamsIssue[] {
   if (p.floor1Height + p.floor2Height + p.floor3Height > 10000) issues.push({ field: "floor3Height", message: "屋脊最高点不能超过10000，请调整层高或半层屋脊预算" });
   const inset = p.gutterOuterTopWidth + p.gutterClearWidth + 55 - p.gutterTileOverhang;
   const run = (Math.min(p.mainWidth + 2 * p.thirdEave, p.mainDepth - (p.thirdFloorMode === "flush" ? 0 : p.thirdSetback) + 2 * p.thirdEave) - 2 * inset) / 2;
-  const knee = p.floor3Height - 130 - (30 + p.gutterInnerDepth + p.gutterTileGap) - run * p.roofFenShui / 10;
+  const knee = p.floor3Height - 130 - (floorSlabThickness + p.gutterInnerDepth + p.gutterTileGap) - run * p.roofFenShui / 10;
   if (knee < 300) issues.push({ field: "floor3Height", message: "当前坡度、出檐与半层预算使矮墙不足300，请增加预算或调整屋面" });
   const annexInset = p.annexGutterOuterTopWidth + p.annexGutterClearWidth + 55 - p.annexGutterTileOverhang;
-  const annexPeak = p.annexHeight + 30 + p.annexGutterInnerDepth + p.annexGutterTileGap + (Math.min(p.annexWidth, p.annexDepth) + 2 * p.annexEave - 2 * annexInset) / 2 * p.annexRoofFenShui / 10;
+  const annexPeak = p.annexHeight + floorSlabThickness + p.annexGutterInnerDepth + p.annexGutterTileGap + (Math.min(p.annexWidth, p.annexDepth) + 2 * p.annexEave - 2 * annexInset) / 2 * p.annexRoofFenShui / 10;
   if (annexPeak + 1720 > 10000) issues.push({ field: "annexHeight", message: "辅楼屋面与烟囱高度预算超过10000，请降低辅楼或屋面" });
   return issues;
 }
@@ -42,7 +42,7 @@ export function halfStoreyRoof() {
   const slope = site.roofFenShui / 10;
   const peak = floors[2].y + floors[2].height;
   const eave = peak - 130 - Math.min(w, d) / 2 * slope;
-  return { x, z, w, d, slope, eave, peak, wallTop: eave - roofTileEaveLift() };
+  return { x, z, w, d, slope, eave, peak, wallTop: eave - slabToTileEaveLift() };
 }
 /** 独立的四面半层围护，不带旧三楼门厅返墙或默认露台门窗。 */
 export function halfStoreyFacades(): Facade[] {

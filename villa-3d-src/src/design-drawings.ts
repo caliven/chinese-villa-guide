@@ -47,7 +47,7 @@ function siteSection(options: DrawingOptions) {
   content += rect(x(thirdFront), y(10500), x(wallRear) - x(thirdFront), y(7200) - y(10500), "wall");
   if (site.setback > 0) content += path(`M${x(wallFront)} ${y(10500)} H${x(thirdFront)} V${y(7200)} H${x(wallFront)}`, "guide");
   for (let i = 0; i < 3; i++) {
-    const h = floorFinish(i), left = i === 2 ? thirdFront : wallFront;
+    const h = floorFinish(i), left = wallFront;
     content += rect(x(left), y(h), x(wallRear) - x(left), toM(construction.floorSlab) * scaleY, "wall");
     content += text(x(left) + 10, y(h) - 8, `${floors[i].name}完成面 ${elevation(h)}`, "small");
   }
@@ -115,7 +115,7 @@ function stairSection() {
   content += text(70, 110, "净高／扶手后净宽尚无结论", "warn-text");
   content += text(70, 135, `示意梯段宽${formatMm(stairLayout.flight)}、平台进深${formatMm(stairLayout.landing)}`, "small");
   content += text(70, 158, `洞口${formatMm(stairLayout.hole.w)}×${formatMm(stairLayout.hole.d)}；梁底、装修及起终步待设计`, "small");
-  return sheet("S03", "楼梯连续高差展开", `本图仅展开一至三层；三层另有楼梯通向坡屋面下顶板。首层完成面已抬高${formatMm(site.entranceRise)} mm；踏步及净高待设计。`, content);
+  return sheet("S03", "楼梯连续高差展开", `本图展开一至三层，楼梯在三层终止，坡屋面下顶板封闭。首层完成面已抬高${formatMm(site.entranceRise)} mm；踏步及净高待设计。`, content);
 }
 
 function entranceSection() {

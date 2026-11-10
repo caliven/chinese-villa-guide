@@ -1,21 +1,24 @@
 import * as THREE from "three";
+import { addMeanderBand } from "./meander-pattern.ts";
 import { addEaveWash, eaveLightSpans } from "./eave-lighting.ts";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { box, slab, rect, type Mats } from "./primitives.ts";
 import { addTiledRoof, hipRoofSurfaces, hatRoofSurfaces, joinRoofFaces, cutRoofOpenings, subtractRoofPolygon, roofHeight, type RoofFace } from "./roof-surfaces.ts";
 import { frontElevation, site, type Point } from "./data.ts";
-import { columnProfileMeshes, upperColumnFace } from "./entrance-carvings.ts";
-import { hatPierCrownProfile, hatPierDesign } from "./column-profiles.ts";
+import { columnProfileMeshes, cornerPedestalTop, plinthPanelSize, upperColumnFace } from "./entrance-carvings.ts";
+import { hatPierCrownProfile, hatPierDesign, porticoShoulderProfile } from "./column-profiles.ts";
 import { floatingHatJunctions, type HatJunction } from "./hat-junctions.ts";
 import { porticoEaveCornerOffset } from "./frontage-geometry.ts";
+import { orthogonalFloorGeometry } from "./floor-geometry.ts";
 import {
   apronFasciaBottom,
   apronEaveDesign,
   eaveTrimDesign,
   eyelidFixed,
   eyelidInset,
-  eyelidStackHeight,
+  floorSlabThickness,
   gutterBedTop,
+  gutterCopingThickness,
   gutterInnerWallTop,
   frontApronSection,
   roofGutterDesign,
@@ -71,6 +74,25 @@ export function terraceParapetLayout(e = frontElevation, p = site.portico) {
   };
 }
 
+/** 墙段端点落在柱截面中心，两向墙中线在直角柱心相交。 */
+export function terraceParapetWallRuns(wallFront: number, e = frontElevation, p = site.portico) {
+  const layout = terraceParapetLayout(e, p);
+  const [west, middleWest, middleEast, east] = layout.cornerPosts;
+  const point = (post: typeof west): Point => [post.x, post.z];
+  const runs: { a: Point; b: Point }[] = [
+    { a: point(middleWest), b: point(middleEast) },
+    { a: point(middleWest), b: [layout.leftX, e.postZ - 250] },
+    { a: point(middleEast), b: [layout.rightX, e.postZ - 250] },
+  ];
+  if (site.setback > 0) runs.push(
+    { a: point(west), b: [layout.leftX, layout.sideZ] },
+    { a: point(west), b: [layout.wingWestX, wallFront + 40] },
+    { a: [layout.rightX, layout.sideZ], b: point(east) },
+    { a: point(east), b: [layout.wingEastX, wallFront + 40] },
+  );
+  return runs.filter(run => Math.hypot(run.b[0] - run.a[0], run.b[1] - run.a[1]) > 1);
+}
+
 /** 槽底／内挡用同一水泥灰，略做 polygonOffset，减轻与压顶、瓦边共面闪线。 */
 function gutterCement(mat: Mats) {
   const m = mat.roofGutter.clone();
@@ -89,22 +111,11 @@ export function meander(
   x: number, y: number, z: number, width: number, mat: Mats,
   height = 160,
 ) {
-  const count = Math.max(1, Math.floor(width / 280));
-  const pitch = width / count;
-  for (let i = 0; i < count; i++) {
-    const xx = x + (i + 0.5) * pitch;
-    const scale = Math.min(1, pitch / 280);
-    // 两端留同宽收边，每个回字关于自身中线对称，不再用余数留一截空白。
-    const w = 215 * scale, h = height, t = Math.min(18, height * 0.1125);
-    reliefFrame(parent, xx, y, z - 6, w, h, t, mat);
-    for (const side of [-1, 1]) {
-      box(parent, xx + side * w * 0.17, y, z - 4, t, h * 0.52, 12, mat.relief, false);
-      box(parent, xx, y + side * h * 0.2, z - 4, w * 0.34, t, 12, mat.relief, false);
-    }
-  }
+  addMeanderBand(parent, x + width / 2, y, z - 6, width, height, mat.relief, 10);
 }
 
-function reliefFrame(parent: THREE.Object3D, x: number, y: number, front: number, w: number, h: number, t: number, mat: Mats) {
+function reliefFrame(parent: THREE.Object3D, x: number, y: number, front: number, w: number, h: number, t: number,
+  material: THREE.Material) {
   const shape = new THREE.Shape([
     new THREE.Vector2(-w / 2, -h / 2), new THREE.Vector2(w / 2, -h / 2),
     new THREE.Vector2(w / 2, h / 2), new THREE.Vector2(-w / 2, h / 2),
@@ -114,19 +125,30 @@ function reliefFrame(parent: THREE.Object3D, x: number, y: number, front: number
     new THREE.Vector2(w / 2 - t, h / 2 - t), new THREE.Vector2(w / 2 - t, -h / 2 + t),
   ]));
   const geometry = new THREE.ExtrudeGeometry(shape, { depth: 10, bevelEnabled: true, bevelSize: 1, bevelThickness: 1, bevelSegments: 2, steps: 1 });
-  const mesh = new THREE.Mesh(geometry, mat.relief);
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(x, y, front);
   parent.add(mesh);
 }
 
-function framedRelief(parent: THREE.Object3D, x: number, y: number, z: number, w: number, h: number, mat: Mats) {
-  box(parent, x, y, z, w, h, 25, mat.trim);
-  reliefFrame(parent, x, y, z - 24, w - 40, h - 40, 18, mat);
+function framedRelief(parent: THREE.Object3D, x: number, y: number, z: number, w: number, h: number, mat: Mats,
+  opts?: { ground?: boolean }) {
+  // 柱脚：同色系深凹＋英国棕框＋古铜角花（水包砂勒脚主流不做浅色跳色）；柱身上段仍用浅 trim。
+  const ground = opts?.ground === true;
+  box(parent, x, y, z + (ground ? 8 : 0), w, h, ground ? 32 : 25, ground ? mat.carvingDark : mat.trim);
+  if (ground) {
+    reliefFrame(parent, x, y, z - 18, w - 36, h - 36, 20, mat.british);
+    box(parent, x, y, z - 28, w - 70, h - 70, 10, mat.carvingDark, false);
+  } else {
+    reliefFrame(parent, x, y, z - 24, w - 40, h - 40, 18, mat.relief);
+  }
+  const motifZ = ground ? z - 36 : z - 20;
+  const motifMat = ground ? mat.bronze : mat.relief;
+  const motifD = ground ? 22 : 16;
   for (const sign of [-1, 1]) {
     for (const side of [-1, 1]) {
       const xx = x + side * (w / 2 - 80), yy = y + sign * (h / 2 - 95);
-      box(parent, xx, yy, z - 20, 75, 18, 16, mat.relief, false);
-      box(parent, xx + side * 30, yy - sign * 27, z - 20, 18, 70, 16, mat.relief, false);
+      const key = addMeanderBand(parent, xx, yy, motifZ - motifD / 2, 75, 75, motifMat, motifD);
+      if (key) key.rotation.z = Math.atan2(-sign, -side) + Math.PI / 4;
     }
   }
 }
@@ -153,14 +175,15 @@ function columnCapitalFace(parent: THREE.Object3D, top: number, width: number, m
 // 包角柱柱脚是方花板，和门厅柱的圆纹柱脚分开。
 // 方板这一截比上面柱身再凸出约 4 厘米，花板贴在凸出的面上。4 厘米是造型尺寸。
 const basePanelProject = 40;
-function cornerBaseFace(parent: THREE.Object3D, span: number, mat: Mats) {
-  const panelW = Math.min(440, Math.max(240, span));
-  const panelH = Math.min(480, panelW * 1.08);
-  const y = 180 + panelH / 2;
+function cornerBaseFace(parent: THREE.Object3D, span: number, mat: Mats, pedestalTop = cornerPedestalTop(undefined, site.entranceRise)) {
+  // 方花板居中，边长与门厅柱脚同比例。
+  const panelH = plinthPanelSize(span, pedestalTop);
+  const panelW = panelH;
+  const y = pedestalTop / 2;
   const face = new THREE.Group();
   face.position.z = -basePanelProject;
   parent.add(face);
-  framedRelief(face, 0, y, -12, panelW, panelH, mat);
+  framedRelief(face, 0, y, -12, panelW, panelH, mat, { ground: true });
   return y + panelH / 2 + 40;
 }
 
@@ -267,14 +290,16 @@ export function cornerPilaster(
     box(g, (outer + sideInner) / 2, y, -outwardZ * (leg + lip) / 2, project + lip + embed, h, leg + lip, material);
   };
   placeL(height / 2, height, 0, mat.sand);
-  placeL(80, 160, 30, mat.dressedStone);
-  // 方花板所在的这一截，两面都比上面柱身再凸出约 4 厘米。
-  placeL(420, 500, basePanelProject, mat.sand);
+  // 柱脚方座英国棕，顶与一层外墙勒脚／正面包角柱脚齐平。
+  const pedestalTop = cornerPedestalTop(undefined, site.entranceRise);
+  placeL(pedestalTop / 2, pedestalTop, basePanelProject, mat.british);
   // 柱顶这一截顶住上面的三眼皮，用英国棕。
   placeL(height - 50, 100, 30, mat.british);
+  // 正／侧面饰面同宽，花纹在 L 形外皮全长（project+leg）上居中。
+  const faceSpan = Math.min(480, frontW - 60);
   const dress = (face: THREE.Object3D, span: number) => {
     const shaftTop = columnCapitalFace(face, height, span, mat);
-    const shaftBottom = cornerBaseFace(face, span * 0.92, mat);
+    const shaftBottom = cornerBaseFace(face, span * 0.92, mat, pedestalTop);
     if (shaftTop - shaftBottom > 250)
       box(face, 0, (shaftBottom + shaftTop) / 2, -20, 34, shaftTop - shaftBottom, 20, mat.dark);
   };
@@ -282,12 +307,12 @@ export function cornerPilaster(
   frontFace.position.set(frontX, 0, outwardZ * project);
   frontFace.rotation.y = outwardZ > 0 ? Math.PI : 0;
   g.add(frontFace);
-  dress(frontFace, Math.min(480, frontW - 60));
+  dress(frontFace, faceSpan);
   const sideFace = new THREE.Group();
-  sideFace.position.set(xOuter, 0, -outwardZ * leg / 2);
+  sideFace.position.set(xOuter, 0, outwardZ * (project - leg) / 2);
   sideFace.rotation.y = outward > 0 ? -Math.PI / 2 : Math.PI / 2;
   g.add(sideFace);
-  dress(sideFace, Math.min(400, leg - 40));
+  dress(sideFace, faceSpan);
   return g;
 }
 
@@ -442,8 +467,8 @@ type RailJointOptions = { startReturn?: boolean; endReturn?: boolean; joints?: n
 /** 段线按挡墙中线定位；门厅折角外侧为 L 形直角收口，不再往里做成 T 形多出一截。 */
 export function frontTerraceRailRuns(wallFront: number): ({ a: Point; b: Point } & RailJointOptions)[] {
   const e = frontElevation;
-  const [west, middleWest, middleEast, east] = e.balustradePosts;
-  const { sideZ, middleZ, leftX, rightX, wingWestX, wingEastX } = terraceParapetLayout();
+  const { sideZ, middleZ, leftX, rightX, wingWestX, wingEastX, cornerPosts } = terraceParapetLayout();
+  const [west, middleWest, middleEast, east] = cornerPosts;
   const clearance = (p: typeof west) => p.w / 2 + 60;
   const back = Math.min(wallFront, e.terraceBack) - 25, hatNorth = e.postZ - 250 - 25;
   if (site.setback <= 0) {
@@ -485,7 +510,7 @@ export function glassBalustrade(
     const span = anchors[i + 1] - anchors[i], count = Math.max(1, Math.ceil(span / 1400));
     for (let j = 1; j <= count; j++) stations.push(anchors[i] + j * span / count);
   }
-  // 这组栏杆的 y 是 50 厘米挡墙顶。横条顶离露台地面约 1.18 米，停在柱盖板下面。
+  // y 随瓦内沿挡墙顶联动，扶手停在柱盖板下面。
   const railTop = 680;
   const railH = 50;
   const railY = railTop - railH / 2;
@@ -517,11 +542,13 @@ function eyelidGroup(parent: THREE.Object3D) {
 }
 
 /**
- * 自楼板／梁托顶平面向上叠三层三眼皮；底层板底贴 `slabTop`，最上层顶＝slabTop＋总高。
+ * 最下级与室内楼板同厚；上两级只做外挡外侧阶梯，不覆盖沟槽。
  */
-function eyelidLayerTops(slabTop: number) {
-  const [bottomH, midH, topH] = eyelidFixed.rises;
-  const bottomTop = slabTop + bottomH;
+function eyelidLayerTops(slabBottom: number) {
+  const bottomH = floorSlabThickness;
+  const midH = roofGutterDesign.clearDepth * eyelidFixed.rises[1] / (eyelidFixed.rises[1] + eyelidFixed.rises[2]);
+  const topH = roofGutterDesign.clearDepth - midH;
+  const bottomTop = slabBottom + bottomH;
   const midTop = bottomTop + midH;
   const topTop = midTop + topH;
   return [
@@ -579,7 +606,8 @@ function tripleEyelid(
       layer.top,
       layer.thick,
       mat.british,
-      [hole],
+      [layer.inset === eyelidInset(2) ? hole
+        : rect(x + eyelidInset(2), z + eyelidInset(2), w - 2 * eyelidInset(2), d - 2 * eyelidInset(2))],
       cut,
     );
   }
@@ -864,11 +892,18 @@ export function apronSupportOutline(wallPts: Point[], outerPts: Point[], sideWal
     p[0] + Math.sign(outer[i][0] - p[0]) * apronEaveDesign.fasciaProtrusion,
     p[1] + Math.sign(outer[i][1] - p[1]) * apronEaveDesign.fasciaProtrusion,
   ]);
-  const beamBack = beamFace.map((p, i): Point => [
-    p[0] - Math.sign(outer[i][0] - p[0]) * apronEaveDesign.supportDepth,
-    p[1] - Math.sign(outer[i][1] - p[1]) * apronEaveDesign.supportDepth,
-  ]);
-  return { fasciaOuter, beamFace, beamBack, outer, projection };
+  // 门厅柱头比承托边线更外凸，连续线脚绕柱头外皮通过。
+  if (beamFace.length === 8) {
+    const size = frontElevation.porticoColumnDepth;
+    const shoulder = porticoShoulderProfile(size, size, 0, 1);
+    const reach = Math.max(...shoulder.flatMap(course => [...course.lower, ...course.upper].map(point => Math.abs(point[0]))));
+    const projection = Math.max(apronEaveDesign.fasciaProtrusion,
+      reach + 8 - porticoEaveCornerOffset(size, apronEaveDesign.fasciaProtrusion));
+    for (const i of [2, 3]) fasciaOuter[i][0] = beamFace[i][0] - projection;
+    for (const i of [4, 5]) fasciaOuter[i][0] = beamFace[i][0] + projection;
+    for (const i of [3, 4]) fasciaOuter[i][1] = beamFace[i][1] - projection;
+  }
+  return { fasciaOuter, beamFace, outer, projection };
 }
 
 /** 无天沟挑檐的梁托贴住水平檐底，下沿线采用独立收口高度。 */
@@ -878,11 +913,9 @@ function addPolylineCorbelsAndFascia(
   outerPts: Point[],
   section: ReturnType<typeof frontApronSection>,
   mat: Mats,
-  postCutouts: Point[][] = [],
-  postSeatY?: number,
   sideWallFaces?: [number, number],
 ) {
-  const { fasciaOuter: fascia, beamBack, beamFace, outer } = apronSupportOutline(wallPts, outerPts, sideWallFaces);
+  const { fasciaOuter: fascia, beamFace, outer } = apronSupportOutline(wallPts, outerPts, sideWallFaces);
   wallPts = beamFace;
   outerPts = outer;
   const edges: CorbelEdge[] = [];
@@ -925,39 +958,16 @@ function addPolylineCorbelsAndFascia(
   }
   // 折角处梁托与下沿线连续绕过，柱位不再挖空或用实心块隔断两侧。
   const trim = placeCorbelEdges(parent, edges, section.soffitY, mat, false, [], section.fasciaTopY);
-  const band = (name: string, a: Point[], b: Point[], top: number, thick: number, cuts: Point[][]) => {
-    const group = new THREE.Group();
-    group.name = name;
-    trim.add(group);
-    for (let i = 0; i < a.length - 1; i++) {
-      let pieces = [[a[i], a[i + 1], b[i + 1], b[i]]];
-      for (const cut of cuts) pieces = pieces.flatMap(p => subtractRoofPolygon(p, cut));
-      for (const piece of pieces) slab(group, piece, top, thick, mat.sand);
-    }
-    return group;
-  };
-  // 线脚与背梁沿折线连续绕角；外缘不另加封檐竖板。
-  band("连续转角下沿线", fascia, wallPts, section.fasciaTopY,
-    apronEaveDesign.fasciaHeight, []);
-  // 前脸与下沿线内皮在墙线处直接相接，不留下8毫米的透缝。
-  const beam = band("挑檐连续承托梁", wallPts, beamBack, section.soffitY,
-    section.soffitY - section.fasciaTopY, []);
-  const lowerBeam = band("承托梁下沿", wallPts, beamBack, section.fasciaTopY,
-    apronEaveDesign.fasciaHeight, []);
-  beam.add(lowerBeam);
-  if (postSeatY !== undefined) {
-    const seats = new THREE.Group();
-    seats.name = "四处柱位实体承台";
-    parent.add(seats);
-    postCutouts.forEach(foot => {
-      const node = new THREE.Group();
-      node.name = "柱位承台";
-      seats.add(node);
-      // 只封瓦板柱位切口到楼面，不伸进梁托／下沿线高度，避免隔断折角造型。
-      if (postSeatY > section.soffitY)
-        slab(node, foot, postSeatY, postSeatY - section.soffitY, mat.sand).name = "柱座下方填充";
-    });
-  }
+  // 下沿线接梁托底，梁托顶直接贴板底；不另生成下挂墙梁。
+  const band = new THREE.Group();
+  band.name = "连续转角下沿线";
+  trim.add(band);
+  const outline = [...fascia, ...wallPts.slice().reverse()];
+  const mesh = new THREE.Mesh(orthogonalFloorGeometry([outline], [], section.fasciaTopY,
+    apronEaveDesign.fasciaHeight, true, "union"), mat.sand);
+  mesh.name = "门厅及两翼整体下沿线";
+  mesh.castShadow = mesh.receiveShadow = true;
+  band.add(mesh);
 }
 
 // 前檐中段向前凸出一截，左右仍与原檐口齐平。inset 沿外沿向内收。
@@ -998,7 +1008,7 @@ function slopeGutterCoping(mesh: THREE.Mesh, outer: Point[], width: number, clos
       const t = THREE.MathUtils.clamp(((x - a[0]) * dx + (z - a[1]) * dz) / len2, 0, 1);
       distance = Math.min(distance, Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz));
     }
-    positions.setY(i, top - Math.min(distance, width) * tangent);
+    positions.setY(i, top + (width - Math.min(distance, width)) * tangent);
   }
   mesh.geometry.computeVertexNormals();
   mesh.geometry.computeBoundingBox();
@@ -1047,32 +1057,30 @@ export function roofEaves(
   const innerFace = channel + innerT;
   const outline = (inset: number) =>
     bay ? bayOutline(x, z, w, d, bay.x, bay.w, bay.z, inset) : rect(x + inset, z + inset, w - 2 * inset, d - 2 * inset);
-  const outer = outline(0);
   const outerInner = outline(outerT);
   const channelHole = outline(channel);
   const innerLipHole = outline(innerFace);
   const cement = gutterCement(mat);
-  // base＝封顶楼板顶＝梁托顶＝飘檐底；三眼皮叠在其上，天沟再坐在三眼皮顶。
-  const slabTop = base;
-  const gutterBase = slabTop + eyelidStackHeight();
+  // base是共同板底；天沟内外挡均从板顶起砌，槽底找坡层直接坐在板上。
+  const slabBottom = base;
+  const gutterBase = base + floorSlabThickness;
   const bedY = gutterBase + gutterBedTop;
   const frontCut = frontTrimGap && wall
     ? rect(frontTrimGap[0], z - 1000, frontTrimGap[1] - frontTrimGap[0], wall.z - z + 1008)
     : undefined;
   // 槽底只铺在沟槽内，不要铺到外皮——否则水泥灰会在三眼皮立面露出一道白线。
-  const bed = eaveSlab(g, outerInner, bedY, 80, cement, [innerLipHole.slice().reverse()], frontCut);
+  const bed = eaveSlab(g, outerInner, bedY, gutterBedTop, cement, [channelHole.slice().reverse()], frontCut);
   bed.name = "天沟槽底";
   slopeGutterBed(bed, outerInner);
 
-  // 外挡坐在三眼皮顶上；压顶与三眼皮同色（英国棕）并外飘。外挡顶略低于压顶底，避免共面闪线。
+  // 外挡内芯与外侧两级三眼皮拼成阶梯剖面；内芯不叠在饰层上，也不填平外侧台阶。
   const outerWallH = roofGutterDesign.clearDepth;
-  const copeThick = 30;
-  const wallTopGap = 3;
+  const copeThick = gutterCopingThickness;
   const outerWall = eaveSlab(
     g,
-    outer,
-    gutterBase + outerWallH - wallTopGap,
-    outerWallH - wallTopGap,
+    outline(eyelidInset(2)),
+    gutterBase + outerWallH,
+    outerWallH,
     mat.british,
     [outerInner.slice().reverse()],
     frontCut,
@@ -1087,14 +1095,13 @@ export function roofEaves(
   coping.name = "天沟外边反坎压顶";
   slopeGutterCoping(coping, copeOuter, outerT + copeOh);
 
-  // 内挡保留；底边埋进槽底约 1cm，避免与槽顶共面穿模闪灰线。
+  // 内挡从同一结构板顶起砌；槽底只铺两挡之间，避免与内挡重叠。
   const innerTop = gutterInnerWallTop();
-  const innerEmbed = 10;
   const innerWall = eaveSlab(
     g,
     channelHole,
     gutterBase + innerTop,
-    innerTop - gutterBedTop + innerEmbed,
+    innerTop,
     cement,
     [innerLipHole.slice().reverse()],
     frontCut,
@@ -1106,22 +1113,22 @@ export function roofEaves(
     const hole = wall
       ? rect(wall.x, wall.z, wall.w, wall.d)
       : bayOutline(x, z, w, d, bay.x, bay.w, bay.z, 950);
-    for (const layer of eyelidLayerTops(slabTop)) {
+    for (const layer of eyelidLayerTops(slabBottom)) {
       slab(
         lids,
         bayOutline(x, z, w, d, bay.x, bay.w, bay.z, layer.inset),
         layer.top,
         layer.thick,
         mat.british,
-        [hole],
+        [layer.inset === eyelidInset(2) ? hole : outline(eyelidInset(2))],
       );
     }
   } else {
-    tripleEyelid(g, x, z, w, d, slabTop, mat, wall, frontCut);
+    tripleEyelid(g, x, z, w, d, slabBottom, mat, wall, frontCut);
   }
   if (wall) {
-    if (bay) addWallAndHatBayCorbels(g, wall, bay, slabTop, mat);
-    else addCorbelsAndFascia(g, wall, slabTop, mat, frontTrimGap);
+    if (bay) addWallAndHatBayCorbels(g, wall, bay, slabBottom, mat);
+    else addCorbelsAndFascia(g, wall, slabBottom, mat, frontTrimGap);
   }
   return g;
 }
@@ -1233,8 +1240,8 @@ function hatEaveSupport(
   placeCorbelEdges(support, edges, base, mat, false, hatPierCorbelCutouts(), undefined, lightEdges);
 }
 
-// 抬高官帽只保留前檐及两侧外露段。各层后端沿正屋前坡斜切，
-// 从板顶到板底均与正屋贴合，不用一条横向后檐穿过屋面。
+// 抬高官帽只保留前檐及两侧外露段；侧臂在接入正屋处以竖直端面直角收头，
+// 不用沿坡斜切，也不做横向后檐穿过屋面。
 export function hatEaveRim(x: number, z: number, w: number, inset: number, width: number, end: number): Point[] {
   return [
     [x + inset, z + inset], [x + w - inset, z + inset],
@@ -1242,6 +1249,17 @@ export function hatEaveRim(x: number, z: number, w: number, inset: number, width
     [x + w - width, z + width], [x + width, z + width],
     [x + width, end], [x + inset, end],
   ];
+}
+
+/**
+ * 悬浮官帽侧檐统一收头进深：官帽瓦檐标高与正屋前坡交线对应的 Z。
+ * 各层（天沟／三眼皮／檐底）共用该竖直后端面；高于外挡的内挡／瓦檐在瓦面之下收齐，示意直角收口。
+ */
+export function floatingHatEaveRearZ(
+  mainTileFront: number, mainTileEave: number, slope: number, hatEave: number,
+) {
+  const stackHigh = hatEave + slabToTileEaveLift();
+  return Math.max(mainTileFront - roofTileInset, mainTileFront + (stackHigh - mainTileEave) / Math.max(slope, 1e-6));
 }
 
 export function integratedHatEaves(
@@ -1256,18 +1274,26 @@ export function integratedHatEaves(
   const outerT = roofGutterDesign.outerTopWidth;
   const innerT = roofGutterDesign.innerWallThickness;
   const rim = (inset: number, width: number, end: number) => hatEaveRim(x, z, w, inset, width, end);
-  // 低于正屋瓦檐的线脚接到正屋前檐；不能向前外推坡面，把后端裁到官帽前面。
-  const endAt = (y: number) => Math.max(mainTileFront - roofTileInset, mainTileFront + (y - mainTileEave) / slope);
+  // 官帽沿用共同板底；天沟与外侧三眼皮分别在结构板上生成。
+  const slabBottom = base;
+  const gutterBase = base + floorSlabThickness;
+  const bedY = gutterBase + gutterBedTop;
+  const outerWallH = roofGutterDesign.clearDepth;
+  const copeTop = gutterBase + outerWallH + gutterCopingThickness;
+  // 各层共用同一竖直后端面：收在官帽瓦檐与正屋坡面相接处，不按层高斜切。
+  const rearZ = floatingHatEaveRearZ(mainTileFront, mainTileEave, slope, slabBottom);
   const finish = (outline: (end: number) => Point[], top: number, thick: number, material: THREE.Material,
     shape?: (mesh: THREE.Mesh, end: number) => void) => {
-    const end = endAt(top);
-    const mesh = slab(g, outline(end), top, thick, material);
-    // 先完成槽底／压顶找坡，再按最终顶点标高斜切，避免找坡后二次抬高留下接缝。
-    shape?.(mesh, end);
+    const mesh = slab(g, outline(rearZ), top, thick, material);
+    shape?.(mesh, rearZ);
+    // 找坡只改顶面标高；若抬高后顶到正屋瓦面，竖直压低顶面，保持后端直角、不斜切 Z。
     const positions = mesh.geometry.getAttribute("position");
     for (let i = 0; i < positions.count; i++) {
-      if (Math.abs(positions.getZ(i) - end) < 1e-2)
-        positions.setZ(i, endAt(positions.getY(i) + mesh.position.y));
+      const worldZ = positions.getZ(i);
+      if (worldZ < mainTileFront - 0.1) continue;
+      const worldY = positions.getY(i) + mesh.position.y;
+      const roofY = mainTileEave + (worldZ - mainTileFront) * slope;
+      if (worldY > roofY + 0.02) positions.setY(i, roofY - mesh.position.y);
     }
     mesh.geometry.computeVertexNormals();
     mesh.geometry.computeBoundingBox();
@@ -1277,80 +1303,83 @@ export function integratedHatEaves(
   const channel = outerT + roofGutterDesign.clearWidth;
   const innerFace = channel + innerT;
   const cement = gutterCement(mat);
-  // base＝官帽檐口楼板／梁托顶；三眼皮向上，天沟坐在三眼皮顶。
-  const slabTop = base;
-  const gutterBase = slabTop + eyelidStackHeight();
-  const bedY = gutterBase + gutterBedTop;
-  // 槽底只在沟内，避免外皮露出水泥灰白线。
-  const bed = finish(end => rim(outerT, innerFace, end), bedY, 80, cement,
-    mesh => slopeGutterBed(mesh, [[x + outerT, z + outerT], [x + w - outerT, z + outerT], [x + w - outerT, z + 1000], [x + outerT, z + 1000]]));
+  // 槽底找坡只作用在前沟段，侧臂保持水平，避免为贴坡而抬高后端。
+  const frontDrainDepth = Math.min(z + outerT + Math.max(800, channel * 2), rearZ - 50);
+  const bed = finish(end => rim(outerT, channel, end), bedY, gutterBedTop, cement,
+    mesh => slopeGutterBed(mesh, [[x + outerT, z + outerT], [x + w - outerT, z + outerT],
+      [x + w - outerT, frontDrainDepth], [x + outerT, frontDrainDepth]]));
   bed.name = "天沟槽底";
-  const outerWallH = roofGutterDesign.clearDepth;
-  const wallTopGap = 3;
   finish(
-    end => rim(0, outerT, end),
-    gutterBase + outerWallH - wallTopGap,
-    outerWallH - wallTopGap,
+    end => rim(eyelidInset(2), outerT, end),
+    gutterBase + outerWallH,
+    outerWallH,
     mat.british,
   ).name = "天沟外挡边";
   const copeOh = eyelidFixed.copingOverhang;
   finish(
     end => rim(-copeOh, outerT, end),
-    gutterBase + outerWallH + 30,
-    30,
+    copeTop,
+    gutterCopingThickness,
     mat.british,
     (mesh, end) => slopeGutterCoping(mesh, [[x - copeOh, end], [x - copeOh, z - copeOh],
       [x + w + copeOh, z - copeOh], [x + w + copeOh, end]], outerT + copeOh, false),
   ).name = "天沟外边反坎压顶";
   const innerTop = gutterInnerWallTop();
-  const innerEmbed = 10;
   finish(
     end => rim(channel, channel + innerT, end),
     gutterBase + innerTop,
-    innerTop - gutterBedTop + innerEmbed,
+    innerTop,
     cement,
   ).name = "天沟内挡边";
-  // 封板只补内挡顶以上的缺口，与内挡外皮共面，避免两个面重叠造成颜色分界。
-  const tileY = slabTop + slabToTileEaveLift();
-  const junctionEnd = endAt(tileY);
-  const closureBottom = Math.max(gutterBase + innerTop, mainTileEave);
-  const closureBottomEnd = endAt(closureBottom);
-  if (tileY > closureBottom && junctionEnd > mainTileFront) {
-    for (const sideX of [x + channel, x + w - channel]) {
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.Float32BufferAttribute([
-        sideX, tileY, mainTileFront, sideX, closureBottom, mainTileFront, sideX, closureBottom, closureBottomEnd,
-        sideX, tileY, mainTileFront, sideX, closureBottom, closureBottomEnd, sideX, tileY, junctionEnd,
-        sideX, closureBottom, closureBottomEnd, sideX, closureBottom, mainTileFront, sideX, tileY, mainTileFront,
-        sideX, tileY, junctionEnd, sideX, closureBottom, closureBottomEnd, sideX, tileY, mainTileFront,
-      ], 3));
-      geometry.computeVertexNormals();
-      const closure = new THREE.Mesh(geometry, cement);
-      closure.name = "官帽与正屋交接侧封板";
-      closure.castShadow = closure.receiveShadow = true;
-      g.add(closure);
+  // 沟槽开口直角封头（外挡与内挡之间），示意施工端头封板，不用斜口贴瓦。
+  const endCapT = 40;
+  const channelBottom = gutterBase;
+  const channelTop = gutterBase + outerWallH;
+  const tileY = slabBottom + slabToTileEaveLift();
+  if (rearZ > z + innerFace + endCapT && channelTop > channelBottom) {
+    for (const [x0, x1] of [[x + outerT, x + channel], [x + w - channel, x + w - outerT]] as const) {
+      const cap = box(g, (x0 + x1) / 2, (channelBottom + channelTop) / 2, rearZ - endCapT / 2,
+        Math.max(20, x1 - x0), channelTop - channelBottom, endCapT, cement);
+      cap.name = "官帽天沟端头封板";
+    }
+    // 内挡沟侧竖向收头：从内挡顶接到瓦檐，贴侧臂后端，替代原沿坡三角封板；顶按端板前皮坡高收，免穿瓦。
+    const closureBottom = gutterBase + innerTop;
+    const roofAtCapFront = mainTileEave + Math.max(0, rearZ - endCapT - mainTileFront) * slope;
+    const closureTop = Math.min(tileY, roofAtCapFront);
+    if (closureTop > closureBottom + 1) {
+      for (const sideX of [x + channel, x + w - channel]) {
+        const panel = box(g, sideX, (closureBottom + closureTop) / 2, rearZ - endCapT / 2,
+          20, closureTop - closureBottom, endCapT, cement);
+        panel.name = "官帽与正屋交接侧封板";
+      }
     }
   }
   const lids = eyelidGroup(g);
-  for (const layer of eyelidLayerTops(slabTop))
-    lids.add(finish(end => rim(layer.inset, innerFace, end), layer.top, layer.thick, mat.british));
-  const underside = apronFasciaBottom(slabTop, 0);
-  const junctions = floatingHatJunctions(z, slabTop, mainTileEave - slabToTileEaveLift(), wallFront, hatSupportInset());
+  for (const layer of eyelidLayerTops(slabBottom))
+    lids.add(finish(end => rim(layer.inset, layer.inset === eyelidInset(2) ? innerFace : eyelidInset(2), end),
+      layer.top, layer.thick, mat.british));
+  const underside = apronFasciaBottom(slabBottom, 0);
+  const junctions = floatingHatJunctions(z, slabBottom, mainTileEave - slabToTileEaveLift(), wallFront, hatSupportInset());
   const soffit = new THREE.Group();
   soffit.name = "悬浮官帽封闭檐底";
   g.add(soffit);
   // 三眼皮实体本身已有檐底，只补内侧净空，不再向深色线脚外补浅色细条。
   soffit.add(finish(end => rect(x + innerFace, z + innerFace, w - 2 * innerFace, end - z - innerFace),
-    underside + 45, 45, mat.trim));
-  // 两侧封闭梁接墙顶，梁托只在中央净跨布置；灯带侧段仍按主坡遮挡收口。
-  const supportBottom = underside - eaveTrimDesign.eyelidToFascia - eyelidFixed.fasciaHeight;
+    underside + floorSlabThickness, floorSlabThickness, mat.concrete));
+  // 左右侧臂之间的腔体后端竖向隔板：封在檐底之上、贴统一收头面；顶面按端板前皮处的正屋坡高收低，整块不穿瓦。
+  const cavityBottom = underside + floorSlabThickness;
+  const roofAtBulkheadFront = mainTileEave + Math.max(0, rearZ - endCapT - mainTileFront) * slope;
+  const cavityTop = Math.min(tileY, copeTop, roofAtBulkheadFront);
+  if (rearZ > z + innerFace + endCapT && cavityTop > cavityBottom + 1 && w > 2 * innerFace + 40) {
+    const bulkhead = box(g, x + w / 2, (cavityBottom + cavityTop) / 2, rearZ - endCapT / 2,
+      w - 2 * innerFace, cavityTop - cavityBottom, endCapT, mat.trim);
+    bulkhead.name = "官帽接入正屋竖向隔板";
+  }
+  // 两侧封闭梁接墙顶，梁托只在中央净跨布置；灯带侧段收到竖向收头内侧。
   const sidePad = eaveTrimDesign.corbelWidth / 2 + 20;
-  const sideEnd = Math.min(
-    mainTileFront - sidePad,
-    endAt(supportBottom) - sidePad,
-  );
-  hatEaveSupport(g, x, z, w, slabTop, sideEnd, mat, undefined, finish,
-    endAt(supportBottom + eyelidFixed.fasciaHeight), junctions);
+  const sideEnd = Math.min(mainTileFront - sidePad, rearZ - sidePad);
+  const lightEnd = rearZ - sidePad;
+  hatEaveSupport(g, x, z, w, slabBottom, sideEnd, mat, undefined, finish, lightEnd, junctions);
   return g;
 }
 
@@ -1377,59 +1406,84 @@ export function gutteredRoof(
 /**
  * 二楼顶部（三楼栏杆下）的无天沟挑檐：坡瓦覆盖全宽，下面为薄檐板与梁托。
  * `top`＝挡墙顶（瓦内沿标高）；`drop`＝瓦外沿相对挡墙顶的落差。
+ * `cover` 可将瓦片拆到独立展示组，板与承托仍归 `parent`。
+ * `integratedSlab` 表示楼板已由调用方整体生成，不另铺檐板或柱位承台。
+ * `bedding` 接收独立的水泥坡面实体，与瓦片共用裁切后的轮廓和柱脚切口。
  */
 export function tiledApron(
   parent: THREE.Object3D, inner: Point[], outer: Point[], top: number, drop: number, mat: Mats,
   postCutouts: Point[][] = [],
   postSeatY?: number,
   sideWallFaces?: [number, number],
+  integratedSlab = false,
+  cover?: THREE.Object3D,
+  bedding?: THREE.Object3D,
 ) {
   outer = apronSupportOutline(inner, outer, sideWallFaces).outer;
   const g = new THREE.Group();
-  g.name = "三楼栏杆下飘檐";
+  g.name = "三层檐下梁托与线脚";
   parent.add(g);
 
-  const section = frontApronSection(top, drop);
+  const section = frontApronSection(top, drop, postSeatY);
   const at = (p: Point, y: number) => new THREE.Vector3(p[0], y, p[1]);
   const faces: RoofFace[] = inner.slice(0, -1).map((a, i) => {
     const b = inner[i + 1];
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
     if (len < 1e-3) return null;
     return {
-      points: [at(outer[i], section.tileOuterY), at(outer[i + 1], section.tileOuterY), at(b, top), at(a, top)],
+      points: [at(outer[i], section.tileOuterY), at(outer[i + 1], section.tileOuterY), at(b, section.tileInnerY), at(a, section.tileInnerY)],
       across: [(b[0] - a[0]) / len, (b[1] - a[1]) / len],
       origin: [13700, inner[1][1]],
       owner: 0,
     };
   }).filter((f): f is RoofFace => !!f);
   const visible = cutRoofOpenings(faces, postCutouts);
-  addTiledRoof(g, visible, mat.villaRoof, mat.villaRoofJoint);
+  addTiledRoof(cover ?? g, visible, mat.villaRoof, mat.villaRoofJoint);
 
-  // 柱位瓦板切口由承台封到楼面；梁托／下沿线连续绕折角，不另穿实体柱颈。
-  const deck = new THREE.Group();
-  deck.name = "无天沟连续挑檐板";
-  g.add(deck);
-  if (postSeatY === undefined) {
-    slab(deck, [...outer, ...inner.slice().reverse()], section.boardOuterTop,
-      apronEaveDesign.boardThickness, mat.sand).name = "连续挑檐底板";
-  } else for (const face of visible) {
-    slab(deck, face.points.map(p => [p.x, p.z]), section.boardOuterTop,
-      apronEaveDesign.boardThickness, mat.sand).name = "连续挑檐底板";
-  }
   for (const face of visible) {
-    const mesh = slab(deck, face.points.map(p => [p.x, p.z]), top - roofTileThickness,
-      drop, mat.sand);
-    mesh.name = "瓦下坡面垫层";
+    // 基层顶面相对瓦底退2毫米，分开拆装时保留各自完整表面。
+    const top = section.tileInnerY - roofTileThickness - 2;
+    const mesh = slab(bedding ?? g, face.points.map(point => [point.x, point.z]), top,
+      top - section.boardOuterTop, mat.concrete);
+    mesh.name = "飘檐水泥坡面承托";
     const positions = mesh.geometry.getAttribute("position");
     for (let i = 0; i < positions.count; i++) {
       if (positions.getY(i) < 1) continue;
-      const y = roofHeight(face, positions.getX(i), positions.getZ(i));
-      positions.setY(i, Math.max(0, y - roofTileThickness - section.boardOuterTop));
+      positions.setY(i, roofHeight(face, positions.getX(i), positions.getZ(i))
+        - roofTileThickness - 2 - section.boardOuterTop);
     }
     positions.needsUpdate = true;
     mesh.geometry.computeVertexNormals();
+    // 只给真实外轮廓的竖向端面分配英国棕，坡顶、柱脚切口和分片接缝仍为水泥。
+    const normals = mesh.geometry.getAttribute("normal");
+    const onOuterEdge = (x: number, z: number, a: Point, b: Point) => {
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const length2 = dx * dx + dz * dz;
+      if (length2 < 1) return false;
+      const t = ((x - a[0]) * dx + (z - a[1]) * dz) / length2;
+      return t >= -0.0001 && t <= 1.0001 && Math.abs((x - a[0]) * dz - (z - a[1]) * dx) / Math.sqrt(length2) < 1;
+    };
+    mesh.geometry.clearGroups();
+    for (let i = 0; i < positions.count; i += 3) {
+      const isOuterSide = Math.abs(normals.getY(i)) < 0.01 && outer.slice(0, -1).some((a, edge) =>
+        [i, i + 1, i + 2].every(vertex => onOuterEdge(positions.getX(vertex), positions.getZ(vertex), a, outer[edge + 1])));
+      mesh.geometry.addGroup(i, 3, isOuterSide ? 1 : 0);
+    }
+    (mesh as THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>).material = [mat.concrete, mat.british];
+    mesh.geometry.computeBoundingBox();
+    mesh.geometry.computeBoundingSphere();
   }
-  addPolylineCorbelsAndFascia(g, inner, outer, section, mat, postCutouts, postSeatY, sideWallFaces);
+
+  // 瓦片为柱脚留切口；统一楼板连续穿过柱位，梁托／下沿线绕折角。
+  if (!integratedSlab) {
+    const deck = new THREE.Group();
+    deck.name = "无天沟连续挑檐板";
+    g.add(deck);
+    for (const face of visible)
+      slab(deck, face.points.map(p => [p.x, p.z]), section.boardOuterTop,
+        apronEaveDesign.boardThickness, mat.british).name = "连续挑檐底板";
+  }
+  addPolylineCorbelsAndFascia(g, inner, outer, section, mat, sideWallFaces);
   return g;
 }
 

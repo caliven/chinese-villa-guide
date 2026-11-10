@@ -62,7 +62,7 @@ import {
 } from "./openings";
 import { facades, openingFacade } from "./facades";
 import { exteriorWindowProfile, freezeExteriorWindowDimensions } from "./facade-layout";
-import { partitionProfile } from "./partition-geometry";
+import { partitionCeilingGap, partitionProfile } from "./partition-geometry";
 import { exteriorWallTargets, normalizeConnectedWallEndpoints, normalizeDraftWallContacts, type WallContactTarget } from "./wall-contact-snap";
 import { recessedFloor, recessFrontFacades } from "./building-variants";
 import { roomAreas } from "./design-data";
@@ -2950,7 +2950,7 @@ export class LayoutEditor {
     const wall = defaults ? { ...part, door: { ...opening, height: undefined, sill: undefined } } : part;
     const storyHeight = (annex ? site.annex.height : this.floorData(floor).height) - (floor === 0 ? site.entranceRise : 0);
     const stair = !annex && draftHasStair(this.draft) && floor < this.draft.floors.length - 1 ? fitStairToRoom(this.draft.stairLayout, this.draft.floors) : undefined;
-    const profile = partitionProfile(wall, storyHeight, stair, annex ? 200 : 150);
+    const profile = partitionProfile(wall, storyHeight, stair, partitionCeilingGap(floor, annex));
     return { opening, floor, mode: "ordinary" as const, sill: profile.opening!.sill, height: profile.opening!.height, maxTop: profile.height - 80, maxSill: profile.height - 280 };
   }
 

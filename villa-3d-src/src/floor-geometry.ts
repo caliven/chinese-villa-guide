@@ -2,13 +2,17 @@ import * as THREE from "three";
 import type { Point } from "./data";
 import { polygonContainsPoint } from "./room-geometry";
 
-/** 正交轮廓按真实格网铺面，扣挑空／楼梯洞；支持洞口碰到外边界和凹形分区。 */
-export function orthogonalFloorGeometry(paths: Point[][], holes: Point[][], y: number, thickness = 0, bottom = false) {
+/** 正交轮廓按真实格网铺面并扣洞；默认奇偶规则保留内环，union 将相接或重叠轮廓连成整板。 */
+export function orthogonalFloorGeometry(paths: Point[][], holes: Point[][], y: number, thickness = 0, bottom = false,
+  fillRule: "evenodd" | "union" = "evenodd") {
   const xs = [...new Set([...paths, ...holes].flatMap(path => path.map(p => p[0])))].sort((a, b) => a - b);
   const zs = [...new Set([...paths, ...holes].flatMap(path => path.map(p => p[1])))].sort((a, b) => a - b);
   const positions: number[] = [];
   const cells = new Set<string>();
-  const filled = (point: Point) => paths.filter(path => polygonContainsPoint(path, point)).length % 2 === 1 && !holes.some(hole => polygonContainsPoint(hole, point));
+  const filled = (point: Point) => {
+    const count = paths.filter(path => polygonContainsPoint(path, point)).length;
+    return (fillRule === "union" ? count > 0 : count % 2 === 1) && !holes.some(hole => polygonContainsPoint(hole, point));
+  };
   const triangle = (...points: number[][]) => positions.push(...points.flat());
   for (let i = 0; i < xs.length - 1; i++) for (let j = 0; j < zs.length - 1; j++) {
     const x0 = xs[i], x1 = xs[i + 1], z0 = zs[j], z1 = zs[j + 1];

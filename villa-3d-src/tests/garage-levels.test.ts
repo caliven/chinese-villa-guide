@@ -54,7 +54,11 @@ test("邻居地库独立2×2柱网，自家柱不跨入邻居院坪", () => {
   assert.ok(cols.ownColumns.every((column) => column.domain === "own"));
   assert.ok(garageLayout.partitionWall, "内区应有分隔墙");
   const part = garageLayout.partitionWall!;
-  assert.ok(part.footprint.every((point) => Math.abs(point[0] - yard.x) <= 120));
+  const eastColumn = cols.ownColumns.at(-1)!;
+  const wallX = (part.footprint[0][0] + part.footprint[2][0]) / 2;
+  assert.equal(wallX, eastColumn.x, "墙中心线对齐东侧纵梁与柱中心线");
+  assert.equal(part.top, beamSoffitAt(wallX), "墙顶贴梁底");
+  assert.ok(Math.max(...part.footprint.map(point => point[1])) <= eastColumn.inner[1], "墙体全段处于梁下");
   assert.ok(Math.min(...part.footprint.map((point) => point[1])) >= yard.z + outerLaneDepth() - 1);
 });
 
@@ -75,6 +79,32 @@ test("斜坡只在最外层，外墙连续，两家完成面分开", () => {
   const full = garageLayout.fullOuterWallPath;
   assert.ok(Math.abs(full.at(-1)![0] - surroundings.neighborYard.x) < 1);
   assert.ok(Math.abs(basementFloorY(yardWest - 2500, surroundings.neighborYard.z + 100) - site.garageFloor) > 100);
+});
+
+test("自家东侧边柱贴分界、中间轴居中，主楼承重轴不随邻居退距移动", () => {
+  resetVillaParams();
+  const before = basementColumns();
+  const main = before.ownColumns.filter(column => column.role === "main");
+  try {
+    for (const size of [400, 600]) {
+      applyVillaParams({ ...DEFAULT_VILLA_PARAMS, garageColumnSize: size, neighborColumnEdgeInset: 1600 });
+      const columns = basementColumns();
+      const edge = columns.ownColumns.at(-1)!;
+      assert.equal(edge.x + size / 2, surroundings.neighborYard.x, "边柱外皮贴两家分界线");
+      assert.equal(edge.inner[0], edge.outer[0], "前后两根边柱同轴");
+      const east = columns.ownColumns.filter(column => column.x >= columns.mainAxes.axisD);
+      assert.equal(east.length, 3);
+      assert.ok(Math.abs(east[1].x - (east[0].x + east[2].x) / 2) <= 1, "中间柱梁位于东侧跨度中央");
+      assert.deepEqual(columns.ownColumns.filter(column => column.role === "main"), main, "主楼下柱位保持锁定");
+      assert.equal(columns.neighborColumns[0].x, surroundings.neighborYard.x + 1600, "邻居柱保留独立退距");
+      rebuildGarageLayout();
+      const wall = garageLayout.partitionWall!;
+      assert.equal((wall.footprint[0][0] + wall.footprint[2][0]) / 2, edge.x, "改柱宽后墙仍在梁中央");
+      assert.equal(wall.top, beamSoffitAt(edge.x));
+    }
+  } finally {
+    resetVillaParams();
+  }
 });
 
 test("柱顶贴梁底、梁截面到楼板底，柱梁尺寸跟参数", () => {

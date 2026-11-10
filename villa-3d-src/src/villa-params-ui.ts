@@ -60,7 +60,7 @@ function roofSections(annex = false): ParamSection[] {
     },
     {
       heading: "飘檐与三眼皮",
-      note: "顶檐「飘檐挑出」＝最上层出檐（默认 800）；中层＝挑出−100、最下层＝挑出−200；级差 100 固定。「二楼飘檐」为三楼栏杆下无天沟瓦挑檐，前／左右相对墙皮共用同一挑出（默认 800），不套用屋顶三眼皮。",
+      note: "顶檐「飘檐挑出」＝最上层出檐（默认800）。水平级差最多100，窄反坎随顶宽收小。最下层与室内楼板同为120厚。上两级按2∶3分配外挡高度。二楼无天沟飘檐与三楼楼板同标高，前／左右共用挑出参数。",
       fields: [
         { key: "thirdEave", label: "顶檐挑出（最上层）" },
         { key: "secondFrontEave", label: "二楼飘檐挑出" },
@@ -68,7 +68,7 @@ function roofSections(annex = false): ParamSection[] {
     },
     {
       heading: "天沟",
-      note: "以下参数用于主楼屋顶及官帽的天沟，不影响二楼无天沟瓦挑檐。",
+      note: "内外反坎高度均从结构楼板顶起算，外挡高度不含压顶。槽底在板上做30厚起步找坡。压顶沟侧至少30厚，外侧向上找坡。以下参数用于主楼及官帽。",
       fields: [
         { key: "gutterClearWidth", label: "天沟净宽" },
         { key: "gutterClearDepth", label: "外边反坎高" },
@@ -82,7 +82,7 @@ function roofSections(annex = false): ParamSection[] {
     },
     {
       heading: "梁托与下沿线",
-      note: "梁托长度、间距由顶檐与二楼挑檐共用，默认500×200×160；「三眼皮至下沿线」仅作用于屋顶，二楼挑檐按独立薄檐板收口。",
+      note: "梁托顶面贴共同楼板底，尺寸默认500×200×160。长度、间距由顶檐与二楼挑檐共用。「三眼皮至下沿线」从最下层板底量到下沿线上沿，仅作用于屋顶。",
       fields: [
         { key: "corbelLength", label: "梁托长度" },
         { key: "corbelSpacing", label: "梁托中心间距" },
@@ -96,8 +96,8 @@ function roofSections(annex = false): ParamSection[] {
     ...section,
     heading: index === 0 ? "屋面坡度" : section.heading,
     roofStyle: false,
-    note: index === 1 ? "辅楼四面独立出檐；三眼皮中层＝挑出−100、最下层＝挑出−200。"
-      : index === 2 ? "独立设置辅楼屋顶的排水与瓦檐构造。"
+    note: index === 1 ? "辅楼四面独立出檐。最下层与室内楼板同厚、同标高，上两级按2∶3分配外挡高度。水平级差最多100，窄反坎随顶宽收小。"
+      : index === 2 ? "辅楼内外反坎均从结构板顶起算，外挡不含压顶。槽底在板上做30厚起步找坡，压顶沟侧至少30厚。"
       : index === 3 ? "仅控制辅楼屋顶的梁托与下沿线。" : undefined,
     fields: section.fields.filter(field => field.key !== "floatingHatHeightOffset" && field.key !== "secondFrontEave")
       .map(field => ({ ...field, key: field.key === "thirdEave" ? "annexEave"

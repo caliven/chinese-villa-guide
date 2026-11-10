@@ -1,13 +1,33 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { buildVilla, floatingHatLayout, mainRoofFootprint } from "../src/architecture";
+import { buildVilla, floatingHatLayout, mainRoofFootprint, roofPitch } from "../src/architecture";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params";
-import { fasciaBottomY } from "../src/roof-options";
+import { fasciaBottomY, floorSlabThickness, gutterCopingThickness, roofGutterDesign, roofTileInset, slabToTileEaveLift } from "../src/roof-options";
 import type { Mats } from "../src/primitives";
 
 const mat = new Proxy({} as Mats, {
   get(target, key: keyof Mats) { return target[key] ??= new THREE.MeshPhysicalMaterial() as never; },
+});
+
+test("官帽侧封板和后隔板顶贴相邻表面，消除两毫米透光缝", () => {
+  resetVillaParams();
+  const villa = buildVilla(mat, false, 4.5, "floating");
+  villa.group.updateMatrixWorld(true);
+  const main = mainRoofFootprint(), hat = floatingHatLayout(4.5), pitch = roofPitch(4.5);
+  const lift = slabToTileEaveLift();
+  let count = 0;
+  villa.roof.traverse(object => {
+    if (!["官帽与正屋交接侧封板", "官帽接入正屋竖向隔板"].includes(object.name)) return;
+    const bounds = new THREE.Box3().setFromObject(object);
+    const roof = main.eave + lift + Math.max(0, bounds.min.z - main.z - roofTileInset) * pitch.mainRise / pitch.mainRun;
+    const limits = [hat.eave + lift, roof];
+    if (object.name === "官帽接入正屋竖向隔板") limits.push(hat.eave + floorSlabThickness
+      + roofGutterDesign.clearDepth + gutterCopingThickness);
+    assert.ok(Math.abs(bounds.max.y - Math.min(...limits)) < .01);
+    count++;
+  });
+  assert.equal(count, 3);
 });
 
 test("全屋梁托只沿直墙布置，阴阳角不设斜托，也不穿入官帽柱", () => {

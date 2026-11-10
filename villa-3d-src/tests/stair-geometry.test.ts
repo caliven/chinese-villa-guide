@@ -96,7 +96,7 @@ test("立体读取当前草稿梯段宽、踏步深、平台与踢面数，实�
   assert.ok(Math.abs(bounds.max.x - (g.footprint.x + g.footprint.w)) < 1);
   assert.ok(Math.abs(bounds.max.z - (g.footprint.z + g.footprint.d)) < 1);
   const slabs = parent.children.filter(o => o instanceof THREE.Mesh && o.geometry instanceof THREE.BoxGeometry);
-  assert.equal(slabs.length, (g.lowerTreads + g.upperTreads) * 2 + 1);
+  assert.equal(slabs.length, (g.lowerTreads + g.upperTreads) * 2 + 3);
   const upper = slabs.filter(o => o.position.x < s.x + s.flight);
   assert.ok(upper.every(o => new THREE.Box3().setFromObject(o).min.y > 1500), "图右返跑下方不得堆到地面");
 });

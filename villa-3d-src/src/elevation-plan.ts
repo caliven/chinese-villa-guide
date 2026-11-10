@@ -13,8 +13,8 @@ import { construction, site, type Point } from "./data";
 import type { Facade } from "./facades";
 import { roofProjectedEdges } from "./roof-plan";
 import { subtractRoofPolygon, type RoofFace } from "./roof-surfaces";
-import { bayOutline, hatEaveRim, frontTerraceRailRuns, terraceParapetLayout, apronSupportOutline, hatSupportInset } from "./facade-details";
-import { apronEaveDesign, frontApronSection, fasciaBottomY, gutterOuterWallTop, eyelidStackHeight, roofGutterDesign, slabToTileEaveLift, roofTileInset, roofStyleLabels, type RoofStyle } from "./roof-options";
+import { bayOutline, floatingHatEaveRearZ, hatEaveRim, frontTerraceRailRuns, terraceParapetLayout, terraceParapetWallRuns, apronSupportOutline, hatSupportInset } from "./facade-details";
+import { apronEaveDesign, floorSlabThickness, frontApronSection, fasciaBottomY, gutterOuterWallTop, roofGutterDesign, slabToTileEaveLift, roofTileInset, roofTileThickness, roofStyleLabels, type RoofStyle } from "./roof-options";
 
 export const elevationLabels = {
   north: "北立面（正立面）", south: "南立面（背立面）", east: "东立面", west: "西立面",
@@ -200,14 +200,14 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   };
   const rect = (x: number, z: number, w: number, d: number): Point[] => [[x, z], [x + w, z], [x + w, z + d], [x, z + d]];
   const mainOutline = style === "joined" ? bayOutline(r.main.x, r.main.z, r.main.w, r.main.d, r.hat.x, r.hat.w, r.hat.z, 0) : rect(r.main.x, r.main.z, r.main.w, r.main.d);
-  // 楼板平面以上：三眼皮＋天沟外挡；不再从檐口向下画三眼皮。
-  rim(mainOutline, r.main.eave, eyelidStackHeight() + gutterOuterWallTop(), "el-trim", r.frontTrimGap);
+  // 与三维共用板底、板厚和压顶最高点；三眼皮不重复累加到挡墙高度。
+  rim(mainOutline, r.main.eave, floorSlabThickness + gutterOuterWallTop(), "el-trim", r.frontTrimGap);
   owner = "annex";
-  rim(rect(r.annex.x, r.annex.z, r.annex.w, r.annex.d), r.annex.eave, eyelidStackHeight() + r.annexProfile.outerWallTop, "el-trim");
+  rim(rect(r.annex.x, r.annex.z, r.annex.w, r.annex.d), r.annex.eave, floorSlabThickness + r.annexProfile.outerWallTop, "el-trim");
   owner = "main";
   if (style === "floating") {
-    const end = Math.max(r.main.z, r.main.z + roofTileInset + (r.hat.eave + roofGutterDesign.clearDepth + 30 - r.main.eave - slabToTileEaveLift()) / (r.pitch.fenShui / 10));
-    rim(hatEaveRim(r.hat.x, r.hat.z, r.hat.w, 0, roofGutterDesign.outerTopWidth, end), r.hat.eave, eyelidStackHeight() + gutterOuterWallTop(), "el-trim");
+    const end = floatingHatEaveRearZ(r.main.z + roofTileInset, r.main.eave + slabToTileEaveLift(), r.pitch.fenShui / 10, r.hat.eave);
+    rim(hatEaveRim(r.hat.x, r.hat.z, r.hat.w, 0, roofGutterDesign.outerTopWidth, end), r.hat.eave, floorSlabThickness + gutterOuterWallTop(), "el-trim");
     for (const j of floatingHatJunctions(r.hat.z, r.hat.eave, r.main.eave, model.floors[2].front, hatSupportInset(), f))
       for (const polygon of hatJunctionFaces(j))
         face(polygon.map(p => new Vector3(...p)), "el-trim", "", true, "hat-junction");
@@ -248,6 +248,33 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   }
   if (!recessedPortico()) box(f.postXs[0] + columnSize / 2 - 8, f.porticoColumnZ - PORTICO_BEAM_DEPTH / 2,
     f.postXs[1] - f.postXs[0] - columnSize + 16, PORTICO_BEAM_DEPTH, fasciaBot - 670, 670, "el-trim");
+  if (!recessedPortico() && !isHalfStoreyScheme) {
+    const returns = frontApronOutline(f.terraceBack, 0, f, p);
+    const backing = (a: Point, b: Point, outward: Point, depth: number) => {
+      const height = apronHeights.soffitY - fasciaBot;
+      const rake = Math.min(60, height * .2, depth * .25);
+      const footprint = [a, b, [b[0] - outward[0] * depth, b[1] - outward[1] * depth],
+        [a[0] - outward[0] * depth, a[1] - outward[1] * depth]];
+      const lower = footprint.map(point => new Vector3(point[0], fasciaBot, point[1]));
+      const upper = footprint.map(point => new Vector3(point[0] + outward[0] * rake,
+        apronHeights.soffitY, point[1] + outward[1] * rake));
+      face(upper, "el-trim", "", true, "portico-backing");
+      for (let i = 0; i < 4; i++)
+        face([lower[i], lower[(i + 1) % 4], upper[(i + 1) % 4], upper[i]],
+          "el-trim", "", true, "portico-backing");
+    };
+    backing(returns[3], returns[4], [0, -1], PORTICO_BEAM_DEPTH);
+    const depth = Math.min(280, columnSize * .35);
+    const from = f.porticoColumnZ - columnSize / 2 + 8;
+    const to = m.z + construction.outsideWall / 2;
+    if (to > from + 40) {
+      for (const [x, outward] of [[returns[3][0], -1], [returns[4][0], 1]]) {
+        box(outward < 0 ? x : x - depth, from, depth, to - from,
+          fasciaBot - 670, 670, "el-trim");
+        backing([x, from], [x, to], [outward, 0], depth);
+      }
+    }
+  }
   for (const x of isHalfStoreyScheme ? [] : f.postXs) {
     const height = fasciaBottomY(r.hat.eave, 0) - y3;
     box(x - f.dividerWidth / 2, f.postZ - hatPierDesign.depth / 2, f.dividerWidth, hatPierDesign.depth,
@@ -275,22 +302,20 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
     face([new Vector3(high, site.entranceRise, columnNorth), new Vector3(low, 20, columnNorth), new Vector3(low, 20, m.z + 20), new Vector3(high, site.entranceRise, m.z + 20)], "el-wall");
   }
   const apron = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop);
-  const terracePosts = isHalfStoreyScheme ? [] : hasThirdFloorSideTerraces() ? f.balustradePosts : f.balustradePosts.slice(1, 3);
+  const cornerPosts = terraceParapetLayout(f, p).cornerPosts;
+  const terracePosts = isHalfStoreyScheme ? [] : hasThirdFloorSideTerraces() ? cornerPosts : cornerPosts.slice(1, 3);
   if (!isHalfStoreyScheme) {
-    const terrace = (x: number, z: number, w: number, d: number) => {
-      box(x, z, w, d, y3 - 180, 180, "el-trim");
-    };
-    if (hasThirdFloorSideTerraces()) for (const t of f.sideTerraces) terrace(t.x, f.terraceFront, t.w, model.floors[2].front + 40 - f.terraceFront);
-    terrace(p.x, f.centerFront, p.w, f.terraceBack - f.centerFront);
     for (const run of frontTerraceRailRuns(model.floors[2].front)) {
       const bottom = y3 + f.eaveParapet;
       const a = new Vector3(run.a[0], bottom, run.a[1]), b = new Vector3(run.b[0], bottom, run.b[1]);
       face([a, b, b.clone().add(new Vector3(0, 680, 0)), a.clone().add(new Vector3(0, 680, 0))], "el-glass-rail", "", false);
     }
-    const parapet = terraceParapetLayout(f, p);
-    for (const x of [parapet.westOuter, parapet.eastOuter - parapet.thick])
-      box(x, hasThirdFloorSideTerraces() ? f.terraceFront : parapet.middleOuter, parapet.thick, f.postZ - 250 - (hasThirdFloorSideTerraces() ? f.terraceFront : parapet.middleOuter),
-        y3, f.eaveParapet, "el-wall");
+    const { thick } = terraceParapetLayout(f, p);
+    for (const { a, b } of terraceParapetWallRuns(model.floors[2].front, f, p)) {
+      if (Math.abs(b[0] - a[0]) > 1)
+        box(Math.min(a[0], b[0]), a[1] - thick / 2, Math.abs(b[0] - a[0]), thick, y3, f.eaveParapet, "el-wall");
+      else box(a[0] - thick / 2, Math.min(a[1], b[1]), thick, Math.abs(b[1] - a[1]), y3, f.eaveParapet, "el-wall");
+    }
     for (const post of terracePosts) {
       const foot = post.w + 80;
       const central = post.x >= p.x && post.x <= p.x + p.w;
@@ -308,23 +333,28 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   const apronBack = hasThirdFloorSideTerraces() ? f.terraceBack : model.floors[2].front + 40;
   const inner = frontApronOutline(apronBack, 0, f, p);
   const outer = frontApronOutline(apronBack, e, f, p);
-  const { fasciaOuter: fascia, beamBack, beamFace, outer: apronOuter } = apronSupportOutline(inner, outer,
+  const { fasciaOuter: fascia, outer: apronOuter } = apronSupportOutline(inner, outer,
     [m.x - construction.outsideWall / 2, m.x + m.w + construction.outsideWall / 2]);
-  const strips = (a: Point[], b: Point[]) => a.slice(0, -1).map((point, i) => [point, a[i + 1], b[i + 1], b[i]]);
-  const beamArea = strips(beamFace, beamBack);
-  // 与三维同源：下沿线与背梁连续绕折角；柱位不另投实心块隔断梁托。
-  for (const polygon of beamArea) rim(polygon, apron.fasciaBottomY, apron.soffitY - apron.fasciaBottomY, "el-trim", undefined, "apron-support");
-  for (const post of terracePosts) {
-    const foot = post.w + 80;
-    const footprint = rect(post.x - foot / 2, post.z - foot / 2, foot, foot);
-    if (y3 > apron.soffitY) rim(footprint, apron.soffitY, y3 - apron.soffitY, "el-column", undefined, "apron-support");
+  if (!isHalfStoreyScheme) for (let i = 0; i < inner.length - 1; i++) {
+    const at = (p: Point, y: number) => new Vector3(p[0], y, p[1]);
+    const tile = [at(apronOuter[i], apron.tileOuterY), at(apronOuter[i + 1], apron.tileOuterY),
+      at(inner[i + 1], apron.tileInnerY), at(inner[i], apron.tileInnerY)];
+    const bed = tile.map(point => point.clone().add(new Vector3(0, -roofTileThickness - 2, 0)));
+    face(tile, "el-roof", "", true, "apron-tiles");
+    face(bed, "el-trim", "", true, "apron-bedding");
+    for (let edge = 0; edge < bed.length; edge++) {
+      const a = bed[edge], b = bed[(edge + 1) % bed.length];
+      face([new Vector3(a.x, y3, a.z), new Vector3(b.x, y3, b.z), b, a],
+        "el-trim", "", true, "apron-bedding");
+    }
   }
   for (let i = 0; i < fascia.length - 1; i++) {
     const [a, b] = [fascia[i], fascia[i + 1]];
     face([new Vector3(a[0], apron.fasciaBottomY, a[1]), new Vector3(b[0], apron.fasciaBottomY, b[1]),
       new Vector3(b[0], apron.fasciaTopY, b[1]), new Vector3(a[0], apron.fasciaTopY, a[1])], "el-trim", "", true, "apron-support");
   }
-  rim([...apronOuter, ...inner.slice().reverse()], apron.soffitY, apronEaveDesign.boardThickness, "el-trim");
+  if (!isHalfStoreyScheme) rim([...apronOuter, [m.x + m.w, apronBack], [m.x + m.w, m.z + m.d],
+    [m.x, m.z + m.d], [m.x, apronBack]], apron.soffitY, apronEaveDesign.boardThickness, "el-trim", undefined, "third-floor-slab");
   if (balcony) {
     const x = m.x + m.w * (12650 - 6800) / 13500, w = 2500 * m.w / 13500, z = m.z + m.d;
     box(x, z, w, 1200, y3 - 180, 180, "el-trim");
@@ -389,9 +419,10 @@ export function elevationSvg(view: ElevationView, style: RoofStyle, layout?: Vil
     return line([x, -y], [min, -y], "el-level") + `<path d="M${n(x)} ${n(-y)} l-110 -150 h220 Z" fill="#555"/>` + text(x - 170, ty, `${name} ${height(y)}`, "el-label", "end");
   }).join("");
   let heights = "";
-  for (const floor of building === "main" ? model.floors : [{ y: 0, height: a.height }]) {
-    const x = max + 500, y0 = -floor.y, y1 = -floor.y - floor.height;
-    heights += line([max + 100, y0], [x + 120, y0], "el-dim") + line([max + 100, y1], [x + 120, y1], "el-dim") + line([x, y0], [x, y1], "el-dim") + text(x + 180, (y0 + y1) / 2, String(n(floor.height)), "el-dim-label", "start");
+  for (const [index, floor] of (building === "main" ? model.floors : [{ y: 0, height: a.height }]).entries()) {
+    const finishRise = index === 0 ? site.entranceRise : 0;
+    const x = max + 500, y0 = -floor.y - finishRise, y1 = -floor.y - floor.height;
+    heights += line([max + 100, y0], [x + 120, y0], "el-dim") + line([max + 100, y1], [x + 120, y1], "el-dim") + line([x, y0], [x, y1], "el-dim") + text(x + 180, (y0 + y1) / 2, String(n(floor.height - finishRise)), "el-dim-label", "start");
   }
   const extra = building === "main" ? text(max + 1100, -r.hat.peak, `官帽瓦脊 ${height(r.hat.peak)}`, "el-small", "start") : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" class="floor-svg elevation-svg" data-elevation="${view}" data-building="${building}" data-roof-style="${style}" viewBox="${n(left)} ${n(top)} ${n(width)} ${n(bottom - top)}" role="img" aria-label="${buildingLabel}${elevationLabels[view]}，当前方案正投影"><title>${buildingLabel}${elevationLabels[view]} · ${roofStyleLabels[style]} · 单位 mm</title><desc>左为${directions[view].left}，右为${directions[view].right}。${buildingLabel}的外墙、洞口和屋面${building === "main" ? "及门厅" : "及烟囱"}正投影，按深度消隐；雕花、栏杆及檐口细部简化。标高相对暂定院坪基准，非施工图。</desc><defs><style>${elevationStyles.replaceAll("elevation-tiles", `${id}-tiles`)}</style><pattern id="${id}-tiles" width="240" height="120" patternUnits="userSpaceOnUse"><rect width="240" height="120" fill="white"/><path d="M0 0h240 M0 120h240 M0 0q30 0 30 60t30 60 M120 0q30 0 30 60t30 60" fill="none" stroke="#999" stroke-width="10"/></pattern>${clip}</defs><rect x="${n(left)}" y="${n(top)}" width="${n(width)}" height="${n(bottom - top)}" fill="#fff"/>${drawing}${line([min - 180, 0], [max + 180, 0], "el-ground")}${labels}${heights}${extra}${dimensions}${text((min + max) / 2, 2100, `${buildingLabel}${elevationLabels[view]}　｜　左：${directions[view].left} · 右：${directions[view].right}`, "el-title")}</svg>`;
