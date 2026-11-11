@@ -125,6 +125,7 @@ function sealBoss(parent: THREE.Object3D, y: number, r: number, mat: Mats) {
   disk.absarc(0, y, r, 0, Math.PI * 2, false);
   carvedShape(boss, disk, -18, 15, mat.carvingInset);
   seal(boss, y, r * 0.87, -31, mat);
+  return boss;
 }
 
 const HEART_PATH: XY[] = [[-.45,.31],[-.45,.62],[-.22,.69],[0,.49],[.22,.69],[.45,.62],[.45,.31],
@@ -386,6 +387,26 @@ export function referencePorticoColumn(parent: THREE.Object3D, x: number, z: num
     seal(plinth,430*s,size*.43,-35,mat,mat.bronze);
     cloudPanel(face,1065*s,span*.69,235*s,mat);
     apron(face,930*s,span*.89,s,mat);
+  }
+  return g;
+}
+
+/** 三楼矮柱以团寿和回纹收束，柱底直接衔接阳台楼板。 */
+export function compactPorticoColumnCarvings(parent: THREE.Object3D, x: number, z: number,
+  base: number, height: number, width: number, depth: number, mat: Mats) {
+  const g = group(parent, "半层门厅柱四面雕花");
+  g.position.set(x, base, z);
+  const s = Math.min(1, width / 800, depth / 800, height / 1100);
+  for (const [rotation, span, offset] of [[0, width, depth / 2], [Math.PI / 2, depth, width / 2],
+    [-Math.PI / 2, depth, width / 2], [Math.PI, width, depth / 2]]) {
+    const face = group(g, "半层门厅柱团寿与回纹饰面");
+    face.rotation.y = rotation;
+    face.position.set(-Math.sin(rotation) * offset, 0, -Math.cos(rotation) * offset);
+    const panelWidth = span - 100;
+    frame(face, 0, height / 2, panelWidth, height - 100 * s, -20, mat.carvedStone, 18 * s);
+    const roundel = sealBoss(face, height * .64, 105 * s, mat);
+    roundel.position.z += 24;
+    keyBand(face, height * .3, panelWidth * .88, 150 * s, mat);
   }
   return g;
 }

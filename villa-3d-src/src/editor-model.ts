@@ -3,6 +3,7 @@ import { recessedFloor, recessedFootprint, recessedPortico, porticoFrontZ } from
 import * as THREE from "three";
 import { isHalfStoreyScheme } from "./construction-scheme";
 import { clipHalfStorey } from "./half-storey";
+import { buildHalfStoreyBalcony, halfStoreyFloorOutline } from "./half-storey-portico.ts";
 import { site, construction, isPhysicalWall, wallRoleOf, type Point, type Wall, type Room } from "./data";
 import { resolveLayoutFacades } from "./facade-layout";
 import { continuousGlazing } from "./continuous-glazing";
@@ -164,7 +165,8 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
     group.userData.editorFloor = floor; group.userData.annex = annex;
     const data = draft.floors[floor], base = data.y + (floor === 0 ? site.entranceRise : 0);
     const storyHeight = (annex ? site.annex.height : data.height) - (floor === 0 ? site.entranceRise : 0);
-    const height = cut === "full" ? storyHeight : Math.min(cut, storyHeight);
+    const wallHeight = storyHeight - (!annex && !isHalfStoreyScheme && floor === draft.floors.length - 1 ? construction.floorSlab : 0);
+    const height = cut === "full" ? wallHeight : Math.min(cut, wallHeight);
     const body = annex ? site.annex : { ...site.main, z: data.front, d: site.main.z + site.main.d - data.front };
     const rooms = annex ? draft.annexRooms : data.rooms, parts = annex ? draft.annexPartitions : data.partitions;
     const facadeFloor = annex ? 3 : floor;
@@ -172,7 +174,10 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
     const holes = rooms.filter(room => room.kind === "void").map(roomOutline);
     if (!annex && floor === 1 && draft.livingVoid.w > 0 && draft.livingVoid.d > 0) holes.push(footprint(draft.livingVoid));
     if (!annex && hasStair && floor > 0) holes.push(footprint(stairOpeningBounds(stair)));
-    const slab = surface(group, [annex ? footprint(body) : recessedFootprint(data.front)], holes, base, baseMat, 160);
+    const halfBalcony = !annex && isHalfStoreyScheme && floor > 0;
+    const outline = halfBalcony ? halfStoreyFloorOutline(data.front, draft.portico, floor)
+      : annex ? footprint(body) : recessedFootprint(data.front);
+    const slab = surface(group, [outline], holes, base, baseMat, halfBalcony ? construction.floorSlab : 160);
     if (options.walking) walkSurfaces.push(slab);
     // 奇数踢面的下跑起步后移一踏步；中间层的洞口内须补齐起步楼面。
     if (!annex && hasStair && floor > 0) {
@@ -293,7 +298,13 @@ export function buildEditorModel(draft: LayoutDraft, mat: Mats, cut: EditorWallH
       };
       labelGroup.add(sprite);
     }
-    if (isHalfStoreyScheme && floor === 2 && !annex) clipHalfStorey(group);
+    if (isHalfStoreyScheme && floor === 2 && !annex) {
+      // 室内坡下构件裁切后再接回整板，外伸阳台采用自身的开放围护。
+      group.remove(slab);
+      clipHalfStorey(group);
+      group.add(slab);
+    }
+    if (halfBalcony) buildHalfStoreyBalcony(group, data, floor, mat, draft.portico);
     group.updateMatrixWorld(true); batchStatic(group, new Set(walkSurfaces));
     return group;
   };

@@ -661,7 +661,7 @@ test("三楼洞口上沿低于下沿线板底", async () => {
   const { floors } = await import("../src/data");
   const { fasciaBottomY, openingBelowFasciaClearance } = await import("../src/roof-options");
   const maxHead = thirdFloorMaxOpeningHead();
-  const fasciaBot = fasciaBottomY(10500, 0);
+  const fasciaBot = fasciaBottomY(mainRoofFootprint().eave, 0);
   assert.ok(Math.abs(maxHead - (fasciaBot - openingBelowFasciaClearance - floors[2].y)) < 1e-6);
   for (const wall of facades(2)) {
     for (const o of wall.openings) {
@@ -690,7 +690,7 @@ test("三眼皮上下连续封闭，线脚背面接到墙体范围", () => {
 });
 
 test("梁托顶托住楼板底／飘檐底，楼板不沉入梁托", async () => {
-  const soffit = 10500;
+  const soffit = mainRoofFootprint().eave;
   const wall = { x: 1000, z: 1000, w: 10000, d: 8000 };
   const group = new THREE.Group();
   gutteredRoof(group, 0, 0, 12000, 10000, soffit, 1800, mat, undefined, wall);

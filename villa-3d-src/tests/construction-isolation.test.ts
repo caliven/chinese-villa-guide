@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { schemeSavePlugin } from "../vite-plugin-scheme-save.ts";
 import { dataSavePlugin } from "../vite-plugin-data-save.ts";
-import { createEmptyScheme } from "../src/scheme-store.ts";
+import { createEmptyScheme, parseSchemeDocument } from "../src/scheme-store.ts";
 import { assertConstructionScope, dataDirectory, schemeDirectory, schemeStorageKey } from "../src/construction-scheme.ts";
 import { halfStoreyDefaults } from "../src/half-storey.ts";
 
@@ -20,6 +20,20 @@ test("三层沿用旧路径，两层半的文件、默认户型和会议存储�
   assert.doesNotThrow(() => assertConstructionScope({}, "three-storey"));
   assert.throws(() => assertConstructionScope({}, "two-and-half"));
   assert.throws(() => assertConstructionScope({ constructionScheme: "two-and-half" }, "three-storey"));
+});
+
+test("服务端按文件身份转换旧半层层高，三层文件保留原有层高和退台", () => {
+  const three = createEmptyScheme();
+  assert.deepEqual(parseSchemeDocument(three, "three-storey").villaParams, three.villaParams);
+  const raw = { ...three, constructionScheme: "two-and-half", villaParams: {
+    ...three.villaParams, floor1Height: 3750, floor2Height: 3000, floor3Height: 3000,
+  } };
+  const half = parseSchemeDocument(raw, "two-and-half");
+  assert.equal(half.villaParams.floor1Height, 3300);
+  assert.equal(half.villaParams.floor3Height, 300);
+  assert.equal(half.villaParams.thirdFloorMode, "flush");
+  assert.equal(half.villaParams.thirdSetback, 0);
+  assert.deepEqual(parseSchemeDocument(half, "two-and-half").villaParams, half.villaParams);
 });
 
 function middlewareOf(plugin: ReturnType<typeof dataSavePlugin>) {

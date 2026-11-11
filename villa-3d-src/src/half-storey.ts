@@ -1,37 +1,66 @@
 import type { VillaParams, VillaParamsIssue } from "./villa-params.ts";
-import { site, floors } from "./data.ts";
-import { floorSlabThickness, roofTileInset, slabToTileEaveLift } from "./roof-options.ts";
+import { site, floors, circulation } from "./data.ts";
+import { roofTileInset, slabToTileEaveLift } from "./roof-options.ts";
 import { clipRailingBelowRoof } from "./roof-railing-clearance.ts";
 import type { Object3D, Vector3 } from "three";
 import type { Facade } from "./facades.ts";
 
-/** 两层半独立初始参数：首层参数含450抬高，半层高度是到脊瓦最高点的总预算。 */
+/** 两层半层高从本层完成面起算，半层高度量至檐口板顶，含120板厚。 */
 export function halfStoreyDefaults(base: VillaParams): VillaParams {
-  return { ...base, floor1Height: 3750, floor2Height: 3000, floor3Height: 3000 };
+  const porticoColumnSize = 700;
+  return {
+    ...base,
+    halfStoreyHeightMode: "storey",
+    thirdFloorMode: "flush",
+    thirdSetback: 0,
+    floor1Height: 3600,
+    floor2Height: 3300,
+    floor3Height: 2000,
+    porticoColumnSize,
+    porticoColumnWallGap: base.porticoProjection - porticoColumnSize / 2,
+  };
+}
+
+/** 候选包络预算，不依赖尚未应用的 site。预留脊瓦130；实际最高点由屋面几何计算。 */
+export function halfStoreyHeightProfile(p: VillaParams) {
+  const inset = p.gutterOuterTopWidth + p.gutterClearWidth + 55 - p.gutterTileOverhang;
+  const run = (Math.min(p.mainWidth, p.mainDepth) + 2 * p.thirdEave - 2 * inset) / 2;
+  const roofHeight = p.gutterInnerDepth + p.gutterTileGap + run * p.roofFenShui / 10 + 130;
+  const firstFloorTop = p.entranceRise + p.floor1Height;
+  const halfFloorY = firstFloorTop + p.floor2Height;
+  return {
+    firstFloorTop,
+    envelopeHeight: p.floor3Height + roofHeight,
+    peak: halfFloorY + p.floor3Height + roofHeight,
+  };
+}
+
+/** 旧半层稿存的是院坪到二层、半层到屋脊预算。转换一次后随参数保存标记。 */
+export function normalizeHalfStoreyParams(p: VillaParams, raw: Partial<VillaParams>): VillaParams {
+  const next = { ...p, halfStoreyHeightMode: "storey" as const, thirdFloorMode: "flush" as const, thirdSetback: 0 };
+  if (raw.halfStoreyHeightMode !== "storey") {
+    if (raw.floor1Height !== undefined) next.floor1Height = p.floor1Height - p.entranceRise;
+    if (raw.floor3Height !== undefined) {
+      const roofHeight = halfStoreyHeightProfile(next).envelopeHeight - next.floor3Height;
+      next.floor3Height = Math.round(p.floor3Height - roofHeight);
+    }
+  }
+  return next;
 }
 export function initializeHalfStorey() {
-  const floor = floors[2], m = site.main;
-  floor.name = "半层";
-  floor.rooms = [
-    ...floor.rooms.filter(room => room.kind === "stair"),
-    { id: "attic-activity", name: "中央活动区 · 净高待核", kind: "living", x: m.x + 3000, z: (floor.front + m.z + m.d) / 2 - 1000, w: Math.max(1000, m.w - 6000), d: 2000 },
-    { id: "attic-storage", name: "坡脚储藏区", kind: "store", x: m.x + 300, z: floor.front + 300, w: Math.max(1000, m.w - 600), d: 1200 },
-  ];
-  floor.partitions = [];
-  floor.furniture = [];
+  // 半层仍布置居住房间，具体布局由本方案独立保存的户型稿提供。
+  floors[2].name = "半层";
+  floors[1].rooms = floors[1].rooms.map(room => room.kind === "void"
+    ? { ...room, name: "西北卧室", kind: "bed" as const, note: "原挑空区补齐楼板，作为独立卧室。" } : room);
+  for (const room of floors[0].rooms) {
+    if (room.name.includes("挑空")) room.name = room.name.replace("挑空", "");
+  }
+  circulation.livingVoid = { ...circulation.livingVoid, w: 0, d: 0 };
 }
 export function validateHalfStoreyParams(p: VillaParams): VillaParamsIssue[] {
   const issues: VillaParamsIssue[] = [];
-  if (p.floor1Height - p.entranceRise < 3000) issues.push({ field: "floor1Height", message: "两层半方案的一层完成面层高须至少3000（另计室内抬高）" });
+  if (p.floor1Height < 3000) issues.push({ field: "floor1Height", message: "两层半方案的一层层高须至少3000（入户抬高另计）" });
   if (p.floor2Height < 3000) issues.push({ field: "floor2Height", message: "两层半方案的二层层高须至少3000" });
-  if (p.floor1Height + p.floor2Height + p.floor3Height > 10000) issues.push({ field: "floor3Height", message: "屋脊最高点不能超过10000，请调整层高或半层屋脊预算" });
-  const inset = p.gutterOuterTopWidth + p.gutterClearWidth + 55 - p.gutterTileOverhang;
-  const run = (Math.min(p.mainWidth + 2 * p.thirdEave, p.mainDepth - (p.thirdFloorMode === "flush" ? 0 : p.thirdSetback) + 2 * p.thirdEave) - 2 * inset) / 2;
-  const knee = p.floor3Height - 130 - (floorSlabThickness + p.gutterInnerDepth + p.gutterTileGap) - run * p.roofFenShui / 10;
-  if (knee < 300) issues.push({ field: "floor3Height", message: "当前坡度、出檐与半层预算使矮墙不足300，请增加预算或调整屋面" });
-  const annexInset = p.annexGutterOuterTopWidth + p.annexGutterClearWidth + 55 - p.annexGutterTileOverhang;
-  const annexPeak = p.annexHeight + floorSlabThickness + p.annexGutterInnerDepth + p.annexGutterTileGap + (Math.min(p.annexWidth, p.annexDepth) + 2 * p.annexEave - 2 * annexInset) / 2 * p.annexRoofFenShui / 10;
-  if (annexPeak + 1720 > 10000) issues.push({ field: "annexHeight", message: "辅楼屋面与烟囱高度预算超过10000，请降低辅楼或屋面" });
   return issues;
 }
 export function halfStoreyRoof() {

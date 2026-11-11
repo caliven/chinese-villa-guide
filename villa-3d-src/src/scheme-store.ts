@@ -15,8 +15,7 @@ import {
   type LayoutDraft,
 } from "./layout-draft.ts";
 import type { CourtyardDimLayout } from "./courtyard-dim-drag.ts";
-import { activeConstructionScheme, assertConstructionScope, isHalfStoreyScheme, schemeDirectory, schemeStorageKey, type ConstructionScheme } from "./construction-scheme.ts";
-import { validateHalfStoreyParams } from "./half-storey.ts";
+import { activeConstructionScheme, assertConstructionScope, schemeDirectory, schemeStorageKey, type ConstructionScheme } from "./construction-scheme.ts";
 import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes.ts";
 import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options.ts";
 import {
@@ -119,13 +118,13 @@ export function parseSchemeDocument(input: unknown, expectedScheme: Construction
   assertConstructionScope(input, expectedScheme);
   if (input.schema !== schemeSchema) throw new Error(`方案版本应为 ${schemeSchema}`);
   const raw = migrateSchemeRawToMm(input);
-  const villaParams = normalizeVillaParamsLengths(isRecord(raw.villaParams) ? raw.villaParams : {});
-  const issues = [...validateVillaParams(villaParams), ...(expectedScheme === "two-and-half" && !isHalfStoreyScheme ? validateHalfStoreyParams(villaParams) : [])];
+  const villaParams = normalizeVillaParamsLengths(isRecord(raw.villaParams) ? raw.villaParams : {}, expectedScheme);
+  const issues = validateVillaParams(villaParams, expectedScheme);
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
 
   let layoutDraft: LayoutDraft | null = null;
   if (raw.layoutDraft != null) {
-    layoutDraft = parseLayoutDraftManaged(JSON.stringify(raw.layoutDraft));
+    layoutDraft = parseLayoutDraftManaged(JSON.stringify(raw.layoutDraft), expectedScheme);
   }
 
   const courtyardDimLayout: CourtyardDimLayout = {};

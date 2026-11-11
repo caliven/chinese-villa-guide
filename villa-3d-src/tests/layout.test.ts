@@ -22,7 +22,7 @@ import { sunDirection } from "../src/viewer";
 import { diningClearance } from "../src/plan";
 import { frontApronOutline } from "../src/building-variants";
 import type { Mats } from "../src/primitives";
-import { cornerPilasterTopY, eyelidFixed, fasciaBottomY, frontApronSection } from "../src/roof-options";
+import { eyelidFixed, fasciaBottomY, frontApronSection } from "../src/roof-options";
 
 test("首层含门厅177.2平方米，21米内包含两侧过道和子孙道，辅楼内退2米", () => {
   assert.equal(areaM2(site.main.w, site.main.d), 136);
@@ -192,6 +192,7 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     "darkStoneRampMark",
     "sand",
     "british",
+    "concrete",
     "villaRoof",
     "villaRoofJoint",
     "roofGutter",
@@ -327,20 +328,22 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     assert.ok(Math.abs(frontFasciaBot - top - 180) < .1, "包角柱冠比承台下收180");
     assert.ok(top < apron.soffitY - 250, "柱顶须低于挑檐梁托及收口区");
   }
-  // 屋后与三楼包角柱：正屋天沟下沿线底以下约10厘米。
-  const mainExpect = cornerPilasterTopY(mainRoofFootprint().eave);
+  // 屋后通高包角与三楼北面包角：顶端对齐正屋天沟下沿线底。
   const mainFasciaBot = fasciaBottomY(mainRoofFootprint().eave, 0);
   const highCorners: THREE.Object3D[] = [];
+  const upperCorners: THREE.Object3D[] = [];
   villa.group.traverse((object) => {
-    if (object.name !== "包角柱") return;
-    const top = new THREE.Box3().setFromObject(object).max.y;
-    if (top > 8000) highCorners.push(object);
+    if (object.name === "包角柱") {
+      const top = new THREE.Box3().setFromObject(object).max.y;
+      if (top > 8000) highCorners.push(object);
+    }
+    if (object.name === "三楼包角柱") upperCorners.push(object);
   });
   assert.ok(highCorners.length >= 2, "屋后应有通高包角柱");
-  for (const column of highCorners) {
+  assert.equal(upperCorners.length, 2, "三楼北面左右各一根包角柱");
+  for (const column of [...highCorners, ...upperCorners]) {
     const top = new THREE.Box3().setFromObject(column).max.y;
-    assert.ok(Math.abs(top - mainExpect) < 0.1, `高包角柱顶 ${top} 应为 ${mainExpect}`);
-    assert.ok(mainFasciaBot - top > 90 && mainFasciaBot - top < 120);
+    assert.ok(Math.abs(top - mainFasciaBot) < 0.1, `檐口包角柱顶 ${top} 应对齐下沿线底 ${mainFasciaBot}`);
   }
   const mainGutter = villa.roof.children[0];
   const bounds = new THREE.Box3().setFromObject(mainGutter);

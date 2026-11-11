@@ -5,7 +5,9 @@ import { site } from "../src/data.ts";
 import { createOpening, normalizeOpening, interiorOpeningProfile } from "../src/openings.ts";
 import { clonePublishedLayout, draftToJson, parseLayoutDraft, removeStairFromDraft } from "../src/layout-draft.ts";
 import { LayoutEditor } from "../src/layout-editor.ts";
-import { exteriorWindowProfile, resolveLayoutFacades } from "../src/facade-layout.ts";
+import { clampExteriorOpeningsToFascia, exteriorWindowProfile, resolveLayoutFacades, windowHeadLimit } from "../src/facade-layout.ts";
+import { mainEaveY, thirdFloorMaxOpeningHead } from "../src/facades.ts";
+import { fasciaBottomY, openingBelowFasciaClearance } from "../src/roof-options.ts";
 import { buildEditorModel, disposeEditorModel } from "../src/editor-model.ts";
 import { buildVilla, villaLayoutFromDraft, elevationModel } from "../src/architecture.ts";
 import { buildLayoutVersionDocument, parseLayoutVersionDocument } from "../src/data-versions.ts";
@@ -253,6 +255,33 @@ test("旧外窗移动、改宽、开间居中及JSON重载后仍保留自己的�
   assert.match(reloaded.inspectorHtml(), /窗宽/);
   reloaded.undo(); reloaded.selection = { kind: "door", floor: 1, index, exterior: true };
   assert.equal(exteriorWindowProfile(reloaded.draft, index)!.height, initial.height);
+});
+
+test("三楼外窗顶不得超过飘檐下沿线；超限提示并校正草稿", () => {
+  const maxTop = windowHeadLimit(2);
+  assert.equal(maxTop, thirdFloorMaxOpeningHead());
+  assert.ok(Math.abs(maxTop - (fasciaBottomY(mainEaveY(), 0) - openingBelowFasciaClearance - clonePublishedLayout().floors[2].y)) < 1e-6);
+  const draft = clonePublishedLayout();
+  const index = draft.exteriorOpenings.findIndex(o => o.floor === 2 && o.opening.kind === "window");
+  assert.ok(index >= 0);
+  draft.exteriorOpenings[index].opening.height = maxTop + 400;
+  draft.exteriorOpenings[index].opening.sill = 0;
+  assert.equal(clampExteriorOpeningsToFascia(draft), 1);
+  assert.equal(draft.exteriorOpenings[index].opening.height, maxTop);
+  const messages: string[] = [];
+  const editor = new LayoutEditor({ getFloor: () => 2, redraw: () => {}, toast: (s: string) => messages.push(s) } as never, draft);
+  editor.selection = { kind: "door", floor: 2, index, exterior: true };
+  const before = draftToJson(editor.draft);
+  editor.updateSelectedNumber("windowHeight", maxTop + 1);
+  assert.equal(draftToJson(editor.draft), before);
+  assert.match(messages.at(-1)!, /飘檐下沿线/);
+  const resolved = resolveLayoutFacades(editor.draft);
+  for (const face of resolved.facades[2]) {
+    for (const o of face.openings) {
+      if (o.door && o.kind !== "slidingDoor") continue;
+      if (!o.door) assert.ok(o.sill + o.h <= maxTop + 1e-6);
+    }
+  }
 });
 
 test("新放入的普通外窗不继承附近高窗，三楼檐下优先保留1800窗高", () => {

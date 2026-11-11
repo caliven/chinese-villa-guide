@@ -4,7 +4,7 @@ import { isHalfStoreyScheme } from "./construction-scheme";
 import { floors, site, frontElevation, type Point } from "./data";
 import { annexChimneyModel, roofPlanModel, type VillaLayoutLive } from "./architecture";
 import { bayOutline, hatEaveRim } from "./facade-details";
-import { gutterInnerLipInset, roofGutterDesign, roofTileInset, slabToTileEaveLift, roofStyleLabels, type RoofStyle } from "./roof-options";
+import { floorSlabThickness, gutterInnerLipInset, roofGutterDesign, roofTileInset, slabToTileEaveLift, roofStyleLabels, type RoofStyle } from "./roof-options";
 import type { RoofFace } from "./roof-surfaces";
 
 export type RoofDrawingView = "slab" | RoofStyle;
@@ -159,7 +159,8 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
       + (selected === "floating" ? `<polyline points="${pts(canopyOutline)}" class="roof-projection"/>` : "")
       + (model.slabs.stairHole ? polygon(model.slabs.stairHole, "roof-stair-hole") + label(model.slabs.stairHole[0][0], model.slabs.stairHole[0][1] - 250, "楼梯洞口", "roof-small") : "")
       + label(site.main.x + site.main.w / 2, floors[2].front + 3500, isHalfStoreyScheme ? "主楼 · 半层楼面范围" : "主楼 · 三层顶板范围")
-      + label(site.main.x + site.main.w / 2, floors[2].front + 4100, `模型屋面基准 ${height(m.eave)}`, "roof-small")
+      + label(site.main.x + site.main.w / 2, floors[2].front + 4100, isHalfStoreyScheme
+        ? `三楼天沟板面 ${height(m.eave + floorSlabThickness)} · 矮墙顶 ${height(m.eave)}` : `模型屋面基准 ${height(m.eave)}`, "roof-small")
       + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d / 2, "辅楼 · 一层顶板", "roof-small")
       + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d / 2 + 600, `模型屋面基准 ${height(a.eave)}`, "roof-small")
       + hDim(site.main.x, site.main.x + site.main.w, front - 600, floors[2].front)
@@ -194,7 +195,7 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
 export function roofPlan(view: RoofDrawingView, style: RoofStyle, layout?: VillaLayoutLive | null) {
   const model = roofPlanModel(view === "slab" ? style : view, layout);
   const note = isHalfStoreyScheme && view === "slab"
-    ? "此图为坡屋面下的半层楼面与屋面投影，不另设完整第三层顶板；楼梯到半层终止。坡下可用净高、开窗、结构和防水待深化。"
+    ? "半层矮墙从半层楼面抬高，三楼屋檐设置环形天沟、三眼皮和梁托，上方设置坡瓦屋面及官帽。楼梯到半层终止。坡下净高和防水节点待深化。"
     : view === "slab"
     ? "顶板范围与三层露台投影分开表示，坡屋面下顶板封闭，楼梯到三层终止。屋盖承托与结构做法待设计核定。"
     : `蓝灰＝主辅楼瓦面，浅褐＝官帽，灰环＝天沟；粗绿线＝屋脊，褐色虚线＝谷线，灰色虚线＝下层墙体／露台投影，蓝箭头＝坡向。天沟净宽：主楼 ${n(roofGutterDesign.clearWidth)}、辅楼 ${n(model.annexProfile.clearWidth)}；雨水口位置、天沟排水分区与防水节点待设计。`;

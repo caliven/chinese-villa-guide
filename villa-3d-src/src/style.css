@@ -1387,6 +1387,18 @@ input[type="range"] {
 .elevation-plan-meta {
   align-items: center;
 }
+.elevation-height-summary {
+  margin: 0 20px 20px;
+  color: #3d4b40;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.elevation-height-summary h4 { margin: 0 0 8px; font-size: 15px; }
+.elevation-height-summary p { margin: 8px 0; }
+.elevation-height-summary table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.elevation-height-summary th, .elevation-height-summary td { padding: 7px 12px; border-bottom: 1px solid #dce2d8; text-align: left; }
+.elevation-height-summary thead, .elevation-height-summary tfoot { background: #eef2e9; }
+.elevation-height-sum { font-weight: 600; overflow-wrap: anywhere; }
 .elevation-roof-switch {
   display: inline-flex;
   flex-shrink: 0;

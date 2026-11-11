@@ -329,7 +329,7 @@ test("层高／面宽／辅楼高／北退／邻居／蓝顶房随参数联动",
     neighborWoodDepth: 9200,
     eastGap: 600,
   });
-  assert.ok(Math.abs(mainEaveY() - (3800 + 3500 + 3100)) < 1e-6);
+  assert.ok(Math.abs(mainEaveY() - (3800 + 3500 + 3100 - 120)) < 1e-6);
   assert.ok(Math.abs(mainRoofFootprint().eave - mainEaveY()) < 1e-6);
   assert.ok(Math.abs(frontElevation.hatEave - mainEaveY()) < 1e-6);
   assert.equal(site.annex.height, 4000);

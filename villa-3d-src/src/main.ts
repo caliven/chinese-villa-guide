@@ -163,7 +163,7 @@ const cameraLabels: Record<string, string> = {
   garage: "地库",
 };
 
-if (isHalfStoreyScheme) initializeHalfStoreyContent();
+if (isHalfStoreyScheme) initializeHalfStoreyContent(() => roofStyle);
 document.querySelector("#app")!.innerHTML = `
   ${villaParamsPanelHtml()}
   <header class="app-header">
@@ -236,7 +236,7 @@ document.querySelector("#app")!.innerHTML = `
         <p class="micro" id="scene-layout-status" role="status">${isHalfStoreyScheme ? "一二层与半层同步切换，本方案模型即时更新。" : "一二三层同步切换，场地模型即时更新。"}</p>
       </section>
       <div id="model-controls">
-        <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number" id="area-number">${buildingAreas.total.toFixed(1)}<span>m²</span></div><p class="area-caption" id="area-caption">主楼 ${buildingAreas.main.toFixed(1)}㎡ ＋ 辅楼 ${buildingAreas.annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡</p><p class="micro" id="area-micro">首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总</p><button type="button" class="secondary-button" id="open-params-from-inspector">打开尺寸设置</button></section>
+        <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number" id="area-number">${buildingAreas.total.toFixed(1)}<span>m²</span></div><p class="area-caption" id="area-caption">主楼 ${buildingAreas.main.toFixed(1)}㎡ ＋ 辅楼 ${buildingAreas.annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡</p><p class="micro" id="area-micro">首层建筑面积合计 · 已含外伸门厅 · 全楼面积见下方</p><p class="area-caption" id="total-building-area"></p><p class="micro">方案参考：主楼各层投影扣除挑空，辅楼、门厅各计一次；不含露台及地库，半层按完整投影估算，报建面积以核定为准。</p><button type="button" class="secondary-button" id="open-params-from-inspector">打开尺寸设置</button></section>
         <section><h2>模型显示</h2>${check("night-mode", "夜景模式")}<div id="eave-light-controls" class="eave-light-controls" hidden><div class="eave-preset-title">快捷灯色 <small>色温效果示意</small></div><div class="eave-presets" role="group" aria-label="洗墙灯快捷颜色">${eaveColorPresets.map(({ label, color }) => `<button type="button" class="eave-preset" data-eave-color="${color}" aria-pressed="${color === "#ff7030"}"><span class="eave-swatch" style="background:${color}" aria-hidden="true"></span>${label}</button>`).join("")}</div><label class="eave-color-label" for="eave-light-color">洗墙灯颜色<input type="color" id="eave-light-color" value="#ff7030"/></label><div class="range-heading"><label for="eave-light-brightness">洗墙灯亮度</label><output id="eave-light-brightness-output">150%</output></div><input type="range" id="eave-light-brightness" min="0" max="200" step="5" value="150"/></div>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "显示主楼与地库重叠示意")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">${isHalfStoreyScheme ? "半层" : "三楼"}局部浅阳台 · 1200 mm</option></select></label></section>
         <section><h2>主楼屋面坡度</h2><p class="micro">分水＝水平10对应的升高。这里调整主楼与官帽；辅楼坡度在「尺寸设置 → 辅楼」单独调整。</p><div class="range-heading"><label for="fen-shui">分水</label><output id="fen-shui-output">${site.roofFenShui.toFixed(1)}</output></div><input type="range" id="fen-shui" min="1" max="10" step="0.1" value="${site.roofFenShui}"/><label class="select-label">直接输入<input type="number" id="fen-shui-number" min="1" max="10" step="0.1" value="${site.roofFenShui}"/></label><p class="calculation" id="fen-shui-result"></p></section>
         <section><h2>关键尺寸</h2><dl class="metric-list" id="metric-list"></dl></section>
@@ -907,9 +907,15 @@ async function saveLayoutVersion() {
 }
 
 async function resetSchemeToInitial() {
-  const ok = window.confirm("确定恢复默认方案？将还原写死的默认尺寸，并清空布局草稿与院坪标注偏移。不会保存文件。");
+  const ok = window.confirm(isHalfStoreyScheme
+    ? "确定恢复两层半默认方案？将还原默认尺寸、载入本方案默认户型，并清空院坪标注偏移。恢复后可点击「保存到文件」。"
+    : "确定恢复默认方案？将还原写死的默认尺寸，并清空布局草稿与院坪标注偏移。不会保存文件。");
   if (!ok) return;
   const doc = resetSchemeDocument();
+  if (isHalfStoreyScheme) {
+    const initial = await loadInitialLayoutVersion(await loadDataVersionsIndex("户型"));
+    if (initial) doc.layoutDraft = structuredClone(initial.document.layoutDraft);
+  }
   clearLayoutDraft();
   clearCourtyardDimLayout();
   courtyardDimLayout = {};
@@ -938,7 +944,20 @@ function refreshAreaMetrics() {
   if (caption) caption.textContent = `主楼 ${main.toFixed(1)}㎡ ＋ 辅楼 ${annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡`;
   const micro = document.getElementById("area-micro");
   if (micro) {
-    micro.textContent = site.porticoStyle === "recessed" ? "首层建筑面积合计 · 平齐式无外伸门厅 · 全楼各层总面积另行汇总" : "首层建筑面积合计 · 已含外伸门厅 · 全楼各层总面积另行汇总";
+    micro.textContent = site.porticoStyle === "recessed" ? "首层建筑面积合计 · 平齐式无外伸门厅 · 全楼面积见下方" : "首层建筑面积合计 · 已含外伸门厅 · 全楼面积见下方";
+  }
+  const totalArea = document.getElementById("total-building-area");
+  if (totalArea) {
+    const mainTotal = floors.reduce((sum, floor) => {
+      const depth = Math.max(0, site.main.z + site.main.d - floor.front);
+      const voidArea = floor.rooms.filter(room => room.kind === "void").reduce((area, room) => {
+        const width = Math.max(0, Math.min(room.x + room.w, site.main.x + site.main.w) - Math.max(room.x, site.main.x));
+        const clippedDepth = Math.max(0, Math.min(room.z + room.d, site.main.z + site.main.d) - Math.max(room.z, floor.front));
+        return area + width * clippedDepth / 1e6;
+      }, 0);
+      return sum + Math.max(0, site.main.w * depth / 1e6 - voidArea);
+    }, 0);
+    totalArea.textContent = `总建筑面积（参考） ${(mainTotal + annex + buildingAreas.portico).toFixed(1)}㎡`;
   }
   renderFacts();
   const metrics = document.getElementById("metric-list");
@@ -948,7 +967,7 @@ function refreshAreaMetrics() {
       ["主楼", `${formatMm(p.mainWidth)} × ${formatMm(p.mainDepth)}`],
       ["辅楼", `${formatMm(p.annexWidth)} × ${formatMm(p.annexDepth)} · 内退${formatMm(p.annexSetback)}`],
       ["子孙道", formatMm(p.lane)],
-      [isHalfStoreyScheme ? "半层模式" : "三楼模式", p.thirdFloorMode === "flush" ? "不内退" : `北向内退 ${formatMm(p.thirdSetback)}`],
+      isHalfStoreyScheme ? ["半层北墙", "与下层齐平"] : ["三楼模式", p.thirdFloorMode === "flush" ? "不内退" : `北向内退 ${formatMm(p.thirdSetback)}`],
       [p.porticoStyle === "recessed" ? "平齐式入口" : "门厅外伸", p.porticoStyle === "recessed" ? "大门原位 · 无外伸柱廊" : formatMm(p.porticoProjection)],
       ["二楼飘檐", formatMm(p.secondFrontEave)],
       ["主楼顶檐", formatMm(p.thirdEave)],
@@ -963,7 +982,7 @@ function refreshAreaMetrics() {
 function syncVillaParamsWidthSum() {
   // 只更新合计／校验文案，绝不 fill 回写输入框，否则小数点和光标会被冲掉。
   const params = readVillaParamsFromDom();
-  updateVillaParamsMeta(params);
+  updateVillaParamsMeta(params, document, roofStyle);
   const issues = validateVillaParams(params);
   const err = document.getElementById("villa-params-error");
   const applyBtn = document.getElementById("villa-params-apply") as HTMLButtonElement | null;
@@ -1062,7 +1081,7 @@ async function commitVillaParams(params: VillaParams, options?: { persist?: bool
     applyVillaParams(params);
     const applied = getVillaParams();
     if (options?.persist !== false) saveVillaParams(applied);
-    fillVillaParamsDom(applied, document, { force: true });
+    fillVillaParamsDom(applied, document, { force: true, roofStyle });
     syncFenShuiInputs(applied.roofFenShui);
     const pitched = roofPitch(params.roofFenShui);
     $("fen-shui-result").textContent =
@@ -1403,7 +1422,7 @@ function drawPlan() {
     document.querySelector<HTMLElement>(".layout-version-label")!.hidden = false;
     $("floor-summary-title").textContent = elevation ? elevationLabels[elevationView] : roofDrawingLabels[roofDrawingView];
     $("floor-summary").textContent = isHalfStoreyScheme
-      ? "当前两层半方案：两层居住＋坡屋面内半层；半层高度包含屋面预算，屋脊最高点按10000控制。图纸随本方案参数与户型联动，坡下净高、结构与防水待深化。"
+      ? "当前两层半方案采用两层居住＋坡屋面内半层。半层北墙与下层齐平，半层高度量至檐口板顶，已含120板厚，板顶以上屋面另计。屋脊最高点超过10000时提示。图纸随本方案参数与户型联动，坡下净高、结构与防水待深化。"
       : elevation
       ? "四向立面采用正投影，主楼与辅楼分别出图，北侧为正门。展示当前外部门窗、门厅、三楼退台模式、露台、屋面与烟囱，标注层高、控制尺寸及相对标高。图纸与当前尺寸及户型草稿联动，细部简化，非施工图。"
       : "三层为现有顶层；屋顶层图补充三层顶板与下层露台的关系，两种官帽图显示外露坡面和真实交线。图纸随当前尺寸与门厅草稿联动，可下载 SVG。屋面排水、防水及结构仍需专业深化。";
@@ -1844,6 +1863,7 @@ function updateScene() {
   assemblyButton.setAttribute("aria-label", assemblyAction);
   assemblyButton.setAttribute("aria-pressed", String(inAssemblyMode && modelExploded));
   active("[data-roof-style]", b => b.dataset.roofStyle === roofStyle);
+  updateVillaParamsMeta(getVillaParams(), document, roofStyle);
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-roof-style]"))
     button.disabled = isExisting && tab === "model";
   $("roof-style-note").textContent = isExisting && tab === "model"
@@ -3110,7 +3130,7 @@ review = mountDesignReview($("design-panel"), {
   navigate: locateDesignIssue, image: () => viewer?.exportImage(), toast,
 });
 {
-  fillVillaParamsDom(DEFAULT_VILLA_PARAMS);
+  fillVillaParamsDom(DEFAULT_VILLA_PARAMS, document, { roofStyle });
   syncFenShuiInputs(DEFAULT_VILLA_PARAMS.roofFenShui);
   refreshAreaMetrics();
   syncVillaParamsWidthSum();
@@ -3261,7 +3281,7 @@ updateFenShui();
     await applySchemeDocument(boot);
   } else {
     applyVillaParams(DEFAULT_VILLA_PARAMS);
-    fillVillaParamsDom(DEFAULT_VILLA_PARAMS, document, { force: true });
+    fillVillaParamsDom(DEFAULT_VILLA_PARAMS, document, { force: true, roofStyle });
     setSchemeStatus(`使用${constructionSchemes[activeConstructionScheme]}默认值；改完请「保存到文件」写入 public/${schemeDirectory()}/current.json`);
   }
   await refreshSizeVersionSelect();

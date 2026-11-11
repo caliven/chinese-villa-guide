@@ -20,7 +20,7 @@ export const gutterCopingThickness = 30;
  * - innerDepth：内侧反坎从同一结构板顶起砌的高度
  * - outerTopWidth：外边反坎顶部宽度（不含压顶外飘）
  * - innerWallThickness：内侧反坎厚度（模型取值，非用户口述）
- * - tileGap：瓦檐底到内侧挡墙顶的竖直间距
+ * - tileGap：瓦檐面到内侧挡墙顶的竖直高差；瓦片厚度向下挤出，不再另加高度
  * - tileOverhang：瓦边超出内挡沟侧、探入天沟净宽的水平长度
  * - bedSlope：槽底从高点到排水口的坡度（小数＝tan(度)；面板存整数度）
  * - copingSlopeDegrees：外挡压顶顶面内倾（石材压顶）
@@ -222,10 +222,10 @@ export function fasciaBottomY(tileTop: number, drop: number) {
 }
 
 /**
- * 包角柱顶标高：下沿线板底再往下 gap（默认 100 mm）。
- * 柱顶不通到屋顶／三眼皮下沿，与梁托下的下沿线留空。
+ * 包角柱顶标高：默认贴下沿线板底（gap=0）。
+ * 三层／两层半四周檐口包角与三楼北面包角统一对齐；需要留空时显式传入 gap。
  */
-export const cornerPilasterBelowFascia = 100;
+export const cornerPilasterBelowFascia = 0;
 
 export function cornerPilasterTopY(tileTop: number, drop = 0, gap = cornerPilasterBelowFascia) {
   return fasciaBottomY(tileTop, drop) - gap;

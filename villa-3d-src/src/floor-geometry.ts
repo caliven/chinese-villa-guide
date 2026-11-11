@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import type { Point } from "./data";
-import { polygonContainsPoint } from "./room-geometry";
+import type { Point } from "./data.ts";
+import { polygonContainsPoint } from "./room-geometry.ts";
 
 /** 正交轮廓按真实格网铺面并扣洞；默认奇偶规则保留内环，union 将相接或重叠轮廓连成整板。 */
 export function orthogonalFloorGeometry(paths: Point[][], holes: Point[][], y: number, thickness = 0, bottom = false,

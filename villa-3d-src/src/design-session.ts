@@ -92,6 +92,7 @@ export function validateMeetingView(value: unknown): MeetingView {
       if (key === "porticoStyle" && ["projecting", "recessed"].includes(raw[key] as string)) next.porticoStyle = raw[key] as VillaParams["porticoStyle"];
       if (key === "buildingPlacement" && ["main-east", "main-west"].includes(raw[key] as string)) next.buildingPlacement = raw[key] as VillaParams["buildingPlacement"];
       if (key === "thirdFloorMode" && ["setback", "flush"].includes(raw[key] as string)) next.thirdFloorMode = raw[key] as VillaParams["thirdFloorMode"];
+      if (key === "halfStoreyHeightMode" && raw[key] === "storey") next.halfStoreyHeightMode = "storey";
     }
     // 旧快照顶层分水是实际探索值；缺辅楼字段时按该值恢复原共用屋面。
     villaParams = normalizeVillaParamsLengths({ ...next, roofFenShui: fenShui });

@@ -1,5 +1,6 @@
 import { isHalfStoreyScheme } from "./construction-scheme";
 import { halfStoreyClearanceZones } from "./half-storey-plan";
+import { halfStoreyBalcony, halfStoreyBalconyRails } from "./half-storey-portico.ts";
 import { alignedEntryOpenings } from "./entry-assembly";
 import { recessedFloor, recessedPortico, porticoFrontZ as currentPorticoFrontZ, porticoWallZ, mainLocalX, mirroredBuildings, recessFrontFacades, recessedFootprint, fitFacadeOpening, hasThirdFloorSideTerraces, porticoElevation, thirdFloorWingIsClosed } from "./building-variants";
 import { porticoColumnCenters, porticoColumnOuterWidth } from "./frontage-geometry";
@@ -943,10 +944,13 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
   const src = source ?? planSourceFromPublished(index);
   const isAnnex = building === "annex";
   const halfTop = !isAnnex && isHalfStoreyScheme && index === 2;
+  const cornerInset = isHalfStoreyScheme ? 0 : 120;
   const f = src.floor;
   const editable = !!options.editable;
   const allRooms = isAnnex ? src.annexRooms : f.rooms;
   const porch = src.portico;
+  const halfBalcony = !isAnnex && isHalfStoreyScheme && index > 0 && !recessedPortico();
+  const halfBalconyBounds = halfStoreyBalcony(porch, index);
   const elevation = porticoElevation(porch);
   const porchFront = elevation.porticoColumnZ;
   const posts = porticoPosts(porch);
@@ -1016,11 +1020,13 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     : diningRanges;
   const floorFurniture = isAnnex ? [] : f.furniture;
   const allFurniture = isAnnex ? diningFurniture : floorFurniture;
-  const porchY = index === 2 ? elevation.centerFront : porchFront;
-  const porchH = index === 2 ? elevation.terraceBack - elevation.centerFront : porch.projection;
-  const showPortico = !isAnnex && !halfTop && (index === 2 || !recessedPortico());
+  const porchY = halfBalcony ? halfBalconyBounds.z : index === 2 ? elevation.centerFront : porchFront;
+  const porchH = halfBalcony ? halfBalconyBounds.d : index === 2 ? elevation.terraceBack - elevation.centerFront : porch.projection;
+  const porchX = halfBalcony ? halfBalconyBounds.x : porch.x;
+  const porchWidth = halfBalcony ? halfBalconyBounds.w : porch.w;
+  const showPortico = !isAnnex && (!halfTop || halfBalcony) && (index === 2 || !recessedPortico());
   const porticoHit = showPortico && editable
-    ? rect(porch.x, porchY, porch.w, porchH, `class="edit-hit portico-hit" data-edit="portico"`)
+    ? rect(porchX, porchY, porchWidth, porchH, `class="edit-hit portico-hit" data-edit="portico"`)
     : "";
   const selected = options.selected;
   const selectedFurniture = new Set(options.selectedFurniture ?? []);
@@ -1141,9 +1147,11 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
     ${worldOpen}
     ${dimensions.svg}
     ${!isAnnex && !halfTop && index === 2 && hasThirdFloorSideTerraces() ? `${elevation.sideTerraces.map(t => rect(t.x, elevation.terraceFront, t.w, f.front + 40 - elevation.terraceFront, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width="60"')).join("")}${text(8850, -200, "西侧露台", "dim-label")}${text(18400, -200, "东侧露台", "dim-label")}` : ""}
-    ${porticoHit}${showPortico ? rect(porch.x, porchY, porch.w, porchH, `fill="${index === 1 ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width="60"`) : ""}
-    ${showPortico ? text(porch.x + porch.w / 2, -1950, index === 2 ? "中央露台 · 前方敞开" : index === 1 ? "门厅上空 · 无楼板" : `门厅 ${formatMm(porch.w)}×${formatMm(porch.projection)} · 计入首层合计`, "dim-label") : ""}
-    ${!isAnnex && !halfTop ? `${index < 2 ? `${cornerColumn(site.main.x + 120, f.front + 120, -1)}${cornerColumn(site.main.x + site.main.w - 120, f.front + 120, 1)}` : `${terraceRails}${text(porch.x + porch.w / 2, elevation.centerFront - 400, hasThirdFloorSideTerraces() ? "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱" : "三楼不内退 · 仅保留中央门厅露台", "room-size")}`}${cornerColumn(site.main.x + 120, site.main.z + site.main.d - 120, -1, 1)}${cornerColumn(site.main.x + site.main.w - 120, site.main.z + site.main.d - 120, 1, 1)}` : ""}
+    ${porticoHit}${showPortico ? rect(porchX, porchY, porchWidth, porchH, `fill="${index === 1 && !halfBalcony ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width="60"`) : ""}
+    ${showPortico ? text(porch.x + porch.w / 2, halfBalcony ? porchY + porchH / 2 : -1950, halfBalcony ? `${index + 1}楼阳台 · 与室内楼板连通` : index === 2 ? "中央露台 · 前方敞开" : index === 1 ? "门厅上空 · 无楼板" : `门厅 ${formatMm(porch.w)}×${formatMm(porch.projection)} · 计入首层合计`, "dim-label") : ""}
+    ${halfBalcony ? halfStoreyBalconyRails(porch).map(([a, b]) => `<path d="M${a.join(" ")} L${b.join(" ")}" class="balustrade"><title>大理石栏杆，端部嵌至门厅柱截面中心</title></path>`).join("") : ""}
+    ${!isAnnex && !halfTop ? `${index < 2 ? `${cornerColumn(site.main.x + cornerInset, f.front + cornerInset, -1)}${cornerColumn(site.main.x + site.main.w - cornerInset, f.front + cornerInset, 1)}` : `${terraceRails}${text(porch.x + porch.w / 2, elevation.centerFront - 400, hasThirdFloorSideTerraces() ? "内退柱墙隔开两侧 · 官帽柱贴前墙构造柱" : "三楼不内退 · 仅保留中央门厅露台", "room-size")}`}${cornerColumn(site.main.x + cornerInset, site.main.z + site.main.d - cornerInset, -1, 1)}${cornerColumn(site.main.x + site.main.w - cornerInset, site.main.z + site.main.d - cornerInset, 1, 1)}` : ""}
+    ${halfTop ? `${cornerColumn(site.main.x, f.front, -1)}${cornerColumn(site.main.x + site.main.w, f.front, 1)}${cornerColumn(site.main.x, site.main.z + site.main.d, -1, 1)}${cornerColumn(site.main.x + site.main.w, site.main.z + site.main.d, 1, 1)}` : ""}
     ${!isAnnex ? f.rooms.filter(r => r.kind !== "stair").map((r) => room(r, index, editable, false, mainPartitions)).join("") : ""}
     ${isAnnex ? src.annexRooms.map((r) => room(r, index, editable, true, annexParts)).join("") : ""}
     ${options.useZones ? allFurniture.map(useZone).join("") : ""}
@@ -1247,10 +1255,13 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
           )
           .join("")
       : ""}
-    ${!isAnnex && !halfTop ? `<g class="plan-column-markers">${index < 2
+    ${halfBalcony ? `<g class="plan-column-markers">${posts.map(p => {
+      const size = halfBalconyBounds.columnSize;
+      return columnMarker(p.x, halfBalconyBounds.columnZ, size, size, "portico", columnPattern);
+    }).join("")}</g>` : !isAnnex && !halfTop ? `<g class="plan-column-markers">${index < 2
       ? (recessedPortico() ? [] : posts).map(p => columnMarker(p.x, elevation.porticoColumnZ, p.w, p.w, "portico", columnPattern)).join("")
       : terracePosts.map(p => columnMarker(p.x, p.z, p.w, p.w, "railing", columnPattern)).join("") + [porch.x, porch.x + porch.w].map(x => columnMarker(x, elevation.postZ, elevation.dividerWidth, 500, "hat", columnPattern)).join("")}</g>` : ""}
-    ${!isAnnex ? text(body.x + body.w / 2, Math.min(northClear - 3350, dimensions.northOuter - 1550) - 500, "斜线框＝门厅／官帽柱 · 浅色框＝栏杆短柱 · 包角色块＝饰件", "column-legend") + text(body.x + body.w / 2, Math.min(northClear - 3350, dimensions.northOuter - 1550) - 850, "柱位沿用模型示意，待结构设计确认；室内结构柱尚未布置", "column-legend") : ""}
+    ${!isAnnex ? text(body.x + body.w / 2, Math.min(northClear - 3350, dimensions.northOuter - 1550) - 500, isHalfStoreyScheme ? "斜线框＝门厅方柱／阳台短柱 · 包角色块＝饰件" : "斜线框＝门厅／官帽柱 · 浅色框＝栏杆短柱 · 包角色块＝饰件", "column-legend") + text(body.x + body.w / 2, Math.min(northClear - 3350, dimensions.northOuter - 1550) - 850, "柱位沿用模型示意，待结构设计确认；室内结构柱尚未布置", "column-legend") : ""}
     ${selection}
     ${labels}
     ${halfTop ? halfStoreyClearanceZones().map(zone => rect(zone.x, zone.z, zone.w, zone.d, `data-half-storey-clearance="${zone.height}" fill="none" stroke="${zone.height === 2100 ? "#56875a" : "#bd8743"}" stroke-width="35" stroke-dasharray="140 90" pointer-events="none"`) + text(zone.x + zone.w / 2, zone.z + 100, `坡下净高约${zone.height}参考线 · 待深化`, "room-size")).join("") : ""}
@@ -1584,7 +1595,7 @@ export function courtyardSitePlan(layout: CourtyardDimLayout = {}) {
     text(annex.x + annex.w / 2, annex.z + annex.d / 2, `辅楼 ${formatMm(annex.w)}×${formatMm(annex.d)}`, "room-name"),
     text(main.x + main.w / 2, main.z + main.d / 2 + 350, `主楼 ${formatMm(main.w)}×${formatMm(main.d)}`, "room-name"),
     // 门厅尺寸写在门厅投影内，不再外挂一条尺寸线
-    text(porticoCx, porchLabelZ - 220, recessedPortico() ? "平齐式入口 · 大门不内退" : "凸出式罗马柱门厅", "room-name"),
+    text(porticoCx, porchLabelZ - 220, recessedPortico() ? "平齐式入口 · 大门不内退" : isHalfStoreyScheme ? "双层阳台门厅" : "凸出式罗马柱门厅", "room-name"),
     recessedPortico() ? "" : text(porticoCx, porchLabelZ + 320, `${formatMm(porch.w)}×${formatMm(porch.projection)}`, "room-size"),
     text(nbr.x + nbr.w / 2, nbrWoodFront + nbr.woodDepth / 2, `邻居木房 ${formatMm(nbr.w)}×${formatMm(nbr.woodDepth)}`, "room-name"),
     text(nbr.x + nbr.w / 2, nbr.cementFront + nbr.cementDepth / 2, "邻水泥地", "room-size"),

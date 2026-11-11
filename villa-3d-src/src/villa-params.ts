@@ -50,14 +50,16 @@ import { formatMm, isMeterLengthPayload, migrateVillaParamsToMm } from "./units.
 import { porticoColumnCenters, porticoColumnOuterWidth, porticoWestOffset } from "./frontage-geometry.ts";
 import { terraceParapetLayout } from "./facade-details.ts";
 import { interiorRailing, isRailingStyle, type RailingStyle } from "./railing-options.ts";
-import { isHalfStoreyScheme } from "./construction-scheme.ts";
-import { halfStoreyDefaults, initializeHalfStorey, validateHalfStoreyParams } from "./half-storey.ts";
+import { activeConstructionScheme, isHalfStoreyScheme, type ConstructionScheme } from "./construction-scheme.ts";
+import { halfStoreyDefaults, halfStoreyHeightProfile, initializeHalfStorey, normalizeHalfStoreyParams, validateHalfStoreyParams } from "./half-storey.ts";
 
 export const LOCKED_SITE_WIDTH = 21000;
 /** @deprecated 已改存 scheme 文件，仅供旧迁移识别。 */
 export const villaParamsPreferenceKey = "anhua-villa-params-v1";
 
 export interface VillaParams {
+  /** 两层半层高的新口径。缺省表示旧屋脊预算稿，载入时转换。 */
+  halfStoreyHeightMode?: "storey";
   livingRailingStyle: RailingStyle;
   stairRailingStyle: RailingStyle;
   porticoStyle: PorticoStyle;
@@ -68,8 +70,10 @@ export interface VillaParams {
   lane: number;
   mainWidth: number;
   mainDepth: number;
+  /** 三层旧参数为院坪至二层楼面标高；两层半为首层完成面至二层楼面的层高。 */
   floor1Height: number;
   floor2Height: number;
+  /** 主楼三层楼面至屋面／檐口板顶，含120板厚。半层包络另加板上屋面高度。 */
   floor3Height: number;
   thirdSetback: number;
   secondFrontEave: number;
@@ -82,6 +86,7 @@ export interface VillaParams {
   cornerProject: number;
   annexWidth: number;
   annexDepth: number;
+  /** 院坪至辅楼屋面板底的标高。辅楼图纸层高由首层完成面量至板顶。 */
   annexHeight: number;
   annexSetback: number;
   annexEave: number;
@@ -306,9 +311,9 @@ export function derivedAnnexSetback(p: Pick<VillaParams, "mainDepth" | "annexDep
   return p.mainDepth - p.annexDepth;
 }
 
-/** 不内退时实际退距为零；保留配置退距，便于切回原方案。 */
+/** 两层半固定齐平，三层按模式决定实际退距并保留配置值。 */
 export function effectiveThirdSetback(p: Pick<VillaParams, "thirdFloorMode" | "thirdSetback">) {
-  return p.thirdFloorMode === "flush" ? 0 : p.thirdSetback;
+  return isHalfStoreyScheme || p.thirdFloorMode === "flush" ? 0 : p.thirdSetback;
 }
 
 /** 三楼主体最小剩余进深（毫米）；再小则房间／楼梯／门洞无法合理布置。 */
@@ -491,8 +496,9 @@ export function buildingDepthLimits(p: VillaParams) {
   };
 }
 
-export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
-  const issues: VillaParamsIssue[] = isHalfStoreyScheme ? validateHalfStoreyParams(p) : [];
+export function validateVillaParams(p: VillaParams, scheme: ConstructionScheme = activeConstructionScheme): VillaParamsIssue[] {
+  const halfStorey = scheme === "two-and-half";
+  const issues: VillaParamsIssue[] = halfStorey ? validateHalfStoreyParams(p) : [];
   for (const field of ["livingRailingStyle", "stairRailingStyle"] as const) {
     if (p[field] !== undefined && !isRailingStyle(p[field])) issues.push({ field, message: "栏杆造型无效" });
   }
@@ -515,7 +521,7 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
   }
   const positive: (keyof VillaParams)[] = [
     "westGap", "eastGap", "lane", "mainWidth", "mainDepth",
-    "floor1Height", "floor2Height", "floor3Height", "thirdSetback",
+    "floor1Height", "floor2Height", "floor3Height", ...(!halfStorey ? ["thirdSetback" as const] : []),
     "secondFrontEave", "thirdEave", "porticoWidth", "porticoProjection",
     "porticoColumnSize", "porticoColumnWallGap", "cornerProject", "annexWidth", "annexDepth",
     "annexHeight", "annexEave", "roofFenShui", "gutterClearWidth", "gutterClearDepth",
@@ -737,7 +743,7 @@ export function validateVillaParams(p: VillaParams): VillaParamsIssue[] {
       message: `辅楼墙高 ${p.annexHeight} mm 低于常用窗顶约 2700 mm；请至少 2900 mm 或改小洞口后再调`,
     });
   }
-  if (p.entranceRise >= p.floor1Height - 200) {
+  if (!halfStorey && p.entranceRise >= p.floor1Height - 200) {
     issues.push({
       field: "entranceRise",
       message: `入口抬高 ${p.entranceRise} mm 不低于一层层高，楼梯高差将不合理`,
@@ -911,12 +917,13 @@ let currentParams: VillaParams = { ...DEFAULT_VILLA_PARAMS };
  * 若载入的参数像旧米制稿（mainWidth<100），迁成毫米；已是毫米则原样返回副本。
  * 应用／记忆／保存前统一走这里，避免米制 JSON 直接进入毫米管线。
  */
-export function normalizeVillaParamsLengths(input: Partial<VillaParams>): VillaParams {
+export function normalizeVillaParamsLengths(input: Partial<VillaParams>, scheme: ConstructionScheme = activeConstructionScheme): VillaParams {
   const raw = isMeterLengthPayload(input, { mainWidth: input.mainWidth })
     ? migrateVillaParamsToMm({ ...input }) : { ...input };
   // 仅保留现有配置字段，废弃项与其他未知项不参与计算或再次保存。
-  const known = Object.fromEntries(Object.entries(raw).filter(([key]) => Object.hasOwn(DEFAULT_VILLA_PARAMS, key)));
-  const params = { ...DEFAULT_VILLA_PARAMS, ...known };
+  const defaults = scheme === "two-and-half" ? halfStoreyDefaults(THREE_STOREY_DEFAULT_PARAMS) : THREE_STOREY_DEFAULT_PARAMS;
+  const known = Object.fromEntries(Object.entries(raw).filter(([key]) => Object.hasOwn(defaults, key)));
+  const params = { ...defaults, ...known };
   const independent = Object.values(ANNEX_ROOF_PARAM_KEYS).some(key => raw[key] !== undefined);
   for (const [main, annex] of Object.entries(ANNEX_ROOF_PARAM_KEYS) as [keyof typeof ANNEX_ROOF_PARAM_KEYS, typeof ANNEX_ROOF_PARAM_KEYS[keyof typeof ANNEX_ROOF_PARAM_KEYS]][]) {
     if (raw[annex] === undefined) params[annex] = params[main];
@@ -925,7 +932,7 @@ export function normalizeVillaParamsLengths(input: Partial<VillaParams>): VillaP
   if (!independent) params.annexEave = params.thirdEave;
   params.gutterBedSlope = normalizeGutterBedSlopeDegrees(params.gutterBedSlope);
   params.annexGutterBedSlope = normalizeGutterBedSlopeDegrees(params.annexGutterBedSlope);
-  return params;
+  return scheme === "two-and-half" ? normalizeHalfStoreyParams(params, raw) : params;
 }
 
 export function getVillaParams(): VillaParams {
@@ -1084,9 +1091,11 @@ export function applyVillaParams(input: VillaParams) {
   const nz = site.main.z;
 
   const y0 = 0;
-  const y1 = synced.floor1Height;
-  const y2 = synced.floor1Height + synced.floor2Height;
-  const heights = [synced.floor1Height, synced.floor2Height, synced.floor3Height];
+  const halfProfile = isHalfStoreyScheme ? halfStoreyHeightProfile(synced) : null;
+  const y1 = halfProfile?.firstFloorTop ?? synced.floor1Height;
+  const y2 = y1 + synced.floor2Height;
+  // Floor.height 保持完整建模包络，半层围护再由坡面裁切。面板半层层高量至檐口板顶。
+  const heights = [y1, synced.floor2Height, halfProfile?.envelopeHeight ?? synced.floor3Height];
   const ys = [y0, y1, y2];
 
   const nextFloors = base.floors.map((floor, i) => {
@@ -1105,7 +1114,6 @@ export function applyVillaParams(input: VillaParams) {
     return i === 2 ? clampThirdFloorNorth(resizeThirdFloorFront(next, nz + site.setback), nz + site.setback) : next;
   });
   replaceArray(floors, nextFloors);
-  if (isHalfStoreyScheme) initializeHalfStorey();
 
   replaceArray(
     annexRooms,
@@ -1154,6 +1162,7 @@ export function applyVillaParams(input: VillaParams) {
     w: lv.w * sx,
     d: lv.d * sz,
   };
+  if (isHalfStoreyScheme) initializeHalfStorey();
   // 通辅楼门宽不随进深比例放大（保持房门洞口）；中线对齐过道。
   circulation.sideDoorWidth = base.circulation.sideDoorWidth;
   syncSideDoorToLivingBridge();
@@ -1202,8 +1211,9 @@ function syncFrontElevation(params: VillaParams) {
   // 官帽柱／墙内构造柱：北皮贴一层前墙外皮（recessedHatPier 进深 500 mm，中心在外皮以南半深）。
   frontElevation.postZ = porticoWallZ() + 250;
   frontElevation.wallCornerXs = [main.x + 270, main.x + main.w - 270];
-  frontElevation.cornerWestX = main.x + 120;
-  frontElevation.cornerEastX = main.x + main.w - 120;
+  const cornerInset = isHalfStoreyScheme ? 0 : 120;
+  frontElevation.cornerWestX = main.x + cornerInset;
+  frontElevation.cornerEastX = main.x + main.w - cornerInset;
   const wallGap = derivedPorticoColumnWallGap(params);
   params.porticoColumnWallGap = wallGap;
   frontElevation.porticoColumnWallGap = wallGap;

@@ -258,6 +258,27 @@ export function carvedPilaster(
   return g;
 }
 
+/** 后包角柱的双肢、柱脚和柱顶，实体与立面共用局部盒体。 */
+export function cornerPilasterBody(height: number, outward: number, outwardZ = -1) {
+  const project = frontElevation.cornerProject, leg = frontElevation.cornerLeg;
+  const pedestalTop = cornerPedestalTop(undefined, site.entranceRise);
+  const courses = [
+    { y: height / 2, h: height, lip: 0, material: "sand" as const },
+    { y: pedestalTop / 2, h: pedestalTop, lip: basePanelProject, material: "british" as const },
+    { y: height - 50, h: 100, lip: 30, material: "british" as const },
+  ];
+  return courses.flatMap(({ y, h, lip, material }) => {
+    const outer = outward * (project + lip), inner = -outward * (leg + lip);
+    const zFar = outwardZ * (project + lip), zNear = -outwardZ * 20;
+    return [
+      { x: (outer + inner) / 2, y, z: (zFar + zNear) / 2,
+        w: project + leg + lip * 2, h, d: Math.abs(zFar - zNear), material },
+      { x: (outer - outward * 20) / 2, y, z: -outwardZ * (leg + lip) / 2,
+        w: project + lip + 20, h, d: leg + lip, material },
+    ];
+  });
+}
+
 export function cornerPilaster(
   parent: THREE.Object3D,
   cornerX: number,
@@ -279,22 +300,9 @@ export function cornerPilaster(
   const xInner = -outward * leg;
   const frontW = leg + project;
   const frontX = (xOuter + xInner) / 2;
-  const placeL = (y: number, h: number, lip: number, material: THREE.Material) => {
-    const embed = 20;
-    const outer = xOuter + outward * lip;
-    const inner = xInner - outward * lip;
-    const zFar = outwardZ * (project + lip);
-    const zNear = -outwardZ * embed;
-    box(g, (outer + inner) / 2, y, (zFar + zNear) / 2, frontW + lip * 2, h, Math.abs(zFar - zNear), material);
-    const sideInner = -outward * embed;
-    box(g, (outer + sideInner) / 2, y, -outwardZ * (leg + lip) / 2, project + lip + embed, h, leg + lip, material);
-  };
-  placeL(height / 2, height, 0, mat.sand);
-  // 柱脚方座英国棕，顶与一层外墙勒脚／正面包角柱脚齐平。
   const pedestalTop = cornerPedestalTop(undefined, site.entranceRise);
-  placeL(pedestalTop / 2, pedestalTop, basePanelProject, mat.british);
-  // 柱顶这一截顶住上面的三眼皮，用英国棕。
-  placeL(height - 50, 100, 30, mat.british);
+  for (const piece of cornerPilasterBody(height, outward, outwardZ))
+    box(g, piece.x, piece.y, piece.z, piece.w, piece.h, piece.d, mat[piece.material]);
   // 正／侧面饰面同宽，花纹在 L 形外皮全长（project+leg）上居中。
   const faceSpan = Math.min(480, frontW - 60);
   const dress = (face: THREE.Object3D, span: number) => {
@@ -544,7 +552,7 @@ function eyelidGroup(parent: THREE.Object3D) {
 /**
  * 最下级与室内楼板同厚；上两级只做外挡外侧阶梯，不覆盖沟槽。
  */
-function eyelidLayerTops(slabBottom: number) {
+export function eyelidLayerTops(slabBottom: number) {
   const bottomH = floorSlabThickness;
   const midH = roofGutterDesign.clearDepth * eyelidFixed.rises[1] / (eyelidFixed.rises[1] + eyelidFixed.rises[2]);
   const topH = roofGutterDesign.clearDepth - midH;

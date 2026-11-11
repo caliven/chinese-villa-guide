@@ -33,9 +33,11 @@ function close(actual: number, expected: number, message: string) {
 test("主辅楼顶檐共用120厚板，反坎与沟底从板顶生成，两种官帽及换位均成立", () => {
   for (const style of ["joined", "floating"] as const) {
     for (const buildingPlacement of ["main-east", "main-west"] as const) {
-      applyVillaParams({ ...DEFAULT_VILLA_PARAMS, buildingPlacement });
+      applyVillaParams({ ...DEFAULT_VILLA_PARAMS, buildingPlacement, floor3Height: style === "joined" ? 3100 : 3500 });
       const model = buildVilla(mat, false, site.roofFenShui, style);
       model.group.updateMatrixWorld(true);
+      close(bounds(model.topSlabs.main).max.y, floors[2].y + floors[2].height,
+        "三层层高包含封顶板厚，层高终点为板顶");
       for (const [roof, slab, name] of [
         [model.roof.getObjectByName("正屋四坡")!, model.topSlabs.main, "主楼三层顶板实体"],
         [model.annexRoof, model.topSlabs.annex, "辅楼一层顶板实体"],

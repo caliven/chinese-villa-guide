@@ -124,7 +124,7 @@ test("各层内墙封到实际板底，顶层不再按已取消的上行梯段�
   const draft = draftWithoutFurniture();
   draft.floors.forEach(floor => floor.partitions = [{ a: [15000, 5300], b: [17000, 5300], role: "partition" }]);
   const model = buildVilla(mat, false, site.roofFenShui, "floating", villaLayoutFromDraft(draft));
-  for (const [index, top] of [3480, 7080, 10500].entries()) {
+  for (const [index, top] of [3480, 7080, 10380].entries()) {
     const walls: THREE.Mesh[] = [];
     model.levels[index].traverse(object => {
       if (object instanceof THREE.Mesh && object.material === mat.inside) walls.push(object);

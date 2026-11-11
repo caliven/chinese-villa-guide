@@ -29,6 +29,7 @@ import { snapMm } from "./units.ts";
 import { reconcileWallOpening } from "./wall-constraints.ts";
 import { parseOptionalRailingStyle, type RailingStyle } from "./railing-options.ts";
 import { normalizeDraftWallContacts } from "./wall-contact-snap.ts";
+import { activeConstructionScheme, type ConstructionScheme } from "./construction-scheme.ts";
 
 export const layoutDraftKey = "anhua-villa-layout-draft-v1";
 export const layoutDraftSchema = 1 as const;
@@ -354,7 +355,7 @@ function normalizeDraftRotations(draft: LayoutDraft): LayoutDraft {
   return draft;
 }
 
-function parseFloor(value: unknown, i: number): Floor {
+function parseFloor(value: unknown, i: number, halfStorey: boolean): Floor {
   if (!isRecord(value)) throw new Error(`楼层 ${i} 格式不对`);
   if (!Array.isArray(value.rooms) || value.rooms.length > 40) throw new Error(`楼层 ${i} 房间过多`);
   if (!Array.isArray(value.partitions) || value.partitions.length > 80) throw new Error(`楼层 ${i} 隔墙过多`);
@@ -362,7 +363,7 @@ function parseFloor(value: unknown, i: number): Floor {
   return {
     name: str(value.name, `楼层 ${i} 名称`, 20),
     y: num(value.y, `楼层 ${i} y`, -5000, 20000),
-    height: num(value.height, `楼层 ${i} 层高`, 2000, 6000),
+    height: num(value.height, `楼层 ${i} 层高`, halfStorey && i === 2 ? 200 : 2000, 6000),
     front: num(value.front, `楼层 ${i} 前墙`, -5000, 5000),
     rooms: value.rooms.map(parseRoom),
     partitions: value.partitions.map(parseWall),
@@ -758,7 +759,7 @@ export function scaleLayoutDraftToEnvelope(draft: LayoutDraft, target: LayoutEnv
   return alignLayoutDraftToSite(scaled);
 }
 
-export function parseLayoutDraft(raw: string): LayoutDraft {
+export function parseLayoutDraft(raw: string, scheme: ConstructionScheme = activeConstructionScheme): LayoutDraft {
   if (raw.length > 4_000_000) throw new Error("草稿超过 4MB");
   const value = JSON.parse(raw) as unknown;
   if (!isRecord(value)) throw new Error("草稿不是对象");
@@ -769,7 +770,7 @@ export function parseLayoutDraft(raw: string): LayoutDraft {
     revision: str(value.revision, "revision", 100),
     updatedAt: str(value.updatedAt, "updatedAt", 40),
     note: str(value.note ?? "", "note", 1000),
-    floors: value.floors.map(parseFloor),
+    floors: value.floors.map((floor, i) => parseFloor(floor, i, scheme === "two-and-half")),
     annexRooms: Array.isArray(value.annexRooms) ? value.annexRooms.map(parseRoom) : [],
     annexPartitions: Array.isArray(value.annexPartitions) ? value.annexPartitions.map(parseWall) : [],
     annexFurniture: Array.isArray(value.annexFurniture) ? value.annexFurniture.map(parseFurniture) : [],
@@ -818,8 +819,8 @@ export function parseLayoutDraft(raw: string): LayoutDraft {
 }
 
 /** 导入／历史 JSON：补齐外墙洞口托管，避免刷新后又变回不可点的静态窗。 */
-export function parseLayoutDraftManaged(raw: string): LayoutDraft {
-  return ensureExteriorManaged(parseLayoutDraft(raw));
+export function parseLayoutDraftManaged(raw: string, scheme: ConstructionScheme = activeConstructionScheme): LayoutDraft {
+  return ensureExteriorManaged(parseLayoutDraft(raw, scheme));
 }
 
 /** 内存中的布局草稿；持久化改走 scheme 文件，不再写 localStorage。 */

@@ -12,7 +12,8 @@ import {
   type VillaParams,
 } from "./villa-params";
 import { courtyardFinishLabels } from "./courtyard-finishes";
-import { DEFAULT_ROOF_STYLE, roofStyleLabels } from "./roof-options";
+import { DEFAULT_ROOF_STYLE, roofStyleLabels, type RoofStyle } from "./roof-options";
+import { roofPlanModel } from "./architecture";
 import { VILLA_PARAM_NON_LENGTH, formatMm } from "./units";
 import { isHalfStoreyScheme } from "./construction-scheme";
 
@@ -60,22 +61,24 @@ function roofSections(annex = false): ParamSection[] {
     },
     {
       heading: "飘檐与三眼皮",
-      note: "顶檐「飘檐挑出」＝最上层出檐（默认800）。水平级差最多100，窄反坎随顶宽收小。最下层与室内楼板同为120厚。上两级按2∶3分配外挡高度。二楼无天沟飘檐与三楼楼板同标高，前／左右共用挑出参数。",
+      note: isHalfStoreyScheme && !annex
+        ? "主楼天沟设于三楼屋檐，随半层矮墙高度抬升。最下层结构板厚120，上两级按2∶3分配外挡高度。顶檐挑出控制三楼天沟及屋面投影，梁托和下沿线随屋檐联动。"
+        : "顶檐「飘檐挑出」＝最上层出檐（默认800）。水平级差最多100，窄反坎随顶宽收小。最下层与室内楼板同为120厚。上两级按2∶3分配外挡高度。二楼无天沟飘檐与三楼楼板同标高，前／左右共用挑出参数。",
       fields: [
         { key: "thirdEave", label: "顶檐挑出（最上层）" },
-        { key: "secondFrontEave", label: "二楼飘檐挑出" },
+        ...(!isHalfStoreyScheme || annex ? [{ key: "secondFrontEave" as const, label: "二楼飘檐挑出" }] : []),
       ],
     },
     {
       heading: "天沟",
-      note: "内外反坎高度均从结构楼板顶起算，外挡高度不含压顶。槽底在板上做30厚起步找坡。压顶沟侧至少30厚，外侧向上找坡。以下参数用于主楼及官帽。",
+      note: "内外反坎高度均从结构楼板顶起算，外挡高度不含压顶。瓦檐高差量至瓦面，瓦片厚度向下挤出。槽底在板上做30厚起步找坡。压顶沟侧至少30厚，外侧向上找坡。以下参数用于主楼及官帽。",
       fields: [
         { key: "gutterClearWidth", label: "天沟净宽" },
         { key: "gutterClearDepth", label: "外边反坎高" },
         { key: "gutterInnerDepth", label: "内侧反坎高" },
         { key: "gutterOuterTopWidth", label: "外边反坎顶宽" },
         { key: "gutterBedSlope", label: "天沟找坡", unit: "°", min: 0, max: 15 },
-        { key: "gutterTileGap", label: "瓦片至内侧天沟顶" },
+        { key: "gutterTileGap", label: "瓦檐面高于内挡顶" },
         { key: "gutterTileOverhang", label: "瓦边探入天沟" },
         { key: "gutterCopingSlope", label: "压顶顶面内倾", unit: "°", min: 0, max: 15 },
       ],
@@ -109,12 +112,13 @@ const groups: ParamGroup[] = [
   {
     id: "site",
     title: "总图分配",
-    note: `宅基地总面宽锁定 ${LOCKED_SITE_WIDTH}。整体东缘与南墙锚定，西侧余量自动反推；主辅楼可互换，户型及门窗随之镜像。道路、邻房与梯田不换位，主辅楼后墙仍齐平。`,
+    note: `宅基地总面宽锁定 ${LOCKED_SITE_WIDTH}。整体东缘与南墙锚定，西侧余量自动反推；主辅楼可互换，户型及门窗随之镜像。道路、邻房与梯田不换位，主辅楼后墙仍齐平。入户抬高以院坪为起点，统一驱动主辅楼地基、门厅地面和子孙道高度，门厅三步按抬高总量等分，默认450时每步150。`,
     fields: [
       { key: "eastGap", label: "东侧间距（东墙锚定）" },
       { key: "westGap", label: "西侧间距（自动）", readonly: true },
       { key: "lane", label: "子孙道净宽" },
       { key: "rearGap", label: "屋后至梯田边预留" },
+      { key: "entranceRise", label: "入户抬高（相对院坪）", min: 0 },
     ],
   },
   {
@@ -125,10 +129,10 @@ const groups: ParamGroup[] = [
     fields: [
       { key: "mainWidth", label: "主楼面宽" },
       { key: "mainDepth", label: "主楼进深" },
-      { key: "floor1Height", label: isHalfStoreyScheme ? "院坪至二层地面（含入户抬高）" : "一层层高" },
+      { key: "floor1Height", label: isHalfStoreyScheme ? "一层层高" : "二层楼面标高（院坪起）" },
       { key: "floor2Height", label: "二层层高" },
-      { key: "floor3Height", label: isHalfStoreyScheme ? "半层地面至屋脊最高点（含屋面）" : "三层层高" },
-      { key: "thirdSetback", label: isHalfStoreyScheme ? "半层北向退台" : "三楼北向退台" },
+      { key: "floor3Height", label: isHalfStoreyScheme ? "3层半层高度" : "三层层高" },
+      ...(!isHalfStoreyScheme ? [{ key: "thirdSetback" as const, label: "三楼北向退台" }] : []),
       { key: "cornerProject", label: "包角柱突出墙面", min: 50, max: 500 },
     ],
   },
@@ -146,7 +150,7 @@ const groups: ParamGroup[] = [
     id: "annex",
     title: "辅楼",
     sections: roofSections(true),
-    note: "后墙与主楼齐平；改进深只动前墙，内退＝主楼进深−辅楼进深（自动）。面宽按当前主辅楼位置分配。",
+    note: "后墙与主楼齐平，改进深只动前墙，内退＝主楼进深−辅楼进深（自动）。面宽按当前主辅楼位置分配。辅楼一层高度为院坪至屋面板底的标高，立面层高换算为首层完成面至板顶，屋面构造从板顶起算。",
     fields: [
       { key: "annexWidth", label: "辅楼面宽" },
       { key: "annexDepth", label: "辅楼进深" },
@@ -165,7 +169,6 @@ const groups: ParamGroup[] = [
       { key: "courtyardWestTotal", label: "西端总进深" },
       { key: "courtyardMidTotal", label: "中间取样总进深（两端驱动，自动）", readonly: true },
       { key: "courtyardMidFromEast", label: "中间取样距东界" },
-      { key: "entranceRise", label: "一层室内抬高示意" },
       { key: "outsideWall", label: "外墙厚示意" },
       { key: "partition", label: "隔墙厚示意" },
     ],
@@ -292,8 +295,10 @@ function paneBodyHtml(g: ParamGroup, params: VillaParams) {
   const extras = g.extras === "courtyard-finish" ? courtyardFinishGroupHtml() : "";
   const choices = g.id === "site" ? variantChoices("buildingPlacement", "主辅楼位置", buildingPlacementLabels, params)
     : g.id === "portico" ? variantChoices("porticoStyle", "门厅造型", porticoStyleLabels, params)
-    : g.id === "main" ? variantChoices("thirdFloorMode", isHalfStoreyScheme ? "半层模式" : "三楼模式", thirdFloorModeLabels, params)
-      + (isHalfStoreyScheme ? '<p class="micro">调整半层坡下围护的北侧范围；屋脊最高点按层高总预算控制，不生成原三楼露台与官帽高柱。</p>' : '<p class="micro">不内退：三楼两翼与二楼前墙齐平，取消两侧露台、栏杆和短柱，保留中央门厅露台。退台尺寸暂存，切回北向内退时恢复。</p>') : "";
+    : g.id === "main" ? isHalfStoreyScheme
+      ? '<p class="micro">半层北墙固定与下层齐平。一层层高从首层完成面量到二层楼面，入户抬高独立设置。3层半层高度从半层楼面量至檐口板顶，默认2000，已含120板厚。板顶以上另计天沟内挡、瓦檐间距、坡屋顶升高及脊瓦。屋脊最高点超过10000时提示。</p>'
+      : variantChoices("thirdFloorMode", "三楼模式", thirdFloorModeLabels, params)
+        + `<p class="micro">本方案二层楼面标高从院坪起算，首层实际层高＝二层楼面标高－入户抬高：<span id="villa-params-first-storey-height">${formatMm(params.floor1Height - params.entranceRise)}</span>。二、三层层高均从本层楼面起算，包含上方120板厚；三层终点为屋面板顶，板顶以上屋面构造另计。不内退时取消两侧露台，保留中央门厅露台。</p>` : "";
   return `${g.note ? `<p class="micro">${g.note}</p>` : ""}${choices}${body}${extras}`;
 }
 
@@ -433,11 +438,11 @@ export function hasPendingVillaParamChanges(root: ParentNode = document): boolea
 }
 
 /** 只刷新全局摘要／派生数，不改写任何输入框（避免打断正在输入）。 */
-export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = document) {
+export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = document, roofStyle: RoofStyle = DEFAULT_ROOF_STYLE) {
   const height = root.querySelector("#construction-height-status");
   if (height) {
-    const applied = getVillaParams();
-    height.textContent = `已应用屋脊最高点 ${formatMm(applied.floor1Height + applied.floor2Height + applied.floor3Height)} / 10000 · 屋面构造已计入半层预算`;
+    const peak = roofPlanModel(roofStyle).mainRidgePeak;
+    height.textContent = `已应用屋脊最高点 ${formatMm(peak)} / 10000 · ${peak > 10000 ? "超过参考限高，仅提示" : "参考限高内"} · 已计入入户抬高、各层层高及屋面构造`;
   }
   const west = derivedWestGap(params);
   const setback = derivedAnnexSetback(params);
@@ -446,6 +451,7 @@ export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = do
     const el = root.querySelector(`#${id}`);
     if (el) el.textContent = value;
   };
+  setText("villa-params-first-storey-height", formatMm(params.floor1Height - params.entranceRise));
   setText("villa-params-site-width", formatMm(LOCKED_SITE_WIDTH));
   setText("villa-params-west-gap", formatMm(west));
   setText("villa-params-annex-setback", formatMm(Math.max(0, setback)));
@@ -486,7 +492,7 @@ export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = do
 export function fillVillaParamsDom(
   params: VillaParams,
   root: ParentNode = document,
-  options?: { force?: boolean },
+  options?: { force?: boolean; roofStyle?: RoofStyle },
 ) {
   root.querySelectorAll<HTMLInputElement>("[data-villa-param]").forEach((input) => {
     if (!options?.force && document.activeElement === input) return;
@@ -502,7 +508,7 @@ export function fillVillaParamsDom(
     button.classList.toggle("active", on);
     button.setAttribute("aria-pressed", String(on));
   });
-  updateVillaParamsMeta(params, root);
+  updateVillaParamsMeta(params, root, options?.roofStyle);
 }
 
 export function sanitizeVillaParamInput(input: HTMLInputElement, finalize: boolean) {

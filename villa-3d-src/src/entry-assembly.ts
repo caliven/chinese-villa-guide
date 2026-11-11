@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { isHalfStoreyScheme } from "./construction-scheme.ts";
 import { meanderBandOutlines } from "./meander-pattern.ts";
 import { site, type Point } from "./data.ts";
 import { facades } from "./facades.ts";
@@ -12,6 +13,7 @@ type EntryLayout = { exteriorOpenings?: ExteriorOpeningDraft[]; portico?: { x: n
 /** 一楼门作为旧稿的宽度依据；主动编辑二楼窗时反向同步。只派生副本，不覆盖版本文件。 */
 export function alignedEntryOpenings(layout: EntryLayout, preferredIndex?: number) {
   const items = layout.exteriorOpenings ?? [];
+  if (isHalfStoreyScheme) return items;
   const portico = layout.portico ?? site.portico;
   const face = facades(0)[0], length = Math.hypot(face.b[0] - face.a[0], face.b[1] - face.a[1]);
   const central = (item: ExteriorOpeningDraft) => {

@@ -1,16 +1,53 @@
 import { recessFrontFacades, thirdFloorWingIsClosed } from "./building-variants.ts";
+import { isHalfStoreyScheme } from "./construction-scheme.ts";
 import { site, floors, circulation, type Floor, type Point } from "./data.ts";
-import { facades, standardExteriorDoor, secondFloorSideGlassHeadY, thirdFloorMaxOpeningHead, type Opening } from "./facades.ts";
+import { facades, mainEaveY, standardExteriorDoor, secondFloorSideGlassHeadY, thirdFloorMaxOpeningHead, type Opening } from "./facades.ts";
 import { facadeOpeningToWallOpening, type ExteriorOpeningDraft, type VoidDraft } from "./layout-draft.ts";
 import { polygonContainsPoint, roomOutline } from "./room-geometry.ts";
 import { alignedEntryOpenings, type EntryAssembly } from "./entry-assembly.ts";
+import { floorSlabThickness } from "./roof-options.ts";
 
 export type FacadeLayout = { floors?: Floor[]; livingVoid?: VoidDraft; exteriorOpenings?: ExteriorOpeningDraft[]; exteriorManaged?: boolean };
 export type ContinuousGlazing = { id: string; floor: number; upperFloor: number; facadeIndex: number; a: Point; b: Point; at: number; w: number; bottom: number; top: number; sourceIndex?: number; upperSourceIndices?: number[] };
 
-function windowHeadLimit(floor: number, floorList: Floor[]) {
+/** 本层窗顶上限：顶层／半层相对楼面，不得超过飘檐下沿线板底（留净空）。 */
+export function windowHeadLimit(floor: number, floorList: Floor[] = floors) {
   const height = floor === 3 ? site.annex.height : floorList[floor].height;
-  return floor === 2 ? Math.min(height, thirdFloorMaxOpeningHead()) : height;
+  if (floor !== 2) return height;
+  const eaveY = isHalfStoreyScheme ? mainEaveY()
+    : floorList[2].y + floorList[2].height - floorSlabThickness;
+  return Math.min(height, thirdFloorMaxOpeningHead(eaveY, floorList[2].y));
+}
+
+/** 顶层外窗／玻璃门是否受飘檐下沿线限制。 */
+export function openingLimitedByFascia(floor: number) {
+  return floor === 2;
+}
+
+/**
+ * 把草稿里顶层外窗／推拉门上沿压到下沿线以下；改写 height／sill。
+ * @returns 修正的洞口数
+ */
+export function clampExteriorOpeningsToFascia(layout: FacadeLayout): number {
+  if (!layout.exteriorOpenings?.length) return 0;
+  const maxTop = windowHeadLimit(2, layout.floors ?? floors);
+  let changed = 0;
+  for (const item of layout.exteriorOpenings) {
+    if (item.floor !== 2) continue;
+    const kind = item.opening.kind ?? "door";
+    if (kind !== "window" && kind !== "slidingDoor") continue;
+    let sill = item.opening.sill ?? 0;
+    let height = item.opening.height;
+    if (height == null) continue;
+    if (sill + height <= maxTop) continue;
+    if (sill > maxTop - 200) {
+      sill = Math.max(0, maxTop - 200);
+      item.opening.sill = sill;
+    }
+    item.opening.height = Math.max(200, maxTop - sill);
+    changed++;
+  }
+  return changed;
 }
 
 export function frontOpeningsChanged(layout: FacadeLayout | null | undefined, indices = [0, 1]) {
@@ -53,17 +90,21 @@ function ordinaryFacades(index: number, layout?: FacadeLayout | null) {
       const template = nearestOpeningTemplate(originals, o, kind);
       const height = index === 3 ? site.annex.height : (layout.floors ?? floors)[index].height;
       const rise = index === 0 || index === 3 ? site.entranceRise : 0;
-      const sill = kind === "window" && o.sill != null ? o.sill + rise : template?.sill ?? (kind === "window" ? 900 : rise);
+      const halfWindow = isHalfStoreyScheme && index === 2 && kind === "window";
+      const defaultSill = halfWindow ? 0 : template?.sill ?? (kind === "window" ? 900 : rise);
+      const sill = kind === "window" && o.sill != null ? o.sill + rise : defaultSill;
+      const defaultHeight = halfWindow ? Math.round(windowHeadLimit(index, layout.floors ?? floors) * .85)
+        : template?.h ?? Math.min(kind === "window" ? 1800 : 2400, height - sill - 120);
       openings.push({
         ...template, at: o.offset + o.width / 2, w: o.width,
-        sill, h: kind === "window" && o.height != null ? o.height : template?.h ?? Math.min(kind === "window" ? 1800 : 2400, height - sill - 120),
+        sill, h: kind === "window" && o.height != null ? o.height : defaultHeight,
         door: kind !== "window", kind, hinge: o.hinge, side: o.side,
         layoutSourceIndex: layout.exteriorOpenings!.indexOf(item),
         pattern: kind === "slidingDoor" ? "sliding" : template?.pattern === "sliding" ? undefined : template?.pattern,
       });
     }
     // 草稿改动先取消旧固定通高标记，再由实际挑空位置重新关联跨层窗。
-    if (customFront && index < 2 && facadeIndex === 0)
+    if ((customFront || isHalfStoreyScheme) && index < 2 && facadeIndex === 0)
       for (const opening of openings) delete opening.span;
     return { ...facade, openings };
   });
@@ -78,7 +119,7 @@ export function resolveLayoutFacades(layout?: FacadeLayout | null) {
   });
   const floorList = layout?.floors ?? floors;
   const entries: EntryAssembly[] = [];
-  walls[0].forEach((face, facadeIndex) => {
+  if (!isHalfStoreyScheme) walls[0].forEach((face, facadeIndex) => {
     if ((face.sourceFacadeIndex ?? facadeIndex) !== 0) return;
     const dx = face.b[0] - face.a[0], dz = face.b[1] - face.a[1], length = Math.hypot(dx, dz);
     const peer = walls[1].find(f => Math.hypot(f.a[0] - face.a[0], f.a[1] - face.a[1]) < 1 && Math.hypot(f.b[0] - face.b[0], f.b[1] - face.b[1]) < 1);
@@ -152,11 +193,12 @@ export function resolveLayoutFacades(layout?: FacadeLayout | null) {
       if (!o.door && o.span && !o.continuous && !overDoor) delete o.span;
     }
   }));
-  // 自定义普通窗不能穿过本层墙顶／屋檐；通高窗已按整窗规格拆成上下层洞口。
+  // 自定义普通窗不能穿过本层墙顶／屋檐；顶层一律压在下沿线以下。通高窗已按整窗规格拆成上下层洞口。
   walls.forEach((faces, floor) => faces.forEach(face => face.openings.forEach(opening => {
     Object.assign(opening, standardExteriorDoor(opening, floor, floor === 3 ? site.annex.height : floorList[floor].height));
     const source = opening.layoutSourceIndex == null ? undefined : layout?.exteriorOpenings?.[opening.layoutSourceIndex]?.opening;
-    if (opening.door || opening.continuous || opening.entryAssembly || source?.height == null && source?.sill == null) return;
+    if (opening.door || opening.continuous || opening.entryAssembly) return;
+    if (floor !== 2 && source?.height == null && source?.sill == null) return;
     const rise = floor === 0 || floor === 3 ? site.entranceRise : 0;
     const maxTop = windowHeadLimit(floor, floorList);
     opening.sill = Math.max(rise, Math.min(opening.sill, maxTop - 200));
@@ -188,15 +230,17 @@ export function exteriorWindowProfile(layout: FacadeLayout, index: number) {
     const base = floorList[panel.floor].y + (panel.floor === 0 ? site.entranceRise : 0);
     return { sourceIndex: panel.sourceIndex, floor: panel.floor, mode: "continuous" as const,
       sill: panel.bottom - base, height: panel.top - panel.bottom, maxTop: floorList[panel.upperFloor].y + windowHeadLimit(panel.upperFloor, floorList) - base,
-      maxSill: floorList[panel.floor].y + floorList[panel.floor].height - base - 200 };
+      maxSill: floorList[panel.floor].y + floorList[panel.floor].height - base - 200,
+      fasciaLimited: openingLimitedByFascia(panel.upperFloor) };
   }
   const entry = resolved.entries.find(e => e.upperSourceIndex === index);
   if (entry) return { sourceIndex: index, floor: 1, mode: "entry" as const, sill: entry.bandTop - floorList[1].y,
-    height: entry.top - entry.bandTop, maxTop: floorList[1].height, maxSill: floorList[1].height - 200 };
+    height: entry.top - entry.bandTop, maxTop: floorList[1].height, maxSill: floorList[1].height - 200, fasciaLimited: false };
   const opening = resolved.facades[item.floor].flatMap(face => face.openings).find(o => o.layoutSourceIndex === index);
   if (!opening) return null;
   const rise = item.floor === 0 || item.floor === 3 ? site.entranceRise : 0;
   const maxTop = windowHeadLimit(item.floor, floorList);
-  return { sourceIndex: index, floor: item.floor, mode: "ordinary" as const, sill: Math.max(0, opening.sill - rise), height: opening.h, maxTop: maxTop - rise, maxSill: maxTop - rise - 200 };
+  return { sourceIndex: index, floor: item.floor, mode: "ordinary" as const, sill: Math.max(0, opening.sill - rise), height: opening.h,
+    maxTop: maxTop - rise, maxSill: maxTop - rise - 200, fasciaLimited: openingLimitedByFascia(item.floor) };
 }
 

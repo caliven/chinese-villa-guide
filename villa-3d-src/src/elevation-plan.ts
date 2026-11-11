@@ -7,14 +7,17 @@ import { porticoShoulderProfile, cornerShoulderProfile, upperCornerProfile, hatP
 import { Vector3 } from "three";
 import { isHalfStoreyScheme } from "./construction-scheme";
 import { clipHalfStoreyPolygon, halfStoreyRoof } from "./half-storey";
+import { halfStoreyBalconyBeams, halfStoreyBalconyPieces, halfStoreyBalusterProfile, halfStoreyFloorOutline, halfStoreyPorticoColumns, halfStoreyPorticoDesign } from "./half-storey-portico.ts";
 import { floatingHatJunctions, hatJunctionFaces } from "./hat-junctions";
-import { elevationModel, type VillaLayoutLive } from "./architecture";
-import { construction, site, type Point } from "./data";
+import { elevationModel, rearBalconyLayout, withLayoutContext, type VillaLayoutLive } from "./architecture";
+import { annexPartitions, construction, floors, site, type Point } from "./data";
+import { joinedWallSpan, wallJunctionPeers } from "./partition-geometry";
+import { raiseOpeningsToFinish } from "./foundation";
 import type { Facade } from "./facades";
 import { roofProjectedEdges } from "./roof-plan";
-import { subtractRoofPolygon, type RoofFace } from "./roof-surfaces";
-import { bayOutline, floatingHatEaveRearZ, hatEaveRim, frontTerraceRailRuns, terraceParapetLayout, terraceParapetWallRuns, apronSupportOutline, hatSupportInset } from "./facade-details";
-import { apronEaveDesign, floorSlabThickness, frontApronSection, fasciaBottomY, gutterOuterWallTop, roofGutterDesign, slabToTileEaveLift, roofTileInset, roofTileThickness, roofStyleLabels, type RoofStyle } from "./roof-options";
+import { roofRidgeRings, subtractRoofPolygon, type RoofFace } from "./roof-surfaces";
+import { bayOutline, cornerPilasterBody, eyelidLayerTops, floatingHatEaveRearZ, hatEaveRim, frontTerraceRailRuns, terraceParapetLayout, terraceParapetWallRuns, apronSupportOutline, hatSupportInset } from "./facade-details";
+import { apronEaveDesign, floorSlabThickness, frontApronSection, fasciaBottomY, gutterOuterWallTop, eyelidFixed, withAnnexRoofDesign, roofGutterDesign, slabToTileEaveLift, roofTileInset, roofTileThickness, roofStyleLabels, type RoofStyle } from "./roof-options";
 
 export const elevationLabels = {
   north: "北立面（正立面）", south: "南立面（背立面）", east: "东立面", west: "西立面",
@@ -76,23 +79,53 @@ function clipNear(polygon: Point[], plane: number[]): Point[] {
   return result;
 }
 
+const isElevationFloorSlab = (part?: string) => !!part && (
+  part === "third-floor-slab" || part === "half-storey-balcony-slab" || part === "rear-balcony-slab"
+);
+
 /** 凸面片逐一消隐。保留原轮廓绘制，不把消隐切片或屋面共面缝画成实体边。 */
 export function visibleElevationPolygons(surfaces: ElevationSurface[], view: ElevationView): Point[][][] {
   const projected = surfaces.map(s => s.points.map(p => projectElevation(p, view)));
   const planes = surfaces.map(s => depthPlane(s, view));
+  const bounds = projected.map(polygon => ({
+    left: Math.min(...polygon.map(p => p[0])), right: Math.max(...polygon.map(p => p[0])),
+    top: Math.min(...polygon.map(p => p[1])), bottom: Math.max(...polygon.map(p => p[1])),
+  }));
+  // 楼板世界标高，用于清掉贴板厚的外墙残片。
+  const slabBands = surfaces.filter(s => isElevationFloorSlab(s.part)).map(s => {
+    const ys = s.points.map(point => point.y);
+    return { bottom: Math.min(...ys), top: Math.max(...ys) };
+  });
   return projected.map((polygon, i) => {
     let remaining = [polygon];
     for (let j = 0; j < surfaces.length && remaining.length; j++) {
       if (i === j || surfaces[j].occludes === false || area(projected[j]) < 1) continue;
-      const cover = clipNear(projected[j], planes[j].map((v, k) => v - planes[i][k]));
+      const a = bounds[i], b = bounds[j];
+      if (a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top) continue;
+      // 楼板只表示板厚轮廓，不切割外墙，否则墙面会多出板底／板顶双线。
+      if (surfaces[i].part === "exterior-wall" && isElevationFloorSlab(surfaces[j].part)) continue;
+      // 与外墙外皮齐平的楼板侧面属于墙面内部，不显示独立板底轮廓。
+      const flushSlab = isElevationFloorSlab(surfaces[i].part) && surfaces[j].part === "exterior-wall"
+        && planes[j].every((v, k) => Math.abs(v - planes[i][k]) < 1e-6);
+      const cover = flushSlab ? projected[j] : clipNear(projected[j], planes[j].map((v, k) => v - planes[i][k]));
       if (cover.length < 3 || area(cover) < 1) continue;
       remaining = remaining.flatMap(p => subtractRoofPolygon(p, cover)).filter(p => area(p) > 1);
     }
+    // 门厅靠背等顶到板底时，可能留下贴楼板的外墙残片；立面楼面按单线接缝表达。
+    if (surfaces[i].part === "exterior-wall" && slabBands.length)
+      remaining = remaining.filter(p => {
+        const ys = p.map(point => point[1]), lo = Math.min(...ys), hi = Math.max(...ys);
+        return !slabBands.some(band => Math.abs(-lo - band.top) < 2 && Math.abs(-hi - band.bottom) < 2);
+      });
     return remaining;
   });
 }
 
 export function elevationShell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false, building: ElevationBuilding = "main") {
+  return withLayoutContext(layout, () => buildElevationShell(view, style, layout, balcony, building));
+}
+
+function buildElevationShell(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false, building: ElevationBuilding = "main") {
   const model = elevationModel(style, layout), { main: m, annex: a, front: f, roof: r } = model;
   const surfaces: ElevationSurface[] = [];
   let owner: ElevationBuilding = "main";
@@ -100,11 +133,11 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   const face = (p: Vector3[], cls: string, detail = "", occludes = true, part?: string) => {
     if (owner === building && area(p.map(project)) > 1) surfaces.push({ points: p, cls, detail, occludes, part });
   };
-  const box = (x: number, z: number, w: number, d: number, y: number, h: number, cls: string) => {
+  const box = (x: number, z: number, w: number, d: number, y: number, h: number, cls: string, part?: string) => {
     const side = directions[view].side;
     const [p, q]: Point[] = side === 0 ? [[x, z], [x + w, z]] : side === 3 ? [[x, z + d], [x + w, z + d]]
       : side === 1 ? [[x, z], [x, z + d]] : [[x + w, z], [x + w, z + d]];
-    face([new Vector3(p[0], y, p[1]), new Vector3(q[0], y, q[1]), new Vector3(q[0], y + h, q[1]), new Vector3(p[0], y + h, p[1])], cls);
+    face([new Vector3(p[0], y, p[1]), new Vector3(q[0], y, q[1]), new Vector3(q[0], y + h, q[1]), new Vector3(p[0], y + h, p[1])], cls, "", true, part);
   };
   const columnCourses = (x: number, z: number, base: number, courses: ColumnCourse[]) => {
     const at = (p: Point, y: number) => new Vector3(x + p[0], base + y, z + p[1]);
@@ -114,9 +147,14 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
         "el-trim", "", true, "column-shoulder");
     }
   };
-  const wall = (facade: Facade, base: number, h: number) => {
+  const wall = (facade: Facade, base: number, h: number, join = { start: 0, end: 0 }) => {
     const { a, b } = facade, len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const at = (distance: number, y: number) => new Vector3(a[0] + (b[0] - a[0]) * distance / len, base + y, a[1] + (b[1] - a[1]) * distance / len);
+    const tangent = new Vector3((b[0] - a[0]) / len, 0, (b[1] - a[1]) / len);
+    const normal = new Vector3(tangent.z, 0, -tangent.x);
+    const half = construction.outsideWall / 2;
+    const skin = normal.dot(directions[view].eye) >= 0 ? half : -half;
+    const at = (distance: number, y: number, offset = skin) => new Vector3(a[0], base + y, a[1])
+      .addScaledVector(tangent, distance).addScaledVector(normal, offset);
     let detail = "";
     for (const o of facade.openings) {
       if (o.continuous || o.entryAssembly) continue;
@@ -140,22 +178,32 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
       detail += line(project(at(o.at, low)), project(at(o.at, high)));
       if (!o.door || o.glazed) detail += line(project(at(start, low + (high - low) * .65)), project(at(end, low + (high - low) * .65)));
     }
-    const outline = [at(0, 0), at(len, 0), at(len, h), at(0, h)];
-    face(isHalfStoreyScheme && base === model.floors[2].y ? clipHalfStoreyPolygon(outline) : outline, "el-wall", detail);
+    // 门窗仍沿原墙线定位，外轮廓沿用实体的墙角搭接延长量。
+    const start = -join.start, end = len + join.end;
+    const outline = [at(start, 0), at(end, 0), at(end, h), at(start, h)];
+    const drawWall = (points: Vector3[], detail = "") => face(
+      isHalfStoreyScheme && base === model.floors[2].y ? clipHalfStoreyPolygon(points) : points,
+      "el-wall", detail, true, "exterior-wall");
+    drawWall(outline, detail);
+    // 垂直于观察面的墙端同样形成可见外壳，避免墙角少画半个墙厚。
+    const endDistance = tangent.dot(directions[view].eye) >= 0 ? end : start;
+    drawWall([at(endDistance, 0, -half), at(endDistance, 0, half),
+      at(endDistance, h, half), at(endDistance, h, -half)]);
   };
-  const outside = (facades: Facade[]) => facades.filter(w => view === "north" || view === "south" ? Math.abs(w.a[1] - w.b[1]) < 1 : Math.abs(w.a[0] - w.b[0]) < 1)
-    .sort((a, b) => new Vector3(b.a[0], 0, b.a[1]).dot(directions[view].eye) - new Vector3(a.a[0], 0, a.a[1]).dot(directions[view].eye))[0];
-  model.floors.forEach(floor => {
-    const visible = floor.facades.filter(w => view === "north" || view === "south" ? Math.abs(w.a[1] - w.b[1]) < 1 : Math.abs(w.a[0] - w.b[0]) < 1);
-    visible.forEach(w => wall(w, floor.y, floor.height));
-    // 三楼门厅分隔侧墙也参与侧立面的消隐，不显示室内隔墙或家具。
-    if (view === "east" || view === "west") {
-      const extra = floor.facades.slice(1).filter(w => Math.abs(w.a[0] - w.b[0]) < 1 && w.a[0] > m.x + 240 && w.a[0] < m.x + m.w - 240);
-      extra.forEach(w => wall(w, floor.y, floor.height));
-    }
+  model.floors.forEach((floor, index) => {
+    const peers = wallJunctionPeers((layout?.floors ?? floors)[index].partitions, floor.facades);
+    const rise = index === 0 ? site.entranceRise : 0;
+    const topSlab = !isHalfStoreyScheme && index === 2 ? floorSlabThickness : 0;
+    floor.facades.forEach(w => wall({ ...w, openings: raiseOpeningsToFinish(w.openings, rise) },
+      floor.y + rise, Math.max(200, floor.height - rise - topSlab),
+      isHalfStoreyScheme && index === 2 ? { start: 0, end: 0 } : joinedWallSpan(w, peers).join));
   });
+  box(m.x, m.z, m.w, m.d, 0, site.entranceRise, "el-wall");
   owner = "annex";
-  wall(outside(model.annexFacades), 0, a.height);
+  const annexPeers = wallJunctionPeers(layout?.annexPartitions ?? annexPartitions, model.annexFacades);
+  model.annexFacades.forEach(w => wall({ ...w, openings: raiseOpeningsToFinish(w.openings, site.entranceRise) },
+    site.entranceRise, Math.max(200, a.height - site.entranceRise), joinedWallSpan(w, annexPeers).join));
+  box(a.x, a.z, a.w, a.d, 0, site.entranceRise, "el-wall");
   owner = "main";
 
   for (const panel of model.glazing) {
@@ -163,7 +211,7 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
     if (view === "north" || view === "south" ? Math.abs(dz) > 1 : Math.abs(dx) > 1) continue;
     const mid = new Vector3((panel.a[0] + panel.b[0]) / 2 - (m.x + m.w / 2), 0, (panel.a[1] + panel.b[1]) / 2 - (m.z + m.d / 2));
     if (mid.dot(directions[view].eye) <= 0) continue;
-    const at = (t: number, y: number) => new Vector3(panel.a[0] + dx * t / len, y, panel.a[1] + dz * t / len).addScaledVector(directions[view].eye, 1);
+    const at = (t: number, y: number) => new Vector3(panel.a[0] + dx * t / len, y, panel.a[1] + dz * t / len).addScaledVector(directions[view].eye, construction.outsideWall / 2 + 1);
     const start = panel.at - panel.w / 2, end = panel.at + panel.w / 2;
     const grid = continuousGlazingGrid(panel);
     const shape = (r: { x: number; y: number; w: number; h: number }) => points([at(r.x, r.y), at(r.x + r.w, r.y), at(r.x + r.w, r.y + r.h), at(r.x, r.y + r.h)].map(project));
@@ -199,15 +247,26 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
     });
   };
   const rect = (x: number, z: number, w: number, d: number): Point[] => [[x, z], [x + w, z], [x + w, z + d], [x, z + d]];
-  const mainOutline = style === "joined" ? bayOutline(r.main.x, r.main.z, r.main.w, r.main.d, r.hat.x, r.hat.w, r.hat.z, 0) : rect(r.main.x, r.main.z, r.main.w, r.main.d);
-  // 与三维共用板底、板厚和压顶最高点；三眼皮不重复累加到挡墙高度。
-  rim(mainOutline, r.main.eave, floorSlabThickness + gutterOuterWallTop(), "el-trim", r.frontTrimGap);
+  const mainOutline = (inset: number) => style === "joined"
+    ? bayOutline(r.main.x, r.main.z, r.main.w, r.main.d, r.hat.x, r.hat.w, r.hat.z, inset)
+    : rect(r.main.x + inset, r.main.z + inset, r.main.w - 2 * inset, r.main.d - 2 * inset);
+  // 与实体共用三眼皮分层，保留阶梯外缘及压顶，而非整块等高矩形。
+  const eaveLayers = (outline: (inset: number) => Point[], base: number, gap?: [number, number]) => {
+    for (const layer of eyelidLayerTops(base))
+      rim(outline(layer.inset), layer.top - layer.thick, layer.thick, "el-trim", gap, "roof-eyelid");
+    const copingBase = base + floorSlabThickness + roofGutterDesign.clearDepth;
+    rim(outline(-eyelidFixed.copingOverhang), copingBase,
+      gutterOuterWallTop() - roofGutterDesign.clearDepth, "el-trim", gap, "roof-coping");
+  };
+  eaveLayers(mainOutline, r.main.eave, r.frontTrimGap);
   owner = "annex";
-  rim(rect(r.annex.x, r.annex.z, r.annex.w, r.annex.d), r.annex.eave, floorSlabThickness + r.annexProfile.outerWallTop, "el-trim");
+  withAnnexRoofDesign(() => eaveLayers(inset => rect(r.annex.x + inset, r.annex.z + inset,
+    r.annex.w - 2 * inset, r.annex.d - 2 * inset), r.annex.eave));
   owner = "main";
   if (style === "floating") {
     const end = floatingHatEaveRearZ(r.main.z + roofTileInset, r.main.eave + slabToTileEaveLift(), r.pitch.fenShui / 10, r.hat.eave);
-    rim(hatEaveRim(r.hat.x, r.hat.z, r.hat.w, 0, roofGutterDesign.outerTopWidth, end), r.hat.eave, floorSlabThickness + gutterOuterWallTop(), "el-trim");
+    eaveLayers(inset => hatEaveRim(r.hat.x, r.hat.z, r.hat.w, inset,
+      roofGutterDesign.outerTopWidth, end), r.hat.eave);
     for (const j of floatingHatJunctions(r.hat.z, r.hat.eave, r.main.eave, model.floors[2].front, hatSupportInset(), f))
       for (const polygon of hatJunctionFaces(j))
         face(polygon.map(p => new Vector3(...p)), "el-trim", "", true, "hat-junction");
@@ -227,10 +286,28 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
         .map(e => line(project(e.a), project(e.b), "el-roof-edge")).join("");
       face(f.points, f.owner === 1 ? "el-hat" : "el-roof", detail);
     }
+    for (const edge of edges.filter(edge => edge.kind === "edge"))
+      face([edge.a, edge.b, edge.b.clone().add(new Vector3(0, -roofTileThickness, 0)),
+        edge.a.clone().add(new Vector3(0, -roofTileThickness, 0))], "el-trim", "", true, "roof-tile-edge");
+  };
+  const ridges = (segments: [Vector3, Vector3][]) => {
+    for (const [a, b] of segments) {
+      const axis = b.clone().sub(a).normalize();
+      const [lower, upper] = roofRidgeRings(a, b);
+      for (let i = 0; i < 16; i++) {
+        const next = (i + 1) % 16;
+        const normal = lower[i].clone().add(lower[next]).multiplyScalar(.5).sub(a);
+        if (normal.dot(directions[view].eye) > .01)
+          face([lower[i], lower[next], upper[next], upper[i]], "el-trim", "", true, "roof-ridge");
+      }
+      face(axis.dot(directions[view].eye) >= 0 ? upper : lower, "el-trim", "", true, "roof-ridge");
+    }
   };
   roofs(r.mainFaces);
+  ridges(r.mainRidges);
   owner = "annex";
   roofs(r.annexFaces);
+  ridges(r.annexRidges);
   const c = model.chimney;
   box(c.x - 230, c.z - 230, 460, 460, c.base - 400, c.capY - c.base + 400, "el-wall");
   box(c.x - 360, c.z - 360, 720, 720, c.capY, 120, "el-trim");
@@ -241,12 +318,37 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   const capitalTop = apronHeights.columnTopY, fasciaBot = apronHeights.fasciaBottomY;
   // 立面门厅柱按堂屋角点；将军柱另在露台段绘制。
   const columnSize = f.porticoColumnDepth;
-  for (const x of recessedPortico() ? [] : f.postXs) {
+  if (isHalfStoreyScheme && !recessedPortico()) {
+    const drawPiece = (piece: ReturnType<typeof halfStoreyPorticoColumns>[number]) => {
+      if (piece.shape === "baluster") {
+        const profile = halfStoreyBalusterProfile.filter(([radius]) => radius > 0);
+        const outline = [...profile, ...profile.slice().reverse().map(([radius, y]): Point => [-radius, y])];
+        const center = new Vector3(piece.x + piece.w / 2, piece.y, piece.z + piece.d / 2)
+          .addScaledVector(directions[view].eye, piece.w / 2);
+        face(outline.map(([radius, y]) => center.clone().addScaledVector(directions[view].u, radius * piece.w)
+          .add(new Vector3(0, y * piece.h, 0))), "el-column", `<title>${piece.name}</title>`);
+      } else {
+        box(piece.x, piece.z, piece.w, piece.d, piece.y, piece.h, "el-column");
+      }
+    };
+    halfStoreyPorticoColumns(model.floors, p).forEach(drawPiece);
+    for (const index of [1, 2]) {
+      const floor = model.floors[index];
+      rim(halfStoreyFloorOutline(floor.front, p, index), floor.y - construction.floorSlab,
+        construction.floorSlab, "el-trim", undefined, "half-storey-balcony-slab");
+      for (const beam of halfStoreyBalconyBeams(p))
+        box(beam.x, beam.z, beam.w, beam.d,
+          floor.y - construction.floorSlab - halfStoreyPorticoDesign.beamDepth,
+          halfStoreyPorticoDesign.beamDepth, "el-trim");
+      halfStoreyBalconyPieces(floor, index, p).forEach(drawPiece);
+    }
+  }
+  for (const x of recessedPortico() || isHalfStoreyScheme ? [] : f.postXs) {
     box(x - columnSize / 2, f.porticoColumnZ - columnSize / 2, columnSize, columnSize,
       site.entranceRise - 20, capitalTop - (site.entranceRise - 20), "el-column");
     columnCourses(x, f.porticoColumnZ, 0, porticoShoulderProfile(columnSize, columnSize, capitalTop, fasciaBot));
   }
-  if (!recessedPortico()) box(f.postXs[0] + columnSize / 2 - 8, f.porticoColumnZ - PORTICO_BEAM_DEPTH / 2,
+  if (!recessedPortico() && !isHalfStoreyScheme) box(f.postXs[0] + columnSize / 2 - 8, f.porticoColumnZ - PORTICO_BEAM_DEPTH / 2,
     f.postXs[1] - f.postXs[0] - columnSize + 16, PORTICO_BEAM_DEPTH, fasciaBot - 670, 670, "el-trim");
   if (!recessedPortico() && !isHalfStoreyScheme) {
     const returns = frontApronOutline(f.terraceBack, 0, f, p);
@@ -281,16 +383,24 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
       y3, height - hatPierDesign.capHeight, "el-column");
     columnCourses(x, f.postZ, y3, hatPierCrownProfile(f.dividerWidth, height));
   }
-  // 包角柱以 L 形两肢概括，保留当前突出量及与屋檐的高度关系。
+  // 包角柱以 L 形两肢概括；檐口高度四周对齐正屋下沿线底（三层下层正面仍对挑檐下沿线）。
+  const frontCornerZ = m.z - (isHalfStoreyScheme ? 0 : 120);
+  const eaveFasciaBottom = fasciaBottomY(r.main.eave, 0);
   for (const [x, outward] of [[f.cornerWestX, -1], [f.cornerEastX, 1]]) {
     const x0 = x + (outward < 0 ? -f.cornerProject : -f.cornerLeg);
-    const frontTop = frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop).columnTopY;
-    box(x0, m.z - 120 - f.cornerProject, f.cornerLeg + f.cornerProject, f.cornerProject + 20, 0, frontTop, "el-column");
-    box(outward < 0 ? x - f.cornerProject : x - 20, m.z - 120, f.cornerProject + 20, f.cornerLeg, 0, frontTop, "el-column");
-    columnCourses(x, m.z - 120, 0, cornerShoulderProfile(f.cornerProject, f.cornerLeg, outward, frontTop, fasciaBot));
+    const frontTop = isHalfStoreyScheme ? eaveFasciaBottom
+      : frontApronSection(y3 + f.eaveParapet, f.tiledEaveDrop).columnTopY;
+    const cornerBearingTop = isHalfStoreyScheme ? eaveFasciaBottom : fasciaBot;
+    box(x0, frontCornerZ - f.cornerProject, f.cornerLeg + f.cornerProject, f.cornerProject + 20, 0, frontTop, "el-column");
+    box(outward < 0 ? x - f.cornerProject : x - 20, frontCornerZ, f.cornerProject + 20, f.cornerLeg, 0, frontTop, "el-column");
+    columnCourses(x, frontCornerZ, 0, cornerShoulderProfile(f.cornerProject, f.cornerLeg, outward, frontTop, cornerBearingTop));
     if (!isHalfStoreyScheme) columnCourses(x, model.floors[2].front, y3,
-      upperCornerProfile(f.cornerProject, f.cornerLeg, outward, fasciaBottomY(r.main.eave, 0) - y3));
+      upperCornerProfile(f.cornerProject, f.cornerLeg, outward, eaveFasciaBottom - y3));
   }
+  for (const [x, outward] of [[m.x, -1], [m.x + m.w, 1]])
+    for (const piece of cornerPilasterBody(eaveFasciaBottom, outward, 1))
+      box(x + piece.x - piece.w / 2, m.z + m.d + piece.z - piece.d / 2,
+        piece.w, piece.d, piece.y - piece.h / 2, piece.h, "el-column", "rear-corner-column");
   const { westOuter, westInner, eastInner, eastOuter, columnNorth } = entranceApproachLayout(f, p);
   const landing = columnNorth - construction.entranceLandingOffset, steps = landing - construction.entranceTread * 2;
   box(westOuter, landing, eastOuter - westOuter, porticoWallZ() - landing, 0, site.entranceRise, "el-wall");
@@ -348,7 +458,7 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
         "el-trim", "", true, "apron-bedding");
     }
   }
-  for (let i = 0; i < fascia.length - 1; i++) {
+  if (!isHalfStoreyScheme) for (let i = 0; i < fascia.length - 1; i++) {
     const [a, b] = [fascia[i], fascia[i + 1]];
     face([new Vector3(a[0], apron.fasciaBottomY, a[1]), new Vector3(b[0], apron.fasciaBottomY, b[1]),
       new Vector3(b[0], apron.fasciaTopY, b[1]), new Vector3(a[0], apron.fasciaTopY, a[1])], "el-trim", "", true, "apron-support");
@@ -356,12 +466,14 @@ export function elevationShell(view: ElevationView, style: RoofStyle, layout?: V
   if (!isHalfStoreyScheme) rim([...apronOuter, [m.x + m.w, apronBack], [m.x + m.w, m.z + m.d],
     [m.x, m.z + m.d], [m.x, apronBack]], apron.soffitY, apronEaveDesign.boardThickness, "el-trim", undefined, "third-floor-slab");
   if (balcony) {
-    const x = m.x + m.w * (12650 - 6800) / 13500, w = 2500 * m.w / 13500, z = m.z + m.d;
-    box(x, z, w, 1200, y3 - 180, 180, "el-trim");
-    rim(rect(x, z, w, 1200), y3, 1100, "el-glass-rail");
+    const { x, w, z } = rearBalconyLayout();
+    box(x, z, w, 1200, y3 - 180, 180, "el-trim", "rear-balcony-slab");
+    rim([[x + 50, z], [x + 50, z + 1150], [x + w - 50, z + 1150], [x + w - 50, z]], y3, 1120, "el-glass-rail");
   }
   // 下沿线只作外壳控制线，屋面及墙体共享同一檐口标高。
-  box(m.x - 100, model.floors[2].front - 100, m.w + 200, m.z + m.d - model.floors[2].front + 200, fasciaBottomY(r.main.eave, 0), 100, "el-trim");
+  rim(rect(m.x - 100, model.floors[2].front - 100, m.w + 200,
+    m.z + m.d - model.floors[2].front + 200), fasciaBottomY(r.main.eave, 0),
+    100, "el-trim", r.frontTrimGap, "roof-fascia");
   return { model, surfaces };
 }
 
@@ -369,6 +481,25 @@ function dimension(a: number, b: number, y: number, from: number) {
   const [u0, u1] = [a, b].sort((x, y) => x - y);
   return `<path d="M${n(u0)} ${n(from)} V${n(y + 100)} M${n(u1)} ${n(from)} V${n(y + 100)} M${n(u0)} ${n(y)} H${n(u1)} M${n(u0 - 65)} ${n(y + 65)} l130 -130 M${n(u1 - 65)} ${n(y + 65)} l130 -130" class="el-dim"/>${text((u0 + u1) / 2, y - 170, String(n(u1 - u0)), "el-dim-label")}`;
 }
+/** 标注文字避让短尺寸段，尺寸界线始终连接真实标高。 */
+function heightDimensions(segments: [string, number, number][], edge: number) {
+  let previousY = Infinity;
+  return segments.filter(([, bottom, top]) => top > bottom).map(([name, bottom, top]) => {
+    const x = edge + 500, y0 = -bottom, y1 = -top;
+    const middle = (y0 + y1) / 2;
+    const labelY = Math.min(middle, previousY - 390);
+    previousY = labelY;
+    const ticks = [y0, y1].map(y => line([x - 65, y + 65], [x + 65, y - 65], "el-dim")).join("");
+    return `<g data-height-region="${name}" data-height-bottom="${n(bottom)}" data-height-top="${n(top)}">`
+      + line([edge + 100, y0], [x + 120, y0], "el-dim")
+      + line([edge + 100, y1], [x + 120, y1], "el-dim")
+      + line([x, y0], [x, y1], "el-dim") + ticks
+      + line([x + 80, middle], [x + 240, labelY], "el-dim")
+      + text(x + 320, labelY, String(n(top) - n(bottom)), "el-dim-label", "start")
+      + text(x + 1170, labelY, name, "el-small", "start") + "</g>";
+  }).join("");
+}
+
 export const elevationStyles = `
 .elevation-svg text{font-family:system-ui,sans-serif;fill:#333;dominant-baseline:middle}
 .elevation-svg .el-label{font-size:250px}.elevation-svg .el-title{font-size:350px;font-weight:600}
@@ -389,12 +520,17 @@ export const elevationStyles = `
 `;
 
 export function elevationSvg(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false, building: ElevationBuilding = "main") {
+  return withLayoutContext(layout, () => buildElevationDrawing(view, style, layout, balcony, building).svg);
+}
+
+function buildElevationDrawing(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false, building: ElevationBuilding = "main") {
   const { model, surfaces } = elevationShell(view, style, layout, balcony, building);
   const visible = visibleElevationPolygons(surfaces, view);
   const all = surfaces.flatMap(s => s.points.map(p => projectElevation(p, view)));
   const min = Math.min(...all.map(p => p[0])), max = Math.max(...all.map(p => p[0]));
-  const peak = building === "main" ? model.roof.mainPeak : Math.max(model.chimney.capY + 120, ...model.roof.annexFaces.flatMap(f => f.points.map(p => p.y)));
-  const left = min - 3400, top = -peak - 900, width = max - min + 6800, bottom = 2350;
+  const roofPeak = building === "main" ? model.roof.mainRidgePeak : model.roof.annexRidgePeak;
+  const peak = Math.max(roofPeak, ...surfaces.flatMap(s => s.points.map(p => p.y)));
+  const left = min - 3600, top = -peak - 1800, width = max - min + 8000, bottom = 2350;
   const id = `el-${view}-${style}-${building}`;
   const buildingLabel = building === "main" ? "主楼" : "辅楼";
   const clip = visible.map((p, i) => `<clipPath id="${id}-${i}" clipPathUnits="userSpaceOnUse">${p.map(p => `<polygon points="${points(p)}"/>`).join("")}</clipPath>`).join("");
@@ -412,27 +548,73 @@ export function elevationSvg(view: ElevationView, style: RoofStyle, layout?: Vil
     if (building === "main" && !recessedPortico()) dimensions += dimension(u(0, porticoFrontZ()), u(0, porticoWallZ()), 850, 0);
   }
   const levels: [string, number][] = building === "main"
-    ? [["院坪基准", 0], ["首层完成面", site.entranceRise], ["二层楼面", model.floors[1].y], [isHalfStoreyScheme ? "半层楼面" : "三层楼面", model.floors[2].y], ["主楼屋面基准", r.main.eave], ["主楼瓦脊", r.mainPeak], ...(isHalfStoreyScheme ? [["屋脊最高点", halfStoreyRoof().peak] as [string, number]] : [])]
-    : [["院坪基准", 0], ["辅楼屋面基准", r.annex.eave], ["辅楼最高点", peak]];
-  const labels = levels.map(([name, y], i) => {
-    const x = min - 250, ty = -y + (i === 0 ? 100 : i === 1 ? -140 : 0);
-    return line([x, -y], [min, -y], "el-level") + `<path d="M${n(x)} ${n(-y)} l-110 -150 h220 Z" fill="#555"/>` + text(x - 170, ty, `${name} ${height(y)}`, "el-label", "end");
+    ? [["院坪基准", 0], ["首层完成面", site.entranceRise], ["二层楼面", model.floors[1].y],
+      [isHalfStoreyScheme ? "半层楼面" : "三层楼面", model.floors[2].y],
+      ["屋面板底", r.main.eave],
+      [isHalfStoreyScheme ? "三楼天沟板面" : "主楼屋面板顶", r.main.eave + floorSlabThickness],
+      ["瓦檐面", r.main.eave + slabToTileEaveLift()], ["主楼坡面脊线", r.mainPeak],
+      ["屋脊最高点", roofPeak]]
+    : [["院坪基准", 0], ["首层完成面", site.entranceRise], ["屋面板底", r.annex.eave],
+      ["辅楼屋面板顶", r.annex.eave + floorSlabThickness], ["瓦檐面", r.annex.eave + r.annexProfile.tileLift],
+      ["辅楼坡面脊线", r.annexPeak], ["屋脊最高点", roofPeak], ["辅楼最高点", peak]];
+  let previousLevelY = Infinity;
+  const labels = levels.sort((a, b) => a[1] - b[1]).map(([name, y]) => {
+    const x = min - 250, ty = Math.min(-y, previousLevelY - 390);
+    previousLevelY = ty;
+    return line([x, -y], [min, -y], "el-level")
+      + `<path d="M${n(x)} ${n(-y)} l-110 -150 h220 Z" fill="#555"/>`
+      + line([x - 120, -y], [x - 250, ty], "el-level")
+      + text(x - 300, ty, `${name} ${height(y)}`, "el-label", "end");
   }).join("");
-  let heights = "";
-  for (const [index, floor] of (building === "main" ? model.floors : [{ y: 0, height: a.height }]).entries()) {
-    const finishRise = index === 0 ? site.entranceRise : 0;
-    const x = max + 500, y0 = -floor.y - finishRise, y1 = -floor.y - floor.height;
-    heights += line([max + 100, y0], [x + 120, y0], "el-dim") + line([max + 100, y1], [x + 120, y1], "el-dim") + line([x, y0], [x, y1], "el-dim") + text(x + 180, (y0 + y1) / 2, String(n(floor.height - finishRise)), "el-dim-label", "start");
-  }
-  const extra = building === "main" ? text(max + 1100, -r.hat.peak, `官帽瓦脊 ${height(r.hat.peak)}`, "el-small", "start") : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="floor-svg elevation-svg" data-elevation="${view}" data-building="${building}" data-roof-style="${style}" viewBox="${n(left)} ${n(top)} ${n(width)} ${n(bottom - top)}" role="img" aria-label="${buildingLabel}${elevationLabels[view]}，当前方案正投影"><title>${buildingLabel}${elevationLabels[view]} · ${roofStyleLabels[style]} · 单位 mm</title><desc>左为${directions[view].left}，右为${directions[view].right}。${buildingLabel}的外墙、洞口和屋面${building === "main" ? "及门厅" : "及烟囱"}正投影，按深度消隐；雕花、栏杆及檐口细部简化。标高相对暂定院坪基准，非施工图。</desc><defs><style>${elevationStyles.replaceAll("elevation-tiles", `${id}-tiles`)}</style><pattern id="${id}-tiles" width="240" height="120" patternUnits="userSpaceOnUse"><rect width="240" height="120" fill="white"/><path d="M0 0h240 M0 120h240 M0 0q30 0 30 60t30 60 M120 0q30 0 30 60t30 60" fill="none" stroke="#999" stroke-width="10"/></pattern>${clip}</defs><rect x="${n(left)}" y="${n(top)}" width="${n(width)}" height="${n(bottom - top)}" fill="#fff"/>${drawing}${line([min - 180, 0], [max + 180, 0], "el-ground")}${labels}${heights}${extra}${dimensions}${text((min + max) / 2, 2100, `${buildingLabel}${elevationLabels[view]}　｜　左：${directions[view].left} · 右：${directions[view].right}`, "el-title")}</svg>`;
+  const segments: [string, number, number][] = [["地基抬高", 0, site.entranceRise]];
+  if (building === "main") {
+    model.floors.forEach((floor, index) => {
+      const bottom = index === 0 ? site.entranceRise : floor.y;
+      const top = index === 2 ? r.main.eave + floorSlabThickness : floor.y + floor.height;
+      segments.push([isHalfStoreyScheme && index === 2 ? "半层高度" : `${["一", "二", "三"][index]}层层高`, bottom, top]);
+    });
+  } else segments.push(["一层层高", site.entranceRise, a.height + floorSlabThickness]);
+  const roof = building === "main" ? r.main : r.annex;
+  const tileEave = roof.eave + (building === "main" ? slabToTileEaveLift() : r.annexProfile.tileLift);
+  const tilePeak = building === "main" ? r.mainPeak : r.annexPeak;
+  segments.push(["屋面构造", roof.eave + floorSlabThickness, tileEave], ["坡屋顶升高", tileEave, tilePeak], ["脊瓦高度", tilePeak, roofPeak]);
+  if (peak > roofPeak) segments.push([building === "annex" ? "烟囱超出屋脊" : "构件超出屋脊", roofPeak, peak]);
+  const totalX = max + 3700, totalY = -peak / 2;
+  const heights = heightDimensions(segments, max)
+    + `<g data-height-region="总高度" data-height-bottom="0" data-height-top="${n(peak)}">`
+    + line([max + 100, 0], [totalX + 120, 0], "el-dim")
+    + line([max + 100, -peak], [totalX + 120, -peak], "el-dim")
+    + line([totalX, 0], [totalX, -peak], "el-dim")
+    + `<text x="${n(totalX + 250)}" y="${n(totalY)}" transform="rotate(-90 ${n(totalX + 250)} ${n(totalY)})" text-anchor="middle" class="el-dim-label">总高度 ${n(peak)}</text></g>`;
+  const sumLabel = text((min + max) / 2, 1510, `高度合计：${segments.filter(([, bottom, top]) => top > bottom).map(([, bottom, top]) => n(top) - n(bottom)).join("＋")}＝${n(peak)}`, "el-small");
+  const extra = building === "main" && !isHalfStoreyScheme
+    ? text((min + max) / 2, -peak - 1050, `官帽瓦脊 ${height(r.hat.peak)}`, "el-small") : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" class="floor-svg elevation-svg" data-elevation="${view}" data-building="${building}" data-roof-style="${style}" viewBox="${n(left)} ${n(top)} ${n(width)} ${n(bottom - top)}" role="img" aria-label="${buildingLabel}${elevationLabels[view]}，当前方案正投影"><title>${buildingLabel}${elevationLabels[view]} · ${roofStyleLabels[style]} · 单位 mm</title><desc>左为${directions[view].left}，右为${directions[view].right}。${buildingLabel}的外墙、洞口和屋面${building === "main" ? "及门厅" : "及烟囱"}正投影，按深度消隐；雕花、栏杆及檐口细部简化。标高相对暂定院坪基准，非施工图。</desc><defs><style>${elevationStyles.replaceAll("elevation-tiles", `${id}-tiles`)}</style><pattern id="${id}-tiles" width="240" height="120" patternUnits="userSpaceOnUse"><rect width="240" height="120" fill="white"/><path d="M0 0h240 M0 120h240 M0 0q30 0 30 60t30 60 M120 0q30 0 30 60t30 60" fill="none" stroke="#999" stroke-width="10"/></pattern>${clip}</defs><rect x="${n(left)}" y="${n(top)}" width="${n(width)}" height="${n(bottom - top)}" fill="#fff"/>${drawing}${line([min - 180, 0], [max + 180, 0], "el-ground")}${labels}${heights}${extra}${dimensions}${sumLabel}${text((min + max) / 2, 2100, `${buildingLabel}${elevationLabels[view]}　｜　左：${directions[view].left} · 右：${directions[view].right}`, "el-title")}</svg>`;
+  return { svg, segments, levels, peak, roofPeak, plateBottom: roof.eave, plateTop: roof.eave + floorSlabThickness };
+}
+
+/** 与SVG共用同一次标高计算，显示值以取整后的端点相减，分段相加严格等于总高。 */
+function heightSummary(drawing: ReturnType<typeof buildElevationDrawing>, building: ElevationBuilding) {
+  const { segments, peak, roofPeak, plateBottom, plateTop } = drawing;
+  const parts = segments.filter(([, bottom, top]) => top > bottom);
+  const rows = parts.map(([name, bottom, top]) => `<tr><th scope="row">${name}</th><td>${n(top) - n(bottom)}</td><td>${height(bottom)} → ${height(top)}</td></tr>`).join("");
+  const formula = parts.map(([, bottom, top]) => n(top) - n(bottom)).join("＋");
+  const firstHeight = n(segments[1][2]) - n(segments[1][1]);
+  const firstNote = building === "main" && !isHalfStoreyScheme
+    ? `三层方案的二层楼面标高参数从院坪起算；当前首层实际层高＝${n(segments[1][2])}－${n(site.entranceRise)}＝${firstHeight}。`
+    : "各层高度从本层楼面／完成面起算，入户抬高单列。";
+  return `<div class="elevation-height-summary" data-height-summary="${building}"><h4>高度明细 · mm · 院坪为 ±0</h4><p>${firstNote}层高包含上方120板厚，屋面构造从板顶起算。板底 ${height(plateBottom)}，板顶 ${height(plateTop)}；板厚120已计入层高。</p><table><thead><tr><th scope="col">层次</th><th scope="col">分段高度</th><th scope="col">起止标高</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row">总高度</th><td>${n(peak)}</td><td>±0 → ${height(peak)}</td></tr></tfoot></table><p class="elevation-height-sum">${formula}＝${n(peak)}</p><p>屋面构造＝天沟内挡高度＋瓦檐面至内挡顶高差。坡屋顶升高＝瓦檐面至坡面脊线的竖向高差，由跨度与分水计算。脊瓦高度按实际构件截面计算，默认130。${building === "annex" ? `屋脊最高点 ${height(roofPeak)}；总高度包含烟囱盖板。` : "总高度量至最高构件顶。"}各标高取整到毫米后求段差，细部不再另外累加。</p></div>`;
 }
 
 export function elevationPlan(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false) {
-  const controls = `<section class="plan-sheet"><div class="plan-sheet-head"><h3>建筑立面图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择立面方向">${(Object.keys(elevationLabels) as ElevationView[]).map(key => `<button type="button" data-elevation-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${elevationLabels[key]}</button>`).join("")}</div></div><div class="roof-plan-meta elevation-plan-meta"><span>正投影 · 长度／相对标高：mm</span><span>左：${directions[view].left} · 右：${directions[view].right}</span><span>当前屋面：${roofStyleLabels[style]}</span><div class="elevation-roof-switch" role="group" aria-label="立面官帽造型">${(Object.keys(roofStyleLabels) as RoofStyle[]).map(key => `<button type="button" data-roof-style="${key}" class="secondary-button${style === key ? " active" : ""}" aria-pressed="${style === key}">${roofStyleLabels[key]}</button>`).join("")}</div></div></section>`;
-  const sheets = (["main", "annex"] as ElevationBuilding[]).map(building => {
+  const drawings = (["main", "annex"] as ElevationBuilding[]).map(building => ({
+    building, drawing: withLayoutContext(layout, () => buildElevationDrawing(view, style, layout, balcony, building)),
+  }));
+  const overallPeak = Math.max(...drawings.map(({ drawing }) => drawing.peak));
+  const controls = `<section class="plan-sheet"><div class="plan-sheet-head"><h3>建筑立面图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择立面方向">${(Object.keys(elevationLabels) as ElevationView[]).map(key => `<button type="button" data-elevation-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${elevationLabels[key]}</button>`).join("")}</div></div><div class="roof-plan-meta elevation-plan-meta"><span>正投影 · 长度／相对标高：mm</span><span>左：${directions[view].left} · 右：${directions[view].right}</span><span>当前屋面：${roofStyleLabels[style]}</span><div class="elevation-roof-switch" role="group" aria-label="立面官帽造型">${(Object.keys(roofStyleLabels) as RoofStyle[]).map(key => `<button type="button" data-roof-style="${key}" class="secondary-button${style === key ? " active" : ""}" aria-pressed="${style === key}">${roofStyleLabels[key]}</button>`).join("")}</div></div><p class="elevation-height-summary" data-overall-height="${n(overallPeak)}">整屋总高度 <strong>${n(overallPeak)}</strong>（院坪至最高构件，mm）；主楼 ${n(drawings[0].drawing.peak)}，辅楼含烟囱 ${n(drawings[1].drawing.peak)}。主辅楼并列，总高度取最高点。</p></section>`;
+  const sheets = drawings.map(({ building, drawing }) => {
     const label = building === "main" ? "主楼" : "辅楼";
-    return `<section class="plan-sheet"><div class="plan-sheet-head"><h3>${label} · ${elevationLabels[view]}</h3><div class="roof-drawing-tabs"><button type="button" data-download-elevation="${building}" class="secondary-button">下载${label} SVG</button></div></div>${elevationSvg(view, style, layout, balcony, building)}<p class="roof-plan-note">${label}独立正投影，与当前方案的尺寸和外部门窗联动；雕花、瓦垄、栏杆与檐口细部简化，标高相对暂定院坪基准。方案示意，非施工图。</p></section>`;
+    return `<section class="plan-sheet"><div class="plan-sheet-head"><h3>${label} · ${elevationLabels[view]}</h3><div class="roof-drawing-tabs"><button type="button" data-download-elevation="${building}" class="secondary-button">下载${label} SVG</button></div></div>${drawing.svg}${heightSummary(drawing, building)}<p class="roof-plan-note">${label}独立正投影，与当前方案的尺寸和外部门窗联动；雕花、瓦垄、栏杆与檐口细部简化，标高相对暂定院坪基准。方案示意，非施工图。</p></section>`;
   }).join("");
   return `<div class="plan-sheets">${controls}${sheets}</div>`;
 }

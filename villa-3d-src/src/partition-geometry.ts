@@ -2,6 +2,7 @@ import { construction, floors, isPhysicalWall, wallRoleOf, type Wall } from "./d
 import { physicalWallJoinExtensions, type PhysicalWallStroke } from "./room-geometry";
 import { interiorOpeningProfile } from "./openings";
 import { stairSoffitClearHeight, type StairSoffitGeom } from "./primitives";
+import { isHalfStoreyScheme } from "./construction-scheme.ts";
 
 /** 与二维墙线、净空求解共用真实接触规则，虚拟分界不能补出实体墙角。 */
 export function wallJunctionPeers(parts: readonly Wall[], facades: readonly Pick<Wall, "a" | "b">[]): PhysicalWallStroke[] {
@@ -23,7 +24,8 @@ export function joinedWallSpan(wall: Pick<Wall, "a" | "b">, peers: readonly Phys
 }
 
 /** 户型三维和完整房屋共用的隔墙净高，标高始终相对本层完成面。 */
-export const partitionCeilingGap = (floor: number, annex = false) => annex || floor === floors.length - 1 ? 0 : construction.floorSlab;
+export const partitionCeilingGap = (floor: number, annex = false) =>
+  annex || isHalfStoreyScheme && floor === floors.length - 1 ? 0 : construction.floorSlab;
 
 export function partitionProfile(part: Wall, storyHeight: number, stair?: StairSoffitGeom, ceilingGap = construction.floorSlab) {
   let height = Math.max(0, storyHeight - ceilingGap);

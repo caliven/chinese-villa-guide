@@ -331,10 +331,32 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
     mesh.name = "瓦片搭接缝";
     group.add(mesh);
   }
+  cylinders(visibleRoofRidges(ridges, originalFaces), roofRidgeRadius, 16, "相接直脊瓦");
+  return group;
+}
+
+/** 实体与立面共用脊瓦的遮挡裁切、端部回收和抬高。 */
+export const roofRidgeRadius = 75;
+export const roofRidgeLift = 55;
+/** 与实体16面筒瓦相同的端截面，端点已包含脊瓦轴线抬高。 */
+export function roofRidgeRings(center: THREE.Vector3, end: THREE.Vector3) {
+  const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0),
+    end.clone().sub(center).normalize());
+  const ring = (at: THREE.Vector3) => Array.from({ length: 16 }, (_, i) => new THREE.Vector3(
+    Math.sin(i * Math.PI / 8) * roofRidgeRadius, 0,
+    Math.cos(i * Math.PI / 8) * roofRidgeRadius,
+  ).applyQuaternion(rotation).add(at));
+  return [ring(center), ring(end)];
+}
+
+/** 方形屋面仅有斜脊，不能固定加130；按真实截面求最高点。 */
+export function roofRidgePeak(segments: [THREE.Vector3, THREE.Vector3][], tilePeak: number) {
+  return Math.max(tilePeak, ...segments.flatMap(([a, b]) => roofRidgeRings(a, b).flat().map(p => p.y)));
+}
+
+export function visibleRoofRidges(ridges: RoofRidge[], originalFaces: RoofFace[]) {
   const visibleRidges: [THREE.Vector3, THREE.Vector3][] = [];
   // 斜脊筒瓦半径；檐口端须再收回，避免圆截面探进天沟、鸟瞰像瓦角穿模。
-  const ridgeRadius = 75;
-  const ridgeLift = 55;
   const eaveY = Math.min(...originalFaces.flatMap(face => face.points.map(p => p.y)));
   for (const ridge of ridges) {
     const ts = [0, 1];
@@ -355,7 +377,7 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
     }
     ts.sort((a, b) => a - b);
     const ridgeLen = ridge.a.distanceTo(ridge.b);
-    const eavePull = ridgeLen > ridgeRadius * 2 + 80 ? (ridgeRadius + 20) / ridgeLen : 0;
+    const eavePull = ridgeLen > roofRidgeRadius * 2 + 80 ? (roofRidgeRadius + 20) / ridgeLen : 0;
     for (let i = 0; i < ts.length - 1; i++) {
       if (ts[i + 1] - ts[i] < epsilon) continue;
       const mid = ridge.a.clone().lerp(ridge.b, (ts[i] + ts[i + 1]) / 2);
@@ -366,9 +388,8 @@ export function addTiledRoof(parent: THREE.Object3D, faces: RoofFace[], material
         if (ridge.b.y <= eaveY + 120) t1 = Math.min(t1, 1 - eavePull);
       }
       if (t1 - t0 < epsilon) continue;
-      visibleRidges.push([t0, t1].map(t => ridge.a.clone().lerp(ridge.b, t).add(new THREE.Vector3(0, ridgeLift, 0))) as [THREE.Vector3, THREE.Vector3]);
+      visibleRidges.push([t0, t1].map(t => ridge.a.clone().lerp(ridge.b, t).add(new THREE.Vector3(0, roofRidgeLift, 0))) as [THREE.Vector3, THREE.Vector3]);
     }
   }
-  cylinders(visibleRidges, ridgeRadius, 16, "相接直脊瓦");
-  return group;
+  return visibleRidges;
 }

@@ -1,8 +1,9 @@
 import * as THREE from "three";
-import { construction, isPhysicalWall, site, wallRoleOf, type Floor, type Point } from "./data";
+import { construction, isPhysicalWall, wallRoleOf, type Floor, type Point } from "./data";
 import { partitionProfile } from "./partition-geometry";
-import { furnish, rect, slab, tag, wallWithOpenings, type Mats, type Opening } from "./primitives";
+import { furnish, slab, tag, wallWithOpenings, type Mats, type Opening } from "./primitives";
 import { clipHalfStorey } from "./half-storey";
+import { buildHalfStoreyBalcony, halfStoreyFloorOutline } from "./half-storey-portico.ts";
 
 /** 半层独立构造：楼面、坡下围护与室内，不复用原三层的高柱和露台装饰。 */
 export function buildHalfStoreyLevel(
@@ -10,9 +11,8 @@ export function buildHalfStoreyLevel(
   facades: { a: Point; b: Point; openings: Opening[] }[],
   holes: Point[][], withLabels: boolean,
 ) {
-  const m = site.main;
   // 与主楼一致：轮廓点即外墙外皮，楼板与之齐平。
-  slab(parent, rect(m.x, floor.front, m.w, m.z + m.d - floor.front),
+  slab(parent, halfStoreyFloorOutline(floor.front),
     floor.y, construction.floorSlab, mat.concrete, holes).name = "半层楼面";
   const envelope = new THREE.Group(); envelope.name = "半层坡下围护"; parent.add(envelope);
   for (const wall of facades)
@@ -30,6 +30,7 @@ export function buildHalfStoreyLevel(
     model.userData.layoutSelection = { kind: "furniture", floor: 2, index };
   });
   clipHalfStorey(envelope);
+  buildHalfStoreyBalcony(parent, floor, 2, mat);
   const labels = new THREE.Group(); labels.visible = false; parent.add(labels);
   for (const room of withLabels ? floor.rooms : []) {
     const [x, z] = room.label ?? [room.x + room.w / 2, room.z + room.d / 2];

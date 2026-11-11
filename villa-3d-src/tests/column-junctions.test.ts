@@ -77,12 +77,17 @@ test("三楼包角及两种官帽的柱冠止于对应下沿线，立面与三�
     const villa = buildVilla(mat, false, 4.5, style);
     try {
       villa.group.updateMatrixWorld(true);
+      const fasciaBot = fasciaBottomY(mainRoofFootprint().eave, 0);
       const corners: THREE.Object3D[] = [];
       villa.levels[2].traverse(o => { if (o.name === "三楼包角柱") corners.push(o); });
       assert.equal(corners.length, 2);
+      const rear = villa.facadeColumns.children.filter(o => o.name === "包角柱" && o.position.z > site.main.z);
+      assert.equal(rear.length, 2, "屋后左右各一根通高包角柱");
+      for (const c of [...corners, ...rear]) {
+        assert.ok(Math.abs(bounds(c).max.y - fasciaBot) < .1, "北面三楼包角与南面通高包角顶端同对齐下沿线底");
+      }
       for (const c of corners) {
         assert.equal(c.position.z, floors[2].front);
-        assert.ok(Math.abs(bounds(c).max.y - fasciaBottomY(mainRoofFootprint().eave, 0)) < .1);
         for (const name of ["圆形几何团寿浮雕", "包角柱深底回纹带", "包角柱单黑线柱身", "下段回折卷草花板"])
           assert.ok(c.getObjectByName(name), `三楼包角柱保留同系列${name}`);
       }

@@ -12,6 +12,7 @@ import type { Mats } from "../src/primitives.ts";
 import { selectionBounds } from "../src/layout-scene.ts";
 import { parseLayoutVersionDocument } from "../src/data-versions.ts";
 import { fitStairToRoom, stairOpeningBounds } from "../src/stair-geometry.ts";
+import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params.ts";
 
 test("连续画布适应窗口保持毫米比例；鼠标锚点缩放不漂移且有限幅", () => {
   const bounds = { x: 1000, y: -2000, w: 20000, h: 15000 };
@@ -79,6 +80,31 @@ test("三维楼板按凹形净轮廓铺面并扣除边界洞，内环不重复�
 const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => Reflect.get(target, key) ?? (() => {}) });
 globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => context }) } as unknown as Document;
 const materials = () => new Proxy({} as Mats, { get: (target, key: keyof Mats) => target[key] ??= new THREE.MeshPhysicalMaterial() as never });
+
+test("三层编辑与漫游墙顶贴屋面板底，层高包含120板厚", () => {
+  try {
+    applyVillaParams({ ...DEFAULT_VILLA_PARAMS, floor3Height: 3500 });
+    const draft = clonePublishedLayout(), top = draft.floors[2].y + draft.floors[2].height;
+    draft.floors[2].partitions = [{ a: [15000, 5300], b: [17000, 5300], role: "partition" }];
+    for (const walking of [false, true]) {
+      const model = buildEditorModel(draft, materials(), "full", { walking, floors: [2] });
+      model.root.updateMatrixWorld(true);
+      const walls: THREE.Mesh[] = [];
+      model.levels[2].traverse(object => { if (object instanceof THREE.Mesh && object.userData.walkWall) walls.push(object); });
+      assert.ok(walls.length > 0);
+      const wallTops = walls.map(wall => new THREE.Box3().setFromObject(wall).max.y);
+      assert.ok(wallTops.every(y => y <= top - 120 + .1));
+      assert.ok(Math.abs(Math.max(...wallTops) - (top - 120)) < .1);
+      if (walking) {
+        const slab = model.root.getObjectByName("漫游屋顶层")!.children[0];
+        const bounds = new THREE.Box3().setFromObject(slab);
+        assert.equal(bounds.max.y, top);
+        assert.equal(bounds.min.y, top - 120);
+      }
+      disposeEditorModel(model.root, new THREE.Scene());
+    }
+  } finally { resetVillaParams(); }
+});
 
 test("编辑楼板底面遮住室内与板内网格，洞口保留，标签仅在上方可见", () => {
   const outline: Point[] = [[0, 0], [4000, 0], [4000, 4000], [0, 4000]];

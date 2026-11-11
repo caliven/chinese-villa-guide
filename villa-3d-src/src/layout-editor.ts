@@ -61,7 +61,7 @@ import {
   type WallOpening,
 } from "./openings";
 import { facades, openingFacade } from "./facades";
-import { exteriorWindowProfile, freezeExteriorWindowDimensions } from "./facade-layout";
+import { clampExteriorOpeningsToFascia, exteriorWindowProfile, freezeExteriorWindowDimensions } from "./facade-layout";
 import { partitionCeilingGap, partitionProfile } from "./partition-geometry";
 import { exteriorWallTargets, normalizeConnectedWallEndpoints, normalizeDraftWallContacts, type WallContactTarget } from "./wall-contact-snap";
 import { recessedFloor, recessFrontFacades } from "./building-variants";
@@ -408,6 +408,7 @@ export class LayoutEditor {
     this.draft = normalizeDraftWallContacts(ensureExteriorManaged(draft ?? stored ?? clonePublishedLayout()));
     this.draft.exteriorOpenings = alignedEntryOpenings(this.draft);
     freezeExteriorWindowDimensions(this.draft);
+    const fasciaFixed = clampExteriorOpeningsToFascia(this.draft);
     initializeLivingVoid(this.draft);
     this.ensureWallIds();
     // 旧草稿首次接管外墙洞口后立刻落盘，避免刷新又变回静态窗。
@@ -420,6 +421,9 @@ export class LayoutEditor {
     this.pushHistory();
     if (stored) {
       queueMicrotask(() => this.host.toast("已载入方案文件中的布局草稿"));
+    }
+    if (fasciaFixed > 0) {
+      queueMicrotask(() => this.host.toast(`已将${fasciaFixed}处顶层窗外沿压到飘檐下沿线以下`));
     }
   }
 
@@ -539,6 +543,7 @@ export class LayoutEditor {
     this.draft = normalizeDraftWallContacts(ensureExteriorManaged(structuredClone(draft)));
     this.draft.exteriorOpenings = alignedEntryOpenings(this.draft);
     freezeExteriorWindowDimensions(this.draft);
+    clampExteriorOpeningsToFascia(this.draft);
     initializeLivingVoid(this.draft);
     this.ensureWallIds();
     try {
@@ -2444,7 +2449,10 @@ export class LayoutEditor {
           if (candidate?.mode === "continuous" && candidate.sourceIndex === sel.index) limits = { ...candidate, opening: profile.opening };
         }
         if (height < 200 || height > 20000 || sill < 0 || sill > limits.maxSill || sill + height > limits.maxTop) {
-          this.host.toast(`窗高至少200，窗台不得低于地面，窗顶不能超过${formatMm(limits.maxTop)}；已保留原尺寸`);
+          const overFascia = !!limits.fasciaLimited && sill + height > limits.maxTop;
+          this.host.toast(overFascia
+            ? `窗顶不能高于飘檐下沿线（最高${formatMm(limits.maxTop)}）；已保留原尺寸`
+            : `窗高至少200，窗台不得低于地面，窗顶不能超过${formatMm(limits.maxTop)}；已保留原尺寸`);
           this.host.redraw();
           return;
         }
@@ -2951,7 +2959,8 @@ export class LayoutEditor {
     const storyHeight = (annex ? site.annex.height : this.floorData(floor).height) - (floor === 0 ? site.entranceRise : 0);
     const stair = !annex && draftHasStair(this.draft) && floor < this.draft.floors.length - 1 ? fitStairToRoom(this.draft.stairLayout, this.draft.floors) : undefined;
     const profile = partitionProfile(wall, storyHeight, stair, partitionCeilingGap(floor, annex));
-    return { opening, floor, mode: "ordinary" as const, sill: profile.opening!.sill, height: profile.opening!.height, maxTop: profile.height - 80, maxSill: profile.height - 280 };
+    return { opening, floor, mode: "ordinary" as const, sill: profile.opening!.sill, height: profile.opening!.height,
+      maxTop: profile.height - 80, maxSill: profile.height - 280, fasciaLimited: false };
   }
 
   /** 新窗使用统一普通窗默认值；檐下先降低窗台，保持默认窗高。 */

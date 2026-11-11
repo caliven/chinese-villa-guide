@@ -12,7 +12,7 @@ import {
   type DoorSide,
   type OpeningKind,
 } from "./openings.ts";
-import { fasciaBottomY, openingBelowFasciaClearance, withAnnexRoofDesign } from "./roof-options.ts";
+import { fasciaBottomY, floorSlabThickness, openingBelowFasciaClearance, withAnnexRoofDesign } from "./roof-options.ts";
 
 export interface Opening {
   at: number;
@@ -57,18 +57,18 @@ const MAIN_W0 = 13500;
 /** 默认辅楼面宽。 */
 const ANNEX_W0 = 4500;
 
-/** 正屋檐口完成面标高＝三层层高累加（默认 10.5）。 */
+/** 正屋檐口板底。三层层高量至板顶，梁托与墙顶量至其下120厚板底。 */
 export function mainEaveY() {
   if (isHalfStoreyScheme) return halfStoreyRoof().wallTop;
-  return floors[0].height + floors[1].height + floors[2].height;
+  return floors[2].y + floors[2].height - floorSlabThickness;
 }
 
-/** 三楼洞口上沿不得越过下沿线板底（留 clearance）。 */
-export function thirdFloorMaxOpeningHead(eaveY = mainEaveY()) {
-  return fasciaBottomY(eaveY, 0) - openingBelowFasciaClearance - floors[2].y;
+/** 三楼洞口上沿不得越过下沿线板底（留 clearance）；相对该层楼面。 */
+export function thirdFloorMaxOpeningHead(eaveY = mainEaveY(), floorY = floors[2].y) {
+  return fasciaBottomY(eaveY, 0) - openingBelowFasciaClearance - floorY;
 }
 
-function clampOpeningHead(o: Opening, maxHead: number): Opening {
+export function clampOpeningHead(o: Opening, maxHead: number): Opening {
   const top = o.sill + o.h;
   if (top <= maxHead) return o;
   return { ...o, h: Math.max(400, maxHead - o.sill) };
