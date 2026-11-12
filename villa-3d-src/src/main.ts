@@ -157,14 +157,15 @@ const eaveColorPresets = [
   { label: "日落橙", color: "#ff7030" },
   { label: "玫瑰暖光", color: "#ff927c" },
 ] as const;
-const cameraLabels: Record<string, string> = {
-  aerial: "鸟瞰",
-  overview: "上帝视角",
-  north: "北立面",
-  south: "南侧",
-  courtyard: "院坪",
-  garage: "地库",
-};
+/** 视角栏顺序：上帝视角放最后。 */
+const cameraBarItems: [string, string][] = [
+  ["aerial", "鸟瞰"],
+  ["north", "北立面"],
+  ["south", "南侧"],
+  ["courtyard", "院坪"],
+  ["garage", "地库"],
+  ["overview", "上帝视角"],
+];
 
 if (isHalfStoreyScheme) initializeHalfStoreyContent(() => roofStyle);
 document.querySelector("#app")!.innerHTML = `
@@ -206,21 +207,13 @@ document.querySelector("#app")!.innerHTML = `
         <button class="icon-button" id="fullscreen" aria-label="全屏查看" title="全屏查看">${icon("expand")}</button>
       </div>
       <div class="photo-comparison" id="comparison" hidden><div><strong id="comparison-title"></strong><button id="photo-expand" class="icon-button" aria-label="放大航拍参考">${icon("expand")}</button><button id="close-comparison" class="icon-button" aria-label="关闭航拍对照">${icon("close")}</button></div><img id="comparison-img" alt="航拍对照"/><p id="comparison-note"></p></div>
-      <div class="photo-strip" id="photo-strip" aria-label="航拍对照">${photos
-        .slice(0, 4)
-        .map(
-          (p, i) =>
-            `<button data-photo="${i}" title="${p.title}" aria-label="对照${p.title}"><img src="./photos/${p.file}" alt="${p.title}"/><span>${p.title}</span></button>`,
-        )
-        .join("")}</div>
-      <div class="camera-bar" id="camera-bar" aria-label="预设视角">${Object.entries(
-        cameraLabels,
-      )
+      <div class="camera-bar" id="camera-bar" aria-label="预设视角">${cameraBarItems
         .map(
           ([id, name]) =>
             `<button data-camera="${id}" aria-pressed="${id === "aerial"}" class="${id === "aerial" ? "active" : ""}">${icon(id)}<span>${name}</span></button>`,
         )
         .join("")}</div>
+      <div class="inspector-hot-edge" id="inspector-hot-edge" hidden aria-hidden="true"></div>
       <div class="compass" id="compass"><span>N</span><svg viewBox="0 0 52 52" aria-label="指北针"><circle cx="26" cy="26" r="23"/><g id="compass-arrow"><path d="m26 7 9 34-9-7-9 7Z"/></g></svg></div>
       ${planDesignerHtml(floors.map(f => f.name))}
       <article id="sources-panel" class="sources-panel" hidden><h1>设计依据与待核对事项</h1><p class="lead">把已经知道的、照片估算的和设计提出的分开记录，方便家人与现场一起核对。</p><div class="source-gallery">${photos.map((p, i) => `<button data-photo-modal="${i}"><img src="./photos/${p.file}" alt="${p.title}" loading="lazy"/><strong>${p.title}</strong><span>${p.note}</span></button>`).join("")}</div><h2>尺寸与证据</h2><div class="fact-list" id="fact-list"></div><h2>使用范围</h2><p>这是按现有照片与尺寸制作的方案模型。围护墙、楼梯、柱梁、挡土、排水、柴火烟道和邻居平台切除均需结合现场深化；模型没有代替结构施工图，也未认定宅基地审批范围。</p><p>太阳位置采用安化地区坐标和北京时间。山体采用 AWS Mapzen / USGS SRTM 原始高程，院坪海拔、建筑轴线与邻房标高待实测；日照按当前地形和建筑模型估算。</p><p class="source-links"><a href="https://manuals.lixiang.com/zh-cn/X012022MAX/20250916140616/topic-2022-702D4999-001.html" target="_blank" rel="noreferrer">2022款理想L9官方整车参数 ↗</a><a href="https://bsesc.energy.gov/energy-basics/natural-light-and-daylighting" target="_blank" rel="noreferrer">自然采光与遮阳原理 ↗</a><a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noreferrer">AWS Terrain Tiles ↗</a><a href="../sunlight-3d/">原独立日照模拟器（旧版） ↗</a></p></article>
@@ -240,7 +233,7 @@ document.querySelector("#app")!.innerHTML = `
       </section>
       <div id="model-controls">
         <section><h2>方案概览</h2><div class="segmented"><button data-existing="false" class="active" aria-pressed="true">新建</button><button data-existing="true" aria-pressed="false">现状</button></div><div class="area-number" id="area-number">${buildingAreas.total.toFixed(1)}<span>m²</span></div><p class="area-caption" id="area-caption">主楼 ${buildingAreas.main.toFixed(1)}㎡ ＋ 辅楼 ${buildingAreas.annex.toFixed(1)}㎡ ＋ 门厅 ${buildingAreas.portico.toFixed(1)}㎡</p><p class="micro" id="area-micro">首层建筑面积合计 · 已含外伸门厅 · 全楼面积见下方</p><p class="area-caption" id="total-building-area"></p><p class="micro">方案参考：主楼各层投影扣除挑空，辅楼、门厅各计一次；不含露台及地库，半层按完整投影估算，报建面积以核定为准。</p><button type="button" class="secondary-button" id="open-params-from-inspector">打开尺寸设置</button></section>
-        <section><h2>模型显示</h2>${check("night-mode", "夜景模式")}<div id="eave-light-controls" class="eave-light-controls" hidden><div class="eave-preset-title">快捷灯色 <small>色温效果示意</small></div><div class="eave-presets" role="group" aria-label="洗墙灯快捷颜色">${eaveColorPresets.map(({ label, color }) => `<button type="button" class="eave-preset" data-eave-color="${color}" aria-pressed="${color === "#ff7030"}"><span class="eave-swatch" style="background:${color}" aria-hidden="true"></span>${label}</button>`).join("")}</div><label class="eave-color-label" for="eave-light-color">洗墙灯颜色<input type="color" id="eave-light-color" value="#ff7030"/></label><div class="range-heading"><label for="eave-light-brightness">洗墙灯亮度</label><output id="eave-light-brightness-output">150%</output></div><input type="range" id="eave-light-brightness" min="0" max="200" step="5" value="150"/></div>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "显示主楼与地库重叠示意")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">${isHalfStoreyScheme ? "半层" : "三楼"}局部浅阳台 · 1200 mm</option></select></label></section>
+        <section><h2>模型显示</h2>${check("night-mode", "夜景模式")}<div id="eave-light-controls" class="eave-light-controls" hidden><div class="eave-preset-title">快捷灯色 <small>色温效果示意</small></div><div class="eave-presets" role="group" aria-label="洗墙灯快捷颜色">${eaveColorPresets.map(({ label, color }) => `<button type="button" class="eave-preset" data-eave-color="${color}" aria-pressed="${color === "#ff7030"}"><span class="eave-swatch" style="background:${color}" aria-hidden="true"></span>${label}</button>`).join("")}</div><label class="eave-color-label" for="eave-light-color">洗墙灯颜色<input type="color" id="eave-light-color" value="#ff7030"/></label><div class="range-heading"><label for="eave-light-brightness">洗墙灯亮度</label><output id="eave-light-brightness-output">150%</output></div><input type="range" id="eave-light-brightness" min="0" max="200" step="5" value="150"/></div>${check("roof", "屋顶", true)}${check("dimensions", "尺寸标注")}${check("context", "周边环境", true)}${check("mountains", "山地模型", true)}${check("handmade-site", "手绘建筑与场地", true)}${check("main-building", "主楼", true)}${check("annex-building", "辅楼", true)}${check("neighbor-side", "左侧邻居房子", true)}${check("neighbor-rear", "屋后邻居房子", true)}${check("neighbor-front", "前面邻居房子")}${check("neighbor-roadside", "马路边蓝顶邻房", true)}${check("overlap", "显示主楼与地库重叠示意")}<label class="select-label">南侧阳台<select id="balcony"><option value="none">无连续后阳台 · 基准</option><option value="local">${isHalfStoreyScheme ? "半层" : "三楼"}局部浅阳台 · 1200 mm</option></select></label></section>
         <section><h2>主楼屋面坡度</h2><p class="micro">分水＝水平10对应的升高。这里调整主楼与官帽；辅楼坡度在「尺寸设置 → 辅楼」单独调整。</p><div class="range-heading"><label for="fen-shui">分水</label><output id="fen-shui-output">${site.roofFenShui.toFixed(1)}</output></div><input type="range" id="fen-shui" min="1" max="10" step="0.1" value="${site.roofFenShui}"/><label class="select-label">直接输入<input type="number" id="fen-shui-number" min="1" max="10" step="0.1" value="${site.roofFenShui}"/></label><p class="calculation" id="fen-shui-result"></p></section>
         <section><h2>关键尺寸</h2><dl class="metric-list" id="metric-list"></dl></section>
         <button class="notice notice-button" id="open-garage">${icon("info")}<span><strong>地库车辆路线待校核</strong><small>查看车身扫掠、净高待核区与柱墙潜在冲突。<br/>道路与梁底待测，切口协商待确认。</small></span><span>↗</span></button>
@@ -265,7 +258,7 @@ document.querySelector("#app")!.innerHTML = `
             "",
           )}</div><label class="select-label">日期<input type="date" id="sun-date" value="2026-09-23" min="2020-01-01" max="2100-12-31"/></label><div class="range-heading"><label for="sun-time">北京时间</label><output id="time-output">10:30</output></div><input type="range" id="sun-time" min="5" max="20" step="0.25" value="10.5"/><div class="range-ends"><span>05:00</span><span>12:30</span><span>20:00</span></div><dl class="metric-list"><div><dt>太阳高度角</dt><dd id="sun-alt"></dd></div><div><dt>方位角 · 北起顺时针</dt><dd id="sun-az"></dd></div><div><dt>山脊仰角 · 宅址上方5m</dt><dd id="sun-ridge"></dd></div><div><dt>参考点直射状态</dt><dd id="sun-terrain-state"></dd></div></dl></section>
         <section><h2>直射遮挡对比</h2><select id="sun-balcony" aria-label="选择南侧阳台方案"><option value="none">无连续后阳台 · 基准</option><option value="local">${isHalfStoreyScheme ? "半层" : "三楼"}局部浅阳台 · 1200 mm</option></select><p class="micro">浅阳台对比作用于各层南窗，其余方向比较直射遮挡。</p><button class="primary-button" id="analyze-sun">计算四向外窗遮挡</button><div id="sun-report" aria-live="polite"></div></section>
-        <details class="terrain-source"><summary>地形来源与精度</summary><p class="micro">Mapzen / USGS SRTM，原始约30m分辨率。源瓦片更新于2017年，近期开挖与填土仍需现场核对。半径${terrainData.radiusM / 1000}km，本地采用10～120m插值网格。宅院与邻房保留近场模型，外围20m接缝与近场共同计算遮挡，其外采用原始DEM。</p><p class="micro">WGS84 ${terrainData.latitude.toFixed(7)}, ${terrainData.longitude.toFixed(7)}。院坪基准约${terrainData.siteElevM.toFixed(1)}m，采用DEM插值，待实测。地理锚点沿用旧房中心近似定位。北侧航拍135022的相机朝向175.8°，建筑轴线角度待标定。</p><p class="micro">每10分钟计算窗外竖向3点的太阳中心直射。三维阴影由完整DEM按太阳中心方向投影，仰角读数以宅址上方5m为参考，逐窗结果按各窗位置与高度计算。后方模拟树群与手工山坡已移除。近场标高与邻房仍为估算，天气与室内反射光需另行评估。</p><p class="micro"><a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noreferrer">AWS 数据来源</a> · <a href="./terrain/horizon.json" target="_blank" rel="noreferrer">本次高程与瓦片来源记录</a></p></details>
+        <details class="terrain-source"><summary>地形来源与精度</summary><p class="micro">Mapzen / USGS SRTM，原始约30m分辨率。源瓦片更新于2017年，近期开挖与填土仍需现场核对。半径${terrainData.radiusM / 1000}km，本地采用10～120m插值网格。近房平台沿用现有标高，外围田面逐渐随DEM坡势起伏，东侧采用1m连续坡网，其他近场按2m细分，均为估算衔接。外侧直接采用原始DEM，靠场地的20m地形与近场共同逐面计算遮挡。</p><p class="micro">WGS84 ${terrainData.latitude.toFixed(7)}, ${terrainData.longitude.toFixed(7)}。院坪基准约${(terrainData.reference?.courtyardElevationM ?? terrainData.siteElevM).toFixed(1)}m，按现状六栋房基的DEM采样估算配准，待实测。地理锚点沿用旧房中心近似定位。北侧航拍135022的相机朝向175.8°，建筑轴线角度待标定。</p><p class="micro">每10分钟计算窗外竖向3点的太阳中心直射。三维阴影由完整DEM按太阳中心方向投影，仰角读数以宅址上方5m为参考，逐窗结果按各窗位置与高度计算。后方模拟树群与手工山坡已移除。近场标高与邻房仍为估算，天气与室内反射光需另行评估。</p><p class="micro">东侧三栋山脚邻房、窄田及北侧双溪与桥路参考北侧航拍131730和IMG_5135还原。桥与村道按树杈相接。两溪经过桥洞后汇合、合流向西为用户确认。房屋尺寸、桥跨、河床高差和岸线采用照片估算，河床暂按村道下约3.8m表达，待现场测量。新增建筑和地形一并参与逐窗遮挡计算。</p><p class="micro"><a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noreferrer">AWS 数据来源</a> · <a href="./terrain/horizon.json" target="_blank" rel="noreferrer">本次高程与瓦片来源记录</a></p></details>
       </div>
       <div id="garage-controls" hidden>
         <section>
@@ -316,6 +309,17 @@ if (isHalfStoreyScheme) {
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
+const inspectorEl = document.querySelector<HTMLElement>(".inspector")!;
+const inspectorHotEdge = $("inspector-hot-edge");
+function setFullscreenInspectorPeek(show: boolean) {
+  inspectorEl.classList.toggle("is-peek", show);
+}
+function syncFullscreenUi() {
+  const on = !!document.fullscreenElement;
+  document.body.classList.toggle("is-fullscreen", on);
+  inspectorHotEdge.hidden = !on || inspectorEl.hidden;
+  if (!on) setFullscreenInspectorPeek(false);
+}
 let viewer: VillaViewer | null = null;
 let layoutScene: LayoutScene | null = null;
 let planCanvas: PlanCanvas | null = null;
@@ -1782,7 +1786,11 @@ function updateScene() {
   $("real-scene-panel").hidden = !realScene;
   $("originals-panel").hidden = !originals;
   document.querySelector<HTMLElement>(".stage")!.hidden = realScene || design || originals;
-  document.querySelector<HTMLElement>(".inspector")!.hidden = realScene || design || originals;
+  inspectorEl.hidden = realScene || design || originals;
+  if (document.fullscreenElement) {
+    inspectorHotEdge.hidden = inspectorEl.hidden;
+    if (inspectorEl.hidden) setFullscreenInspectorPeek(false);
+  }
   if (design) {
     $("loading").hidden = true;
     $("interaction-hint").textContent = "按编号记录意见 · 保存快照与JSON备份 · 导出离线沟通图册";
@@ -1809,7 +1817,6 @@ function updateScene() {
   $("scene-heading").hidden = plan || tab === "sources";
   $("scene-tools").hidden = tab === "floor" || tab === "sources";
   $("compass").hidden = tab === "floor" || tab === "sources";
-  $("photo-strip").hidden = tab !== "model" || garage;
   $("camera-bar").hidden = tab === "sources" || tab === "floor";
   $("sun-stamp").hidden = tab !== "sun";
   document.querySelector<HTMLElement>('[data-camera="garage"]')!.hidden =
@@ -1836,6 +1843,8 @@ function updateScene() {
     eaveLightBrightness: Number($<HTMLInputElement>("eave-light-brightness").value) / 100,
     dimensions: checked("dimensions"),
     context: tab === "sun" || checked("context"),
+    mountains: tab === "sun" || checked("mountains"),
+    handmadeSite: tab === "sun" || checked("handmade-site"),
     balcony,
     floor: floor3d ? level : null,
     exploded: floor3d && checked("explode"),
@@ -2133,7 +2142,7 @@ async function restoreMeetingView(view: MeetingView) {
   $<HTMLInputElement>(`neighbor-courtyard-finish-${view.neighborCourtyardFinish}`).checked = true;
   for (const id of viewFlags) {
     const input = document.querySelector<HTMLInputElement>(`#${id}`);
-    if (input) input.checked = view.flags[id];
+    if (input) input.checked = view.flags[id] ?? (id === "mountains" || id === "handmade-site");
   }
   $<HTMLInputElement>("road-level").value = String(view.roadY);
   $<HTMLInputElement>("ramp-length").value = String(view.rampLength);
@@ -2547,7 +2556,7 @@ $("assembly-mode").addEventListener("click", () => {
   modelExploded = modelAssemblyMode;
   updateScene();
 });
-for (const id of ["roof", "night-mode", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside"])
+for (const id of ["roof", "night-mode", "dimensions", "context", "mountains", "handmade-site", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside"])
   $(id).addEventListener("change", updateScene);
 function updateEaveLightControls() {
   const color = $<HTMLInputElement>("eave-light-color").value.toLowerCase();
@@ -3083,6 +3092,20 @@ $("fullscreen").addEventListener("click", async () => {
   } catch {
     toast("当前浏览器不支持全屏，请使用浏览器缩放。");
   }
+});
+document.addEventListener("fullscreenchange", syncFullscreenUi);
+inspectorHotEdge.addEventListener("pointerenter", () => setFullscreenInspectorPeek(true));
+inspectorHotEdge.addEventListener("pointerleave", (event) => {
+  if (inspectorEl.contains(event.relatedTarget as Node | null)) return;
+  setFullscreenInspectorPeek(false);
+});
+inspectorEl.addEventListener("pointerenter", () => {
+  if (document.fullscreenElement) setFullscreenInspectorPeek(true);
+});
+inspectorEl.addEventListener("pointerleave", (event) => {
+  if (!document.fullscreenElement) return;
+  if (inspectorHotEdge.contains(event.relatedTarget as Node | null)) return;
+  setFullscreenInspectorPeek(false);
 });
 $("close-comparison").addEventListener("click", () => {
   $("comparison").hidden = true;

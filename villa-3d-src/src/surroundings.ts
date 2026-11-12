@@ -2,6 +2,7 @@ import { site, floors, frontFieldLevel, courtyardFront, roadsideVilla, contains,
 import { contourAt, contourSection, insetContour, smoothContour } from "./contours.ts";
 import { placeRoadsideVilla, roadsideToWorld, roadsideFootprints } from "./roadside-villa-layout.ts";
 import { defaultTerrainHorizon, modelPointToTerrain, terrainHeightM, type TerrainHorizonData, type TerrainBoundsMm } from "./terrain-elevation.ts";
+import { easternPhotoHouses, easternPhotoContours, northCreekSection, northernPhotoWatercourses, distanceToPhotoPath } from "./photo-context-layout.ts";
 
 // 全部左右关系按站在北侧、面对房子描述：画面左侧为 X 增大。
 // 对齐关系来自用户；周边房屋尺寸、未测标高和田坎折点仍是航拍估算。
@@ -91,18 +92,67 @@ export const surroundings = {
   rearThird: { front: 29500, back: 36000, y: 6800 },
   rightTerraceAdvance,
   rightStep: site.annex.z + (site.annex.d * 2) / 3 - rightTerraceAdvance,
-  extent: { left: -32000, right: 55000, front: -30000, back: 36000 },
+  extent: { left: -32000, right: 92000, front: -72000, back: 36000 },
 };
+
+function roadsideGroundFootprint(): Point[] {
+  const h = surroundings.roadsideVilla;
+  const left = -h.w / 2 - 275, right = h.w / 2 + h.wing.w + 275;
+  const front = -h.d / 2 - h.portico.d - 1125, back = h.d / 2 + 175;
+  return [[left, front], [right, front], [right, back], [left, back]]
+    .map(([x, z]) => roadsideToWorld(h, x, z));
+}
 
 /** 保留宅院、邻房和近处道路。外围地面交给DEM，随尺寸调整时仍容纳邻房。 */
 export function handmadeTerrainBounds(): TerrainBoundsMm {
   const neighbor = roadsideFootprints(roadsideVilla).flat();
+  const yard = roadsideGroundFootprint();
   return {
-    left: Math.min(-26000, ...neighbor.map(point => point[0] - 1800)),
-    right: Math.max(45000, surroundings.leftPlatform.x + 6000, site.width + 3000),
-    front: Math.min(-36000, ...neighbor.map(point => point[1] - 3500)),
-    back: Math.max(36000, surroundings.rearHouse.z + surroundings.rearHouse.d + 6000),
+    // 让门厅／前坪与DEM之间留足过渡空间，外沿按2m显示网格取整。
+    left: Math.floor(Math.min(-50000, ...yard.map(point => point[0] - 6000)) / 2000) * 2000,
+    right: Math.max(128000, surroundings.road.x + 90000, site.width + 3000),
+    front: Math.min(-96000, ...neighbor.map(point => point[1] - 3500)),
+    back: Math.max(60000, surroundings.rearHouse.z + surroundings.rearHouse.d + 32000),
   };
+}
+
+// 记录初始现状邻房，避免调新方案参数时改写海拔配准控制点。
+const elevationControlHouses = [
+  { x: 0, z: 200, w: 8800, d: 9800, y: 0 },
+  { x: 8800, z: 1100, w: 12300, d: 7900, y: 0 },
+  { ...surroundings.sideHouse }, { ...surroundings.rearHouse }, { ...surroundings.frontHouse },
+];
+const elevationControlBlue = { ...surroundings.roadsideVilla };
+
+/** 用现状旧房与邻房的落地点估算统一海拔，结果仍需现场测量标定。 */
+export function fitTerrainElevation(data: TerrainHorizonData): TerrainHorizonData {
+  if (!data.reference || data.reference.elevationMeasured) return data;
+  const median = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  };
+  // 旧房尺寸固定，地理基准不随新方案主辅楼尺寸变化。
+  const previousOffset = data.reference.courtyardElevationM - data.siteElevM;
+  const difference = (x: number, z: number, y: number) => {
+    const point = modelPointToTerrain(x, 0, z, data);
+    const height = terrainHeightM(point.eastM, point.northM, data);
+    if (height == null) throw new Error("DEM未覆盖高程配准点");
+    return height + previousOffset - y / 1000;
+  };
+  const offsets = elevationControlHouses.map(house => median([0, 0.5, 1].flatMap(u =>
+    [0, 0.5, 1].map(v => difference(house.x + house.w * u, house.z + house.d * v, house.y)))));
+  const blue = elevationControlBlue;
+  offsets.push(median([0, 0.5, 1].flatMap(u => [0, 0.5, 1].map(v => {
+    const [x, z] = roadsideToWorld(blue, (u - 0.5) * blue.w, (v - 0.5) * blue.d);
+    return difference(x, z, blue.y);
+  }))));
+  const offsetM = Math.round(median(offsets) * 1000) / 1000;
+  return { ...data, reference: { ...data.reference,
+    courtyardElevationM: data.siteElevM + offsetM,
+    elevationFit: { method: "现状六栋房基各九点DEM差值的分组中位数，待实测", offsetM,
+      residualM: offsets.map(offset => Math.round((offset - offsetM) * 1000) / 1000) },
+  } };
 }
 
 export const TERRAIN_JOIN_WIDTH_MM = 20000;
@@ -122,7 +172,7 @@ export function terrainAnalysisData(data = defaultTerrainHorizon): TerrainHorizo
 const villageRoadWidth = 3500;
 
 function buildVillageRoadCenter(): Point[] {
-  const villageRoadFront = -roadsideVilla.d / 2 - roadsideVilla.portico.d - 2100;
+  const villageRoadFront = -roadsideVilla.d / 2 - roadsideVilla.portico.d - 5100;
   return smoothContour([
     [surroundings.extent.left, -14500],
     roadsideToWorld(roadsideVilla, -roadsideVilla.w / 2 - 1200, villageRoadFront),
@@ -130,7 +180,8 @@ function buildVillageRoadCenter(): Point[] {
     roadsideToWorld(roadsideVilla, 2000, villageRoadFront),
     roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w, villageRoadFront),
     roadsideToWorld(roadsideVilla, roadsideVilla.w / 2 + roadsideVilla.wing.w + 1500, villageRoadFront - 400),
-    [-5000, -29250], [2000, -28250], [20000, -28250], [surroundings.extent.right, -28250],
+    [-5000, -29250], [2000, -28250], [20000, -28250], [40000, -26500], [55000, -20000], [65000, -13000],
+    [surroundings.road.x + 46000, -7250], [surroundings.extent.right, -6500],
   ], 450);
 }
 
@@ -151,6 +202,59 @@ function buildVillageRoadEdges(center: Point[]) {
 
 export const villageRoadCenter = buildVillageRoadCenter();
 export const villageRoadEdges = buildVillageRoadEdges(villageRoadCenter);
+
+/** 东段村道随地势升至最东侧木房前，西段沿用既有路面标高。 */
+export function villageRoadElevation(x: number) {
+  const outer = easternPhotoHouses(surroundings.road.x)[2];
+  const from = surroundings.road.x + surroundings.road.w + 2000;
+  const t = Math.max(0, Math.min(1, (x - from) / (outer.x + outer.w - from)));
+  return surroundings.frontHouse.y + (outer.y - surroundings.frontHouse.y) * t * t * (3 - 2 * t);
+}
+
+/** 两溪按北侧照片在蓝顶邻房前桥位附近衔接，桥跨东侧支溪，接入路沿主溪东岸。 */
+export function northPhotoLayout() {
+  const roadFront = (x: number) => contourAt(villageRoadEdges.front, x);
+  // 桥南端接蓝顶房前路，轴向略向东偏，北端接入路再往东，与村道呈树杈而不是直角。
+  const southX = surroundings.roadsideVilla.x + 4800;
+  const southZ = roadFront(southX) - 900;
+  const yaw = 48 * Math.PI / 180;
+  const dirX = Math.sin(yaw), dirZ = -Math.cos(yaw);
+  let crossDist = 8000;
+  for (let i = 0; i < 6; i++) {
+    const x = southX + dirX * crossDist;
+    const creekZ = northCreekSection(x, roadFront(x), villageRoadElevation(x)).centerZ;
+    const rayZ = southZ + dirZ * crossDist;
+    crossDist += (creekZ - rayZ) / dirZ;
+  }
+  const length = crossDist + 6800;
+  const northX = southX + dirX * length;
+  const northZ = southZ + dirZ * length;
+  const bridgeX = southX + dirX * crossDist;
+  const dx = northX - southX, dz = northZ - southZ, span = Math.hypot(dx, dz);
+  const sideX = dz / span, sideZ = -dx / span;
+  const half = 2100;
+  const corner = (x: number, z: number, side: number): Point => [x + sideX * side * half, z + sideZ * side * half];
+  const [southWest, southEast] = [corner(southX, southZ, -1), corner(southX, southZ, 1)].sort((a, b) => a[0] - b[0]);
+  const [northWest, northEast] = [corner(northX, northZ, -1), corner(northX, northZ, 1)].sort((a, b) => a[0] - b[0]);
+  const bridge = {
+    x: bridgeX, width: 4200, top: surroundings.frontHouse.y + 75,
+    // 斜桥四角 Z 不等：startZ／endZ 取最南／最北角，供桥洞范围；南端接路与北端接入另用边线。
+    startZ: Math.max(southWest[1], southEast[1]),
+    endZ: Math.min(northWest[1], northEast[1]),
+    south: [southX, southZ] as Point,
+    north: [northX, northZ] as Point,
+    southEdge: [southWest, southEast] as Point[],
+    northEdge: [northWest, northEast] as Point[],
+    deck: [northWest, northEast, southEast, southWest] as Point[],
+  };
+  // 北端接入从北侧桥沿中点接出，避免中心点落在桥面斜边南侧而与桥面脱节。
+  const approach: Point[] = [
+    [northX, northZ],
+    [northX + 3200, northZ - 9000],
+    [northX + 4800, -72000],
+  ];
+  return { bridge, approach, courses: northernPhotoWatercourses(roadFront, villageRoadElevation, bridgeX) };
+}
 
 /** 蓝顶邻房重定位后刷新弯道路心／路缘（原地替换数组，供 groundHeight 与场地重建共用）。 */
 export function rebuildVillageRoad() {
@@ -386,27 +490,27 @@ const MIN_GARAGE_BAY_DEPTH = 2000;
 const MIN_SIDE_CLEAR_FROM_MAIN = 2500;
 
 /**
- * 主楼前墙向屋内下挖进深（mm）：前廊下挖悬空，承重柱／地梁落在地库净空；
- * 再往北仍为实体台地／条基。2400 为安全示意净空，埋深与配筋待结构／地勘核定。
+ * 主楼前墙相对台地南缘（Z=0）的外伸量（mm）。
+ * 仅外伸段架空；实体台地不开洞、不向屋内下挖。
  */
-export const MAIN_FRONT_GARAGE_INSET = 2400;
+export function mainFrontOverhangDepth() {
+  return Math.max(0, Math.round(-site.main.z));
+}
 
 /**
- * 主楼前廊下挖范围（含原外伸段）：土基开洞、地库地面伸入，楼板下悬空。
- * 南起主楼前墙外皮，北至屋内 MAIN_FRONT_GARAGE_INSET。
+ * 外伸段下的土基开洞：南起主楼前墙外皮，北至台地南缘 Z=0。
+ * 地库地面已由院坪段覆盖，不再另铺；Z≥0 实体台地保持实心。
  */
 export function mainFrontGaragePocket(): Point[] {
   const main = site.main;
-  if (MAIN_FRONT_GARAGE_INSET < 100) return [];
-  return rectPoints(main.x, main.z, main.w, MAIN_FRONT_GARAGE_INSET);
+  const depth = mainFrontOverhangDepth();
+  if (depth < 1) return [];
+  return rectPoints(main.x, main.z, main.w, depth);
 }
 
-/** 台地石基／铺装开洞：只切 Z≥0 与下挖相交段，避免洞口伸出台地轮廓导致重面。 */
+/** 实体台地石基／铺装不开洞（旧「屋内下挖」已取消）。 */
 export function mainFrontPadHole(): Point[] {
-  const main = site.main;
-  const north = main.z + MAIN_FRONT_GARAGE_INSET;
-  if (north <= 1) return [];
-  return rectPoints(main.x, 0, main.w, north);
+  return [];
 }
 
 function rectPoints(x: number, z: number, w: number, d: number): Point[] {
@@ -435,8 +539,8 @@ export function mainGarageStructuralAxes() {
     axisD,
     wallZ,
     porticoZ,
-    /** 前墙向屋内下挖北缘 */
-    pocketNorth: wallZ + MAIN_FRONT_GARAGE_INSET,
+    /** 外伸架空北缘＝台地南缘；不向屋内下挖 */
+    pocketNorth: Math.max(0, wallZ),
     /** 前墙一排四根 */
     wallXs: [axisA, axisB, axisC, axisD] as const,
     /** 门厅前沿两根（平齐式无） */
@@ -634,17 +738,12 @@ function sampleContourByArc(contour: Point[], fromX: number, toX: number, spacin
   return points;
 }
 
-export function groundHeight(x: number, z: number) {
+function manualGroundHeight(x: number, z: number) {
   const c = surroundings;
   const edges = terraceContours;
   if (contains([x, z], villageRoadEdges.outline)) return c.frontHouse.y;
   if (x >= c.road.x && x <= c.road.x + c.road.w && z >= c.road.front && z <= c.road.back)
     return roadHeight(z);
-  // 马路尽头以后，路床并入东侧大平地，不再升到屋后木房那一层。
-  if (x >= c.road.x && x < c.leftPlatform.x && z > c.road.back) return c.leftPlatform.y;
-  if (x >= c.leftPlatform.x) {
-    return z >= contourAt(edges.leftPlatform, x) ? c.leftPlatform.y : c.frontHouse.y;
-  }
   if (z >= contourAt(edges.rearThird, x)) return c.rearThird.y;
   if (z >= contourAt(edges.rearSecond, x)) return c.rearSecond.y;
   if (z >= contourAt(edges.rearFirst, x)) return c.rearFirst.y;
@@ -664,44 +763,290 @@ export function groundHeight(x: number, z: number) {
   return z >= contourAt(edges.frontLower, x) ? frontFieldLevel : c.frontHouse.y;
 }
 
-/** 接缝细分与边界标高插值仅用于近场估算衔接。 */
+/** 近场显示细分，原始DEM的资料分辨率仍约30m。 */
 export const TERRAIN_JOIN_GRID_STEP_MM = 2000;
-export function createJoinedTerrainSampler(data = defaultTerrainHorizon, bounds = handmadeTerrainBounds()) {
+
+/**
+ * 宅院、近处田面及邻房台地沿用口述／照片标高，外围逐渐回到DEM。
+ * 在共用三角网内插值纵向缩放与位移，田面、田坎和高度查询使用同一变换。
+ */
+export function createLocalTerrainSampler(data = defaultTerrainHorizon) {
+  const bounds = handmadeTerrainBounds();
   const step = TERRAIN_JOIN_GRID_STEP_MM;
-  const heights = new Map<string, number>();
-  const weights = [1, 4, 6, 4, 1];
-  const boundaryHeight = (column: number, row: number) => {
-    const key = `${column},${row}`;
-    const cached = heights.get(key);
-    if (cached != null) return cached;
-    let height = 0;
-    for (let j = -2; j <= 2; j++) {
-      for (let i = -2; i <= 2; i++) {
-        const x = Math.max(bounds.left, Math.min(bounds.right, bounds.left + (column + i) * step));
-        const z = Math.max(bounds.front, Math.min(bounds.back, bounds.front + (row + j) * step));
-        height += groundHeight(x, z) * weights[i + 2] * weights[j + 2];
+  const rectangle = (left: number, front: number, right: number, back: number): Point[] =>
+    [[left, front], [right, front], [right, back], [left, back]];
+  const c = surroundings;
+  // 包括蓝顶邻房外伸门厅、前坪与台基，防止DEM坡面穿进铺装。
+  const blueBase = roadsideGroundFootprint();
+  const photoLayout = northPhotoLayout();
+  const photoHouses = easternPhotoHouses(c.road.x);
+  const photoEast = Math.max(...photoHouses.map(h => h.x + h.w + 2000));
+  const smooth = (value: number) => {
+    const t = Math.max(0, Math.min(1, value));
+    return t * t * (3 - 2 * t);
+  };
+  const controls = [
+    // 留出近屋梯田、地库外第一田与东侧道路，外围田地不再无限延伸为平面。
+    rectangle(-8000, Math.min(-18000, ...courtyardFront.map(p => p[1] - 4000)), c.road.x + c.road.w, site.oldDepth + 4000),
+    rectangle(c.rearHouse.x, c.rearHouse.z, c.rearHouse.x + c.rearHouse.w, c.rearHouse.z + c.rearHouse.d),
+    rectangle(c.frontHouse.x, c.frontHouse.z, c.frontHouse.x + c.frontHouse.w, c.frontHouse.z + c.frontHouse.d),
+    rectangle(c.road.x, c.road.front, c.road.x + c.road.w, c.road.back),
+    blueBase,
+    villageRoadEdges.outline,
+    rectangle(c.leftPlatform.x, -24000, photoEast, 25000),
+    ...photoHouses.map(h => rectangle(h.x - (h.kind === "masonry" && h.facing !== "west" ? 2800 : 0), h.z - (h.kind === "masonry" && h.facing === "west" ? 2800 : 0), h.x + h.w, h.z + h.d)),
+  ];
+  const distanceToControls = (x: number, z: number) => {
+    let distance = Infinity;
+    for (const polygon of controls) {
+      if (contains([x, z], polygon)) return 0;
+      for (let i = 0; i < polygon.length; i++) {
+        const a = polygon[i], b = polygon[(i + 1) % polygon.length];
+        const dx = b[0] - a[0], dz = b[1] - a[1];
+        const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz)));
+        distance = Math.min(distance, Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz));
       }
     }
-    // 二维核权重合计256，同时把毫米换为米。
-    height /= 256000;
-    heights.set(key, height);
-    return height;
+    // 房基／门前留2m缓冲，覆盖共用网格插值，近房铺装保持平整。
+    return Math.max(0, distance - 2000);
   };
+  const nodes = new Map<string, { weight: number; offset: number; demWeight: number }>();
+  const rawHeight = createJoinedTerrainSampler(data);
+  const node = (column: number, row: number) => {
+    const key = `${column},${row}`;
+    const cached = nodes.get(key);
+    if (cached != null) return cached;
+    const x = column * step, z = row * step;
+    const distance = distanceToControls(x, z);
+    // 最外一格完全采用DEM，避免边界落在网格中部时仍混入旧平台标高。
+    const edge = Math.max(0, Math.min(x - bounds.left, bounds.right - x, z - bounds.front, bounds.back - z) - step);
+    const t = distance === 0 ? 0 : Math.min(1, distance / Math.min(12000, distance + edge));
+    const weight = t * t * (3 - 2 * t);
+    const raw = rawHeight(x, z) * 1000;
+    const value = { weight, offset: weight * raw, demWeight: weight };
+    const roadFront = contourAt(villageRoadEdges.front, x);
+    if (z < roadFront + 8000) {
+      const section = northCreekSection(x, roadFront, villageRoadElevation(x));
+      const center = roadFront - section.centerZ;
+      const roadY = villageRoadElevation(x);
+      const profile: Point[] = [
+        [-8000, roadY], [0, roadY], [900, roadY],
+        [center - section.halfWidth, section.bedY + 350], [center, section.bedY],
+        [center + section.halfWidth, section.bedY + 350],
+        [center + section.halfWidth + 3500, roadY - 400],
+        [roadFront - bounds.front, raw],
+      ];
+      let target = contourAt(profile, roadFront - z);
+      const main = photoLayout.courses[1];
+      const channel = distanceToPhotoPath(x, z, main.points);
+      if (channel.distance < main.halfWidth + 3500) {
+        const junction = photoLayout.courses[0].points.at(-1)!;
+        const bed = northCreekSection(channel.x, contourAt(villageRoadEdges.front, channel.x), villageRoadElevation(channel.x)).bedY
+          + Math.max(0, junction[1] - channel.z) * 0.012;
+        const bank = smooth((channel.distance - main.halfWidth) / 3500);
+        const channelHeight = bed + 350 * (channel.distance / main.halfWidth) ** 2;
+        target = Math.min(target, channelHeight + (target - channelHeight) * bank);
+      }
+      // 桥南端到村道之间的树杈引道保持路面标高；斜桥西侧更靠北，须按南沿两侧判断，桥下河床不填。
+      if (z <= roadFront + 800) {
+        const edge = distanceToPhotoPath(x, z, photoLayout.bridge.southEdge);
+        const onRoadSide = z >= edge.z - 200;
+        const lane = distanceToPhotoPath(x, z, [photoLayout.bridge.south, photoLayout.bridge.north]);
+        const entrance = onRoadSide
+          ? Math.max(
+            1 - smooth((edge.distance - 900) / 1800),
+            1 - smooth((lane.distance - 2100) / 1500),
+          )
+          : 0;
+        target += (roadY - target) * entrance;
+      }
+      // 过桥后接入路位于主溪东岸。近桥端抬到桥面标高，避免中心线掉进河床造成断口；桥洞下仍空。
+      {
+        const lane = distanceToPhotoPath(x, z, photoLayout.approach);
+        const laneWeight = 1 - smooth((lane.distance - 2100) / 2200);
+        if (laneWeight > 0 && z <= photoLayout.bridge.north[1] + 2800) {
+          const along = Math.max(0, photoLayout.bridge.north[1] - z);
+          const grade = smooth(along / Math.max(8000, photoLayout.bridge.north[1] - bounds.front));
+          target += (c.frontHouse.y + (raw - c.frontHouse.y) * grade - target) * laneWeight;
+        }
+      }
+      // 村道保持台地标高，防止弯道被相邻溪谷拉低。
+      const roadDistance = distanceToPhotoPath(x, z, villageRoadCenter).distance;
+      const roadWeight = 1 - smooth((roadDistance - villageRoadWidth / 2 - 1500) / 500);
+      target += (roadY - target) * roadWeight;
+      const mask = smooth((roadFront + 8000 - z) / 8000)
+        * smooth((Math.min(x - bounds.left, Math.min(bounds.right, surroundings.extent.right) - x, z - bounds.front) - step) / 6000);
+      const previous = c.frontHouse.y * (1 - weight) + value.offset;
+      value.offset += (target - previous) * mask;
+      value.demWeight *= 1 - mask;
+    }
+    nodes.set(key, value);
+    return value;
+  };
+  return (x: number, z: number, heightMm: number) => {
+    const column = Math.floor(x / step), row = Math.floor(z / step);
+    const u = x / step - column, v = z / step - row;
+    const a = node(column, row), b = node(column + 1, row + 1);
+    const c = u >= v ? node(column + 1, row) : node(column, row + 1);
+    const middle = Math.abs(u - v), end = Math.min(u, v), start = 1 - Math.max(u, v);
+    const weight = a.weight * start + c.weight * middle + b.weight * end;
+    const offset = a.offset * start + c.offset * middle + b.offset * end;
+    const demWeight = a.demWeight * start + c.demWeight * middle + b.demWeight * end;
+    return { heightMm: heightMm * (1 - weight) + offset, demWeight };
+  };
+}
+
+let groundSamplerKey = "";
+let groundSampler: ReturnType<typeof createLocalTerrainSampler>;
+let easternSampler: ReturnType<typeof createEasternTerrainSampler>;
+export function groundHeight(x: number, z: number) {
+  const key = JSON.stringify([site, surroundings, courtyardFront]);
+  if (!groundSampler || key !== groundSamplerKey) {
+    groundSampler = createLocalTerrainSampler();
+    easternSampler = createEasternTerrainSampler();
+    groundSamplerKey = key;
+  }
+  if (x >= surroundings.leftPlatform.x || (x >= surroundings.road.x && z > surroundings.road.back)) {
+    return easternSampler.sample(x, z).heightMm;
+  }
+  return groundSampler(x, z, manualGroundHeight(x, z)).heightMm;
+}
+
+/** 东侧按道路边缘、屋后田面与DEM生成估算坡面，1m网格与高度查询共用。 */
+export function createEasternTerrainSampler(data = defaultTerrainHorizon) {
+  const c = surroundings, bounds = handmadeTerrainBounds();
+  const roadRight = c.road.x + c.road.w;
+  const local = createLocalTerrainSampler(data), raw = createJoinedTerrainSampler(data);
+  const smooth = (value: number) => {
+    const t = Math.max(0, Math.min(1, value));
+    return t * t * t * (10 + t * (-15 + 6 * t));
+  };
+  const mix = (a: number, b: number, weight: number) => a + (b - a) * weight;
+  const axis = (from: number, to: number, stations: number[]) => {
+    const values = [from, to, ...stations.filter(value => value > from && value < to)];
+    for (let value = Math.ceil(from / 1000) * 1000; value < to; value += 1000) values.push(value);
+    return [...new Set(values)].sort((a, b) => a - b);
+  };
+  const xs = axis(c.road.x, bounds.right, [roadRight]);
+  const zs = axis(bounds.front, bounds.back, [c.road.front, c.road.back]);
+  const photoContours = easternPhotoContours(roadRight);
+  const photoHouses = easternPhotoHouses(c.road.x);
+  const photoEast = Math.max(...photoHouses.map(h => h.x + h.w + 2000));
+  // 道路末端向屋后第二田升高，消除沿用2.5m平台形成的长槽。
+  const rearGrade = (z: number) => c.leftPlatform.y
+    + (c.rearSecond.y - c.leftPlatform.y) * smooth((z - c.road.back) / Math.max(1000, c.rearHouse.z - c.road.back))
+    + (c.rearThird.y - c.rearSecond.y) * smooth((z - c.rearHouse.z - c.rearHouse.d) / (bounds.back - c.rearHouse.z - c.rearHouse.d));
+  const nodes = zs.map(z => xs.map(x => {
+    if (x <= roadRight && z > c.road.back) return local(x, z, rearGrade(z));
+    const edgeHeight = z > c.road.back
+      ? local(roadRight, z, rearGrade(z)).heightMm : roadHeight(z);
+    // 前田从路缘连续抬升，取消旧低田与高台之间8.95m的突跳。
+    let bench = c.frontHouse.y;
+    let foundationY: number | undefined;
+    let foundationProtection = 0;
+    for (const [index, contour] of photoContours.entries()) {
+      const previousY = index === 0 ? c.frontHouse.y : photoContours[index - 1].y;
+      bench += (contour.y - previousY) * smooth((z - contourAt(contour.points, x)) / 1800);
+    }
+    // 用户确认砖房、木房及两家门前属于同一台地，近宅屋后田保持既有标高。
+    const sharedDistance = Math.hypot(
+      Math.max(c.road.x + 7500 - x, 0, x - c.road.x - 36500),
+      Math.max(1000 - z, 0, z - 27000),
+    );
+    bench = mix(bench, 2500, 1 - smooth(sharedDistance / 2500));
+    // 三角形田块向最东侧木房收尖，临路一级进深占总深度的2.5/4.5。
+    const outer = photoHouses[2];
+    const tipX = outer.x + outer.w;
+    const fraction = Math.max(0, Math.min(1, (x - roadRight) / (tipX - roadRight)));
+    const upperZ = -1000 + (outer.z + 1000) * fraction;
+    const lowerZ = contourAt(villageRoadEdges.back, x);
+    if (x >= roadRight && x <= tipX && z <= upperZ && z >= lowerZ && upperZ - lowerZ > 100) {
+      const t = (upperZ - z) / (upperZ - lowerZ);
+      const roadLevel = villageRoadElevation(x);
+      const middleLevel = (-2000 + roadLevel) / 2;
+      bench = -2000 + (middleLevel + 2000) * smooth((t - 1 / 4.5 + 0.015) / 0.03)
+        + (roadLevel - middleLevel) * smooth((t - 2 / 4.5 + 0.015) / 0.03);
+      if (x >= roadRight + 4000) foundationY = bench;
+      foundationProtection = 1;
+    }
+    // 房基范围独立保持估算台地，缓冲外再接回田面。
+    for (const house of photoHouses) {
+      const left = house.x - (house.kind === "masonry" && house.facing !== "west" ? 2800 : 0);
+      const front = house.z - (house.kind === "masonry" && house.facing === "west" ? 2800 : 0);
+      const distance = Math.hypot(Math.max(left - x, 0, x - house.x - house.w), Math.max(front - z, 0, z - house.z - house.d));
+      const protection = 1 - smooth((distance - 2000) / 3500);
+      foundationProtection = Math.max(foundationProtection, protection);
+      bench = mix(bench, house.y, protection);
+      if (distance <= 2000) foundationY = house.y;
+    }
+    if (z > c.road.back && x <= roadRight + 1500) bench = edgeHeight;
+    const distance = Math.max(0, x - roadRight);
+    const apron = foundationY ?? mix(edgeHeight, bench, smooth(distance / 4000));
+    const edgeFade = 1 - smooth(Math.min(z - bounds.front, bounds.back - z) / 6000);
+    // 林地从三户后墙外约1.5m起接回DEM，约16m内抬满，避免屋后留下低台地凹坑。
+    const forestFront = contourAt([
+      [photoHouses[0].x + photoHouses[0].w + 1500, photoHouses[0].z + photoHouses[0].d + 1500],
+      [photoHouses[1].x + photoHouses[1].w + 1500, photoHouses[1].z + photoHouses[1].d + 1500],
+      [photoHouses[2].x + photoHouses[2].w + 1500, photoHouses[2].z + photoHouses[2].d + 1500],
+    ], x);
+    const eastFade = smooth((x - photoEast) / 24000);
+    const rearFade = smooth((z - forestFront) / 16000);
+    const demWeight = 1 - (1 - eastFade) * (1 - rearFade) * (1 - edgeFade);
+    const roadFront = contourAt(villageRoadEdges.front, x);
+    let nearValley = (z < roadFront ? 1 : (1 - smooth((z - roadFront - 3500) / 8000)) * smooth(distance / 4000)) * (1 - foundationProtection);
+    const nativeWeight = demWeight * (1 - foundationProtection);
+    const demMm = raw(x, z) * 1000;
+    const result = { heightMm: mix(apron, demMm, nativeWeight), demWeight: nativeWeight };
+    // 三户合围北侧／东侧：只把低于DEM的凹坑抬上去，与后方大山连成一体。
+    // 不抬门前／户间共享台地，避免把两家门前平地顶成山坡。
+    if (x > roadRight + 3000) {
+      const clusterRight = Math.max(...photoHouses.map(h => h.x + h.w));
+      const clusterBack = Math.max(...photoHouses.map(h => h.z + h.d));
+      const rear = z - clusterBack;
+      const east = x - clusterRight;
+      const gap = Math.max(rear, east);
+      if (gap > 1500 && demMm > result.heightMm + 200) {
+        const t = Math.min(1, (gap - 1500) / 14000);
+        const fill = t * t * (3 - 2 * t);
+        result.heightMm = mix(result.heightMm, demMm, fill);
+        result.demWeight = Math.max(result.demWeight, fill);
+        nearValley *= 1 - fill;
+      }
+    }
+    const valley = local(x, z, c.frontHouse.y);
+    return { heightMm: mix(result.heightMm, valley.heightMm, nearValley), demWeight: mix(result.demWeight, valley.demWeight, nearValley) };
+  }));
+  const cell = (value: number, axis: number[]) => {
+    let low = 0, high = axis.length - 1;
+    while (high - low > 1) {
+      const middle = Math.floor((low + high) / 2);
+      if (value < axis[middle]) high = middle;
+      else low = middle;
+    }
+    return low;
+  };
+  const sample = (x: number, z: number) => {
+    if (x < xs[0] || x > bounds.right || z < bounds.front || z > bounds.back) {
+      return { heightMm: raw(x, z) * 1000, demWeight: 1 };
+    }
+    const column = cell(x, xs), row = cell(z, zs);
+    const u = Math.max(0, Math.min(1, (x - xs[column]) / (xs[column + 1] - xs[column])));
+    const v = Math.max(0, Math.min(1, (z - zs[row]) / (zs[row + 1] - zs[row])));
+    const a = nodes[row][column], b = nodes[row + 1][column + 1];
+    const middle = u >= v ? nodes[row][column + 1] : nodes[row + 1][column];
+    const blend = (key: "heightMm" | "demWeight") => a[key] * (1 - Math.max(u, v))
+      + middle[key] * Math.abs(u - v) + b[key] * Math.min(u, v);
+    return { heightMm: blend("heightMm"), demWeight: blend("demWeight") };
+  };
+  return { xs, zs, sample };
+}
+
+/** 手绘外沿已经回到DEM，外围直接沿用原始三角网高程。 */
+export function createJoinedTerrainSampler(data = defaultTerrainHorizon) {
   return (x: number, z: number) => {
     const point = modelPointToTerrain(x, 0, z, data);
     const raw = terrainHeightM(point.eastM, point.northM, data);
     if (raw == null) throw new Error("DEM未覆盖场地接缝");
-    const edgeX = Math.max(bounds.left, Math.min(bounds.right, x));
-    const edgeZ = Math.max(bounds.front, Math.min(bounds.back, z));
-    const distance = Math.hypot(x - edgeX, z - edgeZ);
-    if (distance >= TERRAIN_JOIN_WIDTH_MM) return raw;
-    const column = (edgeX - bounds.left) / step, row = (edgeZ - bounds.front) / step;
-    const c = Math.floor(column), r = Math.floor(row), u = column - c, v = row - r;
-    const front = boundaryHeight(c, r) * (1 - u) + boundaryHeight(c + 1, r) * u;
-    const back = boundaryHeight(c, r + 1) * (1 - u) + boundaryHeight(c + 1, r + 1) * u;
-    const local = front * (1 - v) + back * v;
-    const t = distance / TERRAIN_JOIN_WIDTH_MM;
-    const blend = t * t * (3 - 2 * t);
-    return local * (1 - blend) + raw * blend;
+    return raw;
   };
 }

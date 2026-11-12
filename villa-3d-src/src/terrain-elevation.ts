@@ -41,6 +41,7 @@ export type TerrainHorizonData = {
     anchorDescription: string;
     courtyardElevationM: number;
     elevationMeasured: boolean;
+    elevationFit?: { method: string; offsetM: number; residualM: number[] };
     modelNorthAzimuthDeg: number;
     orientationMeasured: boolean;
     orientationEvidence?: {

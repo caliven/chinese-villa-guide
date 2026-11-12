@@ -11,13 +11,35 @@ import {
   outerLaneDepth,
   rebuildGarageLayout,
 } from "../src/garage-layout.ts";
-import { annexColumnInnerZ, basementColumns, surroundings } from "../src/surroundings.ts";
+import {
+  annexColumnInnerZ,
+  basementColumns,
+  mainFrontGaragePocket,
+  mainFrontOverhangDepth,
+  mainFrontPadHole,
+  surroundings,
+} from "../src/surroundings.ts";
 import {
   applyVillaParams,
   DEFAULT_VILLA_PARAMS,
   resetVillaParams,
   validateVillaParams,
 } from "../src/villa-params.ts";
+
+test("主楼仅外伸架空：台地不开洞、屋内不下挖", () => {
+  resetVillaParams();
+  const overhang = mainFrontOverhangDepth();
+  assert.equal(overhang, Math.max(0, -site.main.z));
+  assert.ok(overhang > 0, "默认前墙应相对台地南缘外伸");
+  assert.deepEqual(mainFrontPadHole(), [], "实体台地铺装／石基不得开洞");
+  const pocket = mainFrontGaragePocket();
+  assert.equal(pocket.length, 4);
+  assert.deepEqual(pocket[0], [site.main.x, site.main.z]);
+  assert.deepEqual(pocket[1], [site.main.x + site.main.w, site.main.z]);
+  assert.deepEqual(pocket[2], [site.main.x + site.main.w, 0]);
+  assert.deepEqual(pocket[3], [site.main.x, 0]);
+  assert.ok(pocket.every(([, z]) => z <= 0), "开洞不得伸入 Z>0 实体台地");
+});
 
 test("默认两家地库完成面由净高和梁底推出，邻居更高", () => {
   const levels = garageLevelValues(DEFAULT_VILLA_PARAMS);

@@ -41,6 +41,8 @@ export interface ViewState {
   eaveLightBrightness: number;
   dimensions: boolean;
   context: boolean;
+  mountains: boolean;
+  handmadeSite: boolean;
   balcony: boolean;
   floor: number | null;
   exploded: boolean;
@@ -66,6 +68,8 @@ export const defaultView: ViewState = {
   eaveLightBrightness: 1.5,
   dimensions: false,
   context: true,
+  mountains: true,
+  handmadeSite: true,
   balcony: false,
   floor: null,
   exploded: false,
@@ -479,7 +483,7 @@ export class VillaViewer {
   setCamera(name: CameraName) {
     this.assemblyCameraMotion = undefined;
     this.activeCamera = name;
-    if (this.terrainMarker) this.terrainMarker.visible = name === "overview" && this.state.context;
+    if (this.terrainMarker) this.terrainMarker.visible = name === "overview" && this.state.context && this.state.mountains;
     if (this.state.assemblyExploded && this.assembly && name !== "garage") {
       const direction = name === "south" ? new THREE.Vector3(.35, .55, 1)
         : name === "north" || name === "courtyard" ? new THREE.Vector3(0, .4, -1)
@@ -502,10 +506,10 @@ export class VillaViewer {
         [42, 36, -49],
         [16, 2.5, 3],
       ],
-      // 上帝视角：从院坪／大门外侧俯看整宅与周边山体，默认聚焦宅址附近。
+      // 上帝视角：从院坪／大门外侧俯看整宅与周边山体，观察点略偏西。
       overview: [
-        [12, 100, -130],
-        [12, 5, 1.5],
+        [0, 100, -130],
+        [0, 5, 1.5],
       ],
       north: [
         [19.5, 9.5, -44],
@@ -616,6 +620,12 @@ export class VillaViewer {
     this.assembly?.restoreHome();
     Object.assign(this.state, next);
     const s = this.state;
+    for (const child of this.land.context.children) {
+      if (typeof child.userData.terrainViewVisibility === "boolean") {
+        child.visible = child.userData.terrainViewVisibility;
+        delete child.userData.terrainViewVisibility;
+      }
+    }
     // 展开和模式独立：合拢只复位构件，退出模式才恢复场地环境与原机位。
     if (s.assemblyExploded) s.assemblyMode = true;
     if (!allowAssembly || s.existing || s.garage || s.floor !== null) {
@@ -634,7 +644,8 @@ export class VillaViewer {
     this.land.proposed.visible = !s.existing;
     this.villa.group.visible = !s.existing && !s.garage && !this.floorEditorRoot;
     this.land.context.visible = s.context && s.floor === null && !s.assemblyMode;
-    if (this.terrainMarker) this.terrainMarker.visible = this.activeCamera === "overview" && this.land.context.visible;
+    if (this.land.distantTerrain) this.land.distantTerrain.visible = s.mountains;
+    if (this.terrainMarker) this.terrainMarker.visible = this.activeCamera === "overview" && this.land.context.visible && s.mountains;
     this.land.sideNeighbor.visible = s.sideNeighbor;
     this.land.rearNeighbor.visible = s.rearNeighbor;
     this.land.frontNeighbor.visible = s.frontNeighbor;
@@ -706,6 +717,27 @@ export class VillaViewer {
         if (child.userData.incomingStair) child.visible = s.floor === i && !s.exploded;
       });
     });
+    const naturalGround = this.land.distantTerrain?.getObjectByName("宅院下方原始DEM");
+    const siteBase = this.land.distantTerrain?.getObjectByName("宅院下方地形底面");
+    const closure = this.land.distantTerrain?.getObjectByName("近场接缝竖向收边");
+    if (naturalGround) naturalGround.visible = !s.handmadeSite;
+    if (siteBase) siteBase.visible = s.handmadeSite;
+    if (closure) closure.visible = s.handmadeSite;
+    for (const child of this.land.context.children) {
+      if (!s.handmadeSite && child !== this.land.distantTerrain) {
+        child.userData.terrainViewVisibility = child.visible;
+        child.visible = false;
+      }
+    }
+    if (!s.handmadeSite) {
+      this.villa.group.visible = false;
+      this.land.existing.visible = false;
+      this.land.proposed.visible = false;
+      this.land.fixed.visible = false;
+      this.land.dimensions.visible = false;
+      this.land.parked.visible = false;
+      this.routeGroup.visible = false;
+    }
     const eaveY = floors[0].height + floors[1].height + floors[2].height;
     this.villa.roof.position.y = s.exploded ? (eaveY / 10500) * 13500 : 0;
     this.villa.balcony.position.y = s.exploded ? floors[2].y * explodeGap : 0;

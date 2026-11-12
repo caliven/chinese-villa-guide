@@ -7,7 +7,7 @@ import { parseRoofStyle, type RoofStyle } from "./roof-options";
 import { isMeterLengthPayload, migrateVillaParamsToMm } from "./units";
 import { DEFAULT_VILLA_PARAMS, normalizeVillaParamsLengths, validateVillaParams, type VillaParams } from "./villa-params";
 
-export const viewFlags = ["roof", "dimensions", "context", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside", "explode", "chair-clearance", "room-clearance", "room-inside", "route-sweep", "route-clearance", "route-conflicts"] as const;
+export const viewFlags = ["roof", "dimensions", "context", "mountains", "handmade-site", "overlap", "main-building", "annex-building", "neighbor-side", "neighbor-rear", "neighbor-front", "neighbor-roadside", "explode", "chair-clearance", "room-clearance", "room-inside", "route-sweep", "route-clearance", "route-conflicts"] as const;
 export interface CameraPose { position: [number, number, number]; target: [number, number, number]; zoom: number }
 export interface MeetingView {
   roofStyle: RoofStyle;
@@ -67,7 +67,7 @@ export function validateMeetingView(value: unknown): MeetingView {
   const v = object(value), level = range(v.level, -1, 2);
   if (!Number.isInteger(level)) throw new Error("楼层必须为整数");
   const rawFlags = object(v.flags), flags: Record<string, boolean> = {};
-  for (const key of viewFlags) flags[key] = bool(rawFlags[key]);
+  for (const key of viewFlags) flags[key] = (key === "mountains" || key === "handmade-site") && rawFlags[key] === undefined ? true : bool(rawFlags[key]);
   let pose: CameraPose | null = null;
   if (v.pose !== null) {
     const p = object(v.pose);

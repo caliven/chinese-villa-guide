@@ -124,7 +124,7 @@ test("车位线按弯曲墙内边裁剪", () => {
   assert.deepEqual(clipParkingLine([1000, -100], [1000, 800], front), [[[1000, 500], [1000, 800]]]);
 });
 
-test("辅楼右侧为两级田，后方木房落在第二田，左侧高地高于院坪", () => {
+test("辅楼右侧为两级田，后方木房落在第二田，东侧土坡高于院坪", () => {
   const top = hits(ground, -310, 8200)[0].point.y;
   const low = hits(ground, -310, 2100)[0].point.y;
   assert.ok(Math.abs(top) < 0.01);
@@ -132,7 +132,7 @@ test("辅楼右侧为两级田，后方木房落在第二田，左侧高地高�
   assert.notEqual(low, site.garageFloor, "未开挖的旁田不能绑定地库完成面");
   assert.ok(Math.abs(hits(ground, 12120, 12700)[0].point.y - 2500) < 0.01);
   assert.ok(Math.abs(hits(ground, 20120, 21700)[0].point.y - c.rearHouse.y) < 0.01);
-  assert.ok(hits(ground, 40120, -3700)[0].point.y > 0);
+  assert.ok(hits(ground, 45120, 3000)[0].point.y > 0);
   const houses = buildSurroundingHouses(mats);
   const sideBody = houses.getObjectByName("左侧邻居木房")!.children[0];
   const rearBody = houses.getObjectByName("后方第二层梯田木房")!.children[0];
@@ -277,14 +277,15 @@ test("现状旧木房为人字坡三开间，比左侧邻居大约低300mm", () 
   assert.ok(existing.getObjectByName("自家旧木房前水泥坪"));
 });
 
-test("删除手工后山，近场田面收至宅院邻房周边", () => {
+test("删除手工后山，局部场地容纳东侧邻房和北侧双溪", () => {
   assert.equal(ground.getObjectByName("曲线山脚后的连续后山"), undefined);
   const bounds = handmadeTerrainBounds();
   const box = new THREE.Box3().setFromObject(ground);
   assert.ok(box.min.x >= bounds.left - 0.1 && box.max.x <= bounds.right + 0.1);
   assert.ok(box.min.z >= bounds.front - 0.1 && box.max.z <= bounds.back + 0.1);
   assert.ok(bounds.back >= c.rearHouse.z + c.rearHouse.d + 6000);
-  assert.ok((bounds.right - bounds.left) * (bounds.back - bounds.front) < 132000 * 132000 * 0.35);
+  // 本轮范围扩至照片中的邻房、双溪与过桥道路，外沿仍回到DEM。
+  assert.ok(bounds.right > c.road.x + 36000 + 10000 + 30000);
 });
 
 test("西侧栏杆北端落在院坪西端外沿，不伸到旧 −2980", () => {

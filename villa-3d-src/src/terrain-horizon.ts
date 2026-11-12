@@ -5,8 +5,8 @@
 import * as THREE from "three";
 import type { Mats } from "./primitives.ts";
 import { site, frontFieldLevel, courtyardFront, type Point } from "./data.ts";
-import { handmadeTerrainBounds, createJoinedTerrainSampler, TERRAIN_JOIN_GRID_STEP_MM, terrainAnalysisData, surroundings, terraceContours, rightTerraceBreak, villageRoadEdges } from "./surroundings.ts";
-import { subtractRoofPolygon } from "./roof-surfaces.ts";
+import { handmadeTerrainBounds, createJoinedTerrainSampler, TERRAIN_JOIN_GRID_STEP_MM, terrainAnalysisData, surroundings, terraceContours, rightTerraceBreak, villageRoadEdges, groundHeight } from "./surroundings.ts";
+import { subtractRoofPolygon, intersectRoofPolygon } from "./roof-surfaces.ts";
 import {
   defaultTerrainHorizon, handmadeHouseCenterMm, terrainGridCoordinates, terrainHeightM,
   modelPointToTerrain, terrainPointToModel,
@@ -14,7 +14,7 @@ import {
 } from "./terrain-elevation.ts";
 export * from "./terrain-elevation.ts";
 
-function mountainColor(relM: number, outFrac: number) {
+export function mountainColor(relM: number, outFrac: number) {
   const t = THREE.MathUtils.clamp((relM + 20) / 280, 0, 1);
   const low = new THREE.Color(0x687c49);
   const mid = new THREE.Color(0x526d43);
@@ -103,7 +103,7 @@ function closeTerrainJoin(join: THREE.Group, nearMesh: THREE.Mesh, ground: THREE
 function buildGridTerrain(group: THREE.Group, data: TerrainHorizonData, grid: TerrainGrid, ground?: THREE.Object3D) {
   if (grid.relativeHeightM.length !== grid.cols * grid.rows) throw new Error("DEM 网格大小无效");
   const { extentM } = grid;
-  // 沿手绘场地外框相接。原始DEM保留，衔接带独立参与近场阴影。
+  // 手绘外围回到DEM，近段原始地形独立参与近场阴影。
   const bounds = handmadeTerrainBounds();
   const { left, right, front, back } = bounds;
   const localBounds = terrainAnalysisData(data).localModelBoundsMm!;
@@ -127,11 +127,12 @@ function buildGridTerrain(group: THREE.Group, data: TerrainHorizonData, grid: Te
   const vertexIndex = new Int32Array(cols * rows).fill(-1);
   const eastAt = (c: number) => coordinates[c];
   const northAt = (r: number) => coordinates[r];
-  const sampleJoin = createJoinedTerrainSampler(data, bounds);
+  const sampleJoin = createJoinedTerrainSampler(data);
   const displayHeight = (east: number, north: number) => {
     const model = terrainPointToModel(east, north, 0, data);
     return sampleJoin(model.x, model.z);
   };
+  const basePositions: number[] = [], naturalPositions: number[] = [], naturalIndices: number[] = [];
   const localVertices = new Map<string, number>();
   const addVertex = (east: number, north: number, heightM = displayHeight(east, north)) => {
     const local = east >= joinBounds.left - 10 && east <= joinBounds.right + 10
@@ -167,6 +168,20 @@ function buildGridTerrain(group: THREE.Group, data: TerrainHorizonData, grid: Te
     ];
     const [h00, h10, h01, h11] = corners.map(index => positions[index * 3 + 1] / 1000);
     for (const [triangle, polygon] of triangles.entries()) {
+      // 完整生成宅院下方DEM。叠合视图的开挖底面位于台地之下，原始坡面供单独核对。
+      const inside = intersectRoofPolygon(polygon, hole);
+      for (let i = 1; i + 1 < inside.length; i++) {
+        for (const [east, north] of [inside[0], inside[i], inside[i + 1]]) {
+          const u = (east - x0) / (x1 - x0), v = (north - n0) / (n1 - n0);
+          const height = triangle === 0
+            ? h00 + u * (h10 - h00) + v * (h11 - h10)
+            : h00 + u * (h11 - h01) + v * (h01 - h00);
+          const model = terrainPointToModel(east / 1000, north / 1000, height, data);
+          naturalPositions.push(model.x, model.y, model.z);
+          naturalIndices.push(addVertex(east / 1000, north / 1000, height));
+          basePositions.push(model.x, Math.min(model.y, Math.min(groundHeight(model.x, model.z), surroundings.frontHouse.y, site.garageFloor) - 500), model.z);
+        }
+      }
       for (const part of subtractRoofPolygon(polygon, hole)) {
         const vertices = part.map(([east, north]) => {
           const u = (east - x0) / (x1 - x0), v = (north - n0) / (n1 - n0);
@@ -207,7 +222,7 @@ function buildGridTerrain(group: THREE.Group, data: TerrainHorizonData, grid: Te
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setIndex(indices);
+  geometry.setIndex([...indices, ...naturalIndices]);
   geometry.computeVertexNormals();
 
   const nearIndices: number[] = [], farIndices: number[] = [];
@@ -252,6 +267,29 @@ function buildGridTerrain(group: THREE.Group, data: TerrainHorizonData, grid: Te
   nearMesh.name = "DEM近场衔接面";
   nearMesh.castShadow = nearMesh.receiveShadow = true;
   join.add(nearMesh);
+  for (const [name, points] of [["宅院下方地形底面", basePositions], ["宅院下方原始DEM", naturalPositions]] as const) {
+    const baseGeometry = new THREE.BufferGeometry();
+    baseGeometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    const colors: number[] = [];
+    for (let i = 0; i < points.length; i += 3) {
+      const color = mountainColor(points[i + 1] / 1000, 0);
+      colors.push(color.r, color.g, color.b);
+    }
+    baseGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    baseGeometry.computeVertexNormals();
+    if (name === "宅院下方原始DEM") {
+      for (const attribute of ["position", "normal", "color", "uv"]) {
+        baseGeometry.setAttribute(attribute, geometry.getAttribute(attribute));
+      }
+      baseGeometry.setIndex(naturalIndices);
+    }
+    const base = new THREE.Mesh(baseGeometry, mesh.material);
+    base.name = name;
+    base.castShadow = base.receiveShadow = true;
+    base.visible = name === "宅院下方地形底面";
+    join.add(base);
+  }
+
   if (ground) closeTerrainJoin(join, nearMesh, ground, bounds);
   group.add(join);
 

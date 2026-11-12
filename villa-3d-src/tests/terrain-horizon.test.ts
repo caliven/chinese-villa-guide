@@ -17,7 +17,8 @@ import { sunDirection, VillaViewer, defaultView } from "../src/viewer.ts";
 import { sunOcclusion } from "../src/sun-occlusion.ts";
 import { clonePublishedLayout } from "../src/layout-draft.ts";
 import { resolveLayoutFacades } from "../src/facade-layout.ts";
-import { handmadeTerrainBounds, terrainAnalysisData, createJoinedTerrainSampler, TERRAIN_JOIN_WIDTH_MM, terraceContours } from "../src/surroundings.ts";
+import { handmadeTerrainBounds, terrainAnalysisData, createJoinedTerrainSampler, createLocalTerrainSampler, createEasternTerrainSampler, groundHeight, surroundings, fitTerrainElevation, TERRAIN_JOIN_WIDTH_MM, terraceContours, roadHeight } from "../src/surroundings.ts";
+import { roadsideFootprints } from "../src/roadside-villa-layout.ts";
 import { buildContextGround, buildRoad } from "../src/site-ground.ts";
 import { contourAt } from "../src/contours.ts";
 
@@ -50,7 +51,7 @@ test("发布数据与分析同源，保留真实瓦片来源、原始高程和�
   assert.ok(data.grid!.relativeHeightM.every(Number.isFinite));
   assert.ok(data.grid!.relativeHeightM.some(height => height > 520), "真实高山不得裁到旧版520m上限");
   assert.ok(data.grid!.relativeHeightM.some(height => height < -80), "低地不得裁到旧版-80m下限");
-  assert.ok(Math.abs(terrainHeightM(0, 0)!) < 0.001);
+  assert.ok(Math.abs(terrainHeightM(0, 0)! + data.reference!.courtyardElevationM - data.siteElevM) < 0.001);
   assert.equal(data.reference?.elevationMeasured, false);
   assert.equal(data.reference?.orientationMeasured, false);
   assert.deepEqual(data.localModelBoundsMm, terrainAnalysisData().localModelBoundsMm);
@@ -104,6 +105,129 @@ test("衔接带跨越田坎标高突变时连续，外沿严格回到原始DEM",
   }
 });
 
+test("外围手绘田面回到DEM坡势，近房平台与各栋邻房基底保持同源标高", () => {
+  const sample = createLocalTerrainSampler();
+  const fixed = [[10500, 0, 0], [-500, 7000, 0], [24000, -2000, 0], [12120, 12700, 2500]];
+  for (const house of [surroundings.sideHouse, surroundings.rearHouse, surroundings.frontHouse]) {
+    for (const x of [house.x, house.x + house.w]) {
+      for (const z of [house.z, house.z + house.d]) fixed.push([x, z, house.y]);
+    }
+  }
+  for (const polygon of roadsideFootprints(surroundings.roadsideVilla)) {
+    for (const [x, z] of polygon) fixed.push([x, z, surroundings.roadsideVilla.y]);
+  }
+  for (const [x, z, height] of fixed) {
+    assert.equal(sample(x, z, height).heightMm, height, `近房平台被挪动 @ ${x},${z}`);
+    assert.equal(sample(x, z, height).demWeight, 0);
+  }
+  const bounds = handmadeTerrainBounds();
+  const borders = [
+    { axis: "x", fixed: bounds.front, start: bounds.left, end: bounds.right },
+    { axis: "x", fixed: bounds.back, start: bounds.left, end: bounds.right },
+    { axis: "z", fixed: bounds.left, start: bounds.front, end: bounds.back },
+    { axis: "z", fixed: bounds.right, start: bounds.front, end: bounds.back },
+  ];
+  for (const border of borders) {
+    for (let station = border.start; station <= border.end; station += 250) {
+      const [x, z] = border.axis === "x" ? [station, border.fixed] : [border.fixed, station];
+      const p = modelPointToTerrain(x, 0, z);
+      const raw = terrainHeightM(p.eastM, p.northM)! * 1000;
+      assert.equal(sample(x, z, 0).demWeight, 1);
+      // 2m共用近场网格在原10m三角折线上的重采样差，竖向收边闭合剩余细缝。
+      assert.ok(Math.abs(groundHeight(x, z) - raw) < 200, `外围仍沿用低平台 @ ${x},${z}`);
+    }
+  }
+});
+
+test("外围坡面渲染、高度查询与日照遮挡共用几何，外侧DEM高程直接保留", () => {
+  const material = new THREE.MeshStandardMaterial({ color: 0x697951 });
+  const mats = { grass: material, soil: material, paving: material, neighborCourtyard: material } as Mats;
+  const ground = buildContextGround(mats);
+  ground.updateMatrixWorld(true);
+  const meshes: THREE.Mesh[] = [];
+  ground.traverse(object => { if (object instanceof THREE.Mesh) meshes.push(object); });
+  const blocked = sunOcclusion(meshes), ray = new THREE.Raycaster();
+  for (const [x, z] of [[-23170, 20753], [-20170, -15731], [43170, 21753], [8170, 33753]]) {
+    ray.set(new THREE.Vector3(x, 100000, z), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObject(ground, true)[0];
+    assert.ok(hit, `外围坡面缺失 @ ${x},${z}`);
+    assert.ok(Math.abs(hit.point.y - groundHeight(x, z)) < 0.02);
+    assert.equal(hit.object.castShadow, true);
+    assert.equal(blocked(ray), true);
+    ray.far = 100000 - hit.point.y - 1;
+    assert.equal(blocked(ray), false);
+    ray.far = Infinity;
+  }
+  const raw = createJoinedTerrainSampler();
+  const bounds = handmadeTerrainBounds();
+  for (const [x, z] of [[bounds.right + 7000, 0], [0, bounds.back + 7000], [bounds.left - 7000, 0], [0, bounds.front - 7000]]) {
+    const p = modelPointToTerrain(x, 0, z);
+    assert.equal(raw(x, z), terrainHeightM(p.eastM, p.northM));
+  }
+});
+
+test("东侧高低田改为连续坡面，路缘平顺衔接现有道路", () => {
+  const roadRight = surroundings.road.x + surroundings.road.w;
+  const platformFront = contourAt(terraceContours.leftPlatform, roadRight);
+  for (let x = roadRight + 250; x < handmadeTerrainBounds().right; x += 750) {
+    assert.ok(Math.abs(groundHeight(x, platformFront + 0.1) - groundHeight(x, platformFront - 0.1)) < 1,
+      `东侧仍有高低田突跳 @ ${x}`);
+  }
+  for (let z = surroundings.road.front; z <= surroundings.road.back; z += 317) {
+    assert.ok(Math.abs(groundHeight(roadRight, z) - roadHeight(z)) < 0.01);
+    assert.ok(Math.abs(groundHeight(roadRight + 0.1, z) - roadHeight(z)) < 0.1);
+  }
+});
+
+test("道路末端逐步接入屋后第二田，消除2.5m固定标高的长槽", () => {
+  const x = surroundings.road.x + surroundings.road.w / 2;
+  assert.ok(Math.abs(groundHeight(x, surroundings.road.back + 1) - surroundings.leftPlatform.y) < 1);
+  for (const z of [22000, 24000, 26000]) {
+    assert.ok(groundHeight(x, z) >= surroundings.rearSecond.y - 1);
+    assert.equal(groundHeight(surroundings.rearHouse.x + surroundings.rearHouse.w - 1, z), surroundings.rearHouse.y);
+  }
+});
+
+test("东侧1m坡网、村道与日照射线一致，路廊无重复覆盖", () => {
+  const material = new THREE.MeshStandardMaterial({ color: 0x697951 });
+  const mats = { grass: material, soil: material, paving: material, neighborCourtyard: material } as Mats;
+  const group = buildContextGround(mats).getObjectByName("东侧道路与山坡衔接")!;
+  const terrain = createEasternTerrainSampler(), bounds = handmadeTerrainBounds();
+  const roadRight = surroundings.road.x + surroundings.road.w;
+  const meshes = group.children as THREE.Mesh[];
+  const blocked = sunOcclusion(meshes);
+  const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+  group.updateMatrixWorld(true);
+  assert.ok(terrain.xs.every((x, i) => i === 0 || x - terrain.xs[i - 1] <= 1000));
+  assert.ok(terrain.zs.every((z, i) => i === 0 || z - terrain.zs[i - 1] <= 1000));
+  let roadSamples = 0;
+  for (let x = roadRight + 173; x < bounds.right; x += 1669) {
+    for (let z = bounds.front + 391; z < bounds.back; z += 1973) {
+      ray.ray.origin.set(x, 100000, z);
+      const hits = ray.intersectObject(group, true);
+      // 恰在共用对角线上时，Three.js会同时返回相邻两个三角面的交点。
+      assert.ok(hits.length >= 1 && hits.length <= 2, `东侧缺面或重复铺面 @ ${x},${z}`);
+      assert.equal(new Set(hits.map(hit => hit.object)).size, 1, `路廊与土坡重叠 @ ${x},${z}`);
+      const point = terrain.sample(x, z);
+      const isRoad = hits[0].object.name === "东侧随坡村道";
+      roadSamples += Number(isRoad);
+      const expected = point.heightMm + (isRoad ? 50 * (1 - point.demWeight) : 0);
+      assert.ok(Math.abs(hits[0].point.y - expected) < 0.01);
+      assert.ok(Math.abs(groundHeight(x, z) - point.heightMm) < 0.01);
+      assert.equal(blocked(ray), true);
+      ray.far = 100000 - hits[0].point.y - 1;
+      assert.equal(blocked(ray), false);
+      ray.far = Infinity;
+    }
+  }
+  assert.ok(roadSamples > 10);
+  const raw = createJoinedTerrainSampler();
+  for (const [x, z] of [[bounds.right + 10000, 0], [roadRight + 5000, bounds.back + 10000]]) {
+    assert.equal(terrain.sample(x, z).heightMm, raw(x, z) * 1000);
+    assert.equal(groundHeight(x, z), raw(x, z) * 1000);
+  }
+});
+
 test("近场衔接使用细分三角面，消除大网格把田坎向外拉成尖角", () => {
   const mesh = buildDistantTerrain({} as Mats).getObjectByName("DEM近场衔接面") as THREE.Mesh;
   const p = mesh.geometry.getAttribute("position");
@@ -152,7 +276,8 @@ test("田坎与DEM洞缘之间的高差由实体收边封闭，并参与日照�
       checked++;
     }
   }
-  assert.ok(checked > 10);
+  // 外围已回到DEM，只为残余重采样细缝及路面50mm饰面保留收边。
+  assert.ok(checked > 0);
 });
 
 test("DEM裁洞保留原三角面平面，网格边界无T形裂缝", () => {
@@ -165,8 +290,13 @@ test("DEM裁洞保留原三角面平面，网格边界无T形裂缝", () => {
     return ray.intersectObject(mesh)[0]?.point.y;
   };
   let checked = 0;
-  for (let line = -60; line <= 60; line += 10) {
-    for (let station = -60; station <= 60; station += 5) {
+  const bounds = handmadeTerrainBounds();
+  const corners = [bounds.left, bounds.right].flatMap(x =>
+    [bounds.front, bounds.back].map(z => modelPointToTerrain(x, 0, z)));
+  const extent = Math.ceil((Math.max(...corners.flatMap(p => [Math.abs(p.eastM), Math.abs(p.northM)]))
+    + TERRAIN_JOIN_WIDTH_MM / 1000) / 10) * 10;
+  for (let line = -extent; line <= extent; line += 10) {
+    for (let station = -extent; station <= extent; station += 5) {
       for (const [a, b] of [
         [height(line - 0.0001, station), height(line + 0.0001, station)],
         [height(station, line - 0.0001), height(station, line + 0.0001)],
@@ -344,4 +474,33 @@ test("日照比较保留当前官帽造型，避免按默认屋顶计算遮挡",
   VillaViewer.prototype.analyzeSun.call(viewer as unknown as VillaViewer, "2026-12-21");
   assert.ok(applied.every(state => state.roofStyle === roofStyle));
   assert.equal(applied[0].frontNeighbor, true);
+});
+
+
+test("宅院下方完整DEM与原始三角网同高，叠合底面位于台地下方", () => {
+  const group = buildDistantTerrain({} as Mats);
+  const natural = group.getObjectByName("宅院下方原始DEM") as THREE.Mesh;
+  const base = group.getObjectByName("宅院下方地形底面") as THREE.Mesh;
+  assert.ok(natural && base);
+  assert.equal(natural.visible, false);
+  assert.equal(base.visible, true);
+  const ray = new THREE.Raycaster();
+  for (const [x, z] of [[10500, 4600], [3500, 4700], [25300, 22100], [-11300, -18700]]) {
+    ray.set(new THREE.Vector3(x, 100000, z), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObject(natural)[0];
+    assert.ok(hit, `原始DEM底面缺失 @ ${x},${z}`);
+    const p = modelPointToTerrain(x, 0, z);
+    assert.ok(Math.abs(hit.point.y - terrainHeightM(p.eastM, p.northM)! * 1000) < 0.01);
+    const bottom = ray.intersectObject(base)[0];
+    assert.ok(bottom && bottom.point.y < surroundings.frontHouse.y - 490);
+  }
+});
+
+test("多房基DEM配准可复算，实测高程优先，原始网格独立于落位基准", () => {
+  const fitted = fitTerrainElevation(defaultTerrainHorizon);
+  assert.equal(fitted.reference!.courtyardElevationM, defaultTerrainHorizon.reference!.courtyardElevationM);
+  assert.equal(fitted.grid, defaultTerrainHorizon.grid);
+  assert.equal(fitted.reference!.elevationFit!.residualM.length, 6);
+  const measured = { ...fitted, reference: { ...fitted.reference!, elevationMeasured: true, courtyardElevationM: 318 } };
+  assert.equal(fitTerrainElevation(measured), measured);
 });

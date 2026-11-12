@@ -607,6 +607,40 @@ input[type="range"] {
   border-radius: 9px;
   gap: 1px;
   backdrop-filter: blur(16px);
+  z-index: 2;
+}
+.inspector-hot-edge {
+  position: fixed;
+  top: var(--app-header-height);
+  right: 0;
+  bottom: 41px;
+  width: 14px;
+  z-index: 35;
+  pointer-events: auto;
+}
+body.is-fullscreen .workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+body.is-fullscreen .stage {
+  border-right: 1px solid var(--line);
+  border-radius: 0 0 5px 5px;
+}
+body.is-fullscreen .inspector {
+  position: fixed;
+  top: var(--app-header-height);
+  right: 0;
+  bottom: 41px;
+  width: min(300px, 36vw);
+  z-index: 36;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+  border-radius: 0;
+  border-left: 1px solid var(--line);
+  box-shadow: -10px 0 28px #1a2a1c22;
+  background: var(--paper);
+}
+body.is-fullscreen .inspector.is-peek {
+  transform: translateX(0);
 }
 .camera-bar button {
   display: flex;
@@ -626,40 +660,6 @@ input[type="range"] {
 }
 .camera-bar button:hover:not(.active) {
   background: #e3e8dd;
-}
-.photo-strip {
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  display: flex;
-  gap: 7px;
-}
-.photo-strip button {
-  display: block;
-  padding: 3px;
-  background: #f9f8f0;
-  border: 1px solid #ffffffe0;
-  border-radius: 5px;
-  width: 85px;
-  height: 59px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 2px 8px #20332016;
-}
-.photo-strip img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 2px;
-}
-.photo-strip span {
-  position: absolute;
-  inset: auto 3px 3px;
-  padding: 9px 2px 4px;
-  background: linear-gradient(transparent, #142716aa);
-  color: white;
-  font-size: 9px;
-  text-align: center;
 }
 .compass {
   position: absolute;
@@ -2765,11 +2765,11 @@ dialog .secondary-button {
   .inspector {
     padding: 29px;
   }
-  .photo-strip {
-    bottom: 12px;
-  }
   .camera-bar {
-    left: 58%;
+    left: 50%;
+  }
+  body.is-fullscreen .inspector {
+    width: min(324px, 36vw);
   }
 }
 @media (max-width: 1150px) {
@@ -2801,10 +2801,6 @@ dialog .secondary-button {
   .compass {
     bottom: 73px;
     right: 19px;
-  }
-  .photo-strip {
-    left: 20px;
-    bottom: 75px;
   }
   .sources-panel {
     padding: 29px;
@@ -2923,19 +2919,6 @@ dialog .secondary-button {
   .camera-bar button svg {
     width: 14px;
     height: 14px;
-  }
-  .photo-strip {
-    left: 15px;
-    bottom: 75px;
-    gap: 5px;
-  }
-  .photo-strip button {
-    width: 66px;
-    height: 46px;
-  }
-  .photo-strip span {
-    font-size: 8px;
-    padding-top: 5px;
   }
   .compass {
     right: 16px;

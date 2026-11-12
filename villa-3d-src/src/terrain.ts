@@ -17,6 +17,7 @@ import {
 } from "./primitives";
 import { buildL9, buildXingyuan } from "./cars";
 import { buildRoadsideVilla } from "./roadside-villa";
+import { easternPhotoHouses, northPhotoReferences } from "./photo-context-layout";
 import { roadsideFootprints, roadsideToWorld } from "./roadside-villa-layout";
 import {
   surroundings,
@@ -26,8 +27,10 @@ import {
   mainFrontPadHole,
   rightTerraceBreak,
   rebuildTerraceLinkage,
+  groundHeight,
 } from "./surroundings";
 import { buildContextGround, buildRoad } from "./site-ground";
+import { buildNorthPhotoContext } from "./site-photo-context";
 import { buildDistantTerrain } from "./terrain-horizon";
 import {
   basementFloorY,
@@ -813,6 +816,63 @@ export function buildSurroundingHouses(mat: Mats) {
   const roof = new THREE.Mesh(slopes, red);
   roof.castShadow = roof.receiveShadow = true;
   shed.add(roof);
+  group.add(buildPhotoNeighbors(mat));
+  return group;
+}
+
+/** 北侧两图中的东侧山脚邻房，位置、尺寸及台地标高均为照片估算。 */
+function buildPhotoNeighbors(mat: Mats) {
+  const group = new THREE.Group();
+  group.name = "东侧山脚邻房群";
+  group.userData.source = northPhotoReferences;
+  for (const spec of easternPhotoHouses(surroundings.road.x)) {
+    // 西向房屋先在局部坐标中建模，再整体旋转，保持原房基范围。
+    const westFacing = spec.facing === "west";
+    const h = westFacing ? { ...spec, x: -spec.d / 2, z: -spec.w / 2, w: spec.d, d: spec.w } : spec;
+    const house = new THREE.Group();
+    house.name = h.name;
+    house.userData.accuracy = "尺寸及标高为照片估算，待测";
+    house.userData.facing = spec.facing;
+    house.userData.stories = spec.stories;
+    if (westFacing) {
+      house.position.set(spec.x + spec.w / 2, 0, spec.z + spec.d / 2);
+      house.rotation.y = Math.PI / 2;
+    }
+    const masonry = h.kind === "masonry";
+    const facade = masonry ? mat.wall : mat.wood;
+    const floorHeight = masonry ? h.h / 2 : h.h;
+    const stories = spec.stories;
+    box(house, h.x + h.w / 2, h.y + h.h / 2, h.z + h.d / 2, h.w, h.h, h.d, facade);
+    box(house, h.x + h.w / 2, h.y + 400, h.z - 35, h.w, 800, 100, mat.stone);
+    slab(house, rect(h.x - 350, h.z - 1300, h.w + 700, 1300), h.y + 40, 180, mat.neighborCourtyard);
+    for (let floor = 0; floor < stories; floor++) {
+      for (const bay of [0.18, 0.5, 0.82]) {
+        if (floor === 0 && bay === 0.5) continue;
+        box(house, h.x + h.w * bay, h.y + floor * floorHeight + 1900, h.z - 40,
+          1150, 1500, 80, mat.glass, false);
+        box(house, h.x + h.w * bay, h.y + floor * floorHeight + 1900, h.z - 90,
+          45, 1500, 45, mat.trim);
+      }
+    }
+    box(house, h.x + h.w / 2, h.y + 1150, h.z - 100, 1450, 2300, 150, mat.wood).name = "邻房大门";
+    if (masonry) {
+      const pink = mat.roof.clone();
+      pink.color.set(0x9b6f77);
+      hipRoof(house, h.x + h.w / 2, h.z + h.d / 2, h.w + 800, h.d + 800,
+        h.y + h.h, h.roofRise, { ...mat, roof: pink }, false);
+      // 照片中的侧面平顶附属部分。
+      box(house, h.x - 1400, h.y + 1550, h.z + h.d / 2, 2800, 3100, h.d - 800, mat.wall);
+      slab(house, rect(h.x - 2800, h.z + 400, 2800, h.d - 800), h.y + 3200, 180, mat.stone);
+    } else {
+      gableRoof(house, h.x, h.z, h.w, h.d, h.y + h.h, h.roofRise, mat,
+        { darkTiles: true, gable: mat.wood, overhang: 400 });
+      const red = mat.roof.clone();
+      red.color.set(0x92514b);
+      const awning = box(house, h.x + h.w / 2, h.y + 2800, h.z - 600, h.w + 400, 100, 1200, red);
+      awning.rotation.x = -0.12;
+    }
+    group.add(house);
+  }
   return group;
 }
 
@@ -968,7 +1028,7 @@ export function buildSite(mat: Mats) {
     dimensions = new THREE.Group(),
     overlap = new THREE.Group();
   const contextGround = buildContextGround(mat);
-  context.add(contextGround, road);
+  context.add(contextGround, road, buildNorthPhotoContext(mat));
   const distantTerrain = buildDistantTerrain(mat, undefined, context);
   context.add(distantTerrain);
   const neighbors = buildSurroundingHouses(mat);
@@ -983,7 +1043,7 @@ export function buildSite(mat: Mats) {
   const platformDepth = site.oldDepth;
   const platformNorth = platformSouth + platformDepth;
   const foundationTop = site.garageFloor - site.garageSlabThickness;
-  // 主楼前廊下挖悬空（含原外伸段）：前墙一线承重柱／地梁落在地库净空，再往北仍实体台地。
+  // 主楼仅外伸段架空：土基在前墙外伸范围开洞；Z≥0 实体台地实心，不向屋内下挖。
   const mainPocket = mainFrontGaragePocket();
   const soilHoles: Point[][] = mainPocket.length ? [mainPocket] : [];
   // 院坪、地库和基座共用外沿；相邻未挖田面在 X=0 接续这条曲线。
@@ -1013,12 +1073,12 @@ export function buildSite(mat: Mats) {
   fixed.add(underside);
   // 看见的地面与前院、邻居过道同一完成面。厚板侧壁会在水泥边闪成细线，铺装只留朝上的面。
   // 石基顶面留在铺装以下，避免鸟瞰时两层共面闪成格子。
-  // 台地石基／铺装落在 [platformSouth, platformNorth]；仅主楼前廊下挖开洞，辅楼段保持实体。
+  // 台地石基／铺装落在 [platformSouth, platformNorth]；整片实体，不开前廊屋内洞。
   const padThick = 70;
   const stoneTop = -padThick - 60;
   const ownPad = rect(0, platformSouth, site.width, platformDepth);
-  const mainPadHole = mainFrontPadHole();
-  const padHoles = mainPadHole.length ? [mainPadHole] : [];
+  const padHole = mainFrontPadHole();
+  const padHoles = padHole.length ? [padHole] : [];
   slab(fixed, ownPad, stoneTop, stoneTop - foundationTop, mat.stone, padHoles).name = "自家旧台地石基";
   gradeSurface(fixed, "自家旧台地铺装", ownPad, 0, mat.courtyard, padHoles);
   box(fixed, site.width / 2, 1250, platformNorth + 160, site.width, 2500, 320, mat.stone);
@@ -1085,10 +1145,7 @@ export function buildSite(mat: Mats) {
   const floorFrontOuter = contourSection(insetContour(courtyardFront, floorOuterInset), 0, site.width);
   slab(garage, [[0, 0], [site.width, 0], ...floorFrontOuter.slice().reverse()], site.garageFloor, floorThick, cement)
     .name = "自家地库地面";
-  // 主楼前廊下挖悬空段：地库地面伸入屋内；辅楼段不挖，保持实体台地。
-  if (mainPocket.length) {
-    slab(garage, mainPocket, site.garageFloor, floorThick, cement).name = "主楼前廊下挖地库地面";
-  }
+  // 主楼外伸段已在上方院坪地库地面内；不再向屋内另铺地库板（避免叠面闪动）。
   const woodFront = surroundings.sideHouse.z;
   const lane = outerLaneDepth();
   const yardWest = yard.x;
@@ -1353,9 +1410,9 @@ export function buildSite(mat: Mats) {
   dim(dimensions, `前田低于地库约 ${formatMm(site.frontFieldDrop)}`, 5000, frontFieldLevel + 1100, -13000, 0.74);
   dim(dimensions, `砖房台地再低约 ${formatMm(site.frontHouseDrop)}`, 18000, front.y + 1300, -19000, 0.74);
   dim(dimensions, `屋后田 +${formatMm(site.rearField)}`, 7000, site.rearField + 1400, 13600, 0.74);
-  dim(dimensions, `后二层田 +${formatMm(surroundings.rearSecond.y)} · 估算`, 8000, surroundings.rearSecond.y + 1300, 22000, 0.7);
-  dim(dimensions, `后三层田 +${formatMm(surroundings.rearThird.y)} · 估算`, 8000, surroundings.rearThird.y + 1300, 32200, 0.7);
-  dim(dimensions, `东侧大平地与屋后田同高 +${formatMm(surroundings.leftPlatform.y)}`, 46000, surroundings.leftPlatform.y + 1400, 0, 0.7);
+  dim(dimensions, `后二层近田 +${formatMm(surroundings.rearSecond.y)} · 估算`, rear.x - 800, surroundings.rearSecond.y + 1300, rear.z + 2000, 0.7);
+  dim(dimensions, "后方地面接DEM · 近场坡形估算", 8000, groundHeight(8000, 32200) + 1300, 32200, 0.7);
+  dim(dimensions, `道路东侧近田 +${formatMm(surroundings.leftPlatform.y)} · 估算`, surroundings.leftPlatform.x + 500, surroundings.leftPlatform.y + 1400, 0, 0.7);
   span(dimensions, p(surroundings.road.x, -14000, 1300), p(surroundings.road.x + surroundings.road.w, -14000, 1300));
   dim(dimensions, `道路宽 ${formatMm(surroundings.road.w)} · 待测`, 35500, 2400, -15400, 0.7);
   dim(dimensions, `邻居木房 ${formatMm(side.w)}×${formatMm(side.d)} · 前墙对齐 · 估算`, side.x + side.w / 2, side.h + 1600, side.z + side.d / 2, 0.72);

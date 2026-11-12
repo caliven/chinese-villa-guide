@@ -18,9 +18,9 @@ try {
   const result = spawnSync("python3", [script, rawPath], { stdio: "inherit" });
   if (result.status !== 0) throw new Error("DEM 下载或烘焙失败，已有地形保留");
   const { terrainHorizonProfile, horizonFromProfile } = await import("../src/terrain-elevation.ts");
-  const { terrainAnalysisData } = await import("../src/surroundings.ts");
+  const { terrainAnalysisData, fitTerrainElevation } = await import("../src/surroundings.ts");
   const source = path.join(here, "../src/terrain-horizon-data.json");
-  const data = terrainAnalysisData(JSON.parse(readFileSync(rawPath, "utf8")));
+  const data = terrainAnalysisData(fitTerrainElevation(JSON.parse(readFileSync(rawPath, "utf8"))));
   for (let azimuth = 0; azimuth < 360; azimuth += data.binDeg) {
     const observer = { eastM: 0, northM: 0, heightM: 0 };
     const horizon = horizonFromProfile(terrainHorizonProfile(azimuth, observer, data), 0);
