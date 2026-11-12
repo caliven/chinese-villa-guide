@@ -44,9 +44,7 @@ export function buildEasternGround(mat: Mats) {
       if (cached != null) return cached;
       const point = terrain.sample(x, z);
       const height = point.heightMm + (road ? 50 * (1 - point.demWeight) : 0);
-      const slope = Math.abs(terrain.sample(x, z + 100).heightMm - terrain.sample(x, z - 100).heightMm) / 200;
-      const color = new THREE.Color(0x7b8c50).lerp(new THREE.Color(0x52663d), Math.min(1, slope * 0.6));
-      color.lerp(mountainColor(height / 1000, 0), point.demWeight);
+      const color = mountainColor(height / 1000, 0);
       if (z < contourAt(villageRoadEdges.front, x)) for (const river of rivers) {
         const distance = distanceToPhotoPath(x, z, river.points).distance;
         const gravel = Math.max(0, Math.min(1, (river.halfWidth + 1000 - distance) / 2000));

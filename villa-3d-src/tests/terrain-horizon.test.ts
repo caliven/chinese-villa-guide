@@ -7,7 +7,7 @@ import {
   sunClearsHorizon, sunHorizonLightFactor, buildDistantTerrain, handmadeHouseCenterMm,
   terrainHeightM, terrainHorizonProfile, horizonFromProfile, horizonAtObserver,
   modelPointToTerrain, type TerrainHorizonData,
-  terrainPointToModel,
+  terrainPointToModel, mountainColor,
 } from "../src/terrain-horizon.ts";
 import { sunWindowProbes, southWindowProbes } from "../src/design-data.ts";
 import type { Mats } from "../src/primitives.ts";
@@ -144,6 +144,22 @@ test("外围坡面渲染、高度查询与日照遮挡共用几何，外侧DEM�
   const mats = { grass: material, soil: material, paving: material, neighborCourtyard: material } as Mats;
   const ground = buildContextGround(mats);
   ground.updateMatrixWorld(true);
+  for (const name of ["屋后第一层曲线梯田", "后方木房所在第二层梯田", "后山前第三层曲线梯田", "东侧连续土坡"]) {
+    const mesh = ground.getObjectByName(name) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+    assert.ok(mesh, name);
+    assert.equal(mesh.material.vertexColors, true);
+    assert.equal(mesh.material.map, null);
+    assert.equal(mesh.material.color.getHex(), 0xffffff);
+    const positions = mesh.geometry.getAttribute("position"), colors = mesh.geometry.getAttribute("color");
+    for (let i = 0; i < positions.count; i += 97) {
+      // 北侧河滩另有砂石颜色，绿地按同一高程使用同一山体底色。
+      if (positions.getZ(i) < 0) continue;
+      const expected = mountainColor(positions.getY(i) / 1000, 0);
+      assert.ok(Math.abs(colors.getX(i) - expected.r) < 1e-6
+        && Math.abs(colors.getY(i) - expected.g) < 1e-6
+        && Math.abs(colors.getZ(i) - expected.b) < 1e-6, `绿地底色分区 @ ${name} / ${i}`);
+    }
+  }
   const meshes: THREE.Mesh[] = [];
   ground.traverse(object => { if (object instanceof THREE.Mesh) meshes.push(object); });
   const blocked = sunOcclusion(meshes), ray = new THREE.Raycaster();
@@ -164,6 +180,24 @@ test("外围坡面渲染、高度查询与日照遮挡共用几何，外侧DEM�
     const p = modelPointToTerrain(x, 0, z);
     assert.equal(raw(x, z), terrainHeightM(p.eastM, p.northM));
   }
+});
+
+test("西侧梯田向山体延伸时保持田面标高，末端自然收进上升坡面", () => {
+  const sample = createLocalTerrainSampler();
+  const benches = [
+    { front: terraceContours.rearFirst, back: terraceContours.rearSecond, height: surroundings.rearFirst.y },
+    { front: terraceContours.rearSecond, back: terraceContours.rearThird, height: surroundings.rearSecond.y },
+  ];
+  for (const bench of benches) {
+    for (let x = -8000; x >= -30000; x -= 1000) {
+      const z = (contourAt(bench.front, x) + contourAt(bench.back, x)) / 2;
+      assert.ok(sample(x, z, bench.height).heightMm >= bench.height - 0.01,
+        `水平田面在山脚下弯 @ ${x},${z}`);
+    }
+  }
+  // 这两处原有1m以上下沉，山坡尚未高过田面时应保持平整。
+  const rearZ = (contourAt(terraceContours.rearFirst, -18000) + contourAt(terraceContours.rearSecond, -18000)) / 2;
+  assert.equal(sample(-18000, rearZ, surroundings.rearFirst.y).heightMm, surroundings.rearFirst.y);
 });
 
 test("东侧高低田改为连续坡面，路缘平顺衔接现有道路", () => {

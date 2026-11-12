@@ -77,15 +77,52 @@ test("照片田埂保持前低后高，邻房外留足渐变至DEM的范围", ()
   }
   const east = Math.max(...easternPhotoHouses(c.road.x).map(h => h.x + h.w));
   assert.ok(handmadeTerrainBounds().right >= east + 30000);
-  // 三户北侧／东侧凹坑应抬到接近DEM，与后方大山连成一体。
+  // 完整坡面过渡之后回到DEM，与后方大山连成一体。
   const clusterBack = Math.max(...houses.map(h => h.z + h.d));
   const northX = houses[0].x + houses[0].w / 2;
-  for (const dist of [8000, 16000]) {
+  for (const dist of [24000, 32000]) {
     const z = clusterBack + dist;
     const height = groundHeight(northX, z);
     const dem = createJoinedTerrainSampler()(northX, z) * 1000;
     assert.ok(height > houses[0].y + 4000, `屋后北侧仍低于台地过多 @ ${dist}`);
     assert.ok(Math.abs(height - dem) < dem * 0.2 + 1500, `屋后北侧未接到DEM @ ${dist}`);
+  }
+});
+
+test("三户屋后共用坡面圆顺抬升，画面与日照射线使用同一高度", () => {
+  const [brick, timber, outer] = easternPhotoHouses(c.road.x);
+  const sections = [
+    { axis: "z", from: brick.z + brick.d + 3000, to: 55000, fixed: brick.x + brick.w / 2 },
+    { axis: "x", from: timber.x + timber.w + 2000, to: 112000, fixed: timber.z + timber.d / 2 },
+    { axis: "z", from: outer.z + outer.d + 5800, to: 55000, fixed: outer.x + outer.w / 2 },
+  ];
+  const meshes: THREE.Mesh[] = [];
+  ground.traverse(object => { if (object instanceof THREE.Mesh) meshes.push(object); });
+  const blocked = sunOcclusion(meshes);
+  for (const section of sections) {
+    const pointAt = (station: number) => section.axis === "x"
+      ? [station, section.fixed] : [section.fixed, station];
+    let [x, z] = pointAt(section.from);
+    let previous = groundHeight(x, z);
+    let previousSlope: number | undefined;
+    for (let station = section.from + 1000; station <= section.to; station += 1000) {
+      [x, z] = pointAt(station);
+      const height = groundHeight(x, z);
+      const slope = (height - previous) / 1000;
+      // 按当前照片估算形状约束局部折痕，阈值为视觉回归条件。
+      assert.ok(height >= previous - 5, `屋后坡面出现凹槽 @ ${x},${z}`);
+      assert.ok(slope < 1.2, `屋后坡面出现陡直板面 @ ${x},${z}`);
+      if (previousSlope != null) assert.ok(Math.abs(slope - previousSlope) < 0.35,
+        `相邻坡段法线突变 @ ${x},${z}`);
+      previous = height;
+      previousSlope = slope;
+    }
+    const ray = new THREE.Raycaster(new THREE.Vector3(x, 100000, z), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObject(ground, true)[0];
+    assert.ok(hit && Math.abs(hit.point.y - previous) < 0.02);
+    assert.equal(blocked(ray), true);
+    ray.far = 100000 - previous - 1;
+    assert.equal(blocked(ray), false);
   }
 });
 

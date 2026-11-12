@@ -74,7 +74,7 @@ function surface(
     for (let i = 0; i < positions.count; i++) {
       const x = positions.getX(i), z = positions.getZ(i);
       const weight = sample(x, z, y).demWeight;
-      const color = material.color.clone().lerp(mountainColor(positions.getY(i) / 1000, 0), weight);
+      const color = mountainColor(positions.getY(i) / 1000, 0);
       for (const river of rivers) {
         const distance = distanceToPhotoPath(x, z, river.points).distance;
         const gravel = Math.max(0, Math.min(1, (river.halfWidth + 1000 - distance) / 2000));
