@@ -67,8 +67,8 @@ export function terraceParapetLayout(e = frontElevation, p = site.portico) {
     /** 西翼／门厅西／门厅东／东翼外角：挡墙中线交点。 */
     cornerPosts: [
       { x: wingWestX, z: sideZ, w: shortW },
-      { x: leftX, z: middleZ, w: midW },
-      { x: rightX, z: middleZ, w: midW },
+      { x: leftX, z: middleZ, w: shortW },
+      { x: rightX, z: middleZ, w: shortW },
       { x: wingEastX, z: sideZ, w: shortW },
     ] as { x: number; z: number; w: number }[],
   };

@@ -4,7 +4,8 @@ import { recessedPortico } from "./building-variants.ts";
 import type { PorticoDraft } from "./layout-draft.ts";
 import { orthogonalFloorGeometry } from "./floor-geometry.ts";
 import { box, rect, type Mats } from "./primitives.ts";
-import { compactPorticoColumnCarvings, referencePorticoColumn } from "./entrance-carvings.ts";
+import { referencePorticoColumn } from "./entrance-carvings.ts";
+import { balconyCornerPost } from "./facade-details.ts";
 
 /** 两层半门厅采用一二楼通柱及双层石栏杆阳台，模型与图纸共用尺寸。 */
 export const halfStoreyPorticoDesign = { beamDepth: 260, railHeight: 1100, balusterSpacing: 280 };
@@ -61,17 +62,10 @@ export function halfStoreyBalconyPieces(floor: Pick<Floor, "y">, index: number, 
   const pieces: Piece[] = [];
   const { railHeight, balusterSpacing } = halfStoreyPorticoDesign;
   const { columnSize, columnZ } = halfStoreyBalcony(porch);
-  if (index === 2) for (const x of [porch.x, porch.x + porch.w]) {
-    pieces.push({ x: x - columnSize / 2, z: columnZ - columnSize / 2,
-      w: columnSize, d: columnSize, y: floor.y, h: railHeight, material: "trim", name: "半层门厅同宽方柱" });
-    let top = floor.y + railHeight;
-    for (const [lip, height] of [[20, 25], [35, 35], [50, 25]]) {
-      pieces.push({ x: x - columnSize / 2 - lip, z: columnZ - columnSize / 2 - lip,
-        w: columnSize + lip * 2, d: columnSize + lip * 2,
-        y: top, h: height, material: "trim", name: "阳台方柱层叠压顶" });
-      top += height;
-    }
-  }
+  if (index === 2) for (const x of [porch.x, porch.x + porch.w])
+    for (const [width, y, height] of [[580, 0, 430], [500, 380, 640], [620, 1020, 80]])
+      pieces.push({ x: x - width / 2, z: columnZ - width / 2, w: width, d: width,
+        y: floor.y + y, h: height, material: "trim", name: "半层将军柱" });
   for (const [a, b] of halfStoreyBalconyRails(porch)) {
     const alongX = a[1] === b[1], length = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const member = (at: number, span: number, y: number, h: number, thickness: number, name: string) => {
@@ -84,8 +78,9 @@ export function halfStoreyBalconyPieces(floor: Pick<Floor, "y">, index: number, 
     member(length / 2, length, 100, 40, 200, "大理石栏杆下收边");
     member(length / 2, length, railHeight - 100, 70, 200, "大理石栏杆扶手承托");
     member(length / 2, length, railHeight - 30, 30, 240, "大理石栏杆扶手盖面");
-    const start = columnSize / 2 + 80;
-    const end = length - (alongX ? columnSize / 2 + 80 : 100);
+    const postWidth = index === 2 ? 500 : columnSize;
+    const start = postWidth / 2 + 80;
+    const end = length - (alongX ? postWidth / 2 + 80 : 100);
     const count = Math.max(1, Math.ceil((end - start) / balusterSpacing) + 1);
     for (let i = 0; i < count && end >= start; i++) {
       const at = start + i * (end - start) / Math.max(1, count - 1);
@@ -142,12 +137,11 @@ export function buildHalfStoreyBalcony(parent: THREE.Group, floor: Pick<Floor, "
   const mesh = new THREE.Mesh(orthogonalFloorGeometry(beams, [], floor.y - construction.floorSlab,
     halfStoreyPorticoDesign.beamDepth, true, "union"), mat.trim);
   mesh.name = "阳台连续承托梁"; mesh.castShadow = mesh.receiveShadow = true; group.add(mesh);
-  addPieces(group, halfStoreyBalconyPieces(floor, index, porch), mat);
+  addPieces(group, halfStoreyBalconyPieces(floor, index, porch).filter(piece => piece.name !== "半层将军柱"), mat);
   if (index === 2) {
-    const { columnSize, columnZ } = halfStoreyBalcony(porch);
+    const { columnZ } = halfStoreyBalcony(porch);
     for (const x of [porch.x, porch.x + porch.w])
-      compactPorticoColumnCarvings(group, x, columnZ, floor.y,
-        halfStoreyPorticoDesign.railHeight, columnSize, columnSize, mat);
+      balconyCornerPost(group, x, columnZ, floor.y + 300, 800, 500, mat, floor.y);
   }
   return group;
 }

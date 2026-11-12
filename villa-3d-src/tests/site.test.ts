@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { site, floors, frontFieldLevel, courtyardFront } from "../src/data";
 import { buildContextGround, buildRoad } from "../src/site-ground";
 import { buildSurroundingHouses, makeRamp, buildCourtyard, buildExistingHouses, buildSite, neighborBayPlan, clipParkingLine } from "../src/terrain";
-import { surroundings as c, forestTrees, groundHeight, rightTerraceBreak, terraceContours } from "../src/surroundings";
+import { surroundings as c, handmadeTerrainBounds, groundHeight, rightTerraceBreak, terraceContours } from "../src/surroundings";
 import { contourAt } from "../src/contours";
 import type { Mats } from "../src/primitives";
 
@@ -86,6 +86,16 @@ test("蓝顶邻房门前弯曲主马路露在田面之上，不被前方低田�
         `田面盖住马路 ${onGround[0].point.y.toFixed(0)} ≥ 路 ${onRoad[0].point.y.toFixed(0)} @ ${x},${z}`,
       );
     }
+  }
+});
+
+test("弯曲村道路廊裁切保留细小有效田面，避免地面镂空", () => {
+  const groundCut = buildContextGround(mats);
+  for (const [x, z] of [[-8200, -28011], [-8758, -28287], [-8100, -28100]]) {
+    const surfaces = hits(groundCut, x, z);
+    assert.equal(surfaces.length, 1, `弯道旁地面缺失或重叠 @ ${x},${z}`);
+    assert.ok(Math.abs(surfaces[0].point.y - groundHeight(x, z)) < 0.01);
+    assert.equal(surfaces[0].object.castShadow, true);
   }
 });
 
@@ -267,11 +277,14 @@ test("现状旧木房为人字坡三开间，比左侧邻居大约低300mm", () 
   assert.ok(existing.getObjectByName("自家旧木房前水泥坪"));
 });
 
-test("树干与树冠都在后方木房之后，两侧田地不再生成树木", () => {
-  const trees = forestTrees();
-  assert.ok(trees.length > 0);
-  assert.ok(trees.every((t) => t.z >= c.forestStart));
-  assert.ok(trees.every((t) => t.z - t.r * 2 > c.rearHouse.z + c.rearHouse.d));
+test("删除手工后山，近场田面收至宅院邻房周边", () => {
+  assert.equal(ground.getObjectByName("曲线山脚后的连续后山"), undefined);
+  const bounds = handmadeTerrainBounds();
+  const box = new THREE.Box3().setFromObject(ground);
+  assert.ok(box.min.x >= bounds.left - 0.1 && box.max.x <= bounds.right + 0.1);
+  assert.ok(box.min.z >= bounds.front - 0.1 && box.max.z <= bounds.back + 0.1);
+  assert.ok(bounds.back >= c.rearHouse.z + c.rearHouse.d + 6000);
+  assert.ok((bounds.right - bounds.left) * (bounds.back - bounds.front) < 132000 * 132000 * 0.35);
 });
 
 test("西侧栏杆北端落在院坪西端外沿，不伸到旧 −2980", () => {
@@ -416,6 +429,8 @@ test("两家之间的过道由院坪铺装控制，并且与自家院坪齐平",
       return [key, material];
     })) as Mats;
     const land = buildSite(finish);
+    assert.equal(land.context.getObjectByName("后山树冠"), undefined);
+    assert.equal(land.context.getObjectByName("后山树干"), undefined);
     for (const root of [land.context, land.fixed, land.deck, land.neighborDeck]) root.updateMatrixWorld(true);
     const eastWall = Math.max(site.main.x + site.main.w, site.annex.x + site.annex.w);
     const neighborWall = c.sideHouse.x;

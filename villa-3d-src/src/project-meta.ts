@@ -10,6 +10,7 @@ export const projectMeta = {
 export const meetingTabLabels = { model: "场地模型", floor: "分层户型", sun: "日照比较" };
 export const cameraViewLabels = {
   aerial: "鸟瞰",
+  overview: "上帝视角",
   north: "北立面",
   south: "南侧",
   courtyard: "院坪",

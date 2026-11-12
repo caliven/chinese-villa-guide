@@ -630,6 +630,12 @@ function buildVillaInContext(
       stairPresent && index > 0 ? [rect(opening.x, opening.z, opening.w, opening.d)] : [];
     if (isHalfStoreyScheme && index === 2) {
       labels.push(buildHalfStoreyLevel(g, floor, mat, layoutFacades[index], holes, withLabels));
+      const halfGrooves = new THREE.Group();
+      g.add(halfGrooves);
+      sandGrooves(halfGrooves, layoutFacades[index].map(facade => ({
+        a: facade.a, b: facade.b, base, height: h, openings: facade.openings, includeTop: false,
+      })), [m.x + m.w / 2, m.z + m.d / 2], mat, true, fasciaBottomY(mainRoofFootprint().eave, 0) - 20);
+      clipHalfStorey(halfGrooves);
       if (stairPresent) {
         const incoming = new THREE.Group(); incoming.userData.incomingStair = true; incoming.visible = false;
         const prev = floorList[index - 1];
@@ -770,12 +776,8 @@ function buildVillaInContext(
       // 四根将军柱立在挡墙顶：柱心落在露台直角的挡墙中线交点，石板／栏杆对中柱侧。
       const parapet = elevation.eaveParapet;
       const postBase = base + parapet;
-      for (const [i, post] of terracePosts.entries()) {
-        // 门厅两侧两根仍限含饰线外包；两翼短柱不套该限宽。不能再用 portico.x 包络判断（柱心已外移到挡墙中线）。
-        const central = !sideTerraces || terracePosts.length === 2 || i === 1 || i === 2;
-        balconyCornerPost(shortPosts, post.x, post.z, postBase, elevation.balustradePostHeight, post.w, mat, base,
-          central ? porticoColumnOuterWidth(post.w) : Infinity);
-      }
+      for (const post of terracePosts)
+        balconyCornerPost(shortPosts, post.x, post.z, postBase, elevation.balustradePostHeight, post.w, mat, base);
       for (const run of frontTerraceRailRuns(floor.front))
         glassBalustrade(g, run.a, run.b, postBase, mat, false, run);
       const back = sideTerraces ? elevation.terraceBack : floor.front + 40;

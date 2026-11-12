@@ -11,7 +11,6 @@ import {
   rect,
   railing,
   wallWithOpenings,
-  random,
   line,
   tag,
   type Mats,
@@ -21,7 +20,6 @@ import { buildRoadsideVilla } from "./roadside-villa";
 import { roadsideFootprints, roadsideToWorld } from "./roadside-villa-layout";
 import {
   surroundings,
-  forestTrees,
   basementColumns,
   annexColumnInnerZ,
   mainFrontGaragePocket,
@@ -30,6 +28,7 @@ import {
   rebuildTerraceLinkage,
 } from "./surroundings";
 import { buildContextGround, buildRoad } from "./site-ground";
+import { buildDistantTerrain } from "./terrain-horizon";
 import {
   basementFloorY,
   beamSoffitAt,
@@ -817,105 +816,6 @@ export function buildSurroundingHouses(mat: Mats) {
   return group;
 }
 
-function vegetation(parent: THREE.Object3D, mat: Mats) {
-  const trees = forestTrees();
-  // 透明叶簇替代整颗球形树冠，保留不规则轮廓、枝叶间隙和真实阴影。
-  const leafCanvas = document.createElement("canvas");
-  leafCanvas.width = leafCanvas.height = 256;
-  const ctx = leafCanvas.getContext("2d")!;
-  for (let i = 0; i < 15; i++) {
-    const angle = random() * Math.PI * 2,
-      radius = 35 + random() * 73;
-    const xx = 128 + Math.cos(angle) * radius,
-      yy = 134 + Math.sin(angle) * radius * 0.8;
-    ctx.strokeStyle = "#6a7154";
-    ctx.lineWidth = 1.1;
-    ctx.beginPath();
-    ctx.moveTo(128, 182);
-    ctx.quadraticCurveTo(128, 110, xx, yy);
-    ctx.stroke();
-    for (let k = 0; k < 27; k++) {
-      const a = random() * Math.PI * 2,
-        r = Math.sqrt(random()) * 32;
-      ctx.fillStyle = `hsl(${78 + random() * 29} ${23 + random() * 17}% ${30 + random() * 29}%)`;
-      ctx.beginPath();
-      ctx.ellipse(
-        xx + Math.cos(a) * r,
-        yy + Math.sin(a) * r,
-        3 + random() * 3,
-        1.4 + random() * 2.1,
-        a,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
-    }
-  }
-  const leafMap = new THREE.CanvasTexture(leafCanvas);
-  leafMap.colorSpace = THREE.SRGBColorSpace;
-  const leaves = new THREE.MeshStandardMaterial({
-    map: leafMap,
-    alphaTest: 0.4,
-    alphaToCoverage: true,
-    side: THREE.DoubleSide,
-    roughness: 1,
-    color: 0xb0c9a0,
-  });
-  const countPerTree = 24;
-  const crowns = new THREE.InstancedMesh(
-    new THREE.PlaneGeometry(1, 1),
-    leaves,
-    trees.length * countPerTree,
-  );
-  const trunks = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(70, 150, 1, 6),
-    mat.trunk,
-    trees.length,
-  );
-  const matrix = new THREE.Matrix4(),
-    q = new THREE.Quaternion();
-  trees.forEach((t, i) => {
-    q.identity();
-    matrix.compose(
-      new THREE.Vector3(t.x, t.y + t.h / 2, t.z),
-      q,
-      new THREE.Vector3(1, t.h, 1),
-    );
-    trunks.setMatrixAt(i, matrix);
-    for (let j = 0; j < countPerTree; j++) {
-      const angle = random() * Math.PI * 2,
-        reach = Math.sqrt(random()) * t.r,
-        size = t.r * (1.1 + random() * 0.8);
-      q.setFromEuler(
-        new THREE.Euler(random() * 2.4, random() * Math.PI * 2, random() * 2),
-      );
-      matrix.compose(
-        new THREE.Vector3(
-          t.x + Math.cos(angle) * reach,
-          t.y + t.h - 1000 + random() * t.r * 1.5,
-          t.z + Math.sin(angle) * reach,
-        ),
-        q,
-        new THREE.Vector3(size, size, size),
-      );
-      crowns.setMatrixAt(i * countPerTree + j, matrix);
-      crowns.setColorAt(
-        i * countPerTree + j,
-        new THREE.Color().setHSL(
-          0.23 + random() * 0.06,
-          0.13 + random() * 0.2,
-          0.52 + random() * 0.18,
-        ),
-      );
-    }
-  });
-  crowns.castShadow = crowns.receiveShadow = true;
-  trunks.castShadow = true;
-  crowns.name = "后山树冠";
-  trunks.name = "后山树干";
-  parent.add(crowns, trunks);
-}
-
 const RAIL_HEIGHT = 1100;
 const RAIL_POST_SPAN = 2600;
 const RAIL_BALUSTER_SPAN = 230;
@@ -1067,7 +967,10 @@ export function buildSite(mat: Mats) {
     cutOutline = new THREE.Group(),
     dimensions = new THREE.Group(),
     overlap = new THREE.Group();
-  context.add(buildContextGround(mat));
+  const contextGround = buildContextGround(mat);
+  context.add(contextGround, road);
+  const distantTerrain = buildDistantTerrain(mat, undefined, context);
+  context.add(distantTerrain);
   const neighbors = buildSurroundingHouses(mat);
   context.add(neighbors);
   const sideNeighbor = neighbors.getObjectByName("左侧邻居木房")!;
@@ -1133,8 +1036,6 @@ export function buildSite(mat: Mats) {
     }
   }
   // 屋后铺装上原先有一条深色细条（偏绿灰），用户要求删除。
-  vegetation(context, mat);
-  context.add(road);
   slab(fixed, rect(site.cut.x, site.cut.z, site.cut.w, site.cut.d), -3150, site.garageSlabThickness, mat.soil);
 
   const yard = surroundings.neighborYard;
@@ -1527,6 +1428,7 @@ export function buildSite(mat: Mats) {
     frontNeighbor,
     roadsideNeighbor,
     roadsideDimensions,
+    distantTerrain,
   };
 }
 

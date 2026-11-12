@@ -1,6 +1,7 @@
 import { site, floors, frontFieldLevel, courtyardFront, roadsideVilla, contains, type Point } from "./data.ts";
 import { contourAt, contourSection, insetContour, smoothContour } from "./contours.ts";
-import { placeRoadsideVilla, roadsideToWorld } from "./roadside-villa-layout.ts";
+import { placeRoadsideVilla, roadsideToWorld, roadsideFootprints } from "./roadside-villa-layout.ts";
+import { defaultTerrainHorizon, modelPointToTerrain, terrainHeightM, type TerrainHorizonData, type TerrainBoundsMm } from "./terrain-elevation.ts";
 
 // 全部左右关系按站在北侧、面对房子描述：画面左侧为 X 增大。
 // 对齐关系来自用户；周边房屋尺寸、未测标高和田坎折点仍是航拍估算。
@@ -90,9 +91,30 @@ export const surroundings = {
   rearThird: { front: 29500, back: 36000, y: 6800 },
   rightTerraceAdvance,
   rightStep: site.annex.z + (site.annex.d * 2) / 3 - rightTerraceAdvance,
-  forestStart: 36000,
   extent: { left: -32000, right: 55000, front: -30000, back: 36000 },
 };
+
+/** 保留宅院、邻房和近处道路。外围地面交给DEM，随尺寸调整时仍容纳邻房。 */
+export function handmadeTerrainBounds(): TerrainBoundsMm {
+  const neighbor = roadsideFootprints(roadsideVilla).flat();
+  return {
+    left: Math.min(-26000, ...neighbor.map(point => point[0] - 1800)),
+    right: Math.max(45000, surroundings.leftPlatform.x + 6000, site.width + 3000),
+    front: Math.min(-36000, ...neighbor.map(point => point[1] - 3500)),
+    back: Math.max(36000, surroundings.rearHouse.z + surroundings.rearHouse.d + 6000),
+  };
+}
+
+export const TERRAIN_JOIN_WIDTH_MM = 20000;
+
+export function terrainAnalysisData(data = defaultTerrainHorizon): TerrainHorizonData {
+  const bounds = handmadeTerrainBounds();
+  const margin = TERRAIN_JOIN_WIDTH_MM;
+  return { ...data, localModelBoundsMm: {
+    left: bounds.left - margin, right: bounds.right + margin,
+    front: bounds.front - margin, back: bounds.back + margin,
+  } };
+}
 
 // 俯拍里主马路在蓝顶房前向西南转弯。保留东侧 T 形路口，只有西段随邻房转向。
 // 道路宽度与曲线都是照片估算；与上坡支路不同，这一段与前方砖房首层同高。
@@ -615,17 +637,6 @@ function sampleContourByArc(contour: Point[], fromX: number, toX: number, spacin
 export function groundHeight(x: number, z: number) {
   const c = surroundings;
   const edges = terraceContours;
-  const hillStart = contourAt(edges.hillFoot, x);
-  if (z >= hillStart) {
-    const distance = z - hillStart;
-    // 马路东侧红框里是一块平地，山从这块平地后面抬起，不再从最高一层梯田起坡。
-    const base = x >= c.road.x ? c.leftPlatform.y : c.rearThird.y;
-    return (
-      base +
-      distance * 0.34 +
-      Math.sin(x * 0.00013) * 1600 * Math.min(1, distance / 12000)
-    );
-  }
   if (contains([x, z], villageRoadEdges.outline)) return c.frontHouse.y;
   if (x >= c.road.x && x <= c.road.x + c.road.w && z >= c.road.front && z <= c.road.back)
     return roadHeight(z);
@@ -653,19 +664,44 @@ export function groundHeight(x: number, z: number) {
   return z >= contourAt(edges.frontLower, x) ? frontFieldLevel : c.frontHouse.y;
 }
 
-export function forestTrees() {
-  // 独立种子使建模顺序改变时，后山树群也保持稳定；近景两侧不种树。
-  let seed = 92013;
-  const rand = () => (seed = (1664525 * seed + 1013904223) >>> 0) / 4294967296;
-  return Array.from({ length: 420 }, () => {
-    const x = -48000 + rand() * 120000,
-      z = Math.max(surroundings.forestStart, contourAt(terraceContours.hillFoot, x)) + 2000 + rand() * 43000;
-    return {
-      x,
-      z,
-      y: groundHeight(x, z),
-      h: 4500 + rand() * 7000,
-      r: 1100 + rand() * 1400,
-    };
-  });
+/** 接缝细分与边界标高插值仅用于近场估算衔接。 */
+export const TERRAIN_JOIN_GRID_STEP_MM = 2000;
+export function createJoinedTerrainSampler(data = defaultTerrainHorizon, bounds = handmadeTerrainBounds()) {
+  const step = TERRAIN_JOIN_GRID_STEP_MM;
+  const heights = new Map<string, number>();
+  const weights = [1, 4, 6, 4, 1];
+  const boundaryHeight = (column: number, row: number) => {
+    const key = `${column},${row}`;
+    const cached = heights.get(key);
+    if (cached != null) return cached;
+    let height = 0;
+    for (let j = -2; j <= 2; j++) {
+      for (let i = -2; i <= 2; i++) {
+        const x = Math.max(bounds.left, Math.min(bounds.right, bounds.left + (column + i) * step));
+        const z = Math.max(bounds.front, Math.min(bounds.back, bounds.front + (row + j) * step));
+        height += groundHeight(x, z) * weights[i + 2] * weights[j + 2];
+      }
+    }
+    // 二维核权重合计256，同时把毫米换为米。
+    height /= 256000;
+    heights.set(key, height);
+    return height;
+  };
+  return (x: number, z: number) => {
+    const point = modelPointToTerrain(x, 0, z, data);
+    const raw = terrainHeightM(point.eastM, point.northM, data);
+    if (raw == null) throw new Error("DEM未覆盖场地接缝");
+    const edgeX = Math.max(bounds.left, Math.min(bounds.right, x));
+    const edgeZ = Math.max(bounds.front, Math.min(bounds.back, z));
+    const distance = Math.hypot(x - edgeX, z - edgeZ);
+    if (distance >= TERRAIN_JOIN_WIDTH_MM) return raw;
+    const column = (edgeX - bounds.left) / step, row = (edgeZ - bounds.front) / step;
+    const c = Math.floor(column), r = Math.floor(row), u = column - c, v = row - r;
+    const front = boundaryHeight(c, r) * (1 - u) + boundaryHeight(c + 1, r) * u;
+    const back = boundaryHeight(c, r + 1) * (1 - u) + boundaryHeight(c + 1, r + 1) * u;
+    const local = front * (1 - v) + back * v;
+    const t = distance / TERRAIN_JOIN_WIDTH_MM;
+    const blend = t * t * (3 - 2 * t);
+    return local * (1 - blend) + raw * blend;
+  };
 }

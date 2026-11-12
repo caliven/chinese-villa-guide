@@ -11,6 +11,7 @@ import { roofPlan, roofDrawingLabels, type RoofDrawingView } from "./roof-plan";
 import { elevationPlan, elevationLabels, type ElevationView } from "./elevation-plan";
 import { formatMm } from "./units";
 import { VillaViewer, defaultView, type CameraName } from "./viewer";
+import { defaultTerrainHorizon as terrainData } from "./terrain-elevation.ts";
 import { site, floors, facts, photos, annexRooms, buildingAreas } from "./data";
 import {
   floorPlan,
@@ -118,6 +119,7 @@ import { REAL_SCENE_REQUEST, REAL_SCENE_SCHEME } from "./real-scene-protocol";
 const shapes: Record<string, string> = {
   house: '<path d="M3 10 12 3l9 7M5 9v12h14V9M10 21v-7h4v7"/>',
   aerial: '<path d="m3 9 9-5 9 5-9 5-9-5Zm0 6 9 5 9-5M3 12l9 5 9-5"/>',
+  overview: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/>',
   north: '<path d="M4 21V7l8-4 8 4v14M9 21v-6h6v6M8 8h1m6 0h1M8 11h1m6 0h1"/>',
   south: '<path d="m3 20 7-13 4 6 3-4 4 11H3Z"/><circle cx="17" cy="5" r="2"/>',
   courtyard: '<path d="M4 4h16v16H4zM8 8h8v8H8z"/>',
@@ -157,6 +159,7 @@ const eaveColorPresets = [
 ] as const;
 const cameraLabels: Record<string, string> = {
   aerial: "鸟瞰",
+  overview: "上帝视角",
   north: "北立面",
   south: "南侧",
   courtyard: "院坪",
@@ -220,7 +223,7 @@ document.querySelector("#app")!.innerHTML = `
         .join("")}</div>
       <div class="compass" id="compass"><span>N</span><svg viewBox="0 0 52 52" aria-label="指北针"><circle cx="26" cy="26" r="23"/><g id="compass-arrow"><path d="m26 7 9 34-9-7-9 7Z"/></g></svg></div>
       ${planDesignerHtml(floors.map(f => f.name))}
-      <article id="sources-panel" class="sources-panel" hidden><h1>设计依据与待核对事项</h1><p class="lead">把已经知道的、照片估算的和设计提出的分开记录，方便家人与现场一起核对。</p><div class="source-gallery">${photos.map((p, i) => `<button data-photo-modal="${i}"><img src="./photos/${p.file}" alt="${p.title}" loading="lazy"/><strong>${p.title}</strong><span>${p.note}</span></button>`).join("")}</div><h2>尺寸与证据</h2><div class="fact-list" id="fact-list"></div><h2>使用范围</h2><p>这是按现有照片与尺寸制作的方案模型。围护墙、楼梯、柱梁、挡土、排水、柴火烟道和邻居平台切除均需结合现场深化；模型没有代替结构施工图，也未认定宅基地审批范围。</p><p>太阳位置采用安化地区坐标和北京时间。周边树高、远山天际线与邻房标高未经测绘，日照结果只用于当前模型内的方案比较。</p><p class="source-links"><a href="https://manuals.lixiang.com/zh-cn/X012022MAX/20250916140616/topic-2022-702D4999-001.html" target="_blank" rel="noreferrer">2022款理想L9官方整车参数 ↗</a><a href="https://bsesc.energy.gov/energy-basics/natural-light-and-daylighting" target="_blank" rel="noreferrer">自然采光与遮阳原理 ↗</a><a href="../sunlight-3d/">原四季日照模拟器 ↗</a></p></article>
+      <article id="sources-panel" class="sources-panel" hidden><h1>设计依据与待核对事项</h1><p class="lead">把已经知道的、照片估算的和设计提出的分开记录，方便家人与现场一起核对。</p><div class="source-gallery">${photos.map((p, i) => `<button data-photo-modal="${i}"><img src="./photos/${p.file}" alt="${p.title}" loading="lazy"/><strong>${p.title}</strong><span>${p.note}</span></button>`).join("")}</div><h2>尺寸与证据</h2><div class="fact-list" id="fact-list"></div><h2>使用范围</h2><p>这是按现有照片与尺寸制作的方案模型。围护墙、楼梯、柱梁、挡土、排水、柴火烟道和邻居平台切除均需结合现场深化；模型没有代替结构施工图，也未认定宅基地审批范围。</p><p>太阳位置采用安化地区坐标和北京时间。山体采用 AWS Mapzen / USGS SRTM 原始高程，院坪海拔、建筑轴线与邻房标高待实测；日照按当前地形和建筑模型估算。</p><p class="source-links"><a href="https://manuals.lixiang.com/zh-cn/X012022MAX/20250916140616/topic-2022-702D4999-001.html" target="_blank" rel="noreferrer">2022款理想L9官方整车参数 ↗</a><a href="https://bsesc.energy.gov/energy-basics/natural-light-and-daylighting" target="_blank" rel="noreferrer">自然采光与遮阳原理 ↗</a><a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noreferrer">AWS Terrain Tiles ↗</a><a href="../sunlight-3d/">原独立日照模拟器（旧版） ↗</a></p></article>
       <div class="sun-stamp" id="sun-stamp" hidden>${icon("sun")}<span id="sun-stamp-text"></span></div>
     </section>
     <section id="originals-panel" class="real-scene-panel" aria-label="原始资料" hidden><iframe id="originals-frame" title="原始资料图片与文件浏览"></iframe></section>
@@ -248,7 +251,7 @@ document.querySelector("#app")!.innerHTML = `
         <section id="dining-check"><h2>餐厅拉椅范围</h2><p class="description">虚线圈为圆桌桌缘外550 mm的拉椅讨论留位，随桌子移动和改尺寸更新。</p><div class="notice"><span><strong>距辅楼外轮廓的示意余量</strong><small id="dining-warning"></small></span></div></section>
       </div>
       <div id="sun-controls" hidden>
-        <section><h2>四季日照</h2><p class="description">按真实朝北方向观察光线，重点比较南窗与屋后高田的遮挡。</p><div class="season-grid">${[
+        <section><h2>四季日照</h2><p class="description">逐窗计算完整建筑、全部邻房与DEM山体遮挡，包含各层四向外窗。</p><div class="season-grid">${[
           ["03-20", "春分"],
           ["06-21", "夏至"],
           ["09-23", "秋分"],
@@ -260,9 +263,9 @@ document.querySelector("#app")!.innerHTML = `
           )
           .join(
             "",
-          )}</div><label class="select-label">日期<input type="date" id="sun-date" value="2026-09-23" min="2020-01-01" max="2100-12-31"/></label><div class="range-heading"><label for="sun-time">北京时间</label><output id="time-output">10:30</output></div><input type="range" id="sun-time" min="6" max="18" step="0.25" value="10.5"/><div class="range-ends"><span>06:00</span><span>12:00</span><span>18:00</span></div><dl class="metric-list"><div><dt>太阳高度角</dt><dd id="sun-alt"></dd></div><div><dt>方位角 · 北起顺时针</dt><dd id="sun-az"></dd></div></dl></section>
-        <section><h2>后阳台对比</h2><select id="sun-balcony" aria-label="选择南侧阳台方案"><option value="none">无连续后阳台 · 基准</option><option value="local">${isHalfStoreyScheme ? "半层" : "三楼"}局部浅阳台 · 1200 mm</option></select><p class="micro">${isHalfStoreyScheme ? "浅阳台按半层南侧独立比较，开门与坡下净高待深化。" : "浅阳台仅在三楼公共过厅外，卧室南窗保持开敞。"}</p><button class="primary-button" id="analyze-sun">计算两种方案的南窗遮挡</button><div id="sun-report" aria-live="polite"></div></section>
-        <p class="micro">每半小时采样窗外竖向3点，显示直射光是否受阻；不是室内照度或法定日照时数。树木、邻房和地形为照片估算。</p>
+          )}</div><label class="select-label">日期<input type="date" id="sun-date" value="2026-09-23" min="2020-01-01" max="2100-12-31"/></label><div class="range-heading"><label for="sun-time">北京时间</label><output id="time-output">10:30</output></div><input type="range" id="sun-time" min="5" max="20" step="0.25" value="10.5"/><div class="range-ends"><span>05:00</span><span>12:30</span><span>20:00</span></div><dl class="metric-list"><div><dt>太阳高度角</dt><dd id="sun-alt"></dd></div><div><dt>方位角 · 北起顺时针</dt><dd id="sun-az"></dd></div><div><dt>山脊仰角 · 宅址上方5m</dt><dd id="sun-ridge"></dd></div><div><dt>参考点直射状态</dt><dd id="sun-terrain-state"></dd></div></dl></section>
+        <section><h2>直射遮挡对比</h2><select id="sun-balcony" aria-label="选择南侧阳台方案"><option value="none">无连续后阳台 · 基准</option><option value="local">${isHalfStoreyScheme ? "半层" : "三楼"}局部浅阳台 · 1200 mm</option></select><p class="micro">浅阳台对比作用于各层南窗，其余方向比较直射遮挡。</p><button class="primary-button" id="analyze-sun">计算四向外窗遮挡</button><div id="sun-report" aria-live="polite"></div></section>
+        <details class="terrain-source"><summary>地形来源与精度</summary><p class="micro">Mapzen / USGS SRTM，原始约30m分辨率。源瓦片更新于2017年，近期开挖与填土仍需现场核对。半径${terrainData.radiusM / 1000}km，本地采用10～120m插值网格。宅院与邻房保留近场模型，外围20m接缝与近场共同计算遮挡，其外采用原始DEM。</p><p class="micro">WGS84 ${terrainData.latitude.toFixed(7)}, ${terrainData.longitude.toFixed(7)}。院坪基准约${terrainData.siteElevM.toFixed(1)}m，采用DEM插值，待实测。地理锚点沿用旧房中心近似定位。北侧航拍135022的相机朝向175.8°，建筑轴线角度待标定。</p><p class="micro">每10分钟计算窗外竖向3点的太阳中心直射。三维阴影由完整DEM按太阳中心方向投影，仰角读数以宅址上方5m为参考，逐窗结果按各窗位置与高度计算。后方模拟树群与手工山坡已移除。近场标高与邻房仍为估算，天气与室内反射光需另行评估。</p><p class="micro"><a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noreferrer">AWS 数据来源</a> · <a href="./terrain/horizon.json" target="_blank" rel="noreferrer">本次高程与瓦片来源记录</a></p></details>
       </div>
       <div id="garage-controls" hidden>
         <section>
@@ -1674,6 +1677,7 @@ const sceneUpdates = new DeferredSceneUpdate({
     return { key: JSON.stringify({ params, layout }), value: { params, layout } };
   },
   apply: ({ params, layout }) => {
+    invalidateSunAnalysis();
     const paramsKey = JSON.stringify(params);
     if (paramsKey !== sceneParamsKey) viewer!.rebuildAfterParams(params.roofFenShui, layout);
     else viewer!.rebuildLayout(layout);
@@ -1820,17 +1824,18 @@ function updateScene() {
           ? !garage
           : tab !== p;
   if (tab !== "model") $("comparison").hidden = true;
+  if (viewer && viewer.state.roofStyle !== roofStyle) invalidateSunAnalysis();
   viewer?.setState({
     roofStyle,
     courtyardFinish: selectedCourtyardFinish("courtyard-finish"),
     neighborCourtyardFinish: selectedCourtyardFinish("neighbor-courtyard-finish"),
     existing: isExisting && tab === "model",
-    roof: checked("roof"),
+    roof: tab === "sun" || checked("roof"),
     night: tab === "model" && !garage && checked("night-mode"),
     eaveLightColor: $<HTMLInputElement>("eave-light-color").value,
     eaveLightBrightness: Number($<HTMLInputElement>("eave-light-brightness").value) / 100,
     dimensions: checked("dimensions"),
-    context: checked("context"),
+    context: tab === "sun" || checked("context"),
     balcony,
     floor: floor3d ? level : null,
     exploded: floor3d && checked("explode"),
@@ -1838,12 +1843,12 @@ function updateScene() {
     assemblyMode: tab === "model" && !garage && !isExisting && modelAssemblyMode,
     garage,
     overlap: checked("overlap"),
-    mainBuilding: checked("main-building"),
-    annexBuilding: checked("annex-building"),
-    sideNeighbor: checked("neighbor-side"),
-    rearNeighbor: checked("neighbor-rear"),
-    frontNeighbor: checked("neighbor-front"),
-    roadsideNeighbor: checked("neighbor-roadside"),
+    mainBuilding: tab === "sun" || checked("main-building"),
+    annexBuilding: tab === "sun" || checked("annex-building"),
+    sideNeighbor: tab === "sun" || checked("neighbor-side"),
+    rearNeighbor: tab === "sun" || checked("neighbor-rear"),
+    frontNeighbor: tab === "sun" || checked("neighbor-front"),
+    roadsideNeighbor: tab === "sun" || checked("neighbor-roadside"),
   }, tab === "model" && !garage && !isExisting);
   const assemblyButton = $<HTMLButtonElement>("model-explode");
   const modeButton = $<HTMLButtonElement>("assembly-mode");
@@ -1876,7 +1881,7 @@ function updateScene() {
     : floor3d
       ? `${floors[level].name} · 立体剖看`
       : tab === "sun"
-        ? "南侧日照与遮挡"
+        ? "四向外窗日照与遮挡"
         : isExisting
           ? "老房现状"
           : constructionSchemes[activeConstructionScheme];
@@ -1965,6 +1970,12 @@ function setCamera(name: CameraName) {
 function timeText(hour: number) {
   return `${String(Math.floor(hour)).padStart(2, "0")}:${String(Math.round((hour % 1) * 60)).padStart(2, "0")}`;
 }
+function invalidateSunAnalysis() {
+  const report = $("sun-report");
+  if (!report.dataset.date) return;
+  report.textContent = "模型已更新，请重新计算外窗遮挡。";
+  delete report.dataset.date;
+}
 function updateSun() {
   const date = $<HTMLInputElement>("sun-date").value,
     hour = Number($<HTMLInputElement>("sun-time").value);
@@ -1975,6 +1986,13 @@ function updateSun() {
   if (pos) {
     $("sun-alt").textContent = `${pos.altitude.toFixed(1)}°`;
     $("sun-az").textContent = `${pos.azimuth.toFixed(1)}°`;
+    $("sun-ridge").textContent = `${pos.ridge.toFixed(1)}°`;
+    $("sun-terrain-state").textContent = pos.altitude <= 0 ? "太阳位于地平线下" : pos.horizonFactor === 0 ? "山体遮挡" : pos.horizonFactor < 1 ? "太阳部分露出山脊" : "太阳高于山脊";
+  }
+  const report = $("sun-report");
+  if (report.dataset.date && report.dataset.date !== date) {
+    report.textContent = "日期已改变，请重新计算外窗遮挡。";
+    delete report.dataset.date;
   }
   active("[data-season]", (b) => date.endsWith(b.dataset.season!));
 }
@@ -3010,13 +3028,22 @@ $("analyze-sun").addEventListener("click", async () => {
   await new Promise((resolve) => setTimeout(resolve, 40));
   try {
     const rows = viewer.analyzeSun($<HTMLInputElement>("sun-date").value);
+    const facingLabel = { north: "北", south: "南", east: "东", west: "西" } as const;
+    $("sun-report").dataset.date = $<HTMLInputElement>("sun-date").value;
     $("sun-report").innerHTML =
-      `<div class="sun-report-legend"><span><i></i>有直射点</span><span><i></i>全部受遮挡</span></div>${rows.map((r) => `<div class="sun-row"><strong>${r.name}</strong>${(["plain", "balcony"] as const).map((key) => `<div class="sun-sample-row"><span>${key === "plain" ? "无阳台" : "浅阳台"}</span><div class="sun-samples">${r.samples.map((s) => `<i style="--lit:${s[key] / 3}" title="${timeText(s.hour)} · ${s[key]}/3点有直射光"></i>`).join("")}</div></div>`).join("")}</div>`).join("")}<div class="sample-axis"><span>07:00</span><span>12:00</span><span>17:00</span></div><p class="micro">颜色为当前模型采样结果，不包含天气、室内反射光和未测绘远山的精确遮挡。</p>`;
+      `<div class="sun-report-legend"><span><i></i>有直射点</span><span><i></i>全部受遮挡</span></div>${rows.map((r) => {
+        const keys = r.facing === "south" ? (["plain", "balcony"] as const) : (["plain"] as const);
+        return `<div class="sun-row"><strong>${r.name}<small>${facingLabel[r.facing]}向</small></strong>${keys.map((key) => `<div class="sun-sample-row"><span>${key === "plain" ? (r.facing === "south" ? "无阳台" : "直射") : "浅阳台"}</span><div class="sun-samples">${r.samples.map((s) => {
+          const lit = s[key] ?? 0;
+          const detail = s.facingSun ? `山体遮挡${s.terrainBlocked}/3点，近场遮挡${s.modelBlocked}/3点` : "太阳位于窗背面或地平线下";
+          return `<i style="--lit:${lit / 3}" title="${timeText(s.hour)} · ${lit}/3点有直射光 · ${detail}"></i>`;
+        }).join("")}</div></div>`).join("")}</div>`;
+      }).join("")}<div class="sample-axis"><span>05:00</span><span>12:30</span><span>20:00</span></div><p class="micro">${$<HTMLInputElement>("sun-date").value} · 北京时间，每格10分钟；悬停查看山体与近场遮挡原因。结果为当前地形和建筑模型估算。</p>`;
   } catch {
     $("sun-report").textContent = "本次计算未完成，请重试。";
   } finally {
     b.disabled = false;
-    b.textContent = "重新计算南窗遮挡";
+    b.textContent = "重新计算四向外窗遮挡";
     $("sun-report").removeAttribute("aria-busy");
   }
 });

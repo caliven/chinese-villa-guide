@@ -45,6 +45,17 @@ function edgePlane(a: Point, b: Point, sign: number, inset = 0): [number, number
   return [-dz * sign, dx * sign, (dz * a[0] - dx * a[1]) * sign - inset * Math.hypot(dx, dz)];
 }
 
+// 用凸边界裁切多边形，供屋面与近场地面共用。
+export function intersectRoofPolygon(subject: Point[], cover: Point[]): Point[] {
+  const sign = Math.sign(area(cover));
+  let result = subject;
+  for (let i = 0; i < cover.length && result.length >= 3; i++) {
+    const [a, b, c] = edgePlane(cover[i], cover[(i + 1) % cover.length], sign);
+    result = clip(result, a, b, c);
+  }
+  return Math.abs(area(result)) > areaEpsilon ? result : [];
+}
+
 // 从凸多边形中减去另一凸多边形，保留互不重叠的凸片。
 export function subtractRoofPolygon(subject: Point[], cover: Point[]): Point[][] {
   const sign = Math.sign(area(cover));

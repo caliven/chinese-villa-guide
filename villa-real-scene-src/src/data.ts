@@ -140,8 +140,9 @@ export const site = {
   // 0.45 是示意结构占用，不是设计梁高。地库绝对标高尚待联测。
   deckStructure: 0.45,
   garageFloor: -2.95,
-  latitude: 28.153355,
-  longitude: 111.156546,
+  // 与 villa-3d 同源：高德房子中心 GCJ-02 111.161875,28.150050 → WGS84。
+  latitude: 28.1532983844,
+  longitude: 111.1564110737,
   // 西端不收尖。东端与旁边木屋前的接通院坪取同一外沿。
   field: [
     [0, 0],

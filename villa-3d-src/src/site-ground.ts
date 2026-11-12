@@ -2,11 +2,11 @@ import * as THREE from "three";
 import { site, frontFieldLevel, contains, courtyardFront, NEIGHBOR_COURTYARD_SLAB_THICKNESS, type Point } from "./data";
 import { box, type Mats } from "./primitives";
 import { betweenContours, contourAt, contourSection } from "./contours";
-import { subtractRoofPolygon } from "./roof-surfaces";
+import { intersectRoofPolygon, subtractRoofPolygon } from "./roof-surfaces";
 import { basementFloorY } from "./garage-layout";
 import {
   surroundings as c,
-  groundHeight,
+  handmadeTerrainBounds,
   roadStations,
   roadHeight,
   rightTerraceBreak,
@@ -55,18 +55,32 @@ function riser(
   const positions: number[] = [];
   const indices: number[] = [];
   const uv: number[] = [];
-  // 每站 2 顶点（底／顶），段间共享，斜坡段顶标高连续变化时不出现竖向镂空缝。
-  for (const [x, z] of points) {
-    const yBottom = typeof bottom === "number" ? bottom : bottom(x, z);
-    const yTop = typeof top === "number" ? top : top(x, z);
-    positions.push(x, yBottom, z, x, yTop, z);
-    uv.push(x / 8 + z / 8, yBottom / 8, x / 8 + z / 8, yTop / 8);
-  }
+  const bounds = handmadeTerrainBounds();
+  // 逐段裁到近场外沿，保留弯曲田坎的原始端点与标高。
   for (let i = 1; i < points.length; i++) {
-    const a = (i - 1) * 2;
-    const b = i * 2;
-    indices.push(a, b, b + 1, a, b + 1, a + 1);
+    const [x, z] = points[i - 1], dx = points[i][0] - x, dz = points[i][1] - z;
+    let from = 0, to = 1;
+    for (const [position, direction, min, max] of [[x, dx, bounds.left, bounds.right], [z, dz, bounds.front, bounds.back]]) {
+      if (Math.abs(direction) < 1e-9) {
+        if (position < min || position > max) to = -1;
+        continue;
+      }
+      const a = (min - position) / direction, b = (max - position) / direction;
+      from = Math.max(from, Math.min(a, b));
+      to = Math.min(to, Math.max(a, b));
+    }
+    if (to <= from) continue;
+    const base = positions.length / 3;
+    for (const t of [from, to]) {
+      const px = x + dx * t, pz = z + dz * t;
+      const yBottom = typeof bottom === "number" ? bottom : bottom(px, pz);
+      const yTop = typeof top === "number" ? top : top(px, pz);
+      positions.push(px, yBottom, pz, px, yTop, pz);
+      uv.push(px / 8 + pz / 8, yBottom / 8, px / 8 + pz / 8, yTop / 8);
+    }
+    indices.push(base, base + 2, base + 3, base, base + 3, base + 1);
   }
+  if (!indices.length) return;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
@@ -86,6 +100,7 @@ function cropRows(
   y: number,
   mat: Mats,
 ) {
+  if (polygon.length < 3) return;
   const xs = polygon.map((p) => p[0]),
     zs = polygon.map((p) => p[1]);
   const material = mat.grass.clone();
@@ -102,14 +117,20 @@ function cropRows(
 export function buildContextGround(mat: Mats) {
   const group = new THREE.Group();
   group.name = "红线曲线梯田";
-  const left = -55000, right = 77000, roadRight = c.road.x + c.road.w;
+  const bounds = handmadeTerrainBounds();
+  const { left, right, front, back } = bounds;
+  const boundary: Point[] = [[left, front], [right, front], [right, back], [left, back]];
+  const roadRight = c.road.x + c.road.w;
   const levelLine = (z: number): Point[] => [[left, z], [right, z]];
-  const villageFront: Point[] = [[left, villageRoadEdges.front[0][1]], ...villageRoadEdges.front, [right, villageRoadEdges.front.at(-1)![1]]];
-  const villageBack: Point[] = [[left, villageRoadEdges.back[0][1]], ...villageRoadEdges.back, [right, villageRoadEdges.back.at(-1)![1]]];
+  const villageFront = contourSection(villageRoadEdges.front, left, right);
+  const villageBack = contourSection(villageRoadEdges.back, left, right);
   /** 田面与弯曲主马路重叠时挖空路廊，避免更高田面把路面盖住。 */
   const paintBand = (name: string, polygon: Point[], y: number, crops: boolean, cutVillageRoad: boolean) => {
+    polygon = intersectRoofPolygon(polygon, boundary);
+    if (polygon.length < 3) return;
+    // 弯道路廊会切出细小有效地块，面积阈值只剔除退化面，避免留下贯穿孔洞。
     const parts = cutVillageRoad
-      ? subtractRoofPolygon(polygon, villageRoadEdges.outline).filter((part) => part.length >= 3 && Math.abs(area2(part)) > 500000)
+      ? subtractRoofPolygon(polygon, villageRoadEdges.outline).filter((part) => part.length >= 3 && Math.abs(area2(part)) > 0.01)
       : [polygon];
     parts.forEach((part, index) => {
       const label = parts.length > 1 ? `${name}·${index + 1}` : name;
@@ -127,6 +148,9 @@ export function buildContextGround(mat: Mats) {
     crops = false,
     cutVillageRoad = false,
   ) => {
+    from = Math.max(left, from);
+    to = Math.min(right, to);
+    if (to <= from) return [];
     const polygon = betweenContours(front, back, from, to);
     paintBand(name, polygon, y, crops, cutVillageRoad);
     return polygon;
@@ -196,12 +220,12 @@ export function buildContextGround(mat: Mats) {
   band("屋后第一层曲线梯田", edges.rearFirst, edges.rearSecond, left, c.road.x, c.rearFirst.y, true);
   band("后方木房所在第二层梯田", edges.rearSecond, edges.rearThird, left, c.road.x, c.rearSecond.y);
   riser(group, contourSection(edges.rearSecond, left, c.road.x), c.rearSecond.y, c.rearFirst.y, mat);
-  band("道路东侧平地", edges.rearFirst, edges.hillFoot, roadRight, right, c.leftPlatform.y, true);
+  band("道路东侧平地", edges.rearFirst, levelLine(back), roadRight, right, c.leftPlatform.y, true);
   // 路面停在这一层。原路床并入同一平面，屋后木房左侧不再留一段往上走的路。
   band(
     "马路尽头并入大平地",
     [[c.road.x, c.road.back], [roadRight, c.road.back]],
-    edges.hillFoot,
+    levelLine(back),
     c.road.x,
     roadRight,
     c.leftPlatform.y,
@@ -213,9 +237,9 @@ export function buildContextGround(mat: Mats) {
   const roadEdge = (fromZ: number, toZ: number, top: number) =>
     riser(group, [[c.road.x, fromZ], [c.road.x, toZ]], top, c.leftPlatform.y, mat);
   roadEdge(contourAt(edges.rearSecond, c.road.x), contourAt(edges.rearThird, c.road.x), c.rearSecond.y);
-  roadEdge(contourAt(edges.rearThird, c.road.x), contourAt(edges.hillFoot, c.road.x), c.rearThird.y);
+  roadEdge(contourAt(edges.rearThird, c.road.x), back, c.rearThird.y);
   cropRows(group, betweenContours(edges.rearSecond, edges.rearThird, left, c.rearHouse.x - 1000), c.rearSecond.y, mat);
-  band("后山前第三层曲线梯田", edges.rearThird, edges.hillFoot, left, c.road.x, c.rearThird.y, true);
+  band("后山前第三层曲线梯田", edges.rearThird, levelLine(back), left, c.road.x, c.rearThird.y, true);
   riser(group, contourSection(edges.rearThird, left, c.road.x), c.rearThird.y, c.rearSecond.y, mat);
 
   // 道路边线始终留空。只补地形与道路之间的侧立面，不在路面下再铺一张共面田面。
@@ -233,35 +257,10 @@ export function buildContextGround(mat: Mats) {
   roadBank(roadRight, contourAt(edges.leftPlatform, roadRight), c.road.back, c.leftPlatform.y);
 
   // 连续曲线一直延伸到远田，不再使用格子状高低跳变拼出远近接缝。
-  band("村道外前方地面", levelLine(-45000), villageFront, left, right, c.frontHouse.y, false, true);
+  band("村道外前方地面", levelLine(front), villageFront, left, right, c.frontHouse.y, false, true);
   band("横向村道右侧田面", villageFront, villageBack, left, c.extent.left, c.frontHouse.y, false, true);
   band("横向村道左侧田面", villageFront, villageBack, c.extent.right, right, c.frontHouse.y, false, true);
 
-  // 山坡第一排顶点直接采用末级田埂，之后才逐渐抬高。
-  const positions: number[] = [], uv: number[] = [];
-  const hill = edges.hillFoot, rows = 32;
-  for (let i = 1; i < hill.length; i++) {
-    const a = hill[i - 1], b = hill[i];
-    const point = (p: Point, row: number) => {
-      const z = p[1] + (87000 - p[1]) * row / rows;
-      return [p[0], groundHeight(p[0], z), z];
-    };
-    for (let j = 1; j <= rows; j++) {
-      const quad = [point(a, j - 1), point(b, j - 1), point(b, j), point(a, j)];
-      for (const index of [0, 2, 1, 0, 3, 2]) {
-        positions.push(...quad[index]);
-        uv.push(quad[index][0] / 30, quad[index][2] / 30);
-      }
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  geometry.computeVertexNormals();
-  const mountain = new THREE.Mesh(geometry, mat.grass);
-  mountain.name = "曲线山脚后的连续后山";
-  mountain.castShadow = mountain.receiveShadow = true;
-  group.add(mountain);
   return group;
 }
 
@@ -314,10 +313,11 @@ export function buildRoad(mat: Mats) {
   // 略抬高避免与台地共面闪烁；田面已在路廊挖空。
   const villageMat = mat.paving.clone();
   villageMat.color = new THREE.Color(0x8f8d82);
+  const { left, right, front, back } = handmadeTerrainBounds();
   surface(
     road,
     "蓝顶邻房门前弯曲主马路",
-    villageRoadEdges.outline,
+    intersectRoofPolygon(villageRoadEdges.outline, [[left, front], [right, front], [right, back], [left, back]]),
     c.frontHouse.y + 50,
     villageMat,
   );

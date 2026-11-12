@@ -79,7 +79,7 @@ test("场地查看器日照分析采用当前已重建户型，删除全部南�
     state: { ...state }, layoutLive: draft,
     scene: new THREE.Scene(),
     villa: { group: new THREE.Group(), balcony: new THREE.Group() },
-    land: { context: new THREE.Group(), fixed: new THREE.Group(), deck: new THREE.Group(), cutOutline: new THREE.Group() },
+    land: { context: new THREE.Group(), fixed: new THREE.Group(), deck: new THREE.Group(), neighborDeck: new THREE.Group(), cutOutline: new THREE.Group() },
     setState(next: object) { Object.assign(this.state, next); },
   };
   const rows = VillaViewer.prototype.analyzeSun.call(viewer as unknown as VillaViewer, "2026-10-26");

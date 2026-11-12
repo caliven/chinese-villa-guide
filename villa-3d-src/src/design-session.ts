@@ -14,7 +14,7 @@ export interface MeetingView {
   courtyardFinish: CourtyardFinish;
   neighborCourtyardFinish: CourtyardFinish;
   tab: "model" | "floor" | "sun";
-  camera: "aerial" | "north" | "south" | "courtyard" | "garage" | "top" | "roadside";
+  camera: "aerial" | "overview" | "north" | "south" | "courtyard" | "garage" | "top" | "roadside";
   level: number; planMode: "2d" | "3d"; existing: boolean; balcony: boolean;
   fenShui: number; roadY: number; rampLength: number; progress: number;
   sunDate: string; sunTime: number;
@@ -73,11 +73,11 @@ export function validateMeetingView(value: unknown): MeetingView {
     const p = object(v.pose);
     const vector = (x: unknown): [number, number, number] => {
       if (!Array.isArray(x) || x.length !== 3) throw new Error("机位坐标无效");
-      return x.map((n) => range(n, -500, 500)) as [number, number, number];
+      return x.map((n) => range(n, -8000, 8000)) as [number, number, number];
     };
     pose = { position: vector(p.position), target: vector(p.target), zoom: range(p.zoom, .05, 20) };
     const distance = Math.hypot(...pose.position.map((n, i) => n - pose!.target[i]));
-    if (distance < .55 - 1e-8 || distance > 125 + 1e-8) throw new Error("机位与观察点间距超出范围");
+    if (distance < .55 - 1e-8 || distance > 7200 + 1e-8) throw new Error("机位与观察点间距超出范围");
   }
   const fenShui = range(v.fenShui, 1, 10);
   let villaParams = normalizeVillaParamsLengths({ roofFenShui: fenShui });
@@ -103,10 +103,10 @@ export function validateMeetingView(value: unknown): MeetingView {
     courtyardFinish: parseCourtyardFinish(v.courtyardFinish),
     neighborCourtyardFinish: parseCourtyardFinish(v.neighborCourtyardFinish),
     tab: choice(v.tab, ["model", "floor", "sun"]),
-    camera: choice(v.camera, ["aerial", "north", "south", "courtyard", "garage", "top", "roadside"]),
+    camera: choice(v.camera, ["aerial", "overview", "north", "south", "courtyard", "garage", "top", "roadside"]),
     level, planMode: choice(v.planMode, ["2d", "3d"]), existing: bool(v.existing), balcony: bool(v.balcony),
     fenShui, roadY: range(legacyMm(v.roadY), -3800, 0), rampLength: range(legacyMm(v.rampLength), 3000, 10000),
-    progress: range(v.progress, 0, 100), sunDate: date(v.sunDate), sunTime: range(v.sunTime, 6, 18),
+    progress: range(v.progress, 0, 100), sunDate: date(v.sunDate), sunTime: range(v.sunTime, 5, 20),
     dining: choice(v.dining, ["full", "daily"]), flags, pose, villaParams,
   };
 }

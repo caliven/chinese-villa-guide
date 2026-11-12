@@ -11,18 +11,25 @@ import { DEFAULT_ROOF_STYLE, roofStyleLabels, type RoofStyle } from "./roof-opti
 import { buildVilla, attachLayoutRoofs, type VillaLayoutLive } from "./architecture";
 import { buildL9 } from "./cars";
 import { buildSite, makeRamp } from "./terrain";
-import { surroundings } from "./surroundings";
+import { surroundings, terrainAnalysisData } from "./surroundings";
 import { batchScene as batch, visibleSurfaceMeshes } from "./render-geometry";
 import { roadsideToWorld } from "./roadside-villa-layout";
 import { assessVehicleRoute, inspectFootprint, routeHeight, routePose, vehicleRoute, type RouteAssessment } from "./vehicle-route";
 import { buildGarageRouteVisual, routeColors } from "./garage-route-visual";
-import { southWindowProbes } from "./design-data";
+import { sunWindowProbes } from "./design-data";
+import { sunOcclusion } from "./sun-occlusion.ts";
+import {
+  defaultTerrainHorizon, handmadeHouseCenterMm, modelPointToTerrain, horizonAtObserver,
+  terrainHorizonProfile, horizonFromProfile, sunHorizonLightFactor,
+  maximumTerrainHeightM,
+  type TerrainProfilePoint,
+} from "./terrain-elevation.ts";
 import type { CameraPose } from "./design-session";
 import { projectMeta } from "./project-meta";
 import { AssemblyExplosion, ASSEMBLY_DURATION } from "./assembly-explosion";
 
 export type CameraName =
-  "aerial" | "north" | "south" | "courtyard" | "garage" | "top" | "roadside";
+  "aerial" | "overview" | "north" | "south" | "courtyard" | "garage" | "top" | "roadside";
 export interface ViewState {
   roofStyle: RoofStyle;
   courtyardFinish: CourtyardFinish;
@@ -137,7 +144,7 @@ export function sunDirection(date: string, hour: number) {
   const sun = getPosition(instant, site.latitude, site.longitude);
   // SunCalc 2.x 使用度数，方位角由正北顺时针；与旧版弧度接口不同。
   const alt = THREE.MathUtils.degToRad(sun.altitude),
-    az = THREE.MathUtils.degToRad(sun.azimuth);
+    az = THREE.MathUtils.degToRad(sun.azimuth - (defaultTerrainHorizon.reference?.modelNorthAzimuthDeg ?? 0));
   return {
     ...sun,
     vector: new THREE.Vector3(
@@ -151,7 +158,7 @@ export function sunDirection(date: string, hour: number) {
 export class VillaViewer {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(38, 1, 0.1, 350);
+  camera = new THREE.PerspectiveCamera(38, 1, 0.1, 35000);
   controls: OrbitControls;
   mat = materials();
   /** 平面布局草稿覆盖；null＝只用源码默认户型。 */
@@ -194,6 +201,7 @@ export class VillaViewer {
   private assembly?: AssemblyExplosion;
   private assemblyHomeCamera?: CameraPose;
   private assemblyCameraMotion?: { from: CameraPose; to: CameraPose; start: number };
+  private terrainMarker?: THREE.Group;
 
   constructor(public host: HTMLElement, layout: VillaLayoutLive | null = null, roofStyle = DEFAULT_ROOF_STYLE) {
     // 首次直接构建已载入的户型和屋面，避免先建默认模型再整栋替换。
@@ -230,6 +238,7 @@ export class VillaViewer {
     });
     host.append(this.renderer.domElement);
     this.scene.background = new THREE.Color(0xdce5df);
+    this.scene.fog = new THREE.FogExp2(0xdce5df, 0.000055);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const room = new RoomEnvironment();
     this.scene.environment = pmrem.fromScene(room, 0.04).texture;
@@ -239,13 +248,13 @@ export class VillaViewer {
     this.sun.castShadow = true;
     const shadowSize = Math.min(desktop ? 4096 : 2048, this.renderer.capabilities.maxTextureSize);
     this.sun.shadow.mapSize.set(shadowSize, shadowSize);
-    this.sun.shadow.camera.left = -32;
-    this.sun.shadow.camera.right = 32;
-    this.sun.shadow.camera.top = 32;
-    this.sun.shadow.camera.bottom = -32;
+    this.sun.shadow.camera.left = -48;
+    this.sun.shadow.camera.right = 48;
+    this.sun.shadow.camera.top = 48;
+    this.sun.shadow.camera.bottom = -48;
     this.sun.shadow.camera.near = 0.5;
-    this.sun.shadow.camera.far = 150;
-    this.sun.shadow.bias = -0.00018;
+    this.sun.shadow.camera.far = 44000;
+    this.sun.shadow.bias = -0.027 / 44000;
     this.sun.shadow.normalBias = 0.025;
     this.sun.target.position.set(13, 2, 2);
     this.scene.add(this.sun, this.sun.target, this.ambient);
@@ -278,6 +287,7 @@ export class VillaViewer {
       new Set([
         this.land.cutPiece,
         this.land.cutOutline,
+        this.land.distantTerrain,
         this.land.road,
         this.land.neighborDeck,
         this.land.sideNeighbor,
@@ -298,6 +308,11 @@ export class VillaViewer {
       this.villa.group,
       this.routeGroup,
     );
+    this.terrainMarker = new THREE.Group();
+    const anchor = handmadeHouseCenterMm();
+    line(this.terrainMarker, [new THREE.Vector3(anchor.x, 15000, anchor.z), new THREE.Vector3(anchor.x, 28000, anchor.z)], 0x355745);
+    tag(this.terrainMarker, "宅址", anchor.x, 33000, anchor.z, "#284b3b", 4, true);
+    this.mmRoot.add(this.terrainMarker);
     this.ramp = makeRamp(
       this.land.proposed,
       this.mat,
@@ -311,7 +326,7 @@ export class VillaViewer {
     // 滚轮和双指都朝指针位置缩放，不再每格把观察点拽到构件表面上。
     this.controls.zoomToCursor = true;
     this.controls.minDistance = 0.55;
-    this.controls.maxDistance = 125;
+    this.controls.maxDistance = 380;
     this.controls.cursor.set(13.5, 6, 2);
     this.controls.maxTargetRadius = 36;
     this.controls.minPolarAngle = 0;
@@ -464,6 +479,7 @@ export class VillaViewer {
   setCamera(name: CameraName) {
     this.assemblyCameraMotion = undefined;
     this.activeCamera = name;
+    if (this.terrainMarker) this.terrainMarker.visible = name === "overview" && this.state.context;
     if (this.state.assemblyExploded && this.assembly && name !== "garage") {
       const direction = name === "south" ? new THREE.Vector3(.35, .55, 1)
         : name === "north" || name === "courtyard" ? new THREE.Vector3(0, .4, -1)
@@ -485,6 +501,11 @@ export class VillaViewer {
       aerial: [
         [42, 36, -49],
         [16, 2.5, 3],
+      ],
+      // 上帝视角：从院坪／大门外侧俯看整宅与周边山体，默认聚焦宅址附近。
+      overview: [
+        [12, 100, -130],
+        [12, 5, 1.5],
       ],
       north: [
         [19.5, 9.5, -44],
@@ -517,15 +538,23 @@ export class VillaViewer {
       p = [x, y + (this.state.floor === 0 ? 37 : 29), 4.01];
       t = [x, y, 4];
     }
+    const overview = name === "overview";
+    this.camera.fov = overview ? 48 : 38;
+    this.camera.far = overview ? 50000 : 35000;
+    this.camera.near = 0.04;
+    this.camera.updateProjectionMatrix();
+    this.controls.maxDistance = overview ? 7200 : 380;
+    this.controls.maxTargetRadius = overview ? 120 : 36;
     const target = new THREE.Vector3(...t);
     const pos = new THREE.Vector3(...p);
-    if (this.camera.aspect < 1)
+    if (this.camera.aspect < 1 && !overview)
       pos
         .sub(target)
         .multiplyScalar(1 / Math.max(0.6, this.camera.aspect))
         .add(target);
     // 画面左侧较空，右侧蓝顶邻房贴边。镜头平移后整组模型靠左，场地坐标不动。
-    if (name !== "roadside" && name !== "garage" && name !== "north" && name !== "courtyard") this.shiftFrameLeft(pos, target);
+    if (name !== "roadside" && name !== "garage" && name !== "north" && name !== "courtyard" && name !== "overview")
+      this.shiftFrameLeft(pos, target);
     this.controls.target.copy(target);
     this.camera.position.copy(pos);
     this.camera.up.set(0, 1, 0);
@@ -605,6 +634,7 @@ export class VillaViewer {
     this.land.proposed.visible = !s.existing;
     this.villa.group.visible = !s.existing && !s.garage && !this.floorEditorRoot;
     this.land.context.visible = s.context && s.floor === null && !s.assemblyMode;
+    if (this.terrainMarker) this.terrainMarker.visible = this.activeCamera === "overview" && this.land.context.visible;
     this.land.sideNeighbor.visible = s.sideNeighbor;
     this.land.rearNeighbor.visible = s.rearNeighbor;
     this.land.frontNeighbor.visible = s.frontNeighbor;
@@ -823,6 +853,7 @@ export class VillaViewer {
       new Set([
         this.land.cutPiece,
         this.land.cutOutline,
+        this.land.distantTerrain,
         this.land.road,
         this.land.neighborDeck,
         this.land.sideNeighbor,
@@ -894,6 +925,7 @@ export class VillaViewer {
   private applyLighting() {
     const night = this.state.night;
     this.scene.background = new THREE.Color(night ? 0x111a2c : 0xdce5df);
+    if (this.scene.fog instanceof THREE.FogExp2) this.scene.fog.color.copy(this.scene.background);
     this.scene.environmentIntensity = night ? 0.14 : 0.4;
     this.sun.intensity = night ? 0.28 : this.daySunIntensity;
     this.ambient.intensity = night ? 0.45 : this.dayAmbientIntensity;
@@ -904,7 +936,12 @@ export class VillaViewer {
     const result = sunDirection(date, hour);
     this.sun.position
       .copy(this.sun.target.position)
-      .addScaledVector(result.vector, 85);
+      .addScaledVector(result.vector, 22000);
+    // 完整DEM向宅院投影，各高度独立受光。5m天际线只用于界面参考读数。
+    const anchor = handmadeHouseCenterMm();
+    const observer = modelPointToTerrain(anchor.x, 5000, anchor.z);
+    const ridge = horizonAtObserver(result.azimuth, observer, terrainAnalysisData());
+    const horizonFactor = sunHorizonLightFactor(result.altitude, result.azimuth, defaultTerrainHorizon, ridge);
     this.daySunIntensity =
       result.altitude > 0 ? 2.9 * Math.min(1, result.altitude / 12) : 0;
     this.sun.color.set(result.altitude < 12 ? 0xffd3a0 : 0xfff1dc);
@@ -912,7 +949,7 @@ export class VillaViewer {
     this.applyLighting();
     this.renderer.shadowMap.needsUpdate = true;
     this.needsRender = true;
-    return result;
+    return { ...result, ridge, horizonFactor };
   }
   routeHeight(x: number, z = -7350) {
     return routeHeight(x, z, this.roadY, this.rampLength);
@@ -1039,56 +1076,109 @@ export class VillaViewer {
   }
   analyzeSun(date: string) {
     const saved = { ...this.state };
-    this.setState({ ...defaultView, balcony: saved.balcony });
-    this.scene.updateMatrixWorld(true);
-    const probes = southWindowProbes(this.layoutLive);
-    const meshes: THREE.Object3D[] = [];
-    for (const root of [
-      this.villa.group,
-      this.land.context,
-      this.land.fixed,
-      this.land.deck,
-    ])
-      root.traverse((o) => {
-        if (!(o instanceof THREE.Mesh) || !o.castShadow) return;
-        for (let p: THREE.Object3D | null = o; p; p = p.parent)
-          if (
-            p === this.villa.balcony ||
-            p === this.land.cutOutline
-          )
-            return;
-        meshes.push(o);
+    try {
+      this.setState({ ...defaultView, frontNeighbor: true, roofStyle: saved.roofStyle, balcony: saved.balcony });
+      this.scene.updateMatrixWorld(true);
+      const probes = sunWindowProbes(this.layoutLive);
+      const meshes: THREE.Mesh[] = [];
+      for (const root of [
+        this.villa.group,
+        this.land.context,
+        this.land.fixed,
+        this.land.deck,
+        this.land.neighborDeck,
+      ])
+        root.traverseVisible((o) => {
+          if (!(o instanceof THREE.Mesh) || !o.castShadow) return;
+          for (let p: THREE.Object3D | null = o; p; p = p.parent)
+            if (
+              p === this.villa.balcony ||
+              p === this.land.cutOutline ||
+              p === this.land.distantTerrain
+            )
+              return;
+          meshes.push(o);
+        });
+      const balconyMeshes: THREE.Mesh[] = [];
+      const terrainJoin = this.land.distantTerrain?.getObjectByName("DEM近场衔接带");
+      terrainJoin?.traverseVisible(object => {
+        if (object instanceof THREE.Mesh && object.castShadow) meshes.push(object);
       });
-    const balconyMeshes: THREE.Object3D[] = [];
-    this.villa.balcony.traverse((o) => {
-      if (o instanceof THREE.Mesh && o.castShadow) balconyMeshes.push(o);
-    });
-    const ray = new THREE.Raycaster();
-    ray.far = 180;
-    const rows = probes.map((probe) => {
-      const samples: { hour: number; plain: number; balcony: number }[] = [];
-      for (let hour = 7; hour <= 17; hour += 0.5) {
-        const sun = sunDirection(date, hour),
-          item = { hour, plain: 0, balcony: 0 };
-        if (sun.altitude > 0 && sun.vector.z > 0)
-          for (const dy of [-probe.sampleOffset, 0, probe.sampleOffset]) {
-            ray.set(
-              new THREE.Vector3(toM(probe.x), toM(probe.y + dy), toM(probe.z)),
-              sun.vector,
-            );
-            const clear = ray.intersectObjects(meshes, false).length === 0;
-            if (clear) {
-              item.plain++;
-              if (ray.intersectObjects(balconyMeshes, false).length === 0)
-                item.balcony++;
+      this.villa.balcony.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.castShadow) balconyMeshes.push(o);
+      });
+      const blockedByModel = sunOcclusion(meshes);
+      const blockedByBalcony = sunOcclusion(balconyMeshes);
+      const maximumTerrain = maximumTerrainHeightM();
+      const terrainData = terrainAnalysisData();
+      const lowestProbeHeight = Math.min(...probes.map(probe => toM(probe.y - probe.sampleOffset)));
+      const profiles = new Map<string, TerrainProfilePoint[]>();
+      const sunSamples = Array.from({ length: 91 }, (_, index) => {
+        const hour = 5 + index / 6;
+        return { hour, sun: sunDirection(date, hour) };
+      });
+      const ray = new THREE.Raycaster();
+      ray.far = 280;
+      const rows = probes.map((probe) => {
+        const samples: {
+          hour: number;
+          plain: number;
+          balcony: number | null;
+          terrainBlocked: number;
+          modelBlocked: number;
+          facingSun: boolean;
+        }[] = [];
+        const south = probe.facing === "south";
+        for (const { hour, sun } of sunSamples) {
+          const item = { hour, plain: 0, balcony: south ? 0 : null as number | null, terrainBlocked: 0, modelBlocked: 0, facingSun: false };
+          const facingSun =
+            sun.altitude > 0 &&
+            sun.vector.x * probe.outward.x +
+              sun.vector.y * probe.outward.y +
+              sun.vector.z * probe.outward.z >
+              0;
+          item.facingSun = facingSun;
+          if (facingSun) {
+            const observer = modelPointToTerrain(probe.x, probe.y, probe.z);
+            // 太阳射线超过全图最高点后，后续地形不可能遮挡，可精确缩短搜索范围。
+            const maxDistance = (maximumTerrain - lowestProbeHeight + 0.001) / Math.tan(THREE.MathUtils.degToRad(sun.altitude));
+            const profileKey = `${probe.x},${probe.z},${hour}`;
+            let profile = profiles.get(profileKey);
+            if (!profile) {
+              profile = terrainHorizonProfile(sun.azimuth, observer, terrainData, maxDistance);
+              profiles.set(profileKey, profile);
+            }
+            for (const dy of [-probe.sampleOffset, 0, probe.sampleOffset]) {
+              const ridge = horizonFromProfile(profile, toM(probe.y + dy)).elevationDeg;
+              if (sun.altitude <= ridge) {
+                item.terrainBlocked++;
+                continue;
+              }
+              ray.set(
+                new THREE.Vector3(toM(probe.x), toM(probe.y + dy), toM(probe.z)),
+                sun.vector,
+              );
+              const clear = !blockedByModel(ray);
+              if (!clear) item.modelBlocked++;
+              if (clear) {
+                item.plain++;
+                if (
+                  south &&
+                  item.balcony != null &&
+                  !blockedByBalcony(ray)
+                )
+                  item.balcony++;
+              }
             }
           }
-        samples.push(item);
-      }
-      return { name: probe.name, samples };
-    });
-    this.setState(saved);
-    return rows;
+          samples.push(item);
+        }
+        return { name: probe.name, facing: probe.facing, samples };
+      });
+      return rows;
+    } finally {
+      this.setState(saved);
+    }
   }
   exportImage() {
     this.renderer.render(this.scene, this.camera);

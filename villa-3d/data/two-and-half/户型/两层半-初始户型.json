@@ -4,11 +4,11 @@
   "units": "mm",
   "id": "两层半-初始户型",
   "title": "两层半-楼梯在西南侧",
-  "savedAt": "2026-11-11T12:44:36+08:00",
+  "savedAt": "2026-11-11T21:32:41+08:00",
   "layoutDraft": {
     "schema": 1,
     "revision": "沟通方案 05",
-    "updatedAt": "2026-11-11T04:44:36.425Z",
+    "updatedAt": "2026-11-11T13:32:41.361Z",
     "note": "两层半独立方案，以「楼梯在西南侧」户型为底稿。一层客厅采用普通层高，二层原挑空补齐楼板并改为西北卧室。门厅采用独立一层门头，二、三层分别设置连接两根门厅柱的整板阳台，中央推拉门通阳台。三楼北墙齐平，层高3600／3300／2000，三楼外窗沿用底稿宽度，默认窗台为0，窗高按半层层高的85%计算。",
     "floors": [
       {
@@ -2047,7 +2047,7 @@
         "floor": 0,
         "facadeIndex": 0,
         "opening": {
-          "offset": 5200,
+          "offset": 5400,
           "width": 3200,
           "kind": "doubleDoor",
           "hinge": "start",
@@ -2089,7 +2089,8 @@
           "kind": "window",
           "sill": 0,
           "hinge": "start",
-          "side": "out"
+          "side": "out",
+          "height": 1216
         }
       },
       {
@@ -2112,7 +2113,8 @@
           "kind": "window",
           "sill": 0,
           "hinge": "start",
-          "side": "out"
+          "side": "out",
+          "height": 1216
         }
       },
       {
@@ -2124,7 +2126,8 @@
           "kind": "window",
           "sill": 0,
           "hinge": "start",
-          "side": "out"
+          "side": "out",
+          "height": 1216
         }
       },
       {
@@ -2136,7 +2139,8 @@
           "kind": "window",
           "sill": 0,
           "hinge": "start",
-          "side": "out"
+          "side": "out",
+          "height": 1216
         }
       },
       {
@@ -2250,7 +2254,8 @@
           "kind": "window",
           "sill": 0,
           "hinge": "start",
-          "side": "out"
+          "side": "out",
+          "height": 1216
         }
       },
       {
@@ -2262,7 +2267,8 @@
           "kind": "window",
           "sill": 0,
           "hinge": "start",
-          "side": "out"
+          "side": "out",
+          "height": 1216
         }
       },
       {
@@ -2350,7 +2356,8 @@
           "kind": "window",
           "sill": 0,
           "hinge": "start",
-          "side": "out"
+          "side": "out",
+          "height": 1216
         }
       },
       {
@@ -2362,7 +2369,8 @@
           "kind": "window",
           "sill": 0,
           "hinge": "start",
-          "side": "out"
+          "side": "out",
+          "height": 1216
         }
       },
       {

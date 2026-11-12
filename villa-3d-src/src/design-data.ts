@@ -1,6 +1,7 @@
 import { recessedPortico, recessedRoom } from "./building-variants.ts";
 import {
   annexPartitions,
+  annexRooms,
   buildingAreas,
   construction,
   floors,
@@ -9,10 +10,11 @@ import {
   stairLayout,
   isPhysicalWall,
   wallRoleOf,
+  type Point,
   type Room,
   type Wall,
 } from "./data.ts";
-import { facades } from "./facades.ts";
+import { facades, type Opening } from "./facades.ts";
 import { resolveLayoutFacades, type FacadeLayout } from "./facade-layout.ts";
 import { formatMm } from "./units.ts";
 import { outlinePath, physicalWallJoinExtensions, polygonAreaMm2, roomContainsPoint, roomIsRectangular, roomLabelPoint, roomNetGeometry, roomOutline, type RoomNetGeometry } from "./room-geometry.ts";
@@ -192,23 +194,79 @@ export function roomReference(room: Room, index: number, partitionsOverride?: Wa
   };
 }
 
-// 窗中心取自实际模型外墙洞口，替代旧的手填探针位置。
-export function southWindowProbes(layout?: FacadeLayout | null) {
+export type SunWindowFacing = "north" | "south" | "east" | "west";
+export type SunWindowProbe = {
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+  sampleOffset: number;
+  widthMm: number;
+  facing: SunWindowFacing;
+  floorIndex: number;
+  /** 室外法向（场景：X 东、Z 南），用于判断太阳是否在窗前半球。 */
+  outward: { x: number; y: number; z: number };
+};
+
+type FacadeFace = { a: Point; b: Point; openings: Opening[] };
+function sunWalls(faces: FacadeFace[], body: { x: number; z: number; w: number; d: number }) {
+  const pad = construction.outsideWall / 2 + 170;
+  return faces.map(wall => {
+    const dx = wall.b[0] - wall.a[0], dz = wall.b[1] - wall.a[1];
+    const length = Math.hypot(dx, dz);
+    if (length < 1) return null;
+    let nx = -dz / length, nz = dx / length;
+    const cx = (wall.a[0] + wall.b[0]) / 2 - (body.x + body.w / 2);
+    const cz = (wall.a[1] + wall.b[1]) / 2 - (body.z + body.d / 2);
+    if (nx * cx + nz * cz < 0) { nx = -nx; nz = -nz; }
+    const facing: SunWindowFacing = Math.abs(nx) > Math.abs(nz) ? (nx > 0 ? "east" : "west") : (nz > 0 ? "south" : "north");
+    return { wall, facing, outward: { x: nx, y: 0, z: nz },
+      samplePoint: (x: number, z: number) => ({ x: x + nx * pad, z: z + nz * pad }) };
+  }).filter(side => side !== null);
+}
+
+/** 各层四向外窗，采样点取自实际外墙洞口。 */
+export function sunWindowProbes(layout?: (FacadeLayout & { annexRooms?: Room[] }) | null): SunWindowProbe[] {
   const floorList = layout?.floors ?? floors;
   const resolved = resolveLayoutFacades(layout).facades;
-  return [0, 1].flatMap((index) => {
-    const f = floorList[index];
-    const south = resolved[index].find((wall) => Math.abs(wall.a[1] - wall.b[1]) < 10 && wall.a[1] > site.main.z + site.main.d - 250);
-    if (!f || !south) return [];
-    const dx = south.b[0] - south.a[0], dz = south.b[1] - south.a[1], length = Math.hypot(dx, dz);
-    if (length <= 0) return [];
-    return south.openings.filter((o) => !o.door && o.w > 1500).map((o) => {
-      const x = south.a[0] + dx * o.at / length;
-      const wallZ = south.a[1] + dz * o.at / length;
-      const room = f.rooms.find((r) => r.kind === "bed" && roomContainsPoint(r, [x, wallZ]));
-      return { name: `${f.name}${room?.name ?? "南侧房间"}南窗`, x, z: wallZ + construction.outsideWall / 2 + 170, y: f.y + o.sill + o.h / 2, sampleOffset: Math.min(600, o.h * 0.3) };
+  return [...floorList.map((_, index) => index), 3].flatMap((index) => {
+    const annex = index === 3;
+    const f = annex ? { y: 0, name: "辅楼", rooms: layout?.annexRooms ?? annexRooms } : floorList[index];
+    if (!f) return [];
+    return sunWalls(resolved[index] ?? [], annex ? site.annex : site.main).flatMap((side) => {
+      const { wall } = side;
+      const dx = wall.b[0] - wall.a[0],
+        dz = wall.b[1] - wall.a[1],
+        length = Math.hypot(dx, dz);
+      if (length <= 0) return [];
+      return wall.openings
+        .filter((o) => !o.door && o.w > 0 && o.h > 0)
+        .map((o) => {
+          const x = wall.a[0] + (dx * o.at) / length;
+          const wallZ = wall.a[1] + (dz * o.at) / length;
+          const room = f.rooms.find((r) => r.kind === "bed" && roomContainsPoint(r, [x, wallZ]))
+            ?? f.rooms.find((r) => roomContainsPoint(r, [x, wallZ]));
+          const sample = side.samplePoint(x, wallZ);
+          const sideWord = { south: "南", north: "北", east: "东", west: "西" }[side.facing];
+          return {
+            name: `${f.name}${room?.name ?? `${sideWord}侧房间`}${sideWord}窗`,
+            x: sample.x,
+            z: sample.z,
+            y: f.y + o.sill + o.h / 2,
+            sampleOffset: Math.min(600, o.h * 0.3),
+            widthMm: o.w,
+            facing: side.facing,
+            floorIndex: index,
+            outward: side.outward,
+          };
+        });
     });
   });
+}
+
+/** 仅南窗探针（兼容旧测试与阳台对比）。 */
+export function southWindowProbes(layout?: FacadeLayout | null) {
+  return sunWindowProbes(layout).filter(p => p.facing === "south" && p.floorIndex < 2 && p.widthMm > 1500);
 }
 
 export interface DesignIssue {
@@ -230,7 +288,7 @@ export const designIssues: DesignIssue[] = [
   { id: "D10", title: "卧室数量与公共空间用途", phase: "深化方案", current: "现有6间用途明确的卧室＋一层1间待定房；用户原七间意图需确认口径。堂屋后按要求留空。", action: "确认待定房是否计入卧室指标，说明后过道、二层起居和三层家庭厅的日常功能。", owner: "业主与家人／建筑", output: "逐层房间任务书与可调整项", target: "floor", floor: 0, room: "spare" },
   { id: "D11", title: "日常厨房、柴火与烟道", phase: "深化方案", current: "辅楼有双桌餐厅、日常灶台和柴火区；烟囱为造型示意。", action: "核对燃料、柴储、补风、排烟、耐火隔热、清扫及烟囱与窗檐关系，明确备餐洗涤动线。", owner: "建筑／设备／业主", output: "厨房放大平面、烟道剖面与设备清单", target: "floor", floor: 0, room: "cook" },
   { id: "D12", title: "湿区、家政与机电维护", phase: "深化方案", current: "各层已摆洁具，立管、洗衣晾晒、空调外机、电气和检修空间未形成系统。", action: "协调卫生间叠合、污废水及通气管，明确洗衣、热水、空调、电箱与维护点位，避免后补穿梁。", owner: "建筑／给排水／暖通／电气", output: "设备点位及竖向管线综合示意", target: "floor", floor: 1 },
-  { id: "D13", title: "采光、通风、隐私与挑空舒适", phase: "深化方案", current: "南窗采样只比较模型直射遮挡；周边及远山未精测，不是室内照度或法定日照。", action: "结合房间用途核对通风、邻窗隐私、夏季遮阳、挑空温控、声环境和玻璃清洁。", owner: "建筑／暖通／业主", output: "开窗及遮阳方案、舒适性比较", target: "sun" },
+  { id: "D13", title: "采光、通风、隐私与挑空舒适", phase: "深化方案", current: "各层四向外窗逐点计算近场模型与 AWS Mapzen / USGS SRTM 原始地形遮挡，近场标高、院坪海拔和建筑轴线待实测；原始约30m分辨率。", action: "结合房间用途核对通风、邻窗隐私、夏季遮阳、挑空温控、声环境和玻璃清洁。", owner: "建筑／暖通／业主", output: "开窗及遮阳方案、舒适性比较", target: "sun" },
   { id: "D14", title: "露台、栏杆与防水节点", phase: "深化方案", get current() { return `${site.setback > 0 ? "三块露台分离" : "三楼不内退，仅保留中央门厅露台"}，栏杆及短柱是外观几何，玻璃性能和连接未设计。`; }, action: "核定栏杆与玻璃、门槛、坡向、排水、溢流、泛水、穿透点和热桥，协调安全与维护。", owner: "建筑／结构／给排水", output: "露台及栏杆节点、防水排水详图", target: "roof", floor: 2 },
   { id: "D15", title: "预算、施工顺序与邻房保护", phase: "深化方案", current: "地库、开挖挡土、大跨、屋面及精细立面尚无本方案分项估算。", action: "分项估算并比较高成本备选，核对拆旧、运输、堆料、临排水、支护及邻房保护。", owner: "造价／设计／施工；业主定优先级", output: "带范围和假设的估算与施工条件清单", target: "site" },
   { id: "D16", title: "关键剖面、尺寸链与控制线", phase: "沟通表达", current: "现已补参数关系图；楼梯和入口图是展开示意，缺梁底及结构做法。", action: "请设计师回交有剖切位置的实测及设计剖面，替换示意关系图；区分楼板投影、柱、平台和踏步。", owner: "建筑／页面维护", output: "正式平剖立、控制线与标高表", target: "entrance" },
