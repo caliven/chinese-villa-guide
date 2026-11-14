@@ -777,7 +777,7 @@ async function applySizeVersion(doc: SizeVersionDocument, options?: { toastMsg?:
 }
 
 async function applyLayoutVersion(doc: LayoutVersionDocument, silent = false) {
-  const draft = normalizeDraftWallContacts(structuredClone(doc.layoutDraft));
+  const draft = normalizeDraftWallContacts(scaleLayoutDraftToEnvelope(structuredClone(doc.layoutDraft), envelopeFromSite()));
   replaceLayoutDraftMemory(draft);
   if (layoutEditor) {
     layoutEditor.setTool("select");

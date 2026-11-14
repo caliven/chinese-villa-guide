@@ -107,7 +107,7 @@ test("旧米制方案（无 units）读回时 villaParams／户型草稿／院�
   assert.equal(doc.villaParams.mainWidth, DEFAULT_VILLA_PARAMS.mainWidth);
   assert.equal(doc.villaParams.mainDepth, 10000);
   assert.equal(doc.villaParams.floor1Height, 3600);
-  assert.equal(doc.villaParams.rearGap, 1200);
+  assert.equal(doc.villaParams.rearGap, DEFAULT_VILLA_PARAMS.rearGap);
   // 非长度字段不被放大
   assert.equal(doc.villaParams.roofFenShui, 4.5);
   assert.equal(doc.villaParams.gutterBedSlope, DEFAULT_VILLA_PARAMS.gutterBedSlope);

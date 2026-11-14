@@ -9,6 +9,7 @@ import { addTiledRoof, hatRoofSurfaces, hipRoofSurfaces, joinRoofFaces } from ".
 import type { Mats } from "../src/primitives";
 import {
   apronEaveDesign,
+  floatingHatDesign,
   apronFasciaBottom,
   frontApronSection,
   eaveTrimDesign,
@@ -206,7 +207,10 @@ test("官帽与正屋在1、4.5、10分水均只有一层外露坡面，交线�
   }
 });
 
-test("悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋面无缝", () => {
+test("零升降时悬浮官帽斜脊平行、纵脊直接接入正屋，帽顶降低且屋面无缝", (t) => {
+  const previousOffset = floatingHatDesign.heightOffset;
+  t.after(() => { floatingHatDesign.heightOffset = previousOffset; });
+  floatingHatDesign.heightOffset = 0;
   const m = mainRoofFootprint();
   for (const pitch of [1, 4.5, 10]) {
     const roof = new THREE.Group(), annex = new THREE.Group();

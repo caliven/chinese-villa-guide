@@ -10,6 +10,8 @@ export function halfStoreyDefaults(base: VillaParams): VillaParams {
   const porticoColumnSize = 700;
   return {
     ...base,
+    rearGap: 1200,
+    floatingHatHeightOffset: 0,
     halfStoreyHeightMode: "storey",
     thirdFloorMode: "flush",
     thirdSetback: 0,

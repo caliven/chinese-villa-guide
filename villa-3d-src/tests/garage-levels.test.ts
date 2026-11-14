@@ -26,11 +26,15 @@ import {
   validateVillaParams,
 } from "../src/villa-params.ts";
 
-test("主楼仅外伸架空：台地不开洞、屋内不下挖", () => {
+test("主楼仅外伸架空：台地不开洞、屋内不下挖", (t) => {
+  t.after(resetVillaParams);
   resetVillaParams();
+  assert.equal(mainFrontOverhangDepth(), 0, "预留800时默认前墙与台地南缘齐平");
+  assert.deepEqual(mainFrontGaragePocket(), []);
+  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, rearGap: 1200 });
   const overhang = mainFrontOverhangDepth();
   assert.equal(overhang, Math.max(0, -site.main.z));
-  assert.ok(overhang > 0, "默认前墙应相对台地南缘外伸");
+  assert.ok(overhang > 0, "预留1200时前墙应相对台地南缘外伸");
   assert.deepEqual(mainFrontPadHole(), [], "实体台地铺装／石基不得开洞");
   const pocket = mainFrontGaragePocket();
   assert.equal(pocket.length, 4);
@@ -218,7 +222,7 @@ test("弧形外沿柱沿弧布、柱净距可过车，外沿柱不穿出板边",
       assert.ok(column.span >= site.garageColumnSize + 50, "有纵跨时外沿／里侧柱不得投影重叠");
     }
   }
-  const mainRow = cols.ownColumns.filter((column) => Math.abs(column.inner[1] - site.main.z) < 1);
+  const mainRow = cols.ownColumns.filter((column) => column.role === "main" && Math.abs(column.inner[1] - site.main.z) < 1);
   assert.ok(mainRow.length >= 2, "主楼／斜坡段应有地库柱");
   for (const column of mainRow) {
     assert.equal(column.inner[1], site.main.z, "里侧柱须与主楼房前柱水平对齐");

@@ -235,8 +235,9 @@ test("减小屋后预留时主楼辅楼整体向南平移，后墙到梯田边�
   resetVillaParams();
   const baseMainZ = site.main.z;
   const baseAnnexZ = site.annex.z;
-  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, rearGap: 1000 });
-  const expectedMainZ = DEFAULT_VILLA_PARAMS.oldDepth - 1000 - DEFAULT_VILLA_PARAMS.mainDepth;
+  const rearGap = DEFAULT_VILLA_PARAMS.rearGap - 200;
+  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, rearGap });
+  const expectedMainZ = DEFAULT_VILLA_PARAMS.oldDepth - rearGap - DEFAULT_VILLA_PARAMS.mainDepth;
   assert.ok(Math.abs(site.main.z - expectedMainZ) < 1e-6);
   assert.ok(site.main.z > baseMainZ);
   assert.ok(Math.abs(site.annex.z - (site.main.z + DEFAULT_VILLA_PARAMS.annexSetback)) < 1e-6);
@@ -257,7 +258,7 @@ test("屋后预留变化后通高玻璃与辅楼屋顶随楼体 Z 平移", async
   });
   resetVillaParams();
   applyVillaParams({ ...DEFAULT_VILLA_PARAMS, rearGap: 1000 });
-  // rearGap=1000 → main.z = 10800−1000−10000 = −200；相对默认 −400 南移 200
+  // rearGap=1000 → main.z = 10800−1000−10000 = −200；相对默认 0 北移 200
   assert.ok(Math.abs(site.main.z - (-200)) < 1e-6);
   const roof = annexRoofFootprint();
   // 默认主辅楼出檐数值相同，辅楼由 site.eave 独立控制。

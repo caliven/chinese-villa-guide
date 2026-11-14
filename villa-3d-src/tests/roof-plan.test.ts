@@ -88,7 +88,7 @@ test("两种官帽同用主辅楼控制尺寸，原有同脊、悬浮落脊，�
   assert.equal(joined.main.w, DEFAULT_VILLA_PARAMS.mainWidth + 2 * DEFAULT_VILLA_PARAMS.thirdEave);
   assert.equal(joined.main.d, DEFAULT_VILLA_PARAMS.mainDepth - DEFAULT_VILLA_PARAMS.thirdSetback + 2 * DEFAULT_VILLA_PARAMS.thirdEave);
   assert.equal(joined.hat.peak, joined.mainPeak);
-  assert.equal(floating.mainPeak - floating.hat.peak, 500);
+  assert.equal(floating.mainPeak - floating.hat.peak, 500 - DEFAULT_VILLA_PARAMS.floatingHatHeightOffset);
   assert.equal(joined.frontTrimGap, undefined);
   assert.deepEqual(floating.frontTrimGap, [frontElevation.postXs[0] - frontElevation.dividerWidth / 2,
     frontElevation.postXs[1] + frontElevation.dividerWidth / 2]);

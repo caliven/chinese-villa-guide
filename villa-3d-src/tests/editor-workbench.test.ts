@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { readFileSync } from "node:fs";
 import { fitCanvasView, zoomCanvasView, measuredPoint } from "../src/plan-canvas.ts";
 import { buildEditorModel, disposeEditorModel, editorFloorGeometry, editorModelBounds } from "../src/editor-model.ts";
-import { clonePublishedLayout, removeStairFromDraft } from "../src/layout-draft.ts";
+import { clonePublishedLayout, removeStairFromDraft, scaleLayoutDraftToEnvelope, envelopeFromSite } from "../src/layout-draft.ts";
 import { floorPlan, planSourceFromDraft } from "../src/plan.ts";
 import { roomAreaLabels, roomAreas } from "../src/design-data.ts";
 import { construction, site, type Point } from "../src/data.ts";
@@ -139,7 +139,7 @@ test("编辑楼板底面遮住室内与板内网格，洞口保留，标签仅�
 
 test("漫游楼梯洞侧板与下层墙共面时保持墙面优先，对数深度和普通深度均生效", () => {
   const url = new URL("../data/户型/户型-20261017-233620.json", import.meta.url);
-  const draft = parseLayoutVersionDocument(JSON.parse(readFileSync(url, "utf8"))).layoutDraft;
+  const draft = scaleLayoutDraftToEnvelope(parseLayoutVersionDocument(JSON.parse(readFileSync(url, "utf8"))).layoutDraft, envelopeFromSite());
   const opening = stairOpeningBounds(fitStairToRoom(draft.stairLayout, draft.floors));
   const model = buildEditorModel(draft, materials(), "full", { walking: true });
   model.root.updateMatrixWorld(true);

@@ -55,10 +55,10 @@ function meeting(villaParams: Partial<VillaParams>) {
     sunDate: "2026-10-29", sunTime: 10, dining: "full", pose: null, villaParams,
     flags: Object.fromEntries(viewFlags.map(key => [key, false])) };
 }
-test("旧稿补零，新升降参数随毫米或米制方案、尺寸和会议快照回读", () => {
+test("旧稿补当前默认升降，新升降参数随毫米或米制方案、尺寸和会议快照回读", () => {
   const old: Partial<VillaParams> = { ...DEFAULT_VILLA_PARAMS };
   delete old.floatingHatHeightOffset;
-  assert.equal(normalizeVillaParamsLengths(old).floatingHatHeightOffset, 0);
+  assert.equal(normalizeVillaParamsLengths(old).floatingHatHeightOffset, DEFAULT_VILLA_PARAMS.floatingHatHeightOffset);
   for (const offset of [-200, 200]) {
     const p = { ...DEFAULT_VILLA_PARAMS, floatingHatHeightOffset: offset };
     const doc = { ...createEmptyScheme(), villaParams: p };
@@ -89,7 +89,7 @@ test("删除落脊字段后不折算旧值，不再读写第二个高度参数",
 });
 
 test("零升降保留默认定位，正负升降保持帽体坡度和宽度，主屋基准与辅楼及普通官帽不变", () => {
-  resetVillaParams();
+  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, floatingHatHeightOffset: 0 });
   const before = roofPlanModel("floating"), joined = roofPlanModel("joined");
   const run = (before.hat.w - 2 * roofTileInset) / 2;
   close(before.hat.peak, before.mainPeak - 500);
@@ -113,7 +113,7 @@ test("升降上下限随主屋和门厅组合计算，边界保留净空和正�
     for (const porticoStyle of ["projecting", "recessed"] as const)
       for (const thirdFloorMode of ["setback", "flush"] as const)
         for (const roofFenShui of [1, 4.5, 10]) {
-          const p = { ...DEFAULT_VILLA_PARAMS, buildingPlacement, porticoStyle, thirdFloorMode, roofFenShui };
+          const p = { ...DEFAULT_VILLA_PARAMS, buildingPlacement, porticoStyle, thirdFloorMode, roofFenShui, floatingHatHeightOffset: 0 };
           const { minOffset, maxOffset } = floatingHatHeightLimits(p);
           assert.ok(minOffset <= 0 && maxOffset >= 0, "自动零点必须落在可用范围内");
           applyVillaParams(p);
@@ -201,6 +201,7 @@ test("升降后天沟／三眼皮后端保持直角收头，不沿主坡斜切�
 });
 
 test("仅修改升降仍触发模型重建，三楼官帽柱、转接梁及灯带跟随，主楼包角柱不动", () => {
+  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, floatingHatHeightOffset: 0 });
   const original = buildVilla(mat, false, DEFAULT_VILLA_PARAMS.roofFenShui, "floating");
   const corner = new THREE.Box3().setFromObject(original.levels[2].getObjectByName("三楼包角柱")!);
   try {

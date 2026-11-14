@@ -20,7 +20,7 @@ export async function loadRealSceneScheme(base: URL): Promise<SchemeDocument> {
   const initial = await loadInitialLayoutVersion(index, async file =>
     parseLayoutVersionDocument(await read(`${dataDirectory()}/户型/${encodeURIComponent(file)}`)));
   if (initial && (!isHalfStoreyScheme || !scheme.layoutDraft || !!getDefaultLayoutVersionFile(index))) {
-    scheme.layoutDraft = normalizeDraftWallContacts(initial.document.layoutDraft);
+    scheme.layoutDraft = normalizeDraftWallContacts(scaleLayoutDraftToEnvelope(initial.document.layoutDraft, envelopeFromSite()));
   }
   return scheme;
 }
