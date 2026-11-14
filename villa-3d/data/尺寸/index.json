@@ -1,5 +1,12 @@
 {
   "schema": "anhua-villa-data-versions-v1",
   "kind": "尺寸",
-  "versions": []
+  "versions": [
+    {
+      "id": "尺寸-20261114-121710",
+      "title": "尺寸-20261114-121710",
+      "savedAt": "2026-11-14T12:17:10+08:00",
+      "file": "尺寸-20261114-121710.json"
+    }
+  ]
 }
