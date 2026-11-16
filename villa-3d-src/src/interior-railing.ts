@@ -21,8 +21,8 @@ export function interiorRailingLayout(floors: Floor[], stair: StairDraft, living
     ? guards(livingVoidGuards(living, floor, facades[index], livingStyle, hasStair ? stair : undefined), floor.y, livingStyle, "living") : []);
   const stairGuards = floors.map((floor, index) => hasStair && index > 0
     ? guards(stairFloorGuards(stair, floor, facades[index], stairStyle, index === 1 ? living : undefined, index === floors.length - 1 ? "upper" : "both"), floor.y, stairStyle, "stair") : []);
-  const windowGuards = floors.map((floor, index) => index === 1
-    ? guards(entryWindowGuards(facades[index]), floor.y, "steel", "entry-window") : []);
+  const windowGuards = floors.map((floor, index) => index > 0
+    ? guards(entryWindowGuards(facades[index], floor, hasStair ? stair : undefined, index === 1 ? living : undefined), floor.y, "steel", "entry-window") : []);
   // 坡屋面下顶板封闭，楼梯在最高居住层终止。
   const roofGuards: number[] = [];
   const network = railingNetwork(sections);

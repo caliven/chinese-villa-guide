@@ -236,6 +236,16 @@ function buildElevationShell(view: ElevationView, style: RoofStyle, layout?: Vil
     face(shape({ x: entry.at - entry.w / 2, y: entry.bottom, w: entry.w, h: entry.top - entry.bottom }), "el-entry-frame", detail);
   }
 
+  const spandrel = model.spandrel;
+  if (spandrel) {
+    const finishes = { carvedStone: "el-spandrel-stone", carvingDark: "el-spandrel-dark", bronze: "el-spandrel-bronze" };
+    for (const p of spandrel.pieces)
+      box(p.x - p.w / 2, p.z - p.d / 2, p.w, p.d, p.y - p.h / 2, p.h, finishes[p.finish], "window-spandrel");
+    if (view === "north") for (const outline of spandrel.outlines)
+      face(outline.map(([x, y]) => new Vector3(spandrel.x + x, spandrel.y + y, spandrel.z)),
+        "el-spandrel-stone", "", false, "window-spandrel-relief");
+  }
+
   // 檐口按真实折线挤出；雕花、瓦垄与细部节点在立面中简化表达。
   const rim = (outline: Point[], y: number, h: number, cls: string, frontGap?: [number, number], part?: string) => {
     outline.forEach((p, i) => {
@@ -510,6 +520,9 @@ export const elevationStyles = `
 .elevation-svg .el-window{fill:#fff;stroke:#444;stroke-width:30px}
 .elevation-svg .el-glazing-frame,.elevation-svg .el-entry-frame{fill:#555;stroke:none}
 .elevation-svg .el-entry-relief{fill:#aaa;stroke:none}
+.elevation-svg .el-spandrel-stone{fill:#eeebe4;stroke:#888178;stroke-width:10px}
+.elevation-svg .el-spandrel-dark{fill:#51483f;stroke:#453c34;stroke-width:10px}
+.elevation-svg .el-spandrel-bronze{fill:#a48865;stroke:none}
 .elevation-svg .el-opening-sash{fill:none;stroke:#666;stroke-width:18px;stroke-dasharray:75 45}
 .elevation-svg .el-door,.elevation-svg .el-passage{fill:#fff;stroke:#444;stroke-width:25px}
 .elevation-svg .el-glass-rail{fill:none;stroke:#555;stroke-width:28px}
@@ -601,7 +614,7 @@ function heightSummary(drawing: ReturnType<typeof buildElevationDrawing>, buildi
   const formula = parts.map(([, bottom, top]) => n(top) - n(bottom)).join("＋");
   const firstHeight = n(segments[1][2]) - n(segments[1][1]);
   const firstNote = building === "main" && !isHalfStoreyScheme
-    ? `三层方案的二层楼面标高参数从院坪起算；当前首层实际层高＝${n(segments[1][2])}－${n(site.entranceRise)}＝${firstHeight}。`
+    ? `三层方案一层层高从首层完成面起算，入户抬高另计；当前首层层高＝${n(segments[1][2])}－${n(site.entranceRise)}＝${firstHeight}。`
     : "各层高度从本层楼面／完成面起算，入户抬高单列。";
   return `<div class="elevation-height-summary" data-height-summary="${building}"><h4>高度明细 · mm · 院坪为 ±0</h4><p>${firstNote}层高包含上方120板厚，屋面构造从板顶起算。板底 ${height(plateBottom)}，板顶 ${height(plateTop)}；板厚120已计入层高。</p><table><thead><tr><th scope="col">层次</th><th scope="col">分段高度</th><th scope="col">起止标高</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row">总高度</th><td>${n(peak)}</td><td>±0 → ${height(peak)}</td></tr></tfoot></table><p class="elevation-height-sum">${formula}＝${n(peak)}</p><p>屋面构造＝天沟内挡高度＋瓦檐面至内挡顶高差。坡屋顶升高＝瓦檐面至坡面脊线的竖向高差，由跨度与分水计算。脊瓦高度按实际构件截面计算，默认130。${building === "annex" ? `屋脊最高点 ${height(roofPeak)}；总高度包含烟囱盖板。` : "总高度量至最高构件顶。"}各标高取整到毫米后求段差，细部不再另外累加。</p></div>`;
 }

@@ -6,7 +6,7 @@ import { construction, floors, frontElevation, site, stairLayout } from "../src/
 import { stairOpeningBounds } from "../src/stair-geometry.ts";
 import { roofEaves } from "../src/facade-details.ts";
 import type { Mats } from "../src/primitives.ts";
-import { floorSlabThickness, gutterOuterWallTop, roofGutterDesign, roofTileThickness, eaveTrimDesign, frontApronSection } from "../src/roof-options.ts";
+import { apronEaveDesign, floorSlabThickness, gutterOuterWallTop, roofGutterDesign, roofTileThickness, eaveTrimDesign, frontApronSection } from "../src/roof-options.ts";
 import { applyVillaParams, DEFAULT_VILLA_PARAMS, resetVillaParams } from "../src/villa-params.ts";
 
 const mat = new Proxy({} as Mats, {
@@ -54,7 +54,7 @@ test("主辅楼顶檐共用120厚板，反坎与沟底从板顶生成，两种�
         close(outer.min.y, plate.max.y, "外挡从板顶起砌");
         close(inner.min.y, plate.max.y, "内挡从板顶起砌");
         close(outer.max.y - plate.max.y, 200, "外挡参数直接等于板上高度");
-        close(inner.max.y - plate.max.y, 250, "内挡参数直接等于板上高度");
+        close(inner.max.y - plate.max.y, DEFAULT_VILLA_PARAMS.gutterInnerDepth, "内挡参数直接等于板上高度");
         close(bounds(roof.getObjectByName("天沟槽底")!).min.y, plate.max.y, "找坡层底直接贴板顶");
         close(bounds(lids).max.y, outer.max.y, "外侧三眼皮与外挡同顶");
       }
@@ -65,7 +65,7 @@ test("主辅楼顶檐共用120厚板，反坎与沟底从板顶生成，两种�
   }
 });
 
-test("三层室内、露台、门厅及檐板为一块连续实体，梁托贴板底且瓦底贴板顶", () => {
+test("三层室内、露台、门厅及檐板为一块连续实体，梁托贴板底且瓦底贴水泥坡面", () => {
   for (const porticoStyle of ["projecting", "recessed"] as const)
     for (const thirdFloorMode of ["setback", "flush"] as const)
       for (const buildingPlacement of ["main-east", "main-west"] as const) {
@@ -94,7 +94,7 @@ test("三层室内、露台、门厅及檐板为一块连续实体，梁托贴�
           close(hits[0].point.y, plate.max.y, "交接处无高差");
           assert.equal(hits[0].face!.materialIndex, 0, "可用楼面为水泥色");
         }
-        const apron = model.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+        const apron = model.levels[2].getObjectByName("三层檐下梁托与线脚")!;
         for (const corbel of meshes(apron, "梁托")) {
           close(bounds(corbel).max.y, plate.min.y, "梁托顶直接贴板底");
           const tip = new THREE.Vector3(eaveTrimDesign.corbelLength - 10, eaveTrimDesign.corbelHeight - 1, 0)
@@ -104,10 +104,10 @@ test("三层室内、露台、门厅及檐板为一块连续实体，梁托贴�
         }
         const section = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
         close(section.fasciaTopY, plate.min.y - eaveTrimDesign.corbelHeight, "下沿线接梁托底");
-        const tiles = model.levels[2].getObjectByName("三楼飘檐与露台")!;
+        const tiles = model.levels[2].getObjectByName("三层飘檐瓦片")!;
         const tileBottom = Math.min(...meshes(tiles, "封闭瓦面").map(tile => bounds(tile).min.y));
-        close(tileBottom, plate.max.y, "瓦外沿底直接贴板顶");
-        close(section.tileInnerY, plate.max.y + roofTileThickness + frontElevation.tiledEaveDrop, "内瓦沿由板顶推导");
+        close(tileBottom, plate.max.y + apronEaveDesign.beddingThickness, "瓦外沿底贴水泥坡面");
+        close(section.tileInnerY, plate.max.y + apronEaveDesign.beddingThickness + roofTileThickness + frontElevation.tiledEaveDrop, "内瓦沿由板顶推导");
         close(bounds(model.levels[2].getObjectByName("三楼屋檐内挡墙")!).max.y, section.tileInnerY,
           "内挡墙、栏杆与短柱基准跟随瓦内沿");
         const edges = new Map<string, number>();
@@ -124,7 +124,8 @@ test("三层室内、露台、门厅及檐板为一块连续实体，梁托贴�
 test("压顶在0到15度及不同反坎宽度下均保留至少30厚，不产生倒置顶面", () => {
   for (const gutterOuterTopWidth of [150, 300, 450]) {
     for (const gutterCopingSlope of [0, 4, 6, 15]) {
-      applyVillaParams({ ...DEFAULT_VILLA_PARAMS, gutterOuterTopWidth, gutterCopingSlope });
+      const gutterInnerDepth = Math.ceil(200 + 30 + (gutterOuterTopWidth + 20) * Math.tan(gutterCopingSlope * Math.PI / 180)) + 20;
+      applyVillaParams({ ...DEFAULT_VILLA_PARAMS, gutterOuterTopWidth, gutterCopingSlope, gutterInnerDepth });
       const roof = roofEaves(new THREE.Group(), 0, 0, 12000, 10000, 10500, mat);
       roof.updateMatrixWorld(true);
       const coping = roof.getObjectByName("天沟外边反坎压顶") as THREE.Mesh;

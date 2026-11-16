@@ -98,7 +98,7 @@ test("截图对应户型载入编辑器后墙长4000，房间与门窗保留；�
       const editor = new LayoutEditor({ getFloor: () => 0, redraw: () => {}, toast: () => {} }, structuredClone(original));
       const wall = editor.draft.floors[0]!.partitions.find(w => w.id === "wall-5")!;
       assert.deepEqual(wall.a, [11500, original.envelope!.mainZ + original.envelope!.mainD]);
-      assert.deepEqual(wall.b, [11500, 5600]);
+      assert.deepEqual(wall.b, original.floors[0]!.partitions.find(w => w.id === "wall-5")!.b);
       assert.equal(Math.hypot(wall.a[0] - wall.b[0], wall.a[1] - wall.b[1]), 4000);
     }
   }

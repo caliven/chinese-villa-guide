@@ -13,7 +13,8 @@ const singleMeander: Point[] = [
 /** 原点为纹带中心，正反单回纹等距排布，单元保持方形，两端等距留边。 */
 export function meanderBandOutlines(width: number, height: number): Point[][] {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return [];
-  const count = Math.max(1, Math.floor(width / (height * 1.25)));
+  // 正反纹样成对，中心也保持镜像。
+  const count = Math.max(2, Math.floor(width / (height * 2.5)) * 2);
   const pitch = width / count;
   const size = Math.min(height, pitch * .82);
   return Array.from({ length: count }, (_, i) => {

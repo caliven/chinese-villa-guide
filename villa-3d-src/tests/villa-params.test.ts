@@ -22,6 +22,22 @@ import { collectPlanSiteDimensions } from "../src/plan-dimensions";
 import { floorPlan, planSourceFromDraft } from "../src/plan";
 import { controlTable } from "../src/meeting-booklet";
 import { designBrief, designIssues } from "../src/design-data";
+import { stairStoryHeight } from "../src/stair-geometry";
+
+test("三层首层层高从抬高后的完成面起算，调入户高差不压缩层高和楼梯", () => {
+  try {
+    for (const entranceRise of [450, 600]) {
+      applyVillaParams({ ...DEFAULT_VILLA_PARAMS, entranceRise });
+      assert.equal(floors[1].y, entranceRise + 3600);
+      assert.equal(floors[2].y, entranceRise + 6900);
+      assert.equal(floors[2].y + floors[2].height, entranceRise + 10200);
+      assert.equal(stairStoryHeight(floors, 0), 3600);
+      assert.equal(stairStoryHeight(floors, 1), 3300);
+      const draft = scaleLayoutDraftToEnvelope(clonePublishedLayout(), envelopeFromSite());
+      assert.equal(draft.floors[1].y - entranceRise, 3600);
+    }
+  } finally { resetVillaParams(); }
+});
 
 test("门厅改宽改深后全额计入首层一次，概览数据、事实和沟通导出使用同一口径", () => {
   resetVillaParams();
@@ -301,7 +317,7 @@ test("三楼将军柱落在挡墙中线交点，门厅柱轴与改参后露台�
   const e2 = frontElevation;
   const layout2 = terraceParapetLayout();
   assert.deepEqual(e2.balustradePosts.map(p => ({ x: p.x, z: p.z, w: p.w })), layout2.cornerPosts);
-  assert.equal(e2.balustradePosts[1].w, 900);
+  assert.equal(e2.balustradePosts[1].w, 600, "将军柱使用独立截面，不随下层门厅柱改宽");
   assert.ok(Math.abs(e2.porticoColumnZ - (site.main.z - 2200)) < 1e-6);
   assert.ok(Math.abs(e2.porticoColumnWallGap - (2200 - 450)) < 1e-6);
 
@@ -330,7 +346,7 @@ test("层高／面宽／辅楼高／北退／邻居／蓝顶房随参数联动",
     neighborWoodDepth: 9200,
     eastGap: 600,
   });
-  assert.ok(Math.abs(mainEaveY() - (3800 + 3500 + 3100 - 120)) < 1e-6);
+  assert.ok(Math.abs(mainEaveY() - (site.entranceRise + 3800 + 3500 + 3100 - 120)) < 1e-6);
   assert.ok(Math.abs(mainRoofFootprint().eave - mainEaveY()) < 1e-6);
   assert.ok(Math.abs(frontElevation.hatEave - mainEaveY()) < 1e-6);
   assert.equal(site.annex.height, 4000);

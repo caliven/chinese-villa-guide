@@ -29,7 +29,7 @@ import {
   rebuildTerraceLinkage,
   groundHeight,
 } from "./surroundings";
-import { buildContextGround, buildRoad } from "./site-ground";
+import { buildBasementSoilFacing, buildContextGround, buildRoad } from "./site-ground";
 import { buildNorthPhotoContext } from "./site-photo-context";
 import { buildDistantTerrain } from "./terrain-horizon";
 import {
@@ -1029,6 +1029,7 @@ export function buildSite(mat: Mats) {
     overlap = new THREE.Group();
   const contextGround = buildContextGround(mat);
   context.add(contextGround, road, buildNorthPhotoContext(mat));
+  fixed.add(buildBasementSoilFacing(mat));
   const distantTerrain = buildDistantTerrain(mat, undefined, context);
   context.add(distantTerrain);
   const neighbors = buildSurroundingHouses(mat);
@@ -1302,34 +1303,34 @@ export function buildSite(mat: Mats) {
     depthWrite: false,
     forceSinglePass: true,
   });
-  slab(overlap, rect(site.main.x, site.main.z, site.main.w, 1000), 35, 25, overlapMat);
+  const mainOverhang = Math.max(0, -site.main.z);
+  if (mainOverhang > 0) {
+    const south = Math.min(0, site.main.z + site.main.d);
+    const xs = [site.main.x, ...courtyardFront.map(p => p[0]).filter(x => x > site.main.x && x < site.main.x + site.main.w), site.main.x + site.main.w];
+    const footprint: Point[] = [[site.main.x, south], [site.main.x + site.main.w, south],
+      ...xs.reverse().map((x): Point => [x, Math.max(site.main.z, contourAt(courtyardFront, x))])];
+    slab(overlap, footprint, 35, 25, overlapMat);
+    tag(overlap, `主楼前伸 ${formatMm(mainOverhang)} · 与地库重叠`, site.main.x + site.main.w / 2, 1400, site.main.z / 2, "#ffe566", 0.78, true);
+  }
   if (!recessedPortico()) slab(overlap, rect(site.portico.x, porticoFrontZ(), site.portico.w, site.portico.projection), 35, 25, overlapMat);
-  tag(overlap, "主楼前伸 1.0 m · 与地库重叠", 13550, 1400, -400, "#ffe566", 0.78, true);
+
   overlap.visible = false;
   const columnNotes = new THREE.Group();
   columnNotes.name = "地库柱位";
   const noteY = -1150;
   const markSpan = (index: number) => {
     const column = columns.columns[index];
-    line(
-      columnNotes,
-      [
-        new THREE.Vector3(column.x, site.garageFloor + 40, column.outer[1]),
-        new THREE.Vector3(column.x, site.garageFloor + 40, column.inner[1]),
-      ],
-      0xa77332,
-      true,
-    );
-    tag(
-      columnNotes,
-      `净跨 ${formatMm(column.span)}`,
-      column.x,
-      noteY,
-      (column.outer[1] + column.inner[1]) / 2,
-      "#ffe566",
-      0.62,
-      true,
-    );
+    const points = [column.outer, ...(column.mid ? [column.mid] : []), column.inner];
+    for (let i = 1; i < points.length; i++) {
+      const from = points[i - 1], to = points[i];
+      const distance = Math.hypot(to[0] - from[0], to[1] - from[1]);
+      if (distance <= site.garageColumnSize) continue;
+      line(columnNotes, [new THREE.Vector3(from[0], site.garageFloor + 40, from[1]),
+        new THREE.Vector3(to[0], site.garageFloor + 40, to[1])], 0xa77332, true);
+      tag(columnNotes, `净跨 ${formatMm(distance - site.garageColumnSize)}`, column.x, noteY,
+        (from[1] + to[1]) / 2, "#ffe566", 0.62, true);
+    }
+
   };
   const own = columns.ownColumns;
   if (own[0]) markSpan(0);
@@ -1350,7 +1351,7 @@ export function buildSite(mat: Mats) {
     );
     tag(
       columnNotes,
-      `柱距 ${formatMm(columns.spacing)}`,
+      `柱距 ${formatMm(Math.hypot(bay.outer[0] - own[0].outer[0], bay.outer[1] - own[0].outer[1]))}`,
       (own[0].x + bay.x) / 2,
       noteY,
       (own[0].outer[1] + bay.outer[1]) / 2 - 800,

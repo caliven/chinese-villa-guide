@@ -80,7 +80,7 @@ test("房间与洞口表使用当前草稿并保持源数据不变", () => {
   const before = structuredClone(draft), dimensions = structuredClone(site), published = structuredClone(floors);
   assert.match(roomSchedule(draft), /当前房间&lt;&amp;&gt;/);
   assert.match(openingSchedule(draft), /2370×1470/);
-  assert.match(openingSchedule(draft), /\+4280／\+5750/);
+  assert.match(openingSchedule(draft), /\+4730／\+6200/);
   assert.deepEqual(draft, before);
   assert.deepEqual(site, dimensions);
   assert.deepEqual(floors, published);

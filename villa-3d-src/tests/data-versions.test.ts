@@ -8,6 +8,8 @@ import {
   parseDataVersionsIndex,
   parseLayoutVersionDocument,
   parseSizeVersionDocument,
+  persistDataVersion,
+  emptyDataIndex,
   removeVersionMeta,
   safeDataVersionFileName,
   sizeDocSchema,
@@ -108,7 +110,7 @@ test("新建版本文档标注 units=mm，长度为毫米整数量级", () => {
   assert.equal(size.villaParams.mainWidth, DEFAULT_VILLA_PARAMS.mainWidth);
   const layout = buildLayoutVersionDocument(clonePublishedLayout(), { title: "户型-mm", id: "户型-mm" });
   assert.equal(layout.units, LENGTH_UNITS);
-  assert.equal(layout.layoutDraft.floors[0]!.height, 3600);
+  assert.equal(layout.layoutDraft.floors[0]!.height, 4050);
 });
 
 test("旧米制尺寸版本读回迁成毫米；毫米版本不二次放大", () => {
@@ -143,13 +145,25 @@ test("旧米制户型版本读回迁成毫米，旋转角与踏步数不被放�
   const meter: Record<string, unknown> = { ...mm, layoutDraft: toMetersDeep(mm.layoutDraft) };
   delete meter.units;
   const rawFloor0 = ((meter.layoutDraft as { floors: { height: number }[] }).floors[0])!;
-  assert.equal(rawFloor0.height, 3.6);
+  assert.equal(rawFloor0.height, 4.05);
   const migrated = parseLayoutVersionDocument(meter);
   assert.equal(migrated.units, LENGTH_UNITS);
-  assert.equal(migrated.layoutDraft.floors[0]!.height, 3600);
+  assert.equal(migrated.layoutDraft.floors[0]!.height, 4050);
   assert.equal(migrated.layoutDraft.floors[0]!.rooms[0]!.w, draft.floors[0]!.rooms[0]!.w);
   assert.equal(migrated.layoutDraft.stairLayout.risers, draft.stairLayout.risers);
   assert.ok(Math.abs(migrated.layoutDraft.floors[0]!.partitions[0]!.a[0] - draft.floors[0]!.partitions[0]!.a[0]) < 1e-6);
   // 毫米稿不被再放大
-  assert.equal(parseLayoutVersionDocument(mm).layoutDraft.floors[0]!.height, 3600);
+  assert.equal(parseLayoutVersionDocument(mm).layoutDraft.floors[0]!.height, 4050);
+});
+
+
+test("静态下载前同样拒绝无法回读的户型", async t => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = (async () => { requests++; return new Response(null, { status: 404 }); }) as typeof fetch;
+  const document = buildLayoutVersionDocument(clonePublishedLayout());
+  document.layoutDraft.floors[1].height = 6500;
+  await assert.rejects(persistDataVersion({ kind: "户型", document, index: emptyDataIndex("户型") }), /层高/);
+  assert.equal(requests, 0);
 });

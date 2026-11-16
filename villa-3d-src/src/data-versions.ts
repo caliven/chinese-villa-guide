@@ -1,4 +1,4 @@
-import { activeConstructionScheme, assertConstructionScope, dataDirectory, type ConstructionScheme } from "./construction-scheme";
+import { activeConstructionScheme, assertConstructionScope, dataDirectory, type ConstructionScheme } from "./construction-scheme.ts";
 /**
  * 尺寸／户型版本：写入仓库 data/尺寸、data/户型，三层户型一体存取。
  */
@@ -7,15 +7,15 @@ import {
   normalizeVillaParamsLengths,
   type VillaParams,
   validateVillaParams,
-} from "./villa-params";
+} from "./villa-params.ts";
 import {
   parseLayoutDraftManaged,
   type LayoutDraft,
-} from "./layout-draft";
-import type { CourtyardDimLayout } from "./courtyard-dim-drag";
-import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes";
-import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options";
-import { formatSavedAt, makeVersionId } from "./scheme-store";
+} from "./layout-draft.ts";
+import type { CourtyardDimLayout } from "./courtyard-dim-drag.ts";
+import { parseCourtyardFinish, type CourtyardFinish } from "./courtyard-finishes.ts";
+import { DEFAULT_ROOF_STYLE, parseRoofStyle, type RoofStyle } from "./roof-options.ts";
+import { formatSavedAt, makeVersionId } from "./scheme-store.ts";
 import {
   LENGTH_UNITS,
   isMeterLayoutDraft,
@@ -23,7 +23,7 @@ import {
   migrateCourtyardDimLayoutToMm,
   migrateLayoutLengthsToMm,
   migrateVillaParamsToMm,
-} from "./units";
+} from "./units.ts";
 
 export const dataVersionsSchema = "anhua-villa-data-versions-v1" as const;
 export const sizeDocSchema = "anhua-villa-尺寸-v1" as const;
@@ -154,9 +154,9 @@ export function buildLayoutVersionDocument(
   };
 }
 
-export function parseSizeVersionDocument(input: unknown): SizeVersionDocument {
+export function parseSizeVersionDocument(input: unknown, scheme: ConstructionScheme = activeConstructionScheme): SizeVersionDocument {
   if (!isRecord(input)) throw new Error("尺寸文件不是对象");
-  assertConstructionScope(input);
+  assertConstructionScope(input, scheme);
   if (input.schema !== sizeDocSchema) throw new Error(`尺寸版本应为 ${sizeDocSchema}`);
   const rawParams = isRecord(input.villaParams) ? input.villaParams : {};
   const meter =
@@ -176,11 +176,11 @@ export function parseSizeVersionDocument(input: unknown): SizeVersionDocument {
           : input.courtyardDimLayout,
       }
     : input;
-  const villaParams = normalizeVillaParamsLengths(isRecord(raw.villaParams) ? raw.villaParams : {});
-  const issues = validateVillaParams(villaParams);
+  const villaParams = normalizeVillaParamsLengths(isRecord(raw.villaParams) ? raw.villaParams : {}, scheme);
+  const issues = validateVillaParams(villaParams, scheme);
   if (issues.length) throw new Error(issues.map((i) => i.message).join("；"));
   return {
-    constructionScheme: activeConstructionScheme,
+    constructionScheme: scheme,
     schema: sizeDocSchema,
     units: LENGTH_UNITS,
     id: typeof raw.id === "string" && raw.id ? raw.id : "尺寸",
@@ -194,9 +194,9 @@ export function parseSizeVersionDocument(input: unknown): SizeVersionDocument {
   };
 }
 
-export function parseLayoutVersionDocument(raw: unknown): LayoutVersionDocument {
+export function parseLayoutVersionDocument(raw: unknown, scheme: ConstructionScheme = activeConstructionScheme): LayoutVersionDocument {
   if (!isRecord(raw)) throw new Error("户型文件不是对象");
-  assertConstructionScope(raw);
+  assertConstructionScope(raw, scheme);
   if (raw.schema !== layoutDocSchema) throw new Error(`户型版本应为 ${layoutDocSchema}`);
   if (raw.layoutDraft == null) throw new Error("户型版本缺少 layoutDraft");
   const meter =
@@ -205,7 +205,7 @@ export function parseLayoutVersionDocument(raw: unknown): LayoutVersionDocument 
   const layoutDraft = parseLayoutDraftManaged(JSON.stringify(draftRaw));
   if (layoutDraft.floors.length !== 3) throw new Error("户型版本必须包含一二三楼共三层");
   return {
-    constructionScheme: activeConstructionScheme,
+    constructionScheme: scheme,
     schema: layoutDocSchema,
     units: LENGTH_UNITS,
     id: typeof raw.id === "string" && raw.id ? raw.id : "户型",
@@ -309,6 +309,10 @@ type PersistBody = {
 
 /** 优先 POST 写入 data/；静态服务则下载单个 JSON。 */
 export async function persistDataVersion(body: PersistBody): Promise<DataPersistResult> {
+  const document = body.kind === "尺寸"
+    ? parseSizeVersionDocument(body.document)
+    : parseLayoutVersionDocument(body.document);
+  body = { ...body, document };
   let res: Response | undefined;
   try {
     res = await fetch("/__data_save", {
@@ -325,7 +329,10 @@ export async function persistDataVersion(body: PersistBody): Promise<DataPersist
     sessionDocuments.delete(`${body.kind}/${body.document.id}.json`);
     return { ok: true, via: "api", path: data.path, message: `已保存${body.kind}版本 → ${data.path ?? `data/${body.kind}/`}` };
   }
-  if (res && ![404, 405, 501].includes(res.status)) throw new Error(`保存${body.kind}版本失败（${res.status}），请重试`);
+  if (res && ![404, 405, 501].includes(res.status)) {
+    const error = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(error?.error ?? `保存${body.kind}版本失败（${res.status}），请重试`);
+  }
 
   const file = `${body.document.id}.json`;
   const text =

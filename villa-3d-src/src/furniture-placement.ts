@@ -33,6 +33,9 @@ function obstacles(f: Furniture, walls: Wall[], peers: Furniture[], exclude?: nu
   }
   peers.forEach((peer, i) => {
     if (peer === f || i === exclude) return;
+    // 850高洗衣机与其上方烘干机允许共用平面占地。
+    if ((f.kind === "fp-washer" && peer.kind === "fp-dryer" && (peer.mountHeight ?? 0) >= 850) ||
+      (peer.kind === "fp-washer" && f.kind === "fp-dryer" && (f.mountHeight ?? 0) >= 850)) return;
     const polygon = footprint(peer);
     out.push({ polygon, bounds: bounds(polygon), wall: false });
   });

@@ -264,15 +264,15 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     1000,
   );
   const midFloor = ray.intersectObject(villa.levels[1], true);
-  assert.ok(midFloor.length > 0 && midFloor[0].point.y > 3400 && midFloor[0].point.y < 3610);
+  assert.ok(midFloor.length > 0 && midFloor[0].point.y > floors[1].y - 200 && midFloor[0].point.y < floors[1].y + 10);
   // 新外伸区：挑檐悬挑段二层为空；折角以南的门厅平台三层有可踩楼板。
   const overhangProbeZ = frontElevation.centerFront - site.secondFrontEave / 2;
   const porchDeckZ = frontElevation.centerFront + 250;
   ray.set(new THREE.Vector3(13700, 4000, overhangProbeZ), new THREE.Vector3(0, -1, 0));
   ray.far = 800;
   assert.equal(ray.intersectObject(villa.group, true).length, 0);
-  ray.set(new THREE.Vector3(13700, 7300, porchDeckZ), new THREE.Vector3(0, -1, 0));
-  assert.ok(Math.abs(ray.intersectObject(villa.levels[2], true)[0].point.y - 7200) < 0.01);
+  ray.set(new THREE.Vector3(13700, floors[2].y + 100, porchDeckZ), new THREE.Vector3(0, -1, 0));
+  assert.ok(Math.abs(ray.intersectObject(villa.levels[2], true)[0].point.y - floors[2].y) < 0.01);
   const approach = villa.group.getObjectByName("门厅柱间三步与两侧坡道")!;
   const approachBounds = new THREE.Box3().setFromObject(approach);
   const columnFront = frontElevation.porticoColumnZ - frontElevation.porticoColumnDepth / 2;

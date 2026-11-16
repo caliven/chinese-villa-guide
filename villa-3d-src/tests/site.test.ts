@@ -430,6 +430,33 @@ test("两家之间的过道由院坪铺装控制，并且与自家院坪齐平",
       return [key, material];
     })) as Mats;
     const land = buildSite(finish);
+    // 关闭周边时，院坪下绿色封土仍属于基础；周边不能重复生成同一张面。
+    const soilFacing = land.fixed.getObjectByName("邻居院坪下方绿色挡面");
+    assert.ok(soilFacing);
+    assert.equal(land.context.getObjectByName(soilFacing.name), undefined);
+    land.fixed.updateMatrixWorld(true);
+    for (const t of [0.05, 0.35, 0.65, 0.95]) {
+      const x = site.width + (c.road.x - site.width) * t;
+      const ray = new THREE.Raycaster(
+        new THREE.Vector3(x, frontFieldLevel + 100, c.neighborYard.z - 1000),
+        new THREE.Vector3(0, 0, 1),
+      );
+      const faces = ray.intersectObject(soilFacing, true);
+      assert.equal(faces.length, 1, `邻居院坪下挡面缺口或叠面 @ ${x}`);
+      assert.ok(Math.abs(faces[0].point.z - (c.neighborYard.z - 40)) < 0.01);
+    }
+    for (const t of [0.05, 0.35, 0.65, 0.95]) {
+      const z = c.neighborYard.z * t;
+      const ray = new THREE.Raycaster(
+        new THREE.Vector3(c.road.x + 1000, frontFieldLevel + 100, z),
+        new THREE.Vector3(-1, 0, 0),
+      );
+      const faces = ray.intersectObject(soilFacing, true);
+      assert.equal(faces.length, 1, `邻居院坪侧面封口缺失或叠面 @ ${z}`);
+      assert.ok(Math.abs(faces[0].point.x - c.road.x) < 0.01);
+      ray.ray.origin.y = site.neighborGarageFloor + 100;
+      assert.equal(ray.intersectObject(soilFacing, true).length, 0, "封口应止于地库板底以下");
+    }
     assert.equal(land.context.getObjectByName("后山树冠"), undefined);
     assert.equal(land.context.getObjectByName("后山树干"), undefined);
     for (const root of [land.context, land.fixed, land.deck, land.neighborDeck]) root.updateMatrixWorld(true);

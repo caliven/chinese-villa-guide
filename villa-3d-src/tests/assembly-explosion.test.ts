@@ -153,14 +153,14 @@ test("两种官帽主辅楼均拆出带楼板的天沟基座和瓦片木架，�
   }
 });
 
-test("三楼外侧组只带瓦片、玻璃栏杆和短柱，楼板、挡墙、承托和高柱随三层主体", () => {
+test("三楼瓦片与水泥坡面独立拆分，栏杆、短柱、楼板与承托随三层主体", () => {
   for (const style of ["joined", "floating"] as const) for (const batched of [false, true]) {
     const model = buildVilla(mat, false, DEFAULT_VILLA_PARAMS.roofFenShui, style);
     const thirdFloor = model.levels[2];
-    const exterior = thirdFloor.getObjectByName("三楼飘檐与露台")!;
-    const independentNames = ["裁切拼接的蓝釉瓦面", "三楼通透玻璃栏板与细金属框", "四根露台短柱"];
+    const exterior = thirdFloor.getObjectByName("三层飘檐瓦片")!;
+    const independentNames = ["裁切拼接的蓝釉瓦面"];
     assert.deepEqual(new Set(exterior.children.map(child => child.name)), new Set(independentNames));
-    const bodyNames = ["三楼楼板", "三楼屋檐内挡墙", "梁托", "连续转角下沿线", "三楼官帽柱", "三楼包角柱"];
+    const bodyNames = ["三楼楼板", "三楼屋檐内挡墙", "梁托", "连续转角下沿线", "三楼官帽柱", "三楼包角柱", "三楼通透玻璃栏板与细金属框", "四根露台短柱"];
     for (const name of bodyNames) {
       assert.ok(thirdFloor.getObjectByName(name), name);
       assert.equal(exterior.getObjectByName(name), undefined, `${name} 应归三层主体`);
@@ -174,10 +174,13 @@ test("三楼外侧组只带瓦片、玻璃栏杆和短柱，楼板、挡墙、�
       explosion.apply(progress);
       const after = visibleBounds(exterior), movedBody = visibleBounds(thirdFloor, true);
       assert.equal(after.min.z - before.min.z, -5000 * progress);
-      assert.equal(after.max.z - before.max.z, -5000 * progress, "瓦片、栏杆和短柱同步前移");
+      assert.equal(after.max.z - before.max.z, -5000 * progress, "瓦片独立前移");
       assert.equal(movedBody.min.z, body.min.z);
       assert.equal(movedBody.max.z, body.max.z, "露台楼板、承托与高柱保留三层水平位置");
-      assert.equal(after.min.y - before.min.y, movedBody.min.y - body.min.y, "两组同步随三层抬高");
+      const coverPart = explosion.parts.find(part => part.roots.includes(exterior))!;
+      assert.ok(Math.abs(after.min.y - before.min.y - coverPart.offset.y * progress) < .01, "瓦片按独立拆分标高抬高");
+      const bedding = thirdFloor.getObjectByName("三层飘檐水泥坡面")!;
+      if (progress === 1) assert.ok(after.min.y - visibleBounds(bedding).max.y >= 899.9, "瓦片与水泥坡面间留900观察空隙");
       if (progress === 1) assert.ok(after.max.z < movedBody.min.z, "外侧组与三层主体分开可见");
     }
     explosion.dispose();

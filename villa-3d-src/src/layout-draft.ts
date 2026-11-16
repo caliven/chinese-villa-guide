@@ -324,7 +324,7 @@ function parseFurniture(value: unknown, i: number): Furniture {
   }
   if (value.label !== undefined) item.label = str(value.label, `家具 ${i} 标签`, 40);
   if (value.mountHeight !== undefined) {
-    if (kind !== "fp-hunan-shrine") throw new Error(`家具 ${i} 不支持挂装底高`);
+    if (kind !== "fp-hunan-shrine" && kind !== "fp-dryer") throw new Error(`家具 ${i} 不支持挂装底高`);
     item.mountHeight = Math.round(num(value.mountHeight, `家具 ${i} 挂装底高`, 0, 10000));
   }
   if (value.showerDoorSide !== undefined) {

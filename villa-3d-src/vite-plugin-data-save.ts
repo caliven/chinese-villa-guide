@@ -1,6 +1,8 @@
 import { assertConstructionScope, isConstructionScheme, type ConstructionScheme } from "./src/construction-scheme.ts";
+import { emptyDataIndex, parseDataVersionsIndex, parseLayoutVersionDocument, parseSizeVersionDocument, prependVersionMeta, removeVersionMeta } from "./src/data-versions.ts";
+import { randomUUID } from "node:crypto";
 import type { Plugin } from "vite";
-import { cp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -56,6 +58,43 @@ function safeVersionFileName(file: string): string | null {
   return name;
 }
 
+const pendingWrites = new Map<string, Promise<void>>();
+
+async function serializeWrite(root: string, work: () => Promise<void>) {
+  const previous = pendingWrites.get(root) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(work);
+  pendingWrites.set(root, current);
+  try {
+    await current;
+  } finally {
+    if (pendingWrites.get(root) === current) pendingWrites.delete(root);
+  }
+}
+
+async function atomicWrite(file: string, content: string | Buffer) {
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, content);
+    await rename(temporary, file);
+  } finally {
+    await unlink(temporary).catch(() => {});
+  }
+}
+
+async function readOptional(file: string) {
+  try {
+    return await readFile(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function readCurrentIndex(dir: string, kind: DataKind) {
+  const bytes = await readOptional(path.join(dir, "index.json"));
+  return bytes ? parseDataVersionsIndex(JSON.parse(bytes.toString("utf8")), kind) : emptyDataIndex(kind);
+}
+
 async function handleSave(req: IncomingMessage, res: ServerResponse, root: string) {
   try {
     const raw = await readBody(req);
@@ -71,10 +110,19 @@ async function handleSave(req: IncomingMessage, res: ServerResponse, root: strin
     const scopedRoot = scheme === "two-and-half" ? path.join(root, "two-and-half") : root;
     const dir = path.join(scopedRoot, body.kind);
     try { assertConstructionScope(body.document, scheme); } catch { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: "文件不属于当前方案" })); return; }
+    let document;
+    try {
+      document = body.kind === "尺寸"
+        ? parseSizeVersionDocument(body.document, scheme)
+        : parseLayoutVersionDocument(body.document, scheme);
+    } catch (error) {
+      res.statusCode = 400;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "版本数据无效" }));
+      return;
+    }
     await mkdir(dir, { recursive: true });
-    const id = typeof body.document?.id === "string" && body.document.id
-      ? body.document.id
-      : `${body.kind}-${Date.now()}`;
+    const id = document.id;
     const fileName = safeVersionFileName(`${id}.json`);
     if (!fileName) {
       res.statusCode = 400;
@@ -82,9 +130,19 @@ async function handleSave(req: IncomingMessage, res: ServerResponse, root: strin
       res.end(JSON.stringify({ ok: false, error: "无效的版本编号" }));
       return;
     }
-    await writeFile(path.join(dir, fileName), `${JSON.stringify(body.document, null, 2)}\n`, "utf8");
-    if (body.index) {
-      await writeFile(path.join(dir, "index.json"), `${JSON.stringify(body.index, null, 2)}\n`, "utf8");
+    const index = await readCurrentIndex(dir, body.kind);
+    const nextIndex = prependVersionMeta(index, {
+      id: document.id, title: document.title, savedAt: document.savedAt, file: fileName,
+    });
+    const target = path.join(dir, fileName);
+    const previous = await readOptional(target);
+    await atomicWrite(target, `${JSON.stringify(document, null, 2)}\n`);
+    try {
+      await atomicWrite(path.join(dir, "index.json"), `${JSON.stringify(nextIndex, null, 2)}\n`);
+    } catch (error) {
+      if (previous) await atomicWrite(target, previous);
+      else await unlink(target);
+      throw error;
     }
     res.statusCode = 200;
     res.setHeader("content-type", "application/json");
@@ -92,7 +150,7 @@ async function handleSave(req: IncomingMessage, res: ServerResponse, root: strin
       JSON.stringify({
         ok: true,
         path: `${scheme === "two-and-half" ? "data/two-and-half" : "data"}/${body.kind}/${fileName}`,
-        files: body.index ? 2 : 1,
+        files: 2,
       }),
     );
   } catch (error) {
@@ -130,14 +188,17 @@ async function handleDelete(req: IncomingMessage, res: ServerResponse, root: str
       res.end(JSON.stringify({ ok: false, error: "Forbidden" }));
       return;
     }
+    await mkdir(dir, { recursive: true });
+    const index = await readCurrentIndex(dir, body.kind);
+    const nextIndex = removeVersionMeta(index, fileName);
+    await atomicWrite(path.join(dir, "index.json"), `${JSON.stringify(nextIndex, null, 2)}\n`);
     try {
       await unlink(target);
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT") throw error;
-    }
-    if (body.index) {
-      await writeFile(path.join(dir, "index.json"), `${JSON.stringify(body.index, null, 2)}\n`, "utf8");
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        await atomicWrite(path.join(dir, "index.json"), `${JSON.stringify(index, null, 2)}\n`);
+        throw error;
+      }
     }
     res.statusCode = 200;
     res.setHeader("content-type", "application/json");
@@ -151,11 +212,11 @@ async function handleDelete(req: IncomingMessage, res: ServerResponse, root: str
 
 async function handleDataApi(req: IncomingMessage, res: ServerResponse, next: () => void, root: string) {
   if (req.url === "/__data_save" && req.method === "POST") {
-    await handleSave(req, res, root);
+    await serializeWrite(root, () => handleSave(req, res, root));
     return;
   }
   if (req.url === "/__data_delete" && req.method === "POST") {
-    await handleDelete(req, res, root);
+    await serializeWrite(root, () => handleDelete(req, res, root));
     return;
   }
   next();

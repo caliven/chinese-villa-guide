@@ -277,7 +277,7 @@ document.querySelector("#app")!.innerHTML = `
           <p id="route-summary" class="description"></p><div id="route-findings" class="route-findings" aria-label="沿途待核区段，点击定位车辆"></div>
           <p class="micro">平面扫掠包含前后悬；含镜宽、实际转弯、纵坡俯仰、底盘、驶出及两车独立进出待核。</p>
         </section>
-        <section><h2>道路标高</h2><p class="micro">院坪暂定 ±0。邻居地库按现状院坪范围，整片高于自家。斜坡只做在最外层车道里。</p><label class="select-label">接入处道路标高 · 待测 / 示意（mm）<input type="number" id="road-level" value="${Math.round(surroundings.road.entryY)}" step="100" min="-3800" max="0"/></label><label class="select-label">旧坡长参数 · 外层斜坡另按车道宽度（mm）<input type="number" id="ramp-length" value="5000" step="500" min="3000" max="10000"/></label><p class="calculation" id="ramp-result"></p><p class="micro" id="garage-level-note">自家完成面 ${formatMm(site.garageFloor)}、净高 ${formatMm(site.garageClear)}。邻居完成面 ${formatMm(site.neighborGarageFloor)}、梁下净高 ${formatMm(site.neighborBeamClear)}。邻居外侧柱距外沿 ${formatMm(site.neighborBeamReach)}、距院坪边 ${formatMm(site.neighborColumnEdgeInset)}。</p></section>
+        <section><h2>道路标高</h2><p class="micro">院坪暂定 ±0。邻居地库按现状院坪范围，整片高于自家。斜坡只做在最外层车道里。</p><label class="select-label">接入处道路标高 · 待测 / 示意（mm）<input type="number" id="road-level" value="${Math.round(surroundings.road.entryY)}" step="100" min="-3800" max="0"/></label><label class="select-label" hidden>旧坡长参数 · 外层斜坡另按车道宽度（mm）<input type="number" id="ramp-length" value="5000" step="500" min="3000" max="10000"/></label><p class="calculation" id="ramp-result"></p><p class="micro" id="garage-level-note">自家完成面 ${formatMm(site.garageFloor)}、净高 ${formatMm(site.garageClear)}。邻居完成面 ${formatMm(site.neighborGarageFloor)}、梁下净高 ${formatMm(site.neighborBeamClear)}。邻居外侧柱距外沿 ${formatMm(site.neighborBeamReach)}、距院坪边 ${formatMm(site.neighborColumnEdgeInset)}。</p></section>
         <section><div class="range-heading"><label for="route-progress">车辆沿示意路线移动</label><output id="route-output">0%</output></div><input type="range" id="route-progress" min="0" max="100" value="0" step="1"/><p id="route-status" class="description" aria-live="polite"></p><p class="micro">拖动滑杆或点击待核区段定位车辆。</p></section>
       </div>
       <div id="sources-controls" hidden><section><h2>证据状态</h2><ul class="evidence-legend"><li><i class="e-user"></i>用户提供</li><li><i class="e-photo"></i>照片估算</li><li><i class="e-design"></i>设计建议</li><li><i class="e-pending"></i>待测 / 待校核</li></ul>${check("pending-only", "只看待补测项目")}</section><section><h2>下一步现场补测</h2><ol class="measure-list"><li>道路、邻居院坪与旧房前坪的高差。</li><li>切口、保留柱墙及可用坡道的平面尺寸。</li><li>L9含镜宽、转弯参数。第二辆已按吉利星愿外观示意，不参与通行占位。</li><li>地块转折点、屋后田坎及邻居屋檐位置。</li></ol></section><button class="secondary-button" id="download-data">下载当前方案参数</button></div>
@@ -707,7 +707,7 @@ async function submitLayoutVersionDialog(event: SubmitEvent) {
         const renamed = renameLayoutVersion(original, index, layoutVersionDialogFile, title);
         const result = await persistDataVersion({ kind: "户型", ...renamed });
         if (!result.ok) throw new Error(result.message);
-        await refreshLayoutVersionSelect(renamed.index);
+        await refreshLayoutVersionSelect(result.via === "api" ? undefined : renamed.index);
         drawPlan();
         toast(result.via === "api" ? `已重命名为「${title}」` : result.message);
       } else {
@@ -720,7 +720,7 @@ async function submitLayoutVersionDialog(event: SubmitEvent) {
         if (level < 0) level = 0;
         await applyLayoutVersion(doc, true);
         activeLayoutVersionFile = `${doc.id}.json`;
-        await refreshLayoutVersionSelect(nextIndex);
+        await refreshLayoutVersionSelect(result.via === "api" ? undefined : nextIndex);
         setLayoutEditing(true);
         toast(result.via === "api" ? `已${layoutVersionAction === "new" ? "新增" : "复制"}户型「${title}」` : result.message);
       }
@@ -829,7 +829,7 @@ async function saveSizeVersion() {
       file: `${doc.id}.json`,
     });
     const result = await persistDataVersion({ kind: "尺寸", document: doc, index: nextIndex });
-    await refreshSizeVersionSelect(nextIndex);
+    await refreshSizeVersionSelect(result.via === "api" ? undefined : nextIndex);
     setSchemeStatus(result.message);
     toast(result.message);
   } catch (error) {
@@ -852,7 +852,7 @@ async function deleteSizeVersion() {
     const index = await loadDataVersionsIndex("尺寸");
     const nextIndex = removeVersionMeta(index, file);
     const result = await deleteDataVersion({ kind: "尺寸", file, index: nextIndex });
-    await refreshSizeVersionSelect(nextIndex);
+    await refreshSizeVersionSelect(result.via === "api" ? undefined : nextIndex);
     if (select) select.value = "";
     setSchemeStatus(result.message);
     toast(result.message);
@@ -872,8 +872,8 @@ async function deleteLayoutVersion() {
     const result = await deleteDataVersion({ kind: "户型", file, index: nextIndex });
     if (!result.ok) throw new Error(result.message);
     activeLayoutVersionFile = "";
-    await refreshLayoutVersionSelect(nextIndex);
-    if (nextIndex.versions[0]) await selectLayoutVersion(nextIndex.versions[0].file, true);
+    await refreshLayoutVersionSelect(result.via === "api" ? undefined : nextIndex);
+    if (layoutVersionsIndex.versions[0]) await selectLayoutVersion(layoutVersionsIndex.versions[0].file, true);
     $("layout-save-status").textContent = result.message;
     toast(result.message);
   });
@@ -900,7 +900,7 @@ async function saveLayoutVersion() {
     const result = await persistDataVersion({ kind: "户型", document: doc, index: nextIndex });
     if (!result.ok) throw new Error(result.message);
     activeLayoutVersionFile = file;
-    await refreshLayoutVersionSelect(nextIndex);
+    await refreshLayoutVersionSelect(result.via === "api" ? undefined : nextIndex);
     const message = result.via === "api" ? `已保存户型版本「${doc.title}」` : result.message;
     status.textContent = message;
     toast(message);
@@ -924,9 +924,11 @@ async function resetSchemeToInitial() {
     if (initial) doc.layoutDraft = structuredClone(initial.document.layoutDraft);
   }
   clearLayoutDraft();
+  activeLayoutVersionFile = "";
   clearCourtyardDimLayout();
   courtyardDimLayout = {};
   await applySchemeDocument(doc, { toastMsg: "正在恢复默认方案…" });
+  await refreshLayoutVersionSelect();
   setSchemeStatus("已恢复默认方案（未写入文件）");
   toast("已恢复默认方案");
 }
@@ -1016,7 +1018,10 @@ function syncFenShuiInputs(value: number) {
 
 function rescaleStoredLayoutDraft(): LayoutDraft | null {
   const draft = loadLayoutDraft();
-  if (!draft) return null;
+  if (!draft) {
+    layoutEditor?.loadDraft(clonePublishedLayout());
+    return null;
+  }
   const next = normalizeDraftWallContacts(scaleLayoutDraftToEnvelope(draft, envelopeFromSite()));
   saveLayoutDraft(next);
   if (layoutEditor) layoutEditor.loadDraft(next);
@@ -3340,8 +3345,8 @@ updateFenShui();
   const initial = await loadInitialLayoutVersion(layoutVersionsIndex);
   if (initial) {
     try {
-      // 两层半当前稿包含未另存为版本的编辑，刷新时不能被初始户型覆盖。
-      const preferVersion = !isHalfStoreyScheme || !boot?.layoutDraft || !!getDefaultLayoutVersionFile(layoutVersionsIndex);
+      // 两套方案的当前稿都可能包含独立编辑，刷新时优先恢复保存内容。
+      const preferVersion = !boot?.layoutDraft;
       if (preferVersion) await applyLayoutVersion(initial.document, true);
       if (preferVersion || JSON.stringify(boot?.layoutDraft) === JSON.stringify(initial.document.layoutDraft))
         activeLayoutVersionFile = initial.file;

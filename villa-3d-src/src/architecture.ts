@@ -31,6 +31,7 @@ import { interiorRailingLayout } from "./interior-railing";
 import { interiorRailing } from "./railing-options";
 import { continuousGlazing } from "./continuous-glazing";
 import { integratedEntry } from "./entry-assembly";
+import { addMeanderBand, meanderBandOutlines } from "./meander-pattern.ts";
 import { frontOpeningsChanged, resolveLayoutFacades } from "./facade-layout";
 import { DEFAULT_DOOR_HEIGHT, FRONT_OPENING } from "./openings";
 import { joinedWallSpan, partitionCeilingGap, partitionProfile, wallJunctionPeers } from "./partition-geometry";
@@ -393,22 +394,61 @@ function sandGrooves(
   }
 }
 
-// 烤火房一二层之间：白底横披，中间一道回纹，上下各一条线脚。
-function eastMeanderBand(parent: THREE.Object3D, mat: Mats) {
+/** 北立面东侧窗间石饰：跟随实际窗洞取位，门窗调整后仍留出窗框净空。 */
+export function northEastSpandrelDesign(layout?: VillaLayoutLive | null) {
+  if (isHalfStoreyScheme) return null;
+  const resolved = resolveLayoutFacades(layout);
+  const floorList = layout?.floors ?? floors;
+  const frontWindows = (floor: number) => resolved.facades[floor].flatMap((face, index) => {
+    if ((face.sourceFacadeIndex ?? index) !== 0 || Math.abs(face.b[1] - face.a[1]) > 1) return [];
+    const direction = Math.sign(face.b[0] - face.a[0]);
+    return face.openings.filter(o => !o.door && !o.continuous && !o.entryAssembly && !o.span)
+      .map(o => ({ x: face.a[0] + direction * o.at, z: face.a[1] - construction.outsideWall / 2,
+        w: o.w, bottom: floorList[floor].y + o.sill, top: floorList[floor].y + o.sill + o.h }));
+  });
+  const lower = frontWindows(0).sort((a, b) => b.x - a.x)[0];
+  if (!lower) return null;
+  const upper = frontWindows(1).filter(o => Math.abs(o.z - lower.z) < 20)
+    .sort((a, b) => Math.abs(a.x - lower.x) - Math.abs(b.x - lower.x))[0];
+  if (!upper) return null;
+  const left = Math.max(lower.x - lower.w / 2, upper.x - upper.w / 2);
+  const right = Math.min(lower.x + lower.w / 2, upper.x + upper.w / 2);
+  const w = right - left, gap = upper.bottom - lower.top;
+  if (w < 900 || gap < 650) return null;
+  const x = (left + right) / 2, y = (lower.top + upper.bottom) / 2;
+  const h = Math.min(gap - 200, w * .55), edge = Math.min(70, h / 9);
+  type Finish = "carvedStone" | "carvingDark" | "bronze";
+  const pieces: { x: number; y: number; z: number; w: number; h: number; d: number; finish: Finish; name: string }[] = [];
+  const piece = (xx: number, yy: number, zz: number, ww: number, hh: number, dd: number, finish: Finish, name: string) =>
+    pieces.push({ x: xx, y: yy, z: lower.z + zz, w: ww, h: hh, d: dd, finish, name });
+  // 饰面离墙12；压框、嵌底、浮雕分层错开，避免共面叠片。
+  piece(x, y, -36, w, h, 48, "carvedStone", "暖灰细磨石底板");
+  for (const side of [-1, 1]) {
+    piece(x + side * (w - edge) / 2, y, -79, edge, h - edge * 2, 36, "carvingDark", "深咖石材竖边框");
+    piece(x, y + side * (h - edge) / 2, -79, w, edge, 36, "carvingDark", "深咖石材横边框");
+  }
+  piece(x, y + h / 2 + 11, -70, w + 80, 22, 116, "carvedStone", "上口薄挑压顶");
+  piece(x, y - h / 2 - 11, -66, w + 30, 22, 100, "carvedStone", "下口收边石线");
+  const bandW = w - edge * 5, bandH = Math.min(480, h * .48), inlay = 8;
+  piece(x, y, -72, bandW, bandH, 20, "carvingDark", "回纹深咖嵌底");
+  for (const side of [-1, 1]) {
+    piece(x, y + side * (bandH - inlay) / 2, -86, bandW, inlay, 6, "bronze", "古铜细嵌线");
+    piece(x + side * (bandW - inlay) / 2, y, -86, inlay, bandH - inlay * 2, 6, "bronze", "古铜细嵌线");
+  }
+  const motifWidth = bandW - 160, motifHeight = Math.min(240, bandH - 100);
+  return { x, y, z: lower.z - 104, motifWidth, motifHeight, pieces,
+    outlines: meanderBandOutlines(motifWidth, motifHeight) };
+}
+
+function eastMeanderBand(parent: THREE.Object3D, mat: Mats, layout?: VillaLayoutLive | null) {
   const g = new THREE.Group();
   g.name = "烤火房回纹横披";
   parent.add(g);
-  const x = mainFrontOpeningX(11150);
-  const { bottom, top, width } = eastTransomBand();
-  const y = (bottom + top) / 2;
-  const h = top - bottom;
-  box(g, x, y, frontDecorZ(-1030), width - 100, h, 70, mat.trim);
-  // 上下两条离开白板，用没有贴图的细线。贴着石材贴图时会发毛。
-  box(g, x, bottom + 50, frontDecorZ(-1090), width - 160, 14, 14, mat.dark);
-  box(g, x, top - 50, frontDecorZ(-1090), width - 160, 14, 14, mat.dark);
-  meander(g, x - (width - 400) / 2, y + 20, frontDecorZ(-1067), width - 400, mat);
-  for (const sign of [-1, 1])
-    box(g, x + sign * (width / 2 + 35), y, frontDecorZ(-1060), 70, h, 40, mat.trim);
+  const design = northEastSpandrelDesign(layout);
+  if (!design) return;
+  for (const p of design.pieces)
+    box(g, p.x, p.y, p.z, p.w, p.h, p.d, mat[p.finish]).name = p.name;
+  addMeanderBand(g, design.x, design.y, design.z, design.motifWidth, design.motifHeight, mat.carvedStone, 20);
 }
 
 function pavedTerrace(parent: THREE.Object3D, outline: Point[], y: number, thickness: number, mat: Mats) {
@@ -912,7 +952,9 @@ function buildVillaInContext(
     if (index === 1) {
       const guard = new THREE.Group(); guard.name = "挑空自动栏杆"; g.add(guard);
       railings.render(guard, railings.livingGuards[index]);
-      const windowGuard = new THREE.Group(); windowGuard.name = "二层入口窗内防护栏"; g.add(windowGuard);
+    }
+    if (index > 0) {
+      const windowGuard = new THREE.Group(); windowGuard.name = index === 1 ? "二层入口窗内防护栏" : "低窗内防护栏"; g.add(windowGuard);
       railings.render(windowGuard, railings.windowGuards[index]);
     }
     if (stairPresent && index > 0) {
@@ -1159,8 +1201,7 @@ function buildVillaInContext(
     const entry = resolved.entries[0];
     if (entry) integratedEntry(group, entry, mat);
     else { const placeholder = new THREE.Group(); placeholder.name = frontNames[1]; group.add(placeholder); }
-    if (!customFront) eastMeanderBand(group, mat);
-    else { const placeholder = new THREE.Group(); placeholder.name = frontNames[2]; group.add(placeholder); }
+    eastMeanderBand(group, mat, layout);
   }
   // 所有可能抛错的构造完成后才迁移复用对象，避免构造失败拆掉当前可见场景。
   group.add(foundation, annexFoundation, roof, balcony, annex, annexRoof, topSlabs.main, topSlabs.annex, portico, facadeColumns, ...levels);
@@ -1329,6 +1370,7 @@ export function elevationModel(style: RoofStyle, layout?: VillaLayoutLive | null
     main: { ...site.main }, annex: { ...site.annex },
     glazing: resolveLayoutFacades(layout).glazing,
     entries: resolveLayoutFacades(layout).entries,
+    spandrel: northEastSpandrelDesign(layout),
     floors: (layout?.floors ?? floors).map(recessedFloor).map((floor, index) => ({
       y: floor.y, height: floor.height, front: floor.front,
       facades: villaLayoutFacades(index, layout),

@@ -7,6 +7,8 @@ import { buildVilla, villaLayoutFromDraft } from "../src/architecture.ts";
 import { buildEditorModel, disposeEditorModel } from "../src/editor-model.ts";
 import { parseLayoutVersionDocument } from "../src/data-versions.ts";
 import { exteriorDoorModel, type Mats } from "../src/primitives.ts";
+import { resolveLayoutFacades } from "../src/facade-layout.ts";
+import { entryAssemblyDesign } from "../src/entry-assembly.ts";
 import { site } from "../src/data.ts";
 
 const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => Reflect.get(target, key) ?? (() => {}) });
@@ -111,11 +113,33 @@ test("所有保存户型直接重建新门，主辅楼及完整房屋与户型�
     const fullDoors = doors(editor.root), cutDoors = doors(cut.root);
     assert.ok(fullDoors.length > 0, `${file} 应有可核对的门实体`);
     assert.equal(cutDoors.length, fullDoors.length, `${file} 剖切墙仍显示所有完整门`);
+    const entries = resolveLayoutFacades(draft).entries;
     fullDoors.forEach((door, index) => {
       const clipped = cutDoors[index];
       const solids = (root: THREE.Object3D) => {
         const result = new THREE.Box3(); root.updateWorldMatrix(true, true);
-        root.traverse(o => { if (o instanceof THREE.Mesh && (!root.userData.entryAssembly || [mat.doorBronze, mat.doorBronzeInset, mat.doorBronzeHardware].includes(o.material))) result.union(bounds(o)); });
+        const entry = entries.find(entry => entry.id === root.userData.entryAssembly);
+        const leaf = entry && entryAssemblyDesign(entry).find(part => part.role === "door");
+        root.traverse(o => {
+          if (!(o instanceof THREE.Mesh)) return;
+          if (!entry) { result.union(bounds(o)); return; }
+          if (!leaf || o.material !== mat.dark) return;
+          // 一体门头与普通铸铝门使用不同材质；按实际门扇范围检查合批后的实体三角面。
+          const positions = o.geometry.getAttribute("position"), indices = o.geometry.index;
+          const count = indices?.count ?? positions.count;
+          for (let i = 0; i < count; i += 3) {
+            const triangle = [0, 1, 2].map(offset => new THREE.Vector3()
+              .fromBufferAttribute(positions, indices ? indices.getX(i + offset) : i + offset)
+              .applyMatrix4(o.matrixWorld));
+            if (triangle.every(point => point.y >= leaf.y - .05 && point.y <= leaf.y + leaf.h + .05))
+              triangle.forEach(point => result.expandByPoint(point));
+          }
+        });
+        if (leaf && !result.isEmpty()) {
+          close(result.min.y, leaf.y);
+          close(result.max.y, leaf.y + leaf.h);
+          close(result.getSize(new THREE.Vector3()).x, leaf.w);
+        }
         return result;
       };
       const fullBounds = solids(door), cutBounds = solids(clipped);

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { buildVilla, elevationModel, villaLayoutFromDraft } from "../src/architecture";
 import { frontApronOutline, porticoFrontZ } from "../src/building-variants";
-import { apronEaveDesign } from "../src/roof-options";
+import { apronSupportOutline } from "../src/facade-details";
+import { porticoShoulderProfile } from "../src/column-profiles";
 import { elevationShell } from "../src/elevation-plan";
 import { buildingAreas, frontElevation, site } from "../src/data";
 import { clonePublishedLayout } from "../src/layout-draft";
@@ -22,6 +23,20 @@ function drawnColumns(svg: string) {
     : /<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" fill="#879183"/g;
   return [...svg.matchAll(pattern)]
     .slice(0, 2).map(([, x, z, w, d]) => ({ x: Number(x) + Number(w) / 2, z: Number(z) + Number(d) / 2 }));
+}
+
+function faceBounds(root: THREE.Object3D, axis: "x" | "z", at: number) {
+  const points: THREE.Vector3[] = [];
+  root.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const positions = object.geometry.getAttribute("position");
+    for (let i = 0; i < positions.count; i++) {
+      const point = new THREE.Vector3(positions.getX(i), positions.getY(i), positions.getZ(i)).applyMatrix4(object.matrixWorld);
+      if (Math.abs(point[axis] - at) < .1) points.push(point);
+    }
+  });
+  assert.ok(points.length, "合并线脚保留可查询的外侧面");
+  return new THREE.Box3().setFromPoints(points);
 }
 
 test("飘檐折角向柱外沿偏移，柱位与门厅控制区保留且柱顶不越过下沿线", async () => {
@@ -69,7 +84,7 @@ test("飘檐折角向柱外沿偏移，柱位与门厅控制区保留且柱顶�
   }
 });
 
-test("实际飘檐收口拐角距柱身两个外沿各留1/8，改柱宽、换位及三楼模式自动联动", () => {
+test("实际飘檐收口绕柱冠外缘留8，改柱宽、换位及三楼模式自动联动", () => {
   for (const porticoColumnSize of [600, 800, 1000])
     for (const buildingPlacement of ["main-east", "main-west"] as const)
       for (const thirdFloorMode of ["setback", "flush"] as const) {
@@ -87,16 +102,17 @@ test("实际飘檐收口拐角距柱身两个外沿各留1/8，改柱宽、换�
           villa.group.updateMatrixWorld(true);
           const columnZ = site.main.z - draft.portico.projection;
           const fascia = villa.levels[2].getObjectByName("连续转角下沿线")!;
-          const front = new THREE.Box3().setFromObject(fascia.children[3]);
-          const inset = porticoColumnSize / 8;
-          const outerWest = draft.portico.x - porticoColumnSize / 2;
-          const outerEast = draft.portico.x + draft.portico.w + porticoColumnSize / 2;
-          const outerFront = columnZ - porticoColumnSize / 2;
-          assert.ok(Math.abs(front.min.x - outerWest - inset) < .1, "西拐角可见外边距须为柱宽1/8");
-          assert.ok(Math.abs(outerEast - front.max.x - inset) < .1, "东拐角可见外边距须为柱宽1/8");
-          assert.ok(Math.abs(front.min.z - outerFront - inset) < .1, "北向可见外边距须为柱深1/8");
+          const front = faceBounds(fascia, "z", new THREE.Box3().setFromObject(fascia).min.z);
+          const shoulderProfile = porticoShoulderProfile(porticoColumnSize, porticoColumnSize, 0, 1);
+          const reach = Math.max(...shoulderProfile.flatMap(course => [...course.lower, ...course.upper].map(point => Math.abs(point[0]))));
+          const outerWest = draft.portico.x - reach;
+          const outerEast = draft.portico.x + draft.portico.w + reach;
+          const outerFront = columnZ - reach;
+          assert.ok(Math.abs(outerWest - front.min.x - 8) < .1, "西拐角须绕柱冠外皮留8");
+          assert.ok(Math.abs(front.max.x - outerEast - 8) < .1, "东拐角须绕柱冠外皮留8");
+          assert.ok(Math.abs(outerFront - front.min.z - 8) < .1, "北向线脚须绕柱冠外皮留8");
           for (const [i, x, outward] of [[0, draft.portico.x, -1], [1, draft.portico.x + draft.portico.w, 1]]) {
-            const side = new THREE.Box3().setFromObject(fascia.children[i === 0 ? 2 : 4]);
+            const side = faceBounds(fascia, "x", outward < 0 ? front.min.x : front.max.x);
             assert.ok(Math.abs((outward < 0 ? side.min.x : side.max.x) - (outward < 0 ? front.min.x : front.max.x)) < .1,
               "侧线与前线在同一拐角闭合");
             assert.ok(Math.abs(side.min.z - front.min.z) < .1);
@@ -108,7 +124,8 @@ test("实际飘檐收口拐角距柱身两个外沿各留1/8，改柱宽、换�
           }
           const e = elevationModel(style, live).front;
           const control = frontApronOutline(e.terraceBack, 0, e, draft.portico);
-          assert.ok(Math.abs(front.min.x - (control[3][0] - apronEaveDesign.fasciaProtrusion)) < .1,
+          const finalOutline = apronSupportOutline(control, frontApronOutline(e.terraceBack, site.secondFrontEave, e, draft.portico)).fasciaOuter;
+          assert.ok(Math.abs(front.min.x - finalOutline[3][0]) < .1,
             "立面共用轮廓须包括线脚突出量，不能用承托线代替可见外缘");
           const lines = elevationShell("north", style, live).surfaces.filter(s => s.part === "apron-support");
           for (const x of [front.min.x, front.max.x])
@@ -191,13 +208,13 @@ test("门厅草稿偏移改宽后柱心仍落角点，临时三维与立面上�
 });
 
 test("门厅净宽按两柱相向的半截面扣减，过窄拒绝且面积仍取门厅矩形", () => {
-  const accepted = { ...DEFAULT_VILLA_PARAMS, porticoWidth: 1800 };
+  const accepted = { ...DEFAULT_VILLA_PARAMS, porticoWidth: 2000 };
   assert.deepEqual(validateVillaParams(accepted), []);
   const rejected = validateVillaParams({ ...accepted, porticoWidth: 1799 });
   assert.ok(rejected.some(issue => issue.field === "porticoWidth" && issue.message.includes("899")));
   applyVillaParams(accepted);
-  assert.equal(buildingAreas.portico, 3.6);
-  assert.equal(buildingAreas.total, 171.6);
+  assert.equal(buildingAreas.portico, 4);
+  assert.equal(buildingAreas.total, 172);
 });
 
 test("两侧露台将军柱随包角突出量落在挡墙中线交点", async () => {

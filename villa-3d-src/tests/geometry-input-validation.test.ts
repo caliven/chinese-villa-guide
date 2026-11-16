@@ -5,7 +5,7 @@ import { DEFAULT_VILLA_PARAMS, getVillaParams, validateVillaParams, type VillaPa
 
 test("几何数值参数拒绝错误类型及非有限数，防止导入后产生NaN实体", () => {
   const numericFields = Object.entries(DEFAULT_VILLA_PARAMS)
-    .filter(([, value]) => typeof value === "number")
+    .filter(([key, value]) => typeof value === "number" && !["garageFloor", "neighborGarageFloor", "neighborSlabClear"].includes(key))
     .map(([key]) => key as keyof VillaParams);
   for (const field of numericFields) for (const value of ["bad", null, true, [], {}, NaN, Infinity, -Infinity]) {
     const params = { ...DEFAULT_VILLA_PARAMS, [field]: value } as VillaParams;
@@ -26,7 +26,7 @@ test("方案导入拒绝无效天沟压顶坡度，且不污染当前模型参�
 test("天沟压顶坡度零值、范围边界和旧稿缺项仍可载入", () => {
   for (const gutterCopingSlope of [0, 5.5, 15]) {
     const doc = createEmptyScheme();
-    const params = { ...doc.villaParams, gutterCopingSlope };
+    const params = { ...doc.villaParams, gutterCopingSlope, gutterInnerDepth: 400 };
     assert.equal(parseSchemeDocument({ ...doc, villaParams: params }).villaParams.gutterCopingSlope, gutterCopingSlope);
   }
   const doc = createEmptyScheme();

@@ -78,8 +78,8 @@ function roofSections(annex = false): ParamSection[] {
         { key: "gutterInnerDepth", label: "内侧反坎高" },
         { key: "gutterOuterTopWidth", label: "外边反坎顶宽" },
         { key: "gutterBedSlope", label: "天沟找坡", unit: "°", min: 0, max: 15 },
-        { key: "gutterTileGap", label: "瓦檐面高于内挡顶" },
-        { key: "gutterTileOverhang", label: "瓦边探入天沟" },
+        { key: "gutterTileGap", min: 0, label: "瓦檐面高于内挡顶" },
+        { key: "gutterTileOverhang", min: 0, label: "瓦边探入天沟" },
         { key: "gutterCopingSlope", label: "压顶顶面内倾", unit: "°", min: 0, max: 15 },
       ],
     },
@@ -129,9 +129,9 @@ const groups: ParamGroup[] = [
     fields: [
       { key: "mainWidth", label: "主楼面宽" },
       { key: "mainDepth", label: "主楼进深" },
-      { key: "floor1Height", label: isHalfStoreyScheme ? "一层层高" : "二层楼面标高（院坪起）" },
-      { key: "floor2Height", label: "二层层高" },
-      { key: "floor3Height", label: isHalfStoreyScheme ? "3层半层高度" : "三层层高" },
+      { key: "floor1Height", min: 2000, max: 6000, label: "一层层高" },
+      { key: "floor2Height", min: 2000, max: 6000, label: "二层层高" },
+      { key: "floor3Height", min: isHalfStoreyScheme ? 200 : 2000, max: 6000, label: isHalfStoreyScheme ? "3层半层高度" : "三层层高" },
       ...(!isHalfStoreyScheme ? [{ key: "thirdSetback" as const, label: "三楼北向退台" }] : []),
       { key: "cornerProject", label: "包角柱突出墙面", min: 50, max: 500 },
     ],
@@ -141,8 +141,8 @@ const groups: ParamGroup[] = [
     title: "门厅",
     note: "凸出式飘檐收口拐角距柱身两个外沿各留截面的1/8，改柱宽自动联动（800柱留100）。平齐式（原凹入式）保持大门和主体墙原位，删除门厅柱、横梁及外伸区域，二楼改为连续直檐；三楼官帽保持原样。",
     fields: [
-      { key: "porticoWidth", label: "堂屋／门厅面宽（柱心距）" },
-      { key: "porticoProjection", label: "凸出式外伸／官帽定位深度" },
+      { key: "porticoWidth", min: 2000, max: 8000, label: "堂屋／门厅面宽（柱心距）" },
+      { key: "porticoProjection", min: 500, max: 4000, label: "凸出式外伸／官帽定位深度" },
       { key: "porticoColumnSize", label: "门厅柱截面" },
     ],
   },
@@ -169,7 +169,7 @@ const groups: ParamGroup[] = [
       { key: "courtyardWestTotal", label: "西端总进深" },
       { key: "courtyardMidTotal", label: "中间取样总进深（两端驱动，自动）", readonly: true },
       { key: "courtyardMidFromEast", label: "中间取样距东界" },
-      { key: "outsideWall", label: "外墙厚示意" },
+      { key: "outsideWall", label: "外墙厚", readonly: true },
       { key: "partition", label: "隔墙厚示意" },
     ],
     sections: [
@@ -298,7 +298,7 @@ function paneBodyHtml(g: ParamGroup, params: VillaParams) {
     : g.id === "main" ? isHalfStoreyScheme
       ? '<p class="micro">半层北墙固定与下层齐平。一层层高从首层完成面量到二层楼面，入户抬高独立设置。3层半层高度从半层楼面量至檐口板顶，默认2000，已含120板厚。板顶以上另计天沟内挡、瓦檐间距、坡屋顶升高及脊瓦。屋脊最高点超过10000时提示。</p>'
       : variantChoices("thirdFloorMode", "三楼模式", thirdFloorModeLabels, params)
-        + `<p class="micro">本方案二层楼面标高从院坪起算，首层实际层高＝二层楼面标高－入户抬高：<span id="villa-params-first-storey-height">${formatMm(params.floor1Height - params.entranceRise)}</span>。二、三层层高均从本层楼面起算，包含上方120板厚；三层终点为屋面板顶，板顶以上屋面构造另计。不内退时取消两侧露台，保留中央门厅露台。</p>` : "";
+        + `<p class="micro">一层层高从首层完成面起算：<span id="villa-params-first-storey-height">${formatMm(params.floor1Height)}</span>，入户抬高独立另计。二、三层层高均从本层楼面起算，包含上方120板厚；三层终点为屋面板顶，板顶以上屋面构造另计。不内退时取消两侧露台，保留中央门厅露台。</p>` : "";
   return `${g.note ? `<p class="micro">${g.note}</p>` : ""}${choices}${body}${extras}`;
 }
 
@@ -451,7 +451,7 @@ export function updateVillaParamsMeta(params: VillaParams, root: ParentNode = do
     const el = root.querySelector(`#${id}`);
     if (el) el.textContent = value;
   };
-  setText("villa-params-first-storey-height", formatMm(params.floor1Height - params.entranceRise));
+  setText("villa-params-first-storey-height", formatMm(params.floor1Height));
   setText("villa-params-site-width", formatMm(LOCKED_SITE_WIDTH));
   setText("villa-params-west-gap", formatMm(west));
   setText("villa-params-annex-setback", formatMm(Math.max(0, setback)));

@@ -17,7 +17,7 @@ import type { Mats } from "../src/primitives";
 
 const changedAnnex: VillaParams = { ...DEFAULT_VILLA_PARAMS,
   annexEave: 1100, annexRoofFenShui: 6, annexGutterClearWidth: 450,
-  annexGutterClearDepth: 260, annexGutterInnerDepth: 320, annexGutterOuterTopWidth: 250,
+  annexGutterClearDepth: 260, annexGutterInnerDepth: 350, annexGutterOuterTopWidth: 250,
   annexGutterBedSlope: 2, annexGutterTileGap: 80, annexGutterTileOverhang: 60,
   annexGutterCopingSlope: 7, annexCorbelLength: 600, annexCorbelSpacing: 900,
   annexCorbelCornerSpacing: 800, annexEyelidToFasciaGap: 400 };
@@ -166,7 +166,7 @@ test("辅楼每个屋面控制项单独应用都改变辅楼几何，主楼几�
     resetVillaParams();
     const baseline = roofs();
     const values = { annexEave: 1000, annexRoofFenShui: 6, annexGutterClearWidth: 450,
-      annexGutterClearDepth: 220, annexGutterInnerDepth: 280, annexGutterOuterTopWidth: 350,
+      annexGutterClearDepth: 220, annexGutterInnerDepth: 310, annexGutterOuterTopWidth: 350,
       annexGutterBedSlope: 2, annexGutterTileGap: 80, annexGutterTileOverhang: 100,
       annexGutterCopingSlope: 6, annexCorbelLength: 550, annexCorbelSpacing: 900,
       annexCorbelCornerSpacing: 500, annexEyelidToFasciaGap: 400 };

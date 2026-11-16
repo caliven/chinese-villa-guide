@@ -50,8 +50,8 @@ test("平齐式取消外凸柱廊，二楼直檐完整连续；两种官帽实�
         const edge = frontApronOutline(frontElevation.terraceBack, site.secondFrontEave);
         assert.equal(edge.length, 4, "整段前檐不再有中央凹口或凸出折角");
         assert.equal(edge[1][1], edge[2][1]);
-        const apron = new THREE.Box3().setFromObject(flat.levels[2].getObjectByName("三楼栏杆下飘檐")!);
-        assert.ok(apron.min.z > new THREE.Box3().setFromObject(original.levels[2].getObjectByName("三楼栏杆下飘檐")!).min.z + 500);
+        const apron = new THREE.Box3().setFromObject(flat.levels[2].getObjectByName("三层檐下梁托与线脚")!);
+        assert.ok(apron.min.z > new THREE.Box3().setFromObject(original.levels[2].getObjectByName("三层檐下梁托与线脚")!).min.z + 500);
         for (const floor of [0, 1]) {
           const svg = floorPlan(floor, false, false, { editable: true }, planSourceFromDraft(draft, floor));
           assert.doesNotMatch(svg, /data-plan-column="portico"|portico-hit|门厅上空/);

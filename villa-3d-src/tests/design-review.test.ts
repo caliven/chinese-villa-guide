@@ -26,8 +26,8 @@ test("控制线分别起算，首层抬高反映在楼梯与辅楼连接中", ()
     assert.ok(Math.abs(m[key as keyof typeof m] - value) < 1e-6, key);
   assert.equal(m.projection, 2000);
   const stairs = stairMetrics();
-  assert.deepEqual(stairs.map((s) => s.rise), [3150, 3600]);
-  assert.deepEqual(stairs.map((s) => s.riser), [3150 / 20, 3600 / 20]);
+  assert.deepEqual(stairs.map((s) => s.rise), [3600, 3300]);
+  assert.deepEqual(stairs.map((s) => s.riser), [3600 / 20, 3300 / 20]);
   assert.ok(stairs.every((s) => s.headroom === null && s.clearWidth === null));
 });
 test("用途待定不计为已确定卧室；套卫包络不转成可用净面积", () => {
@@ -61,7 +61,7 @@ test("院坪总图含自家弧线与邻居口述占位，不画室内隔墙", ()
   assert.match(svg, /罗马柱门厅/);
   assert.match(svg, /4600×2000/);
   assert.ok(!svg.includes("前院东宽西窄"));
-  assert.match(svg, /邻院外 8600/);
+  assert.match(svg, /邻院外 7700/);
   assert.match(svg, /西总进深 11000/);
   assert.match(svg, /东总进深 19400/);
   assert.match(svg, /中总进深 15800/);

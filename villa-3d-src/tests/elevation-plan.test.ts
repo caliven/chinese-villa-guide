@@ -108,7 +108,7 @@ test("层高、主楼宽度、三层退台与屋面坡度联动，两种官帽�
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, mainWidth: 13400, floor2Height: 3800, thirdSetback: 1600, roofFenShui: 6 });
     const changed = elevationModel("joined"), floating = elevationModel("floating");
     assert.equal(changed.main.w, 13400);
-    assert.equal(changed.floors[2].y, 7400);
+    assert.equal(changed.floors[2].y, 7850);
     assert.equal(changed.floors[2].front, site.main.z + 1600);
     assert.equal(changed.roof.mainPeak - floating.roof.hat.peak, 500 - DEFAULT_VILLA_PARAMS.floatingHatHeightOffset);
     assert.notEqual(elevationSvg("north", "joined"), original);
@@ -185,7 +185,7 @@ test("四向主辅楼高度分段连续，地基与屋面随参数更新", () =>
         }
         const parts = regions.filter(r => r[1] !== "总高度");
         const roof = parts.find(r => r[1] === "屋面构造")!;
-        assert.equal(Number(roof[3]) - Number(roof[2]), 300, "板顶以上只计天沟内挡及瓦檐间距");
+        assert.equal(Number(roof[3]) - Number(roof[2]), 330, "板顶以上只计天沟内挡及瓦檐间距");
         if (building === "main") {
           const third = parts.find(r => r[1] === "三层层高")!;
           assert.equal(Number(third[3]) - Number(third[2]), DEFAULT_VILLA_PARAMS.floor3Height);
@@ -225,19 +225,20 @@ test("高度明细列出实际层高及板底板顶，层高与板上构造只�
   resetVillaParams();
   const { villaParamsPanelHtml } = await import("../src/villa-params-ui");
   const html = elevationPlan("east", "floating");
-  assert.match(html, /data-overall-height="12930"/);
-  assert.match(villaParamsPanelHtml(), /二层楼面标高（院坪起）/);
-  assert.equal(facts.find(f => f.label === "层高")!.value, "3150 / 3600 / 3300 mm");
-  assert.match(html, /当前首层实际层高＝3600－450＝3150/);
-  assert.match(html, /板底 \+10380，板顶 \+10500/);
-  assert.match(html, /450＋3150＋3600＋3300＋300＋2000＋130＝12930/);
-  assert.match(html, /屋脊最高点 \+5070；总高度包含烟囱盖板/);
-  assert.match(html, /450＋3270＋300＋920＋130＋1073＝6143/);
+  assert.match(html, /data-overall-height="13110"/);
+  assert.match(villaParamsPanelHtml(), /一层层高/);
+  assert.doesNotMatch(villaParamsPanelHtml(), /二层楼面标高（院坪起）/);
+  assert.equal(facts.find(f => f.label === "层高")!.value, "3600 / 3300 / 3300 mm");
+  assert.match(html, /当前首层层高＝4050－450＝3600/);
+  assert.match(html, /板底 \+10530，板顶 \+10650/);
+  assert.match(html, /450＋3600＋3300＋3300＋330＋2000＋130＝13110/);
+  assert.match(html, /屋脊最高点 \+5100；总高度包含烟囱盖板/);
+  assert.match(html, /450＋3270＋330＋920＋130＋1073＝6173/);
   try {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, annexHeight: 17000 });
     const tallAnnex = elevationPlan("east", "floating");
-    assert.match(tallAnnex, /data-overall-height="19543"/);
-    assert.match(tallAnnex, /主楼 12930，辅楼含烟囱 19543/);
+    assert.match(tallAnnex, /data-overall-height="19573"/);
+    assert.match(tallAnnex, /主楼 13110，辅楼含烟囱 19573/);
   } finally { resetVillaParams(); }
 });
 

@@ -114,7 +114,7 @@ test("旧米制方案（无 units）读回时 villaParams／户型草稿／院�
   assertClose(doc.villaParams, DEFAULT_VILLA_PARAMS);
   assert.deepEqual(doc.courtyardDimLayout, { "v-setback": 1500, "h-front": -800 });
   assert.ok(doc.layoutDraft);
-  assert.equal(doc.layoutDraft!.floors[0]!.height, 3600);
+  assert.equal(doc.layoutDraft!.floors[0]!.height, 4050);
   assert.equal(doc.layoutDraft!.floors[0]!.rooms[0]!.w, draft.floors[0]!.rooms[0]!.w);
   assertClose(doc.layoutDraft!.floors[0]!.rooms, draft.floors[0]!.rooms);
   assertClose(doc.layoutDraft!.floors[1]!.partitions, draft.floors[1]!.partitions);

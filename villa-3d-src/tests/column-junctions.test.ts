@@ -24,12 +24,22 @@ test("左右侧下沿线露出墙外并直达瓦檐南端，不再被包角柱�
     const villa = buildVilla(mat, false);
     try {
       villa.group.updateMatrixWorld(true);
-      const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+      const apron = villa.levels[2].getObjectByName("三层檐下梁托与线脚")!;
       const fascia = apron.getObjectByName("连续转角下沿线")!;
       const section = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
       assert.equal(villa.portico.getObjectByName("包角柱退进承托柱颈"), undefined);
-      for (const [index, outward, wallX] of [[0, -1, site.main.x], [6, 1, site.main.x + site.main.w]]) {
-        const strip = fascia.children[index], b = bounds(strip);
+      for (const [outward, wallX] of [[-1, site.main.x], [1, site.main.x + site.main.w]]) {
+        const points: THREE.Vector3[] = [];
+        fascia.traverse(object => {
+          if (!(object instanceof THREE.Mesh)) return;
+          const positions = object.geometry.getAttribute("position");
+          for (let i = 0; i < positions.count; i++) {
+            const point = new THREE.Vector3(positions.getX(i), positions.getY(i), positions.getZ(i)).applyMatrix4(object.matrixWorld);
+            if ((point.x - wallX) * outward > construction.outsideWall / 2) points.push(point);
+          }
+        });
+        assert.ok(points.length, "合并线脚仍包含两侧可见实体");
+        const b = new THREE.Box3().setFromPoints(points);
         assert.ok(Math.abs(b.max.z - (thirdFloorMode === "setback" ? frontElevation.terraceBack : floors[2].front + 40)) < .1, "侧线南端须与上方瓦檐板齐平");
         assert.ok(outward < 0 ? b.min.x < wallX - construction.outsideWall / 2 : b.max.x > wallX + construction.outsideWall / 2,
           "侧下沿线不能藏在侧墙实体内");

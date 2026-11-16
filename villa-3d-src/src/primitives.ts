@@ -1005,6 +1005,11 @@ export function furnish(
   parent.add(g);
   const upstream = floorplanFurnitureModel(f, mat.glass);
   if (upstream) {
+    if (f.kind === "fp-dryer" && (f.mountHeight ?? 0) > 0) {
+      upstream.position.y = f.mountHeight!;
+      const tray = box(g, 0, f.mountHeight! - 10, 0, f.w, 20, f.d, mat.dark);
+      tray.name = "洗烘叠放连接托板";
+    }
     g.add(upstream);
     return g;
   }

@@ -116,7 +116,7 @@ test("房间三维底色与平面使用同一份真实净空轮廓", () => {
 
 test("梯下墙高以本层完成面计算，二楼不能因绝对楼层标高被误压成900高", () => {
   try {
-    applyVillaParams({ ...DEFAULT_VILLA_PARAMS, floor1Height: 3600 + site.entranceRise, floor2Height: 3600 });
+    applyVillaParams({ ...DEFAULT_VILLA_PARAMS, floor1Height: 3600, floor2Height: 3600 });
     const draft = clonePublishedLayout(), mat = materials();
     const stair = fitStairToRoom(draft.stairLayout, draft.floors), shape = stairShape(stair);
     const platform = shape.model === "double" ? shape.landing : shape.rect(shape.platforms[0].cross, shape.platforms[0].along, stair.landing, stair.landing);

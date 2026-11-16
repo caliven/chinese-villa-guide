@@ -102,7 +102,7 @@ export interface Furniture {
   d: number;
   rotation?: number;
   label?: string;
-  /** 壁挂神龛最低点距本层完成面的高度，毫米。 */
+  /** 神龛或叠放烘干机最低点距本层完成面的高度，毫米。 */
   mountHeight?: number;
   /** 相对淋浴房局部方向，默认正面（花洒对面）。 */
   showerDoorSide?: "front" | "left" | "right";
@@ -307,13 +307,13 @@ export const buildingAreas = {
  * 平面北上东右：与自家东界（X=21000）相接后往东排。
  */
 export const neighborCourtyardPlan = {
-  x: site.width,
+  x: site.width + 750,
   w: 13000,
-  cementFront: 0,
+  cementFront: -900,
   cementDepth: 2000,
   woodDepth: 8800,
-  /** 水泥边→邻院北缘；与自家东界外沿齐平，默认 0−(−8600)=8600 */
-  yardBeyondCement: 8600,
+  /** 水泥边→邻院北缘；与自家东界外沿齐平，默认 −900−(−8600)=7700 */
+  yardBeyondCement: 7700,
 };
 
 // 主马路蓝顶邻房：首层与前方砖房首层同高，地下室按用户要求不建。
@@ -519,7 +519,7 @@ const stairRoom: Room = {
 
 export const floors: Floor[] = [
   {
-    name: "一层", y: 0, height: 3600, front: -1000,
+    name: "一层", y: 0, height: 4050, front: -1000,
     rooms: [
       { id: "living", name: "右侧挑空客厅", ...circulation.livingVoid, kind: "living", label: [9050, 1600],
         note: "面对房子时在右侧，与堂屋打通；南墙为电视墙。北长沙发＋左右短沙发＋中茶几。二楼此处无楼板。" },
@@ -586,7 +586,7 @@ export const floors: Floor[] = [
     ],
   },
   {
-    name: "二层", y: 3600, height: 3600, front: -1000,
+    name: "二层", y: 4050, height: 3300, front: -1000,
     rooms: [
       { id: "void", name: "右侧客厅上空", ...circulation.livingVoid, kind: "void", label: [9050, 1500],
         note: "挑空无二层楼板；南缘实体墙隔主卧内卫；临空边按实际范围自动生成栏杆。西外墙不开窗。" },
@@ -663,7 +663,7 @@ export const floors: Floor[] = [
     ],
   },
   {
-    name: "三层", y: 7200, height: 3300, front: 800,
+    name: "三层", y: 7350, height: 3300, front: 800,
     rooms: [
       { id: "family2", name: "家庭多功能厅", x: 11300, z: 800, w: 4500, d: 4600, kind: "living", label: [13550, 2700],
         note: "按参考图放在中间，北侧接通中央露台。" },

@@ -120,13 +120,13 @@ test("踏步宽深与高度输入改变实际几何，方向及踢面数支持�
   assert.ok(Math.abs(fitStairToRoom(editor.draft.stairLayout, draft.floors).tread - 280) < 1);
   editor.updateSelectedNumber("rise", 175);
   const s = editor.draft.stairLayout;
-  assert.equal(s.risers, 18);
-  assert.equal(stairStoryHeight(draft.floors, 0) / s.risers, 175);
+  assert.equal(s.risers, 21);
+  assert.equal(stairStoryHeight(draft.floors, 0) / s.risers, 3600 / 21);
   editor.setStairDirection("west");
   assert.equal(editor.draft.stairLayout.direction, "negative");
   const loaded = parseLayoutDraft(draftToJson(editor.draft));
   assert.equal(loaded.stairLayout.direction, "negative");
-  assert.equal(loaded.stairLayout.risers, 18);
+  assert.equal(loaded.stairLayout.risers, 21);
   assert.ok(Math.abs(fitStairToRoom(loaded.stairLayout, loaded.floors).tread - 280) < 1);
   const center = { x: s.room.x + s.room.w / 2, z: s.room.z + s.room.d / 2 };
   editor.setStairDirection("north");

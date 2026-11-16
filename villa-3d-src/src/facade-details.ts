@@ -1022,6 +1022,53 @@ function slopeGutterCoping(mesh: THREE.Mesh, outer: Point[], width: number, clos
   mesh.geometry.computeBoundingBox();
 }
 
+/** 沿排水中点切分实体，顶面及侧面的交点保持一致。 */
+function subdivideGutterBed(mesh: THREE.Mesh, drains: Point[]) {
+  const source = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+  const position = source.getAttribute("position"), uv = source.getAttribute("uv");
+  type Vertex = { point: THREE.Vector3; uv: THREE.Vector2 };
+  const positions: number[] = [], uvs: number[] = [];
+  const cuts = ([0, 1] as const).flatMap(axis =>
+    [...new Set(drains.map(drain => drain[axis]))].map(value => ({ axis: axis === 0 ? "x" as const : "z" as const, value })));
+  for (let i = 0; i < position.count; i += 3) {
+    let polygons: Vertex[][] = [Array.from({ length: 3 }, (_, offset) => ({
+      point: new THREE.Vector3(position.getX(i + offset), position.getY(i + offset), position.getZ(i + offset)),
+      uv: uv ? new THREE.Vector2(uv.getX(i + offset), uv.getY(i + offset)) : new THREE.Vector2(),
+    }))];
+    for (const { axis, value } of cuts) {
+      polygons = polygons.flatMap(polygon => {
+        const distances = polygon.map(vertex => vertex.point[axis] - value);
+        if (Math.min(...distances) >= -1e-5 || Math.max(...distances) <= 1e-5) return [polygon];
+        return [-1, 1].map(sign => {
+          const result: Vertex[] = [];
+          for (let j = 0; j < polygon.length; j++) {
+            const a = polygon[j], b = polygon[(j + 1) % polygon.length];
+            const da = sign * (a.point[axis] - value), db = sign * (b.point[axis] - value);
+            if (da >= -1e-5) result.push(a);
+            if ((da < -1e-5 && db > 1e-5) || (da > 1e-5 && db < -1e-5)) {
+              const t = da / (da - db);
+              result.push({ point: a.point.clone().lerp(b.point, t), uv: a.uv.clone().lerp(b.uv, t) });
+            }
+          }
+          return result;
+        }).filter(polygon => polygon.length >= 3);
+      });
+    }
+    for (const polygon of polygons) for (let j = 1; j < polygon.length - 1; j++) {
+      for (const vertex of [polygon[0], polygon[j], polygon[j + 1]]) {
+        positions.push(...vertex.point.toArray());
+        uvs.push(...vertex.uv.toArray());
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  if (source !== mesh.geometry) source.dispose();
+  mesh.geometry.dispose();
+  mesh.geometry = geometry;
+}
+
 /** 槽底找坡：各边中点为排水口；只改几何本地顶面 Y，排水口最低、远处按 bedSlope 抬高。 */
 function slopeGutterBed(mesh: THREE.Mesh, outer: Point[]) {
   const slope = roofGutterDesign.bedSlope;
@@ -1031,6 +1078,7 @@ function slopeGutterBed(mesh: THREE.Mesh, outer: Point[]) {
     const a = outer[j], b = outer[(j + 1) % outer.length];
     drains.push([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
   }
+  subdivideGutterBed(mesh, drains);
   const positions = mesh.geometry.getAttribute("position");
   mesh.geometry.computeBoundingBox();
   // Extrude 后顶面在本地 Y≈thickness；绝不能写入世界标高，否则会撑成整层楼高的灰盒子。
@@ -1039,7 +1087,8 @@ function slopeGutterBed(mesh: THREE.Mesh, outer: Point[]) {
     if (Math.abs(positions.getY(i) - top) > 1e-2) continue;
     const x = positions.getX(i), z = positions.getZ(i);
     let dist = Infinity;
-    for (const d of drains) dist = Math.min(dist, Math.hypot(x - d[0], z - d[1]));
+    // 沟向与横向均为分段平面，避免不同三角剖分插值出不对称的排水面。
+    for (const d of drains) dist = Math.min(dist, Math.abs(x - d[0]) + Math.abs(z - d[1]));
     positions.setY(i, top + slope * dist);
   }
   mesh.geometry.computeVertexNormals();
@@ -1212,7 +1261,7 @@ function hatEaveSupport(
       eaveTrimDesign.eyelidToFascia + eyelidFixed.fasciaHeight, mat.sand).name = "官帽连续承托梁";
     slab(support, rect(west, front - p, east - west, p), bottom - eaveTrimDesign.eyelidToFascia,
       eyelidFixed.fasciaHeight, mat.sand).name = "官帽连续下沿线";
-    // 灯带移到封闭梁的外表面，前段连续绕角；侧段止于正屋屋面遮住它的位置。
+    // 灯带移到封闭梁的外表面，前段连续绕角；侧段止于封闭梁后端。
     const lightWest = junctions[0].x + p, lightEast = junctions[1].x + junctions[1].width - p;
     const lightEdges: CorbelEdge[] = [{ along: "x", face: front, from: lightWest, to: lightEast, sign: -1 }];
     if (lightEnd > front) lightEdges.push(
@@ -1386,7 +1435,7 @@ export function integratedHatEaves(
   // 两侧封闭梁接墙顶，梁托只在中央净跨布置；灯带侧段收到竖向收头内侧。
   const sidePad = eaveTrimDesign.corbelWidth / 2 + 20;
   const sideEnd = Math.min(mainTileFront - sidePad, rearZ - sidePad);
-  const lightEnd = rearZ - sidePad;
+  const lightEnd = Math.min(rearZ - sidePad, ...junctions.map(j => Math.max(...j.section.map(point => point[0]))));
   hatEaveSupport(g, x, z, w, slabBottom, sideEnd, mat, undefined, finish, lightEnd, junctions);
   return g;
 }

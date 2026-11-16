@@ -32,7 +32,8 @@ function sheet(id: string, title: string, note: string, content: string): Design
 }
 
 function siteSection(options: DrawingOptions) {
-  const ridge = floors[2].y + floors[2].height + roofPitch(options.fenShui).mainRise;
+  const thirdY = floors[2].y, roofY = thirdY + floors[2].height;
+  const ridge = roofY + roofPitch(options.fenShui).mainRise;
   // 绘图比例按 px／m 计，输入均为 mm。
   const scaleY = Math.min(18, 210 / toM(ridge));
   const x = (z: number) => 60 + (toM(z) + 13) * 24, y = (h: number) => 310 - toM(h) * scaleY;
@@ -43,15 +44,15 @@ function siteSection(options: DrawingOptions) {
   let content = text(60, 60, "北 N ←  ·  示意位置：主楼中跨  ·  → 南 S", "small muted");
   content += rect(x(front), y(0), x(wallFront) - x(front), y(site.garageFloor) - y(0), "pending");
   content += path(`M${x(-13000)} ${y(site.garageFloor - site.frontFieldDrop)} H${x(front)} V${y(0)} H${x(wallFront)} M${x(wallRear)} ${y(0)} H${x(site.oldDepth)} V${y(site.rearField)} H${x(16000)}`, "line");
-  content += rect(x(wallFront), y(7200), x(wallRear) - x(wallFront), y(0) - y(7200), "wall");
-  content += rect(x(thirdFront), y(10500), x(wallRear) - x(thirdFront), y(7200) - y(10500), "wall");
-  if (site.setback > 0) content += path(`M${x(wallFront)} ${y(10500)} H${x(thirdFront)} V${y(7200)} H${x(wallFront)}`, "guide");
+  content += rect(x(wallFront), y(thirdY), x(wallRear) - x(wallFront), y(0) - y(thirdY), "wall");
+  content += rect(x(thirdFront), y(roofY), x(wallRear) - x(thirdFront), y(thirdY) - y(roofY), "wall");
+  if (site.setback > 0) content += path(`M${x(wallFront)} ${y(roofY)} H${x(thirdFront)} V${y(thirdY)} H${x(wallFront)}`, "guide");
   for (let i = 0; i < 3; i++) {
     const h = floorFinish(i), left = wallFront;
     content += rect(x(left), y(h), x(wallRear) - x(left), toM(construction.floorSlab) * scaleY, "wall");
     content += text(x(left) + 10, y(h) - 8, `${floors[i].name}完成面 ${elevation(h)}`, "small");
   }
-  content += path(`M${x(wallFront + 1000)} ${y(10500)} L${x((wallFront + wallRear) / 2)} ${y(ridge)} L${x(wallRear + 550)} ${y(10500)} Z`, "roof");
+  content += path(`M${x(wallFront + 1000)} ${y(roofY)} L${x((wallFront + wallRear) / 2)} ${y(ridge)} L${x(wallRear + 550)} ${y(roofY)} Z`, "roof");
   content += text(x((wallFront + wallRear) / 2), y(ridge) - 12, `屋脊 ${elevation(ridge)} · 分水${options.fenShui.toFixed(1)}`, "small", "middle");
   content += text(x(front) + 10, y(-1200), "地库体量／梁底待设计", "small warn-text");
   content += path(`M${x(front)} ${y(site.garageFloor)} H${x(wallFront)}`, "line");
@@ -155,10 +156,11 @@ function entranceSection() {
 
 function northElevation(options: DrawingOptions) {
   const pitch = roofPitch(options.fenShui);
-  const scaleY = Math.min(21, 255 / (10.5 + toM(pitch.mainRise)));
+  const thirdY = floors[2].y, roofY = thirdY + floors[2].height;
+  const scaleY = Math.min(21, 255 / toM(roofY + pitch.mainRise));
   const x = (east: number) => 855 - toM(east) * 35, y = (h: number) => 350 - toM(h) * scaleY;
   let content = text(50, 65, "朝北看房：左为东 E，右为西 W · 窗洞取自当前立面数据", "small muted");
-  content += rect(x(site.main.x + site.main.w), y(10500), toM(site.main.w) * 35, 10.5 * scaleY, "wall");
+  content += rect(x(site.main.x + site.main.w), y(roofY), toM(site.main.w) * 35, toM(roofY) * scaleY, "wall");
   content += rect(x(site.annex.x + site.annex.w), y(site.annex.height), toM(site.annex.w) * 35, toM(site.annex.height) * scaleY, "wall");
   for (const [index, base] of [0, 1, 2, 3].map((index) => [index, index === 3 ? 0 : floors[index].y])) {
     const north = facades(index).find((wall) => Math.abs(wall.a[1] - wall.b[1]) < 10)!;
@@ -169,14 +171,14 @@ function northElevation(options: DrawingOptions) {
   }
   const roof = (left: number, right: number, eave: number, rise: number, run: number) => path(`M${x(right)} ${y(eave)} L${x(right - run)} ${y(eave + rise)} H${x(left + run)} L${x(left)} ${y(eave)} Z`, "roof");
   const mainRoof = mainRoofFootprint();
-  content += roof(mainRoof.x, mainRoof.x + mainRoof.w, 10500, pitch.mainRise, pitch.mainRun);
+  content += roof(mainRoof.x, mainRoof.x + mainRoof.w, roofY, pitch.mainRise, pitch.mainRun);
   const annexRoof = annexRoofFootprint();
   content += roof(annexRoof.x, annexRoof.x + annexRoof.w, annexRoof.eave, pitch.annexRise, pitch.annexRun);
   for (const post of frontElevation.balustradePosts.slice(1, 3))
-    content += rect(x(post.x + frontElevation.porticoColumnDepth / 2), y(7200), toM(frontElevation.porticoColumnDepth) * 35, 7.2 * scaleY, "wall");
-  for (const h of [0, site.entranceRise, 3600, 7200, 10500])
+    content += rect(x(post.x + frontElevation.porticoColumnDepth / 2), y(thirdY), toM(frontElevation.porticoColumnDepth) * 35, toM(thirdY) * scaleY, "wall");
+  for (const h of [0, site.entranceRise, floors[1].y, thirdY, roofY])
     content += path(`M55 ${y(h)} H950`, "guide");
-  [[3600, `二层 ${elevation(3600)}`], [7200, `三层 ${elevation(7200)}`], [10500, `檐口 ${elevation(10500)}`]].forEach(([h, label]) => { content += text(785, y(Number(h)) - 6, String(label), "small"); });
+  [[floors[1].y, `二层 ${elevation(floors[1].y)}`], [thirdY, `三层 ${elevation(thirdY)}`], [roofY, `檐口 ${elevation(roofY)}`]].forEach(([h, label]) => { content += text(785, y(Number(h)) - 6, String(label), "small"); });
   content += text(785, 334, `首层 ${elevation(site.entranceRise)}`, "small") + text(785, 365, "院坪 ±0", "small");
   content += dimension(x(21000), x(0), 400, `主楼${site.main.w} ＋ 子孙道${site.lane} ＋ 辅楼${site.annex.w} ＋ 两侧余量 ＝ ${site.width}`);
   const m = entranceMetrics();

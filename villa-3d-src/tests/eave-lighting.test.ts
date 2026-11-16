@@ -5,7 +5,7 @@ import { annexRoofFootprint, attachRoofs, floatingHatLayout, mainRoofFootprint }
 import { hatSupportInset, tiledApron } from "../src/facade-details";
 import { setEaveWashAppearance, setEaveWashVisible } from "../src/eave-lighting";
 import { visibleSurfaceMeshes, batchStatic } from "../src/render-geometry";
-import { frontApronSection, apronFasciaBottom, eaveTrimDesign, roofTileInset, slabToTileEaveLift } from "../src/roof-options";
+import { frontApronSection, apronFasciaBottom, eaveTrimDesign } from "../src/roof-options";
 import type { Mats } from "../src/primitives";
 import { floatingHatJunctions } from "../src/hat-junctions";
 import { floors } from "../src/data";
@@ -56,7 +56,7 @@ test("主楼两种官帽及辅楼四面屋檐均生成可切换的灯带", () =>
   }
 });
 
-test("悬浮官帽前檐和两侧灯带接角并延伸到线脚与主屋坡面交接", () => {
+test("悬浮官帽前檐和两侧灯带接角并收在封闭梁后端", () => {
   const main = new THREE.Group(), annex = new THREE.Group();
   attachRoofs(main, annex, mat, 4.5, "floating");
   main.updateMatrixWorld(true);
@@ -66,9 +66,7 @@ test("悬浮官帽前檐和两侧灯带接角并延伸到线脚与主屋坡面�
   for (const name of ["暖白灯带", "洗墙渐隐光晕"])
     assert.equal(joinedEnds(groups, name).filter(Boolean).length, 4, `${name} 在两个前转角接续`);
   const h = floatingHatLayout(4.5), m = mainRoofFootprint();
-  const fasciaTop = apronFasciaBottom(h.eave, 0) - eaveTrimDesign.eyelidToFascia;
-  const mainTileFront = m.z + roofTileInset;
-  const end = Math.max(m.z, mainTileFront + (fasciaTop - m.eave - slabToTileEaveLift()) / .45);
+
   const front = h.z + hatSupportInset();
   const sides = groups.filter(g => Math.abs((g.getObjectByName("暖白灯带") as THREE.Mesh).rotation.y) > 1);
   assert.equal(sides.length, 2);
@@ -76,7 +74,8 @@ test("悬浮官帽前檐和两侧灯带接角并延伸到线脚与主屋坡面�
   for (const [i, side] of sides.entries()) {
     const ends = endpoints(side, "暖白灯带").map(p => p.z).sort((a,b) => a-b);
     assert.ok(ends[0] < front, "侧灯带与前灯带在转角外侧相接");
-    assert.ok(Math.abs(ends[1] - end) < .01, "侧灯带应伸至下沿线与正屋坡面的交接处");
+    const end = Math.max(...joints[i].section.map(point => point[0]));
+    assert.ok(Math.abs(ends[1] - end) < .01, "侧灯带应收在实体封闭梁后端");
     const strip = side.getObjectByName("暖白灯带") as THREE.Mesh;
     const outerX = i === 0 ? joints[0].x - 2 : joints[1].x + joints[1].width + 2;
     assert.ok(Math.abs(strip.position.x - outerX) < .01, "灯带须贴新封闭梁外皮，不能埋在梁内");

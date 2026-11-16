@@ -64,7 +64,7 @@ test("两层半层高从本层完成面起算且包含屋面板厚，板上屋�
   assert.equal(floors[2].name, "半层");
   assert.equal(floors[2].rooms.filter(r => r.kind === "bed").length, 2);
   assert.equal(halfStoreyRoof().wallTop + 120 - floors[2].y, 2000);
-  assert.equal(halfStoreyRoof().peak, 12050.25);
+  assert.equal(halfStoreyRoof().peak, 12080.25);
   assert.deepEqual(validateVillaParams(DEFAULT_VILLA_PARAMS), []);
   assert.deepEqual(validateVillaParams({ ...DEFAULT_VILLA_PARAMS, floor3Height: 2200 }), []);
   assert.deepEqual(validateVillaParams({ ...DEFAULT_VILLA_PARAMS, roofFenShui: 7 }), []);
@@ -78,13 +78,13 @@ test("半层高度明细不重复加板厚，方形屋面限高提示随官帽�
   applyVillaParams(DEFAULT_VILLA_PARAMS);
   assert.equal(facts.find(f => f.label === "层高")!.value, "3600 / 3300 / 2000 mm");
   const html = elevationPlan("east", "floating");
-  assert.match(html, /450＋3600＋3300＋2000＋300＋2270＋130＝12050/);
+  assert.match(html, /450＋3600＋3300＋2000＋330＋2270＋130＝12080/);
   assert.match(html, /板底 \+9230，板顶 \+9350/);
   try {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, mainWidth: 10000 });
     const model = buildVilla(mat, false);
     const actualTop = Math.round(ridgeTop(model.roof));
-    assert.equal(actualTop, 12047, "方形悬浮官帽屋面只有斜脊，顶点比名义130预算低数毫米");
+    assert.equal(actualTop, 12077, "方形悬浮官帽屋面只有斜脊，顶点比名义130预算低数毫米");
     const status = { textContent: "" };
     const root = { querySelector: (selector: string) => selector === "#construction-height-status" ? status : null,
       querySelectorAll: () => [] } as unknown as ParentNode;
@@ -99,7 +99,7 @@ test("半层高度明细不重复加板厚，方形屋面限高提示随官帽�
       assert.equal(parts.reduce((sum, r) => sum + Number(r[3].match(/class="el-dim-label"[^>]*>(\d+)<\/text>/)![1]), 0), actualTop);
     }
     updateVillaParamsMeta(DEFAULT_VILLA_PARAMS, root, "joined");
-    assert.match(status.textContent, /已应用屋脊最高点 12050/);
+    assert.match(status.textContent, /已应用屋脊最高点 12080/);
   } finally { applyVillaParams(DEFAULT_VILLA_PARAMS); }
 });
 
@@ -123,7 +123,7 @@ test("旧半层当前稿、尺寸版本和会议快照仅转换一次并保留�
   const before = JSON.stringify(raw);
   const converted = parseSchemeDocument(raw);
   assert.equal(converted.villaParams.floor1Height, 3300);
-  assert.equal(converted.villaParams.floor3Height, 300);
+  assert.equal(converted.villaParams.floor3Height, 270);
   assert.equal(converted.villaParams.halfStoreyHeightMode, "storey");
   assert.ok(Math.abs(halfStoreyHeightProfile(converted.villaParams).peak - 9750) <= .5);
   assert.deepEqual(parseSchemeDocument(converted).villaParams, converted.villaParams);
@@ -234,10 +234,10 @@ test("半层户型显示坡下净高参考线，不沿用三层露台和官帽�
   assert.doesNotMatch(html, /data-plan-column="hat"|data-plan-column="railing"|中央露台 · 前方敞开/);
   const elevation = elevationSvg("north", "floating", villaLayoutFromDraft(draft));
   assert.match(elevation, /半层楼面/);
-  assert.match(elevation, /屋脊最高点 \+12050/);
+  assert.match(elevation, /屋脊最高点 \+12080/);
   const roofRegion = /data-height-region="屋面构造" data-height-bottom="(\d+)" data-height-top="(\d+)"/.exec(elevation)!;
   assert.equal(Number(roofRegion[1]), floors[2].y + DEFAULT_VILLA_PARAMS.floor3Height);
-  assert.equal(Number(roofRegion[2]) - Number(roofRegion[1]), 300);
+  assert.equal(Number(roofRegion[2]) - Number(roofRegion[1]), 330);
   assert.match(elevation, />2000<\/text>/);
 });
 

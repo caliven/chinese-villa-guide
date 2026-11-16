@@ -124,7 +124,7 @@ test("各层内墙封到实际板底，顶层不再按已取消的上行梯段�
   const draft = draftWithoutFurniture();
   draft.floors.forEach(floor => floor.partitions = [{ a: [15000, 5300], b: [17000, 5300], role: "partition" }]);
   const model = buildVilla(mat, false, site.roofFenShui, "floating", villaLayoutFromDraft(draft));
-  for (const [index, top] of [3480, 7080, 10380].entries()) {
+  for (const [index, top] of [3930, 7230, 10530].entries()) {
     const walls: THREE.Mesh[] = [];
     model.levels[index].traverse(object => {
       if (object instanceof THREE.Mesh && object.material === mat.inside) walls.push(object);
@@ -139,8 +139,8 @@ test("二层入口固定窗内侧防护高1100，柱脚和中点均落在真实�
   const model = buildVilla(mat, false, site.roofFenShui, "floating", villaLayoutFromDraft(draft));
   const guard = model.levels[1].getObjectByName("二层入口窗内防护栏")!;
   const bounds = new THREE.Box3().setFromObject(guard);
-  assert.ok(Math.abs(bounds.min.y - 3600) < .01);
-  assert.ok(Math.abs(bounds.max.y - 4700) < .01);
+  assert.ok(Math.abs(bounds.min.y - 4050) < .01);
+  assert.ok(Math.abs(bounds.max.y - 5150) < .01);
   const slab = model.levels[1].getObjectByName("二楼楼板")!;
   guard.traverse(object => {
     const ends = object.userData.railingEndpoints as number[][] | undefined;
@@ -148,7 +148,7 @@ test("二层入口固定窗内侧防护高1100，柱脚和中点均落在真实�
     for (const t of [0, .5, 1]) {
       const x = ends[0][0] + (ends[1][0] - ends[0][0]) * t;
       const z = ends[0][2] + (ends[1][2] - ends[0][2]) * t;
-      assert.ok(Math.abs(hit(slab, x, z, 3700)!.point.y - 3600) < .01);
+      assert.ok(Math.abs(hit(slab, x, z, 4150)!.point.y - 4050) < .01);
     }
   });
 });

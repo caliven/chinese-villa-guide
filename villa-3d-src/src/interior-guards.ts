@@ -7,13 +7,13 @@ import { railingThickness, type RailingStyle } from "./railing-options";
 
 export type GuardSegment = [Point, Point];
 type Boundary = { a: Point; b: Point };
-export type GuardFacade = Boundary & { openings?: { at: number; w: number; entryAssembly?: string }[] };
+export type GuardFacade = Boundary & { openings?: { at: number; w: number; entryAssembly?: string; sill?: number; h?: number; door?: boolean }[] };
 const rect = (r: { x: number; z: number; w: number; d: number }): Point[] =>
   [[r.x, r.z], [r.x + r.w, r.z], [r.x + r.w, r.z + r.d], [r.x, r.z + r.d]];
 
-/** 二层入口固定上窗内侧设独立防护，装饰门头及玻璃不代替栏杆。 */
-export function entryWindowGuards(boundaries: GuardFacade[]): GuardSegment[] {
-  return boundaries.flatMap(face => {
+/** 上层低窗与入口上窗共用独立防护；挑空及楼梯洞范围不设无承托栏杆。 */
+export function entryWindowGuards(boundaries: GuardFacade[], floor?: Floor, stair?: StairDraft, living?: VoidDraft): GuardSegment[] {
+  const segments = boundaries.flatMap(face => {
     const dx = face.b[0] - face.a[0], dz = face.b[1] - face.a[1];
     const length = Math.hypot(dx, dz);
     if (length < 1) return [];
@@ -22,9 +22,14 @@ export function entryWindowGuards(boundaries: GuardFacade[]): GuardSegment[] {
     if (nx * (centerX - face.a[0]) + nz * (centerZ - face.a[1]) < 0) { nx *= -1; nz *= -1; }
     const inset = construction.outsideWall / 2 + 200;
     const point = (at: number): Point => [face.a[0] + dx * at / length + nx * inset, face.a[1] + dz * at / length + nz * inset];
-    return (face.openings ?? []).filter(opening => opening.entryAssembly && opening.w > 120)
+    return (face.openings ?? []).filter(opening => opening.w > 120 && (opening.entryAssembly ||
+      (floor && !opening.door && opening.sill !== undefined && opening.sill < 900 && (opening.h ?? 0) > 0)))
       .map(opening => [point(opening.at - opening.w / 2 + 60), point(opening.at + opening.w / 2 - 60)] as GuardSegment);
   });
+  if (!floor) return segments;
+  const holes = [...floor.rooms.filter(room => room.kind === "void").map(roomOutline),
+    ...(stair ? [rect(stairOpeningBounds(stair))] : []), ...(living ? [rect(living)] : [])];
+  return supportedSegments(segments, floor, boundaries, holes, "steel");
 }
 
 function wallPolygon(wall: Boundary, pad: number): Point[] {

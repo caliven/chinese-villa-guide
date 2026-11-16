@@ -34,7 +34,7 @@ test("飘檐折角外移后，返段梁托仍按实际净段选择最接近参�
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, ...saved, corbelSpacing: spacing, corbelCornerSpacing: corner, corbelLength: length });
     const villa = buildVilla(mat, false);
     try {
-      const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+      const apron = villa.levels[2].getObjectByName("三层檐下梁托与线脚")!;
       const all = corbelsIn(apron);
       const outline = frontApronOutline(0);
       for (const x of [outline[3][0] + 8, outline[4][0] - 8]) {
@@ -77,7 +77,7 @@ test("二楼两侧梁托竖脚位于真实墙皮外，长梁托及小出檐仍�
     const villa = buildVilla(mat, false);
     try {
       villa.group.updateMatrixWorld(true);
-      const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+      const apron = villa.levels[2].getObjectByName("三层檐下梁托与线脚")!;
       const board = bounds(villa.levels[2].getObjectByName("三楼楼板")!);
       for (const [face, sign] of [[site.main.x - construction.outsideWall / 2, -1],
         [site.main.x + site.main.w + construction.outsideWall / 2, 1]]) {

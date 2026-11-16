@@ -13,7 +13,7 @@ const index = JSON.parse(await fs.readFile(path.join(root, 'data/户型/index.js
 const layoutFile = process.argv[2] || index.versions[0].file;
 const layoutDoc = JSON.parse(await fs.readFile(path.join(root, 'data/户型', layoutFile), 'utf8'));
 const {normalizeDraftWallContacts} = await mod('wall-contact-snap');
-const draft = draftApi.alignLayoutDraftToSite(normalizeDraftWallContacts(draftApi.parseLayoutDraftManaged(JSON.stringify(layoutDoc.layoutDraft))));
+const draft = draftApi.alignLayoutDraftToSite(normalizeDraftWallContacts(draftApi.scaleLayoutDraftToEnvelope(draftApi.parseLayoutDraftManaged(JSON.stringify(layoutDoc.layoutDraft)),draftApi.envelopeFromSite())));
 const live = architecture.villaLayoutFromDraft(draft);
 const css = await fs.readFile(path.join(root, 'src/style.css'), 'utf8');
 const planCss = css.slice(css.indexOf('.floor-svg {'), css.indexOf('.floor-svg {') + 23500);
@@ -29,10 +29,12 @@ async function add(id, title, svg, note, kind = 'mm', denominator = 100) {
   await fs.writeFile(file, styled);
   pages.push({id, title, file, note, viewBox, denominator:scale});
 }
+const finishYs = [data.site.entranceRise, data.floors[1].y, data.floors[2].y];
+const roofTop = data.floors[2].y + data.floors[2].height;
 const floorNotes = [
-  '首层完成面 +450；主楼外轮廓 13600×10000；外伸门厅 4600×2000，首层合计含辅楼和门厅为 177.2㎡（模型方案口径，报建核算待确认）。',
-  '二层完成面 +3600；北侧门厅上空无楼板；客厅挑空、楼梯洞口按已保存户型表达。',
-  '三层完成面 +7200；北侧内退 1200；露台及室内面积须按审批计容规则重新核算。'
+  `首层完成面 +${finishYs[0]}；首层层高 ${finishYs[1] - finishYs[0]}。`,
+  `二层完成面 +${finishYs[1]}；层高 ${finishYs[2] - finishYs[1]}；门厅上空无平台。`,
+  `三层完成面 +${finishYs[2]}；层高 ${data.floors[2].height}；北侧内退 ${data.site.setback}。`
 ];
 for (let i = 0; i < 3; i++) {
   const source = planApi.planSourceFromDraft(draft, i);
@@ -77,10 +79,7 @@ function category(mesh) {
   if (/栏杆/.test(mesh.parent?.name || '') && !/雕花/.test(mesh.parent?.name || '')) return 'guard';
   return undefined;
 }
-const levels = [
- {y:450,label:'一层完成面 +450'}, {y:3600,label:'二层完成面 +3600'},
- {y:7200,label:'三层完成面 +7200'}, {y:10500,label:'顶板底 +10500'},
-];
+const levels = [...finishYs.map((y, i) => ({y, label:['一','二','三'][i]+'层完成面 +'+y})), {y:roofTop,label:'顶板顶 +'+roofTop}];
 for (const [id, title, at] of [['S01','1-1 楼梯剖面',stairX],['S02','2-2 门厅剖面',data.site.portico.x + data.site.portico.w/2]]) {
   const contours = modelSection(villa.group,{axis:'x',at:at+.123,category});
   if(id==='S01') {
@@ -103,28 +102,51 @@ for (const [id, title, at] of [['S01','1-1 楼梯剖面',stairX],['S02','2-2 门
       if (postX != null) contours.push(...modelSection(guard,{axis:'x',at:postX+.123,category:()=> 'guard-projection'}));
     }
   }
-  const svg = sectionSvg(contours,{id,title,range:[id==='S01'?-1200:-3600,9600],depth:10000,dimensionStart:data.site.main.z,levels,annotations:[
-    {x:1400,y:13000,label:'屋盖按模型剖切，构件及支承待设计'},
-    {x:1400,y:10900,label:'顶板顶 +10620'},
-    ...(id==='S01'?[{x:4700,y:8000,label:'楼梯到三层终止'},{x:4700,y:11800,label:'浅线为另一跑投影'}]:[{x:-3200,y:7500,label:'中央露台'},{x:1700,y:1400,label:'首层完成面间距 3150'},{x:1200,y:4900,label:'二层窗内防护高1100'}]),
+  const svg = sectionSvg(contours,{id,title,range:[id==='S01'?-1200:-3600,10000],depth:10000,dimensionStart:data.site.main.z,levels,annotations:[
+
+    {x:3500,y:roofTop+450,label:`顶板厚${data.construction.floorSlab}；板顶 +${roofTop}`},
+    ...(id==='S01'?[{x:1600,y:finishYs[2]+650,label:'楼梯到三层终止'},{x:4700,y:roofTop+1100,label:'浅线为另一跑投影'}]:[{x:-3000,y:finishYs[2]+1100,label:'中央露台'},{x:1700,y:1400,label:`首层层高 ${finishYs[1]-finishYs[0]}（${finishYs[0]}起算）`},{x:1200,y:4900,label:'二层窗内防护高1100'}]),
   ]}).replace('</style>','.section-stair-projection{fill:#fafafa;stroke:#999;stroke-width:10}.section-guard-projection{fill:#bbb;stroke:#777;stroke-width:8}</style>');
   await add(id,title,svg,'实际模型几何剖切，长度与标高同源。');
 }
-// 同一坐标标注剖切位置，文字反转补偿与平面图朝向一致。
+// 剖切线只跨建筑，外侧尺寸／场地文字区断开；编号与图例放在独立留白带。
 for (const page of pages.filter(page=>['P01','P02','P03'].includes(page.id))) {
   let svg = await fs.readFile(page.file,'utf8');
+  const floorIndex = Number(page.id.slice(-1)) - 1;
+  const [, vz, , vh] = page.viewBox;
+  const maxZ = vz + vh;
+  const arrowZ = maxZ - 2050, badgeZ = maxZ - 1500, legendZ = maxZ - 460;
+  const uprightText = (x, z, label, size = 280) => `<text transform="rotate(180 ${x} ${z})" x="${x}" y="${z}" font-size="${size}" fill="#34444c" dominant-baseline="middle" text-anchor="middle">${label}</text>`;
   const markers = [[stairX,'1'],[data.site.portico.x+data.site.portico.w/2,'2']].map(([at,number])=>{
-    const z = 11200;
-    return `<g><path d="M${at} -3500 V11300 M${at} ${z} h400 l-120 -80 m120 80 l-120 80" fill="none" stroke="#333" stroke-width="35" stroke-dasharray="220 80 40 80"/><text transform="rotate(180 ${at+150} ${z+300})" x="${at+150}" y="${z+300}" font-size="300" text-anchor="middle">${number}</text></g>`;
+    const start = (number === '2' ? Math.min(data.floors[floorIndex].front, data.site.main.z - data.site.portico.projection) : data.floors[floorIndex].front) - 120;
+    return `<g data-section-marker="${number}-${number}"><path d="M${at} ${start} V${data.site.main.z+data.site.main.d+120}" fill="none" stroke="#849096" stroke-width="20" stroke-dasharray="220 100 40 100"/>`
+      + `<path d="M${at} ${arrowZ-420} V${arrowZ} h450" fill="none" stroke="#52616a" stroke-width="28"/><path d="M${at+450} ${arrowZ} l-180 -110 v220 Z" fill="#52616a"/>`
+      + `<circle cx="${at}" cy="${badgeZ}" r="350" fill="#fff" stroke="#52616a" stroke-width="26"/>${uprightText(at,badgeZ,`${number}-${number}`)}</g>`;
   }).join('');
-  svg=svg.replace(/(<g class="plan-world"[^>]*>)/,'$1'+markers);
+  const legend = uprightText(data.site.main.x+data.site.main.w/2,legendZ,'点划线表示剖切位置，箭头表示观察方向。1-1 楼梯剖面、2-2 门厅剖面见第13页。',260);
+  svg=svg.replace(/(<g class="plan-world"[^>]*>)/,'$1'+markers+legend);
   await fs.writeFile(page.file,svg);
 }
 const model = architecture.elevationModel(scheme.roofStyle, live);
-const metadata = {
+const { roomAreas } = await mod('design-data');
+const { fitStairToRoom: fitStair } = await mod('stair-geometry');
+const rooms = [];
+for (let i=0;i<3;i++) {
+ const source = planApi.planSourceFromDraft(draft,i);
+ for (const r of source.floor.rooms.filter(r=>r.kind!=='void')) {
+  const areas=roomAreas(r,i,source.floor.partitions);
+  rooms.push({floor:i+1,building:'主楼',...r,areas});
+ }
+ if(i===0) for (const r of source.annexRooms) rooms.push({floor:1,building:'辅楼',...r,areas:roomAreas(r,0,source.annexPartitions)});
+}
+const metadata = { rooms, fittedStair:fitStair(draft.stairLayout, live.floors),
+  outsideWall:data.construction.outsideWall,partition:data.construction.partition,
+  slabThickness:data.construction.floorSlab, roofSlabs:architecture.roofSlabLayout(live),
+  exteriorFacades:[0,1,2,3].map(i=>architecture.villaLayoutFacades(i,live)),
+
   title:'住宅方案',
   source:schemePath, layoutFile:'data/户型/'+layoutFile, layoutTitle:layoutDoc.title,
-  layoutSavedAt:layoutDoc.savedAt, roofStyle:scheme.roofStyle, params:scheme.villaParams,
+  layoutSavedAt:layoutDoc.savedAt, roofStyle:scheme.roofStyle, params:normalizeVillaParamsLengths(scheme.villaParams),
   site:data.site, floors:data.floors.map(f=>({name:f.name,y:f.y,height:f.height,front:f.front})),
   areas:{main:data.buildingAreas.main,annex:data.buildingAreas.annex,portico:data.buildingAreas.portico,total:data.buildingAreas.total},
   model, draft, pages

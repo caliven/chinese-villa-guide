@@ -46,7 +46,7 @@ test("普通门型使用相同默认洞高，净空不足时按实际墙高限�
     assert.equal(interiorOpeningProfile(createOpening(kind, 100), 3000).height, 2200);
     assert.equal(interiorOpeningProfile(createOpening(kind, 100), 2000).height, 1920);
   }
-  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, annexEyelidToFasciaGap: 750 });
+  applyVillaParams({ ...DEFAULT_VILLA_PARAMS, annexEyelidToFasciaGap: 1300 });
   const door = resolveLayoutFacades().facades[3].flatMap(face => face.openings).find(o => o.door)!;
   assert.ok(door.h < 2200 && door.h > 0, "辅楼檐口不足时保留避让");
 });

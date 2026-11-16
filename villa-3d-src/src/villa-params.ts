@@ -40,8 +40,10 @@ import {
   roofTileInset,
   syncRoofTileInset,
   gutterBedTop,
+  gutterCopingThickness,
+  eyelidFixed,
 } from "./roof-options.ts";
-import { rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings.ts";
+import { surroundings, rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings.ts";
 import { rebuildGarageLayout } from "./garage-layout.ts";
 import { rebuildVehicleRoute } from "./vehicle-route.ts";
 import { mainEaveY } from "./facades.ts";
@@ -70,7 +72,7 @@ export interface VillaParams {
   lane: number;
   mainWidth: number;
   mainDepth: number;
-  /** 三层旧参数为院坪至二层楼面标高；两层半为首层完成面至二层楼面的层高。 */
+  /** 首层完成面至二层楼面的层高；入户抬高另计。 */
   floor1Height: number;
   floor2Height: number;
   /** 主楼三层楼面至屋面／檐口板顶，含120板厚。半层包络另加板上屋面高度。 */
@@ -182,7 +184,7 @@ export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
   mainWidth: 13600,
   mainDepth: 10000,
   floor1Height: 3600,
-  floor2Height: 3600,
+  floor2Height: 3300,
   floor3Height: 3300,
   thirdSetback: 1200,
   secondFrontEave: 800,
@@ -202,7 +204,7 @@ export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
   roofFenShui: 4.5,
   gutterClearWidth: 600,
   gutterClearDepth: 200,
-  gutterInnerDepth: 250,
+  gutterInnerDepth: 280,
   gutterOuterTopWidth: 300,
   /** 整数度；几何用 tan(°) 转成小数坡度 */
   gutterBedSlope: 1,
@@ -216,7 +218,7 @@ export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
   annexRoofFenShui: 4.5,
   annexGutterClearWidth: 600,
   annexGutterClearDepth: 200,
-  annexGutterInnerDepth: 250,
+  annexGutterInnerDepth: 280,
   annexGutterOuterTopWidth: 300,
   annexGutterBedSlope: 1,
   annexGutterTileGap: 50,
@@ -240,7 +242,7 @@ export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
   neighborWoodDepth: 8800,
   neighborCementDepth: 2000,
   /** 与自家东界外沿齐平后的派生值；应用时按院坪东端重算 */
-  neighborYardBeyondCement: 8600,
+  neighborYardBeyondCement: 7700,
   garageClear: 2500,
   deckStructure: 450,
   garageColumnSize: 400,
@@ -289,7 +291,7 @@ export function derivedPorticoColumnWallGap(
 
 /** 面板存整数度；旧稿 0～0.05 为小数坡度（0.01＝1%）。 */
 export function normalizeGutterBedSlopeDegrees(value: number): number {
-  if (!Number.isFinite(value) || value < 0) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 15) return Number.NaN;
   if (value > 0 && value <= 0.05) return Math.min(15, Math.round(value * 100));
   return Math.min(15, Math.max(0, Math.round(value)));
 }
@@ -530,7 +532,7 @@ export function validateVillaParams(p: VillaParams, scheme: ConstructionScheme =
     "oldDepth", "courtyardWestTotal", "courtyardMidTotal", "courtyardEastTotal",
     "courtyardMidFromEast", "neighborWoodWidth", "neighborWoodDepth",
     "neighborCementDepth", "neighborYardBeyondCement",
-    "outsideWall", "partition", "entranceRise",
+    "outsideWall", "partition",
     "garageClear", "deckStructure", "garageColumnSize", "garageBeamWidth", "garageSlabThickness",
     "neighborBeamDrop", "neighborBeamClear", "neighborBeamReach",
     "neighborColumnEdgeInset",
@@ -540,6 +542,22 @@ export function validateVillaParams(p: VillaParams, scheme: ConstructionScheme =
     if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
       issues.push({ field: key, message: `${String(key)} 须为正数` });
     }
+  }
+  for (const [field, minimum, maximum] of [
+    ["floor1Height", 2000, 6000 - p.entranceRise],
+    ["floor2Height", 2000, 6000],
+    ["floor3Height", halfStorey ? 200 : 2000, 6000],
+    ["porticoWidth", 2000, 8000],
+    ["porticoProjection", 500, 4000],
+    ["entranceRise", 0, 6000 - p.floor1Height],
+    ["partition", 1, Math.min(p.mainWidth, p.mainDepth) / 2 - p.outsideWall],
+  ] as const) {
+    if (!Number.isFinite(p[field]) || p[field] < minimum || p[field] > maximum) {
+      issues.push({ field, message: `${field} 须在 ${minimum}～${maximum} mm，且满足户型保存范围` });
+    }
+  }
+  for (const field of ["corbelSpacing", "corbelCornerSpacing", "annexCorbelSpacing", "annexCorbelCornerSpacing"] as const) {
+    if (p[field] < eaveTrimDesign.corbelWidth) issues.push({ field, message: `梁托中心距须至少为构件宽度 ${eaveTrimDesign.corbelWidth} mm，避免实体相交` });
   }
   const garageLevels = garageLevelValues(p);
   if (!(garageLevels.neighborFloor > garageLevels.ownFloor)) {
@@ -604,12 +622,14 @@ export function validateVillaParams(p: VillaParams, scheme: ConstructionScheme =
     issues.push({ field: "gutterBedSlope", message: "天沟找坡须为数字" });
   } else {
     const bedDeg = normalizeGutterBedSlopeDegrees(p.gutterBedSlope);
-    if (bedDeg < 0 || bedDeg > 15) {
+    if (!Number.isFinite(bedDeg) || bedDeg < 0 || bedDeg > 15) {
       issues.push({ field: "gutterBedSlope", message: "天沟找坡宜在 0～15°（整数）" });
     }
   }
-  if (p.gutterInnerDepth <= p.gutterClearDepth) {
-    issues.push({ field: "gutterInnerDepth", message: "天沟内侧高度须大于外侧，满水才能外溢" });
+  const outerCrest = (depth: number, width: number, slope: number) =>
+    depth + gutterCopingThickness + (width + eyelidFixed.copingOverhang) * Math.tan(slope * Math.PI / 180);
+  if (p.gutterInnerDepth <= outerCrest(p.gutterClearDepth, p.gutterOuterTopWidth, p.gutterCopingSlope)) {
+    issues.push({ field: "gutterInnerDepth", message: "天沟内挡须高于包含压顶和顶坡的外挡最高点" });
   }
   if (p.corbelLength > p.thirdEave) {
     issues.push({ field: "corbelLength", message: "梁托长度不宜超过三楼檐口挑出" });
@@ -642,7 +662,7 @@ export function validateVillaParams(p: VillaParams, scheme: ConstructionScheme =
   for (const field of ["annexGutterBedSlope", "annexGutterCopingSlope"] as const) {
     if (!Number.isFinite(p[field]) || p[field] < 0 || p[field] > 15) issues.push({ field, message: "辅楼天沟坡度须在 0～15°" });
   }
-  if (p.annexGutterInnerDepth <= p.annexGutterClearDepth) issues.push({ field: "annexGutterInnerDepth", message: "辅楼天沟内侧高度须大于外侧，满水才能外溢" });
+  if (p.annexGutterInnerDepth <= outerCrest(p.annexGutterClearDepth, p.annexGutterOuterTopWidth, p.annexGutterCopingSlope)) issues.push({ field: "annexGutterInnerDepth", message: "辅楼天沟内侧高度须大于外侧，满水才能外溢" });
   if (p.annexCorbelLength > p.annexEave) issues.push({ field: "annexCorbelLength", message: "辅楼梁托长度不宜超过辅楼檐口挑出" });
   if (p.annexCorbelCornerSpacing > p.annexCorbelSpacing) issues.push({ field: "annexCorbelCornerSpacing", message: "辅楼拐角梁托间距宜不大于同墙面间距" });
   if (!Number.isFinite(p.annexGutterTileGap) || p.annexGutterTileGap < 0) issues.push({ field: "annexGutterTileGap", message: "辅楼瓦片至内侧天沟顶不能为负" });
@@ -743,13 +763,6 @@ export function validateVillaParams(p: VillaParams, scheme: ConstructionScheme =
       message: `辅楼墙高 ${p.annexHeight} mm 低于常用窗顶约 2700 mm；请至少 2900 mm 或改小洞口后再调`,
     });
   }
-  if (!halfStorey && p.entranceRise >= p.floor1Height - 200) {
-    issues.push({
-      field: "entranceRise",
-      message: `入口抬高 ${p.entranceRise} mm 不低于一层层高，楼梯高差将不合理`,
-    });
-  }
-
   // 楼梯跨向：默认 axis=x，两跑占进深方向；缩进深时洞口不能小于 2×flight＋gap。
   const baseGeom = ensureBaseline();
   const szCheck = p.mainDepth / baseGeom.main.d;
@@ -930,6 +943,14 @@ export function normalizeVillaParamsLengths(input: Partial<VillaParams>, scheme:
   }
   // 旧 annexEave 曾被强制覆盖，按当时真正生效的主楼出檐恢复，避免旧稿外观突变。
   if (!independent) params.annexEave = params.thirdEave;
+  // 迁移旧默认天沟组合，250内挡低于含压顶的外挡最高点。
+  for (const [depth, inner, width, slope] of [
+    ["gutterClearDepth", "gutterInnerDepth", "gutterOuterTopWidth", "gutterCopingSlope"],
+    ["annexGutterClearDepth", "annexGutterInnerDepth", "annexGutterOuterTopWidth", "annexGutterCopingSlope"],
+  ] as const) {
+    if (params[depth] === 200 && params[inner] === 250 && params[width] === 300 && params[slope] === 4) params[inner] = 280;
+  }
+  params.neighborYardBeyondCement = surroundings.sideHouse.z - params.neighborCementDepth - (params.oldDepth - params.courtyardEastTotal);
   params.gutterBedSlope = normalizeGutterBedSlopeDegrees(params.gutterBedSlope);
   params.annexGutterBedSlope = normalizeGutterBedSlopeDegrees(params.annexGutterBedSlope);
   return scheme === "two-and-half" ? normalizeHalfStoreyParams(params, raw) : params;
@@ -1063,6 +1084,8 @@ export function applyVillaParams(input: VillaParams) {
   neighborCourtyardPlan.cementDepth = params.neighborCementDepth;
   // 先写邻居／蓝顶房再重建梯田与地库，避免路边 X 仍用旧值。
   syncNeighborFootprint(params.neighborWoodWidth, params.neighborWoodDepth);
+  neighborCourtyardPlan.x = surroundings.sideHouse.x;
+  neighborCourtyardPlan.cementFront = surroundings.sideHouse.z - params.neighborCementDepth;
   const garageLevels = syncGarageLevels(synced);
   synced.garageFloor = garageLevels.ownFloor;
   synced.neighborGarageFloor = garageLevels.neighborFloor;
@@ -1092,7 +1115,7 @@ export function applyVillaParams(input: VillaParams) {
 
   const y0 = 0;
   const halfProfile = isHalfStoreyScheme ? halfStoreyHeightProfile(synced) : null;
-  const y1 = halfProfile?.firstFloorTop ?? synced.floor1Height;
+  const y1 = halfProfile?.firstFloorTop ?? synced.entranceRise + synced.floor1Height;
   const y2 = y1 + synced.floor2Height;
   // Floor.height 保持完整建模包络，半层围护再由坡面裁切。面板半层层高量至檐口板顶。
   const heights = [y1, synced.floor2Height, halfProfile?.envelopeHeight ?? synced.floor3Height];

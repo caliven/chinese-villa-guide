@@ -18,6 +18,7 @@ import {
   slabToTileEaveLift,
   roofTileInset as inset,
 } from "../src/roof-options";
+import { DEFAULT_VILLA_PARAMS } from "../src/villa-params";
 import { wallWithOpenings } from "../src/primitives";
 import { referencePorticoBeam, referencePorticoColumn } from "../src/entrance-carvings";
 
@@ -110,7 +111,7 @@ test("主辅楼天沟外边反坎高200、净宽600、压顶内倾与瓦边探�
   assert.equal(clear, 600);
   assert.equal(outerT, 300);
   assert.equal(roofGutterDesign.clearDepth, 200);
-  assert.equal(roofGutterDesign.innerDepth, 250);
+  assert.equal(roofGutterDesign.innerDepth, DEFAULT_VILLA_PARAMS.gutterInnerDepth);
   for (const style of ["joined", "floating"] as const) for (const pitch of [1, 4.5, 10]) {
     const roof = new THREE.Group(), annex = new THREE.Group();
     attachRoofs(roof, annex, mat, pitch, style);
@@ -795,8 +796,8 @@ test("两种官帽梁托都有实体背梁，端头收在最下层檐板内，�
 test("三楼飘檐七段都有实际坡瓦，阴角梁托不相撞，下沿线端头不外甩", async () => {
   const { buildVilla } = await import("../src/architecture");
   const thirdFloor = buildVilla(mat, false).levels[2];
-  const apron = thirdFloor.getObjectByName("三楼栏杆下飘檐")!;
-  const tiles = thirdFloor.getObjectByName("三楼飘檐与露台")!;
+  const apron = thirdFloor.getObjectByName("三层檐下梁托与线脚")!;
+  const tiles = thirdFloor.getObjectByName("三层飘檐瓦片")!;
   const e = frontElevation;
   const west = e.sideTerraces[0].x, east = e.sideTerraces[1].x + e.sideTerraces[1].w;
   const cw = site.portico.x, ce = cw + site.portico.w;
@@ -877,7 +878,7 @@ test("门厅柱帽下收、折角梁托与下沿线连续，横梁接到下沿�
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
-  const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+  const apron = villa.levels[2].getObjectByName("三层檐下梁托与线脚")!;
   const section = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
   const columns: THREE.Object3D[] = [], corbels: THREE.Object3D[] = [];
   let porticoNecks = 0;
@@ -915,7 +916,7 @@ test("露台短柱脚处由统一楼板承托，不留贯穿方洞", async () =>
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
-  const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+  const apron = villa.levels[2].getObjectByName("三层檐下梁托与线脚")!;
   const section = frontApronSection(floors[2].y + frontElevation.eaveParapet, frontElevation.tiledEaveDrop);
   for (const [i, post] of frontElevation.balustradePosts.slice(1, 3).entries()) {
     const x = post.x + (i === 0 ? 100 : -100), z = frontElevation.centerFront - 20;
@@ -949,7 +950,7 @@ test("二楼飘檐下沿线与柱位连续，柱间灯带上方不被柱颈遮�
   const { buildVilla } = await import("../src/architecture");
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
-  const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+  const apron = villa.levels[2].getObjectByName("三层檐下梁托与线脚")!;
   const fascia = apron.getObjectByName("连续转角下沿线")!;
   const seats = villa.levels[2].getObjectByName("三楼楼板")!;
   const e = frontElevation, s = frontApronSection(floors[2].y + e.eaveParapet, e.tiledEaveDrop);
@@ -1032,7 +1033,7 @@ test("一二层檐下各净段等分、门厅梁托镜像，阴阳角不设斜�
   resetVillaParams();
   const villa = buildVilla(mat, false);
   villa.group.updateMatrixWorld(true);
-  const apron = villa.levels[2].getObjectByName("三楼栏杆下飘檐")!;
+  const apron = villa.levels[2].getObjectByName("三层檐下梁托与线脚")!;
   const corbels: THREE.Object3D[] = [], annexCorbels: THREE.Object3D[] = [];
   apron.traverse(o => { if (o.name === "梁托") corbels.push(o); });
   villa.annexRoof.traverse(o => { if (o.name === "梁托") annexCorbels.push(o); });

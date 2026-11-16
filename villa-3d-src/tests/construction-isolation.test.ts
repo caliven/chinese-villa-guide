@@ -8,7 +8,9 @@ import { schemeSavePlugin } from "../vite-plugin-scheme-save.ts";
 import { dataSavePlugin } from "../vite-plugin-data-save.ts";
 import { createEmptyScheme, parseSchemeDocument } from "../src/scheme-store.ts";
 import { assertConstructionScope, dataDirectory, schemeDirectory, schemeStorageKey } from "../src/construction-scheme.ts";
-import { halfStoreyDefaults } from "../src/half-storey.ts";
+import { buildLayoutVersionDocument, buildSizeVersionDocument } from "../src/data-versions.ts";
+import { clonePublishedLayout } from "../src/layout-draft.ts";
+import { halfStoreyDefaults, halfStoreyHeightProfile } from "../src/half-storey.ts";
 
 test("三层沿用旧路径，两层半的文件、默认户型和会议存储使用独立命名空间", () => {
   assert.equal(schemeDirectory("three-storey"), "scheme");
@@ -30,7 +32,7 @@ test("服务端按文件身份转换旧半层层高，三层文件保留原有�
   } };
   const half = parseSchemeDocument(raw, "two-and-half");
   assert.equal(half.villaParams.floor1Height, 3300);
-  assert.equal(half.villaParams.floor3Height, 300);
+  assert.ok(Math.abs(halfStoreyHeightProfile(half.villaParams).envelopeHeight - raw.villaParams.floor3Height) <= 0.5);
   assert.equal(half.villaParams.thirdFloorMode, "flush");
   assert.equal(half.villaParams.thirdSetback, 0);
   assert.deepEqual(parseSchemeDocument(half, "two-and-half").villaParams, half.villaParams);
@@ -76,7 +78,10 @@ test("两套方案可保存同名尺寸和户型，两层半删除版本不影�
   for (const kind of ["尺寸", "户型"]) {
     for (const constructionScheme of ["three-storey", "two-and-half"]) {
       const index = { schema: "anhua-villa-data-versions-v1", kind, versions: [{ id: "同名", file: "同名.json", title: constructionScheme }] };
-      const document = { id: "同名", title: constructionScheme, constructionScheme };
+      const document = kind === "户型"
+        ? { ...buildLayoutVersionDocument(clonePublishedLayout(), { id: "同名", title: constructionScheme }), constructionScheme }
+        : { ...buildSizeVersionDocument({ id: "同名", title: constructionScheme }), constructionScheme,
+            villaParams: constructionScheme === "two-and-half" ? halfStoreyDefaults(createEmptyScheme().villaParams) : createEmptyScheme().villaParams };
       assert.equal((await request("/__data_save", { kind, constructionScheme, document, index })).status, 200);
     }
     const threeFile = path.join(root, kind, "同名.json"), threeIndex = path.join(root, kind, "index.json");
@@ -88,4 +93,39 @@ test("两套方案可保存同名尺寸和户型，两层半删除版本不影�
     assert.equal((await request("/__data_save", { kind, constructionScheme: "two-and-half", document: { id: "同名", constructionScheme: "three-storey" } })).status, 400);
     assert.equal((await request("/__data_delete", { kind, constructionScheme: "invalid", file: "同名.json" })).status, 400);
   }
+});
+
+
+test("版本服务拒绝无法回读的户型，保留原版本与索引", async t => {
+  const root = await mkdtemp(path.join(tmpdir(), "villa-data-validation-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const request = middlewareOf(dataSavePlugin(root));
+  const document = buildLayoutVersionDocument(clonePublishedLayout(), { id: "existing" });
+  assert.equal((await request("/__data_save", { kind: "户型", document })).status, 200);
+  const target = path.join(root, "户型", "existing.json");
+  const before = await readFile(target, "utf8");
+  const indexBefore = await readFile(path.join(root, "户型", "index.json"), "utf8");
+  const invalid = structuredClone(document);
+  invalid.layoutDraft.floors[1].height = 6500;
+  const rejected = await request("/__data_save", { kind: "户型", document: invalid });
+  assert.equal(rejected.status, 400);
+  assert.match(rejected.body.error, /层高/);
+  assert.equal(await readFile(target, "utf8"), before);
+  assert.equal(await readFile(path.join(root, "户型", "index.json"), "utf8"), indexBefore);
+});
+
+test("两个旧索引并行保存与删除均在服务端合并最新条目", async t => {
+  const root = await mkdtemp(path.join(tmpdir(), "villa-data-concurrent-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const request = middlewareOf(dataSavePlugin(root));
+  const stale = { schema: "anhua-villa-data-versions-v1", kind: "户型", versions: [] };
+  const documents = ["A", "B"].map(id => buildLayoutVersionDocument(clonePublishedLayout(), { id }));
+  const replies = await Promise.all(documents.map(document => request("/__data_save", { kind: "户型", document, index: stale })));
+  assert.ok(replies.every(reply => reply.status === 200));
+  const indexFile = path.join(root, "户型", "index.json");
+  let index = JSON.parse(await readFile(indexFile, "utf8"));
+  assert.deepEqual(index.versions.map((version: { id: string }) => version.id).sort(), ["A", "B"]);
+  assert.equal((await request("/__data_delete", { kind: "户型", file: "A.json", index: stale })).status, 200);
+  index = JSON.parse(await readFile(indexFile, "utf8"));
+  assert.deepEqual(index.versions.map((version: { id: string }) => version.id), ["B"]);
 });

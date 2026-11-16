@@ -307,7 +307,7 @@ export function planSourceFromPublished(index: number): PlanSource {
     exteriorOpenings: [],
     exteriorManaged: false,
     stairPresent: floors.some((f) => f.rooms.some((r) => r.kind === "stair")),
-    entryGuards: index === 1 ? entryWindowGuards(resolveLayoutFacades().facades[1]) : [],
+    entryGuards: index > 0 ? entryWindowGuards(resolveLayoutFacades().facades[index], floors[index], fitStairToRoom(stairLayout as StairDraft, floors), index === 1 ? circulation.livingVoid : undefined) : [],
   };
 }
 
@@ -327,7 +327,7 @@ export function planSourceFromDraft(draft: LayoutDraft, index: number): PlanSour
       ? { ...item, opening: { ...item.opening, kind: "window" as const } } : item),
     exteriorManaged: draft.exteriorManaged,
     stairPresent: draftHasStair(draft),
-    entryGuards: index === 1 ? entryWindowGuards(resolveLayoutFacades(draft).facades[1]) : [],
+    entryGuards: index > 0 ? entryWindowGuards(resolveLayoutFacades(draft).facades[index], draft.floors[index], draftHasStair(draft) ? fitStairToRoom(draft.stairLayout, draft.floors) : undefined, index === 1 ? draft.livingVoid : undefined) : [],
   };
 }
 

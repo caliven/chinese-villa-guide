@@ -28,7 +28,7 @@ export const gutterCopingThickness = 30;
 export let roofGutterDesign = {
   clearWidth: 600,
   clearDepth: 200,
-  innerDepth: 250,
+  innerDepth: 280,
   outerTopWidth: 300,
   /** 内侧反坎厚度：用户未口述，沿用原挡墙模型厚。 */
   innerWallThickness: 55,

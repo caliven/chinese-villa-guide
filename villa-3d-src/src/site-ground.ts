@@ -178,6 +178,53 @@ function cropRows(
   }
 }
 
+/** 地库下方封土属于基础，隐藏周边环境时仍保留。 */
+export function buildBasementSoilFacing(mat: Mats) {
+  const group = new THREE.Group();
+  group.name = "邻居院坪下方绿色挡面";
+  // 地库外沿土坎：从自家东界略叠入接上石基，再经斜坡接到马路，一张立面。
+  // 顶随水泥板底走（含斜坡）；平面略外移，避免与矮墙外皮共面闪绿。
+  {
+    const ownThick = Math.max(120, site.garageSlabThickness || 150);
+    const neighborThick = NEIGHBOR_COURTYARD_SLAB_THICKNESS;
+    const startX = site.width - 400;
+    const endX = c.road.x;
+    const samples = Math.max(48, Math.ceil((endX - startX) / 120));
+    // 土坎立面相对院坪外沿再向外（Z 减小）一点，与 18 墙外皮错开。
+    const riserOutset = 40;
+    const path: Point[] = Array.from({ length: samples + 1 }, (_, i) => {
+      const x = startX + ((endX - startX) * i) / samples;
+      const z = x <= site.width
+        ? contourAt(courtyardFront, x)
+        : c.neighborYard.z;
+      return [x, z - riserOutset] as Point;
+    });
+    const soil = mat.soil.clone();
+    soil.polygonOffset = true;
+    soil.polygonOffsetFactor = 2;
+    soil.polygonOffsetUnits = 2;
+    riser(
+      group,
+      path,
+      (x, z) => basementFloorY(Math.min(x, endX - 1), z + riserOutset) - (x >= c.neighborYard.x ? neighborThick : ownThick) - 10,
+      frontFieldLevel,
+      { ...mat, soil },
+    );
+    // 靠路侧从前沿折回旧台地南缘，封住地库板底以下的侧向缺口。
+    // 前后端点与前挡面、台地土基共边，仅生成一张侧面。
+    riser(
+      group,
+      [[endX, c.neighborYard.z - riserOutset], [endX, 0]],
+      site.neighborGarageFloor - neighborThick - 10,
+      frontFieldLevel,
+      { ...mat, soil },
+      false,
+    );
+  }
+
+  return group;
+}
+
 export function buildContextGround(mat: Mats) {
   const group = new THREE.Group();
   group.name = "红线曲线梯田";
@@ -245,36 +292,6 @@ export function buildContextGround(mat: Mats) {
     "plan",
   );
   woodBase.castShadow = false;
-  // 地库外沿土坎：从自家东界略叠入接上石基，再经斜坡接到马路，一张立面。
-  // 顶随水泥板底走（含斜坡）；平面略外移，避免与矮墙外皮共面闪绿。
-  {
-    const ownThick = Math.max(120, site.garageSlabThickness || 150);
-    const neighborThick = NEIGHBOR_COURTYARD_SLAB_THICKNESS;
-    const startX = site.width - 400;
-    const endX = c.road.x;
-    const samples = Math.max(48, Math.ceil((endX - startX) / 120));
-    // 土坎立面相对院坪外沿再向外（Z 减小）一点，与 18 墙外皮错开。
-    const riserOutset = 40;
-    const path: Point[] = Array.from({ length: samples + 1 }, (_, i) => {
-      const x = startX + ((endX - startX) * i) / samples;
-      const z = x <= site.width
-        ? contourAt(courtyardFront, x)
-        : c.neighborYard.z;
-      return [x, z - riserOutset] as Point;
-    });
-    const soil = mat.soil.clone();
-    soil.polygonOffset = true;
-    soil.polygonOffsetFactor = 2;
-    soil.polygonOffsetUnits = 2;
-    riser(
-      group,
-      path,
-      (x, z) => basementFloorY(x, z + riserOutset) - (x >= c.neighborYard.x ? neighborThick : ownThick) - 10,
-      frontFieldLevel,
-      { ...mat, soil },
-    );
-  }
-
   // 后田按各自的弯曲外沿拼接；后方木房仍完整坐落在第二层田面上。
   // 东侧另用连续坡面，西侧近房仍保留已定位的梯田。
   band("屋后第一层曲线梯田", edges.rearFirst, edges.rearSecond, left, c.road.x, c.rearFirst.y, true);
