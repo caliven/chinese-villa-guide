@@ -10,6 +10,8 @@ import { clipHalfStoreyPolygon, halfStoreyRoof } from "./half-storey";
 import { halfStoreyBalconyBeams, halfStoreyBalconyPieces, halfStoreyBalusterProfile, halfStoreyFloorOutline, halfStoreyPorticoColumns, halfStoreyPorticoDesign } from "./half-storey-portico.ts";
 import { floatingHatJunctions, hatJunctionFaces } from "./hat-junctions";
 import { elevationModel, rearBalconyLayout, withLayoutContext, type VillaLayoutLive } from "./architecture";
+import { terracePieceCorners } from "./annex-canopy";
+import { flueFaces, flueOutline } from "./flue-geometry.ts";
 import { annexPartitions, construction, floors, site, type Point } from "./data";
 import { joinedWallSpan, wallJunctionPeers } from "./partition-geometry";
 import { raiseOpeningsToFinish } from "./foundation";
@@ -261,17 +263,29 @@ function buildElevationShell(view: ElevationView, style: RoofStyle, layout?: Vil
     ? bayOutline(r.main.x, r.main.z, r.main.w, r.main.d, r.hat.x, r.hat.w, r.hat.z, inset)
     : rect(r.main.x + inset, r.main.z + inset, r.main.w - 2 * inset, r.main.d - 2 * inset);
   // 与实体共用三眼皮分层，保留阶梯外缘及压顶，而非整块等高矩形。
-  const eaveLayers = (outline: (inset: number) => Point[], base: number, gap?: [number, number]) => {
+  const eaveLayers = (outline: (inset: number) => Point[], base: number, gap?: [number, number], coping = true) => {
     for (const layer of eyelidLayerTops(base))
       rim(outline(layer.inset), layer.top - layer.thick, layer.thick, "el-trim", gap, "roof-eyelid");
     const copingBase = base + floorSlabThickness + roofGutterDesign.clearDepth;
-    rim(outline(-eyelidFixed.copingOverhang), copingBase,
+    if (coping) rim(outline(-eyelidFixed.copingOverhang), copingBase,
       gutterOuterWallTop() - roofGutterDesign.clearDepth, "el-trim", gap, "roof-coping");
   };
   eaveLayers(mainOutline, r.main.eave, r.frontTrimGap);
   owner = "annex";
   withAnnexRoofDesign(() => eaveLayers(inset => rect(r.annex.x + inset, r.annex.z + inset,
-    r.annex.w - 2 * inset, r.annex.d - 2 * inset), r.annex.eave));
+    r.annex.w - 2 * inset, r.annex.d - 2 * inset), r.annex.eave, undefined, !r.annexFlat));
+  if (r.annexFlat) {
+    const slab = r.slabs.annex;
+    box(a.x, a.z, a.w, a.d, slab.top - slab.thickness, slab.thickness, "el-wall");
+    for (const p of r.annexFlat.pieces) {
+      if (p.name.startsWith("阳光雨棚")) {
+        const vertices = terracePieceCorners(p).map(v => new Vector3(...v));
+        const ids = [[0, 1, 5, 4], [0, 3, 7, 4], [1, 2, 6, 5], [3, 2, 6, 7]][directions[view].side];
+        face(ids.map(i => vertices[i]), p.finish === "canopyGlass" ? "el-canopy-glass" : "el-trim",
+          `<title>${p.name}</title>`, p.finish !== "canopyGlass", "annex-canopy");
+      } else box(p.x - p.w / 2, p.z - p.d / 2, p.w, p.d, p.bottom, p.top - p.bottom, p.finish === "glass" ? "el-glass-rail" : "el-trim");
+    }
+  }
   owner = "main";
   if (style === "floating") {
     const end = floatingHatEaveRearZ(r.main.z + roofTileInset, r.main.eave + slabToTileEaveLift(), r.pitch.fenShui / 10, r.hat.eave);
@@ -319,8 +333,12 @@ function buildElevationShell(view: ElevationView, style: RoofStyle, layout?: Vil
   roofs(r.annexFaces);
   ridges(r.annexRidges);
   const c = model.chimney;
-  box(c.x - 230, c.z - 230, 460, 460, c.base - 400, c.capY - c.base + 400, "el-wall");
-  box(c.x - 360, c.z - 360, 720, 720, c.capY, 120, "el-trim");
+  const duct = flueOutline([[c.wallX, c.bottom], ...c.upperPath], c.bodyDepth);
+  for (const polygon of flueFaces(duct, c.z, c.bodyWidth))
+    face(polygon.map(p => new Vector3(...p)), "el-trim", "", true, "annex-metal-flue");
+  box(c.x - c.capDepth / 2, c.z - c.capWidth / 2, c.capDepth, c.capWidth, c.capY, c.capThickness, "el-trim");
+  for (const z of [c.z - c.bodyWidth / 2 + 25, c.z + c.bodyWidth / 2 - 25])
+    box(c.x - 12, z - 12, 24, 24, c.capY - 140, 140, "el-trim");
 
   owner = "main";
   const y3 = model.floors[2].y, p = r.portico;
@@ -525,6 +543,7 @@ export const elevationStyles = `
 .elevation-svg .el-spandrel-bronze{fill:#a48865;stroke:none}
 .elevation-svg .el-opening-sash{fill:none;stroke:#666;stroke-width:18px;stroke-dasharray:75 45}
 .elevation-svg .el-door,.elevation-svg .el-passage{fill:#fff;stroke:#444;stroke-width:25px}
+.elevation-svg .el-canopy-glass{fill:#d7e7e9;fill-opacity:.28;stroke:#527076;stroke-width:12px}
 .elevation-svg .el-glass-rail{fill:none;stroke:#555;stroke-width:28px}
 .elevation-svg .el-detail{fill:none;stroke:#555;stroke-width:20px}
 .elevation-svg .el-dim{fill:none;stroke:#666;stroke-width:18px}
@@ -560,6 +579,7 @@ function buildElevationDrawing(view: ElevationView, style: RoofStyle, layout?: V
     dimensions += dimension(u(0, b.z), u(0, b.z + b.d), 850, 0);
     if (building === "main" && !recessedPortico()) dimensions += dimension(u(0, porticoFrontZ()), u(0, porticoWallZ()), 850, 0);
   }
+  const flat = building === "annex" ? r.annexFlat : null;
   const levels: [string, number][] = building === "main"
     ? [["院坪基准", 0], ["首层完成面", site.entranceRise], ["二层楼面", model.floors[1].y],
       [isHalfStoreyScheme ? "半层楼面" : "三层楼面", model.floors[2].y],
@@ -567,6 +587,8 @@ function buildElevationDrawing(view: ElevationView, style: RoofStyle, layout?: V
       [isHalfStoreyScheme ? "三楼天沟板面" : "主楼屋面板顶", r.main.eave + floorSlabThickness],
       ["瓦檐面", r.main.eave + slabToTileEaveLift()], ["主楼坡面脊线", r.mainPeak],
       ["屋脊最高点", roofPeak]]
+    : flat ? [["院坪基准", 0], ["首层完成面", site.entranceRise], ["屋面板底", r.annex.eave],
+      ["辅楼屋面板顶", r.slabs.annex.top], ["平顶露台完成面", flat.deckY], ["露台栏杆顶", flat.deckY + 1100], ...(flat.canopy ? [["阳光雨棚顶", flat.canopy.peak] as [string, number]] : []), ["辅楼最高点", peak]]
     : [["院坪基准", 0], ["首层完成面", site.entranceRise], ["屋面板底", r.annex.eave],
       ["辅楼屋面板顶", r.annex.eave + floorSlabThickness], ["瓦檐面", r.annex.eave + r.annexProfile.tileLift],
       ["辅楼坡面脊线", r.annexPeak], ["屋脊最高点", roofPeak], ["辅楼最高点", peak]];
@@ -586,12 +608,16 @@ function buildElevationDrawing(view: ElevationView, style: RoofStyle, layout?: V
       const top = index === 2 ? r.main.eave + floorSlabThickness : floor.y + floor.height;
       segments.push([isHalfStoreyScheme && index === 2 ? "半层高度" : `${["一", "二", "三"][index]}层层高`, bottom, top]);
     });
-  } else segments.push(["一层层高", site.entranceRise, a.height + floorSlabThickness]);
+  } else segments.push(["一层层高", site.entranceRise, flat ? r.slabs.annex.top : a.height + floorSlabThickness]);
   const roof = building === "main" ? r.main : r.annex;
   const tileEave = roof.eave + (building === "main" ? slabToTileEaveLift() : r.annexProfile.tileLift);
   const tilePeak = building === "main" ? r.mainPeak : r.annexPeak;
-  segments.push(["屋面构造", roof.eave + floorSlabThickness, tileEave], ["坡屋顶升高", tileEave, tilePeak], ["脊瓦高度", tilePeak, roofPeak]);
-  if (peak > roofPeak) segments.push([building === "annex" ? "烟囱超出屋脊" : "构件超出屋脊", roofPeak, peak]);
+  if (flat) {
+    segments.push(["露台垫层", r.slabs.annex.top, flat.deckY - 20], ["露台铺装", flat.deckY - 20, flat.deckY], ["露台护栏", flat.deckY, flat.deckY + 1100]);
+    if (flat.canopy) segments.push(["阳光雨棚高于护栏", flat.deckY + 1100, roofPeak]);
+  }
+  else segments.push(["屋面构造", roof.eave + floorSlabThickness, tileEave], ["坡屋顶升高", tileEave, tilePeak], ["脊瓦高度", tilePeak, roofPeak]);
+  if (peak > roofPeak) segments.push([building === "annex" ? flat ? "烟囱超出护栏" : "烟囱超出屋脊" : "构件超出屋脊", roofPeak, peak]);
   const totalX = max + 3700, totalY = -peak / 2;
   const heights = heightDimensions(segments, max)
     + `<g data-height-region="总高度" data-height-bottom="0" data-height-top="${n(peak)}">`
@@ -603,7 +629,7 @@ function buildElevationDrawing(view: ElevationView, style: RoofStyle, layout?: V
   const extra = building === "main" && !isHalfStoreyScheme
     ? text((min + max) / 2, -peak - 1050, `官帽瓦脊 ${height(r.hat.peak)}`, "el-small") : "";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" class="floor-svg elevation-svg" data-elevation="${view}" data-building="${building}" data-roof-style="${style}" viewBox="${n(left)} ${n(top)} ${n(width)} ${n(bottom - top)}" role="img" aria-label="${buildingLabel}${elevationLabels[view]}，当前方案正投影"><title>${buildingLabel}${elevationLabels[view]} · ${roofStyleLabels[style]} · 单位 mm</title><desc>左为${directions[view].left}，右为${directions[view].right}。${buildingLabel}的外墙、洞口和屋面${building === "main" ? "及门厅" : "及烟囱"}正投影，按深度消隐；雕花、栏杆及檐口细部简化。标高相对暂定院坪基准，非施工图。</desc><defs><style>${elevationStyles.replaceAll("elevation-tiles", `${id}-tiles`)}</style><pattern id="${id}-tiles" width="240" height="120" patternUnits="userSpaceOnUse"><rect width="240" height="120" fill="white"/><path d="M0 0h240 M0 120h240 M0 0q30 0 30 60t30 60 M120 0q30 0 30 60t30 60" fill="none" stroke="#999" stroke-width="10"/></pattern>${clip}</defs><rect x="${n(left)}" y="${n(top)}" width="${n(width)}" height="${n(bottom - top)}" fill="#fff"/>${drawing}${line([min - 180, 0], [max + 180, 0], "el-ground")}${labels}${heights}${extra}${dimensions}${sumLabel}${text((min + max) / 2, 2100, `${buildingLabel}${elevationLabels[view]}　｜　左：${directions[view].left} · 右：${directions[view].right}`, "el-title")}</svg>`;
-  return { svg, segments, levels, peak, roofPeak, plateBottom: roof.eave, plateTop: roof.eave + floorSlabThickness };
+  return { svg, segments, levels, peak, roofPeak, plateBottom: roof.eave, plateTop: flat ? r.slabs.annex.top : roof.eave + floorSlabThickness, flat: !!flat };
 }
 
 /** 与SVG共用同一次标高计算，显示值以取整后的端点相减，分段相加严格等于总高。 */
@@ -616,7 +642,7 @@ function heightSummary(drawing: ReturnType<typeof buildElevationDrawing>, buildi
   const firstNote = building === "main" && !isHalfStoreyScheme
     ? `三层方案一层层高从首层完成面起算，入户抬高另计；当前首层层高＝${n(segments[1][2])}－${n(site.entranceRise)}＝${firstHeight}。`
     : "各层高度从本层楼面／完成面起算，入户抬高单列。";
-  return `<div class="elevation-height-summary" data-height-summary="${building}"><h4>高度明细 · mm · 院坪为 ±0</h4><p>${firstNote}层高包含上方120板厚，屋面构造从板顶起算。板底 ${height(plateBottom)}，板顶 ${height(plateTop)}；板厚120已计入层高。</p><table><thead><tr><th scope="col">层次</th><th scope="col">分段高度</th><th scope="col">起止标高</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row">总高度</th><td>${n(peak)}</td><td>±0 → ${height(peak)}</td></tr></tfoot></table><p class="elevation-height-sum">${formula}＝${n(peak)}</p><p>屋面构造＝天沟内挡高度＋瓦檐面至内挡顶高差。坡屋顶升高＝瓦檐面至坡面脊线的竖向高差，由跨度与分水计算。脊瓦高度按实际构件截面计算，默认130。${building === "annex" ? `屋脊最高点 ${height(roofPeak)}；总高度包含烟囱盖板。` : "总高度量至最高构件顶。"}各标高取整到毫米后求段差，细部不再另外累加。</p></div>`;
+  return `<div class="elevation-height-summary" data-height-summary="${building}"><h4>高度明细 · mm · 院坪为 ±0</h4><p>${firstNote}层高包含上方120板厚，屋面构造从板顶起算。板底 ${height(plateBottom)}，板顶 ${height(plateTop)}；${drawing.flat ? "平顶实体板厚与露台完成面按当前效果方案联动。" : "板厚120已计入层高。"}</p><table><thead><tr><th scope="col">层次</th><th scope="col">分段高度</th><th scope="col">起止标高</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row">总高度</th><td>${n(peak)}</td><td>±0 → ${height(peak)}</td></tr></tfoot></table><p class="elevation-height-sum">${formula}＝${n(peak)}</p><p>${drawing.flat ? "平顶露台铺装与1100高护栏分段列示，总高度包含烟囱盖板；结构与防水待深化。" : `屋面构造＝天沟内挡高度＋瓦檐面至内挡顶高差。坡屋顶升高＝瓦檐面至坡面脊线的竖向高差，由跨度与分水计算。脊瓦高度按实际构件截面计算，默认130。${building === "annex" ? `屋脊最高点 ${height(roofPeak)}；总高度包含烟囱盖板。` : "总高度量至最高构件顶。"}各标高取整到毫米后求段差，细部不再另外累加。`}</p></div>`;
 }
 
 export function elevationPlan(view: ElevationView, style: RoofStyle, layout?: VillaLayoutLive | null, balcony = false) {

@@ -17,6 +17,7 @@ const box = (x: number, z: number, w: number, d: number): Point[] => [[x, z], [x
 const polygon = (p: Point[], cls: string) => `<polygon points="${pts(p)}" class="${cls}"/>`;
 const label = (x: number, z: number, value: string, cls = "roof-label") => `<text x="${n(x)}" y="${n(z)}" text-anchor="middle" transform="rotate(180 ${n(x)} ${n(z)})" class="${cls}">${value}</text>`;
 const path = (a: THREE.Vector3, b: THREE.Vector3, cls: string) => `<path d="M${n(a.x)} ${n(a.z)} L${n(b.x)} ${n(b.z)}" class="${cls}"/>`;
+const annexFlatOutline = (r: { x: number; z: number; w: number; d: number }) => box(r.x, r.z, r.w, r.d);
 const height = (v: number) => `${v >= 0 ? "+" : ""}${n(v)}`;
 
 export interface RoofPlanEdge { a: THREE.Vector3; b: THREE.Vector3; kind: "edge" | "ridge" | "valley" }
@@ -107,6 +108,7 @@ export const roofDrawingStyles = `
 .roof-svg .roof-dim-label{font-size:260px;fill:#8a4b00}
 .roof-svg .roof-gutter{fill:#e2e3dc;stroke:#758279;stroke-width:40px}
 .roof-svg .roof-gutter-inner{fill:#fbfaf6;stroke:#a1aaa0;stroke-width:20px}
+.roof-svg .roof-canopy-glass{fill:#d7e7e9;fill-opacity:.5;stroke:#527076;stroke-width:12px}
 .roof-svg .roof-face{fill:#dce6e5;stroke:none}.roof-svg .roof-hat{fill:#e2decb;stroke:none}
 .roof-svg .roof-edge{fill:none;stroke:#5b7169;stroke-width:28px}
 .roof-svg .roof-ridge{fill:none;stroke:#34544a;stroke-width:65px}
@@ -124,7 +126,13 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
   const selected = view === "slab" ? style : view;
   const model = roofPlanModel(selected, layout);
   const chimney = annexChimneyModel();
-  const { main: m, annex: a, hat: h, portico: p } = model;
+  const { main: m, annex: a, hat: h, portico: p, annexFlat: flat } = model;
+  const canopyDrawing = flat?.canopy ? `<g data-annex-canopy="glass">${flat.canopy.pieces.filter(p =>
+    p.finish === "canopyGlass" || /顺坡梁|纵向框梁|收水槽底|靠墙泛水/.test(p.name)).map(p =>
+    polygon(box(p.x - p.w / 2, p.z - p.d / 2, p.w, p.d), p.finish === "canopyGlass" ? "roof-canopy-glass" : "roof-chimney")).join("")}
+    <path data-canopy-flow="outside" d="M${n(flat.canopy.near + Math.sign(flat.canopy.far - flat.canopy.near) * 600)} ${n(flat.canopy.z + 900)} L${n(flat.canopy.far - Math.sign(flat.canopy.far - flat.canopy.near) * 300)} ${n(flat.canopy.z + 900)}" class="roof-flow" marker-end="url(#roof-${view}-arrow)"/>
+    ${label(flat.canopy.x + flat.canopy.w / 2, flat.canopy.z + flat.canopy.d / 2 + 500, "满铺玻璃雨棚 · 低边向楼外收水", "roof-small")}</g>` : "";
+  const flatDrawing = flat ? polygon(annexFlatOutline(flat.footprint), "roof-terrace") + flat.pieces.filter(p => p.name === "二楼通辅楼连接平台").map(p => polygon(box(p.x - p.w / 2, p.z - p.d / 2, p.w, p.d), "roof-slab")).join("") + flat.guards.map(g => `<path d="M${pts([g.a, g.b])}" class="roof-edge"/>`).join("") + flat.drains.map(d => polygon(box(d.x - 50, d.z - 90, 100, 180), "roof-chimney")).join("") + label(a.x + a.w / 2, a.z + a.d / 2, `辅楼平顶露台 ${height(flat.deckY)}`, "roof-small") + canopyDrawing : "";
   const id = `roof-${view}`;
   const front = Math.min(m.z, a.z, h.z, site.main.z - p.projection - 400);
   const left = Math.min(a.x, m.x) - 1600, right = Math.max(a.x + a.w, m.x + m.w) + 1900, bottom = Math.max(m.z + m.d, a.z + a.d) + 1900;
@@ -153,7 +161,7 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
   const terraceProjection = terraces.filter(t => t.w > 0 && t.d > 0).map(t => polygon(box(t.x, t.z, t.w, t.d), "roof-terrace")).join("");
   let drawing: string;
   if (view === "slab") {
-    drawing = terraceProjection + polygon(mainBody, "roof-slab") + polygon(annexBody, "roof-slab")
+    drawing = terraceProjection + polygon(mainBody, "roof-slab") + polygon(annexBody, "roof-slab") + canopyDrawing
       + terraces.map(t => label(t.x + t.w / 2, t.z + t.d / 2, `三层${t.name}露台（下层）`, "roof-small")).join("")
       + polygon(mainOutline(0), "roof-projection") + polygon(box(a.x, a.z, a.w, a.d), "roof-projection")
       + (selected === "floating" ? `<polyline points="${pts(canopyOutline)}" class="roof-projection"/>` : "")
@@ -161,25 +169,24 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
       + label(site.main.x + site.main.w / 2, floors[2].front + 3500, isHalfStoreyScheme ? "主楼 · 半层楼面范围" : "主楼 · 三层顶板范围")
       + label(site.main.x + site.main.w / 2, floors[2].front + 4100, isHalfStoreyScheme
         ? `三楼天沟板面 ${height(m.eave + floorSlabThickness)} · 矮墙顶 ${height(m.eave)}` : `模型屋面基准 ${height(m.eave)}`, "roof-small")
-      + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d / 2, "辅楼 · 一层顶板", "roof-small")
-      + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d / 2 + 600, `模型屋面基准 ${height(a.eave)}`, "roof-small")
+      + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d / 2, flat ? "辅楼 · 平顶露台" : "辅楼 · 一层顶板", "roof-small")
+      + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d / 2 + 600, flat ? `露台完成面 ${height(flat.deckY)}` : `模型屋面基准 ${height(a.eave)}`, "roof-small")
       + hDim(site.main.x, site.main.x + site.main.w, front - 600, floors[2].front)
       + vDim(floors[2].front, site.main.z + site.main.d, site.main.x + site.main.w + 900, site.main.x + site.main.w)
       + hDim(site.annex.x, site.annex.x + site.annex.w, site.annex.z - 1000, site.annex.z)
       + vDim(site.annex.z, site.annex.z + site.annex.d, site.annex.x - 800, site.annex.x);
   } else {
     const floatingGutterEnd = Math.max(m.z, m.z + roofTileInset + (h.eave + roofGutterDesign.clearDepth + 30 - m.eave - slabToTileEaveLift()) / (model.pitch.fenShui / 10));
-    drawing = terraceProjection + mainGutter() + gutter(inset => box(a.x + inset, a.z + inset, a.w - 2 * inset, a.d - 2 * inset), model.annexProfile.innerLipInset)
+    drawing = terraceProjection + mainGutter() + (flat ? flatDrawing : gutter(inset => box(a.x + inset, a.z + inset, a.w - 2 * inset, a.d - 2 * inset), model.annexProfile.innerLipInset))
       + [...model.mainFaces.filter(f => f.owner === 0), ...model.annexFaces].map(f => polygon(f.points.map(p => [p.x, p.z]), "roof-face")).join("")
       + (selected === "floating" ? polygon(hatEaveRim(h.x, h.z, h.w, 0, gutterInnerLipInset(), floatingGutterEnd), "roof-gutter") : "")
       + model.mainFaces.filter(f => f.owner === 1).map(f => polygon(f.points.map(p => [p.x, p.z]), "roof-hat")).join("")
       + [...roofProjectedEdges(model.mainFaces), ...roofProjectedEdges(model.annexFaces)].map(e => path(e.a, e.b, `roof-${e.kind}`)).join("")
       + [...slopeFaces(model.mainFaces), ...slopeFaces(model.annexFaces)].map(f => slopeArrow(f, id)).join("")
       + polygon(mainBody, "roof-projection") + polygon(annexBody, "roof-projection")
-      + polygon(box(chimney.x - 360, chimney.z - 360, 720, 720), "roof-chimney")
-      + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d + 2100, "辅楼烟囱 · 沿用模型位置", "roof-small")
+      + label(site.annex.x + site.annex.w / 2, site.annex.z + site.annex.d + 2100, "辅楼外挂扁平金属烟管", "roof-small")
       + label(m.x + m.w / 2, m.z + m.d + 550, `主楼瓦脊 ${height(model.mainPeak)}`, "roof-small")
-      + label(a.x + a.w / 2, a.z + a.d + 550, `辅楼瓦脊 ${height(model.annexPeak)}`, "roof-small")
+      + label(a.x + a.w / 2, a.z + a.d + 550, flat ? `辅楼栏杆顶 ${height(flat.deckY + 1100)}` : `辅楼瓦脊 ${height(model.annexPeak)}`, "roof-small")
       + label(h.x + h.w / 2, h.z - 1350, `${roofStyleLabels[selected]} · 瓦脊 ${height(h.peak)}`, "roof-small")
       + hDim(m.x, m.x + m.w, front - 600, m.z)
       + hDim(h.x, h.x + h.w, h.z - 600, h.z)
@@ -188,6 +195,8 @@ export function roofPlanSvg(view: RoofDrawingView, style: RoofStyle, layout?: Vi
       + vDim(h.z, m.z + m.d, m.x + m.w + 1550, h.x + h.w)
       + vDim(a.z, a.z + a.d, a.x - 800, a.x);
   }
+  if (flat && view === "slab") drawing += flatDrawing;
+  drawing += polygon(box(chimney.x - chimney.capDepth / 2, chimney.z - chimney.capWidth / 2, chimney.capDepth, chimney.capWidth), "roof-chimney");
   const northX = right - 450, northZ = front + 500;
   return `<svg xmlns="http://www.w3.org/2000/svg" class="floor-svg roof-svg" data-roof-drawing="${view}" viewBox="${n(left)} ${n(top)} ${n(width)} ${n(depth)}" role="img" aria-label="${roofDrawingLabels[view]}，主辅楼屋面设计图，南向上、西向右，方案示意"><title>${roofDrawingLabels[view]} · 单位 mm · 方案示意</title><desc>实线为可见轮廓，虚线为投影；楼梯到最高居住层终止，坡屋面下顶板封闭，屋盖结构及防水待设计。</desc><defs><style>${roofDrawingStyles}</style><marker id="${id}-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#547e90" stroke-width="1.2"/></marker></defs><rect x="${n(left)}" y="${n(top)}" width="${n(width)}" height="${n(depth)}" fill="#fbfaf6"/><g transform="rotate(180 ${n(left + width / 2)} ${n(top + depth / 2)})">${drawing}<path d="M${n(northX)} ${n(northZ + 750)} V${n(northZ)} l-130 260 m130 -260 l130 260" class="roof-ridge"/>${label(northX, northZ + 1050, "北 N", "roof-small")}</g></svg>`;
 }
@@ -198,6 +207,6 @@ export function roofPlan(view: RoofDrawingView, style: RoofStyle, layout?: Villa
     ? "半层矮墙从半层楼面抬高，三楼屋檐设置环形天沟、三眼皮和梁托，上方设置坡瓦屋面及官帽。楼梯到半层终止。坡下净高和防水节点待深化。"
     : view === "slab"
     ? "顶板范围与三层露台投影分开表示，坡屋面下顶板封闭，楼梯到三层终止。屋盖承托与结构做法待设计核定。"
-    : `蓝灰＝主辅楼瓦面，浅褐＝官帽，灰环＝天沟；粗绿线＝屋脊，褐色虚线＝谷线，灰色虚线＝下层墙体／露台投影，蓝箭头＝坡向。天沟净宽：主楼 ${n(roofGutterDesign.clearWidth)}、辅楼 ${n(model.annexProfile.clearWidth)}；雨水口位置、天沟排水分区与防水节点待设计。`;
-  return `<div class="plan-sheets"><section class="plan-sheet roof-plan-sheet"><div class="plan-sheet-head"><h3>屋顶设计图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择屋顶图纸">${(Object.keys(roofDrawingLabels) as RoofDrawingView[]).map(key => `<button type="button" data-roof-drawing-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${roofDrawingLabels[key]}</button>`).join("")}<button type="button" id="download-roof-svg" class="secondary-button">下载 SVG</button></div></div><div class="roof-plan-meta"><span>长度／模型相对标高：mm</span><span>主楼出檐 ${n(site.thirdEave)}</span><span>辅楼出檐 ${n(site.eave)}</span><span>主楼瓦檐 ${height(model.main.eave + slabToTileEaveLift())}</span><span>辅楼瓦檐 ${height(model.annex.eave + model.annexProfile.tileLift)}</span><span>官帽瓦檐 ${height(model.hat.eave + slabToTileEaveLift())}</span><span>方案示意 · 非施工图</span></div>${roofPlanSvg(view, style, layout)}<p class="roof-plan-note">${note}</p></section></div>`;
+    : `蓝灰＝${model.annexFlat ? "主楼瓦面，浅灰＝辅楼平顶" : "主辅楼瓦面"}，浅褐＝官帽，灰环＝天沟；粗绿线＝屋脊，褐色虚线＝谷线，灰色虚线＝下层墙体／露台投影，蓝箭头＝坡向。天沟净宽：主楼 ${n(roofGutterDesign.clearWidth)}${model.annexFlat ? "" : `、辅楼 ${n(model.annexProfile.clearWidth)}`}；${model.annexFlat ? "辅楼取消环形天沟，平屋面找坡至两处点式侧排地漏（位置示意）；" : ""}雨水口位置、排水分区与防水节点待设计。`;
+  return `<div class="plan-sheets"><section class="plan-sheet roof-plan-sheet"><div class="plan-sheet-head"><h3>屋顶设计图</h3><div class="roof-drawing-tabs" role="group" aria-label="选择屋顶图纸">${(Object.keys(roofDrawingLabels) as RoofDrawingView[]).map(key => `<button type="button" data-roof-drawing-view="${key}" class="secondary-button${view === key ? " active" : ""}" aria-pressed="${view === key}">${roofDrawingLabels[key]}</button>`).join("")}<button type="button" id="download-roof-svg" class="secondary-button">下载 SVG</button></div></div><div class="roof-plan-meta"><span>长度／模型相对标高：mm</span><span>主楼出檐 ${n(site.thirdEave)}</span><span>辅楼出檐 ${n(site.eave)}</span><span>主楼瓦檐 ${height(model.main.eave + slabToTileEaveLift())}</span><span>${model.annexFlat ? `辅楼平顶露台 ${height(model.annexFlat.deckY)}` : `辅楼瓦檐 ${height(model.annex.eave + model.annexProfile.tileLift)}`}</span><span>官帽瓦檐 ${height(model.hat.eave + slabToTileEaveLift())}</span><span>方案示意 · 非施工图</span></div>${roofPlanSvg(view, style, layout)}<p class="roof-plan-note">${note}${model.annexFlat ? " 辅楼采用平顶露台，二楼侧窗默认改门并设置跨通道连接平台；细线为1100高护栏，排水、防水与结构待深化。" : ""}</p></section></div>`;
 }

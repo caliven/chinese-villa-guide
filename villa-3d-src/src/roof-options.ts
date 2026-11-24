@@ -5,6 +5,10 @@ export const roofStyleLabels = {
 
 export type RoofStyle = keyof typeof roofStyleLabels;
 export const DEFAULT_ROOF_STYLE: RoofStyle = "floating";
+export const annexRoofTypeLabels = { tiled: "瓦顶", flat: "平顶露台" } as const;
+export type AnnexRoofType = keyof typeof annexRoofTypeLabels;
+export const annexCanopyLabels = { off: "关闭", glass: "开启" } as const;
+export type AnnexCanopy = keyof typeof annexCanopyLabels;
 export const roofStylePreferenceKey = "anhua-villa-roof-style-v1";
 
 /** 室内楼板与外伸檐板共用的结构厚度（毫米）。 */
@@ -78,7 +82,7 @@ export let eaveTrimDesign = {
 
 /** 辅楼持有独立参数；主楼及官帽沿用默认上下文。 */
 export const annexRoofGutterDesign = { ...roofGutterDesign };
-export const annexEaveTrimDesign = { ...eaveTrimDesign };
+export const annexEaveTrimDesign = { ...eaveTrimDesign, corbelLength: 350, corbelSpacing: 600, corbelCornerSpacing: 500, eyelidToFascia: 250 };
 
 /**
  * 几何生成是同步的：在辅楼生成范围内选择其屋面构造，结束或抛错均恢复。

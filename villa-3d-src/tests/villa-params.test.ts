@@ -277,11 +277,11 @@ test("屋后预留变化后通高玻璃与辅楼屋顶随楼体 Z 平移", async
   // rearGap=1000 → main.z = 10800−1000−10000 = −200；相对默认 0 北移 200
   assert.ok(Math.abs(site.main.z - (-200)) < 1e-6);
   const roof = annexRoofFootprint();
-  // 默认主辅楼出檐数值相同，辅楼由 site.eave 独立控制。
-  assert.ok(Math.abs(site.eave - site.thirdEave) < 1e-6);
-  assert.ok(Math.abs(roof.z - (site.annex.z - site.thirdEave)) < 1e-6);
-  assert.ok(Math.abs(roof.d - (site.annex.d + 2 * site.thirdEave)) < 1e-6);
-  assert.ok(Math.abs(roof.w - (site.annex.w + 2 * site.thirdEave)) < 1e-6);
+  // 辅楼出檐600，独立于主楼800。
+  assert.equal(site.eave, DEFAULT_VILLA_PARAMS.annexEave);
+  assert.ok(Math.abs(roof.z - (site.annex.z - site.eave)) < 1e-6);
+  assert.ok(Math.abs(roof.d - (site.annex.d + 2 * site.eave)) < 1e-6);
+  assert.ok(Math.abs(roof.w - (site.annex.w + 2 * site.eave)) < 1e-6);
   const villa = buildVilla(mat, false);
   const curtain = villa.group.getObjectByName("挑空客厅一二层通高玻璃");
   assert.ok(curtain);

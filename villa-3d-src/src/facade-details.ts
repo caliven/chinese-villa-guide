@@ -1095,6 +1095,19 @@ function slopeGutterBed(mesh: THREE.Mesh, outer: Point[]) {
   mesh.geometry.computeBoundingBox();
 }
 
+/** 平顶只沿用三眼皮与檐下承托，不生成瓦屋面天沟及反坎。 */
+export function flatRoofEaves(
+  parent: THREE.Object3D, x: number, z: number, w: number, d: number,
+  base: number, mat: Mats, wall: WallFootprint,
+) {
+  const g = new THREE.Group();
+  g.name = "平顶三眼皮挑檐与梁托";
+  parent.add(g);
+  tripleEyelid(g, x, z, w, d, base, mat, wall);
+  addCorbelsAndFascia(g, wall, base, mat);
+  return g;
+}
+
 // 坡瓦收于有底、有外挡边的环形天沟内。瓦边缩进，避免穿出天沟及用地边界。
 // bay 把前檐中段和官帽连成同一条天沟、同一圈三眼皮。
 export function roofEaves(

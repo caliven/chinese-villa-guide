@@ -2,6 +2,8 @@ import { frontApronOutline, entranceApproachLayout, porticoElevation, recessedPo
 import * as THREE from "three";
 import { isHalfStoreyScheme } from "./construction-scheme";
 import { clipHalfStorey } from "./half-storey";
+import { annexFlatRoofLayout } from "./annex-terrace";
+import { flueOutline } from "./flue-geometry.ts";
 import { buildHalfStoreyLevel } from "./half-storey-model";
 import { buildHalfStoreyBalcony, buildHalfStoreyPortico, halfStoreyFloorOutline } from "./half-storey-portico.ts";
 import { orthogonalFloorGeometry } from "./floor-geometry";
@@ -44,7 +46,7 @@ import {
   secondFloorSideGlassHeadY,
   thirdFloorMaxOpeningHead,
 } from "./facades";
-import { cornerPilaster, balconyCornerPost, recessedHatPier, glassBalustrade, frontTerraceRailRuns, terraceParapetLayout, terraceParapetWallRuns, gutteredRoof, roofEaves, integratedHatEaves, hipRise, meander, tiledApron, openingFrame, apronFasciaBottom, hatSupportInset, apronSupportOutline } from "./facade-details";
+import { cornerPilaster, balconyCornerPost, recessedHatPier, glassBalustrade, frontTerraceRailRuns, terraceParapetLayout, terraceParapetWallRuns, gutteredRoof, roofEaves, flatRoofEaves, integratedHatEaves, hipRise, meander, tiledApron, openingFrame, apronFasciaBottom, hatSupportInset, apronSupportOutline } from "./facade-details";
 import { referencePorticoColumn, referenceCornerPilaster, referencePorticoBeam, referencePorticoReturnBeam, referenceUpperCornerPilaster, columnProfileMeshes } from "./entrance-carvings";
 import { porticoShoulderProfile } from "./column-profiles";
 import { PORTICO_BEAM_DEPTH, porticoColumnCenters, porticoColumnOuterWidth } from "./frontage-geometry";
@@ -594,7 +596,7 @@ function buildVillaInContext(
     partitions: annexParts,
   });
   const signatures: VillaModel["signatures"] = {
-    structure: JSON.stringify([site, roofGutterDesign, eaveTrimDesign, annexRoofGutterDesign, annexEaveTrimDesign, floatingHatDesign, frontElevation, construction, circulation, floors.map(f => [f.y, f.height, f.front]), topSlabLayout, railings.signature(railings.roofGuards), fenShui, roofStyle]),
+    structure: JSON.stringify([site, roofGutterDesign, eaveTrimDesign, annexRoofGutterDesign, annexEaveTrimDesign, floatingHatDesign, frontElevation, construction, circulation, floors.map(f => [f.y, f.height, f.front]), topSlabLayout, site.annexRoofType === "flat" ? annexFlatRoofLayout(layout?.exteriorOpenings) : null, railings.signature(railings.roofGuards), fenShui, roofStyle]),
     levels: floorList.map((floor, index) => JSON.stringify([
       floor, withLabels, stairPresent, stairGeom, index === 1 ? livingVoid : null, layoutFacades[index], index < 2 && customFront, interiorRailing, railings.floorSignature(index),
     ])),
@@ -1186,12 +1188,18 @@ function buildVillaInContext(
           door: opening.door, hinge: opening.hinge, side: opening.side, kind: opening.kind }] : [],
         mat, wallRoleOf(p) === "bearing" ? construction.outsideWall : construction.partition, true);
     }
+    const chimney = annexChimneyModel();
+    box(annex, chimney.wallX, (chimney.splitY + chimney.bottom) / 2, chimney.z,
+      chimney.bodyDepth, chimney.splitY - chimney.bottom, chimney.bodyWidth, mat.flueMetal).name = "辅楼外墙烟道下段";
+    for (let y = chimney.bottom + 500; y < chimney.splitY - 200; y += 900)
+      box(annex, (chimney.wallX + chimney.wall) / 2, y, chimney.z, Math.abs(chimney.wallX - chimney.wall) + 12,
+        24, chimney.bodyWidth + 50, mat.metal).name = "辅楼金属烟管墙托";
     annexFurn.forEach((f, index) => {
       const model = furnish(annex, f, site.entranceRise, mat);
       model.userData.layoutSelection = { kind: "furniture", floor: 0, index, annex: true };
     });
   }
-  if (!reuseStatic) attachRoofs(roof, annexRoof, mat, fenShui, roofStyle);
+  if (!reuseStatic) attachRoofs(roof, annexRoof, mat, fenShui, roofStyle, layout);
   const frontNames = ["挑空客厅一二层通高玻璃", "门厅一二层通高门", "烤火房回纹横披"];
   const reuseFront = reuseStatic && reuse!.signatures.front === signatures.front;
   if (!reuseFront) {
@@ -1246,7 +1254,7 @@ export function attachLayoutRoofs(
   roof: THREE.Object3D, annexRoof: THREE.Object3D, mat: Mats,
   fenShui: number, roofStyle: RoofStyle, layout?: VillaLayoutLive | null,
 ) {
-  return withLayoutContext(layout, () => attachRoofs(roof, annexRoof, mat, fenShui, roofStyle));
+  return withLayoutContext(layout, () => attachRoofs(roof, annexRoof, mat, fenShui, roofStyle, layout));
 }
 
 /**
@@ -1291,7 +1299,7 @@ export function roofPitch(fenShui: number) {
     mainRun: (Math.min(main.w, main.d) - 2 * roofTileInset) / 2,
     annexRun,
     mainRise: hipRise(main.w, main.d, fenShui),
-    annexRise: annexRun * site.annexRoofFenShui / 10,
+    annexRise: site.annexRoofType === "flat" ? 0 : annexRun * site.annexRoofFenShui / 10,
   };
 }
 
@@ -1343,22 +1351,24 @@ export function roofPlanModel(style: RoofStyle, layout?: VillaLayoutLive | null,
     const main = mainRoofFootprint(), annex = annexRoofFootprint(), pitch = roofPitch(fenShui);
     const lift = slabToTileEaveLift(), inset = roofTileInset;
     const annexProfile = annexRoofProfile();
+    const flat = site.annexRoofType === "flat" ? annexFlatRoofLayout(layout?.exteriorOpenings) : null;
     const hip = (r: typeof main, rise: number, i = inset, l = lift) => hipRoofSurfaces(r.x + i, r.z + i, r.w - 2 * i, r.d - 2 * i, r.eave + l, rise);
     const mainHip = hip(main, pitch.mainRise), annexHip = hip(annex, pitch.annexRise, annexProfile.tileInset, annexProfile.tileLift);
     const hat = style === "floating" ? floatingHatLayout(fenShui) : joinedHatLayout(fenShui);
     const hatFaces = hatRoofSurfaces(hat.x + hat.w / 2, hat.z, hat.w, hat.joinZ, hat.eave + lift, hat.peak, 1, hat.ridgeFront);
     const mainRidges = visibleRoofRidges([...mainHip.ridges, ...hatFaces.ridges], [...mainHip.faces, ...hatFaces.faces]);
-    const annexRidges = visibleRoofRidges(annexHip.ridges, annexHip.faces);
+    const annexRidges = flat ? [] : visibleRoofRidges(annexHip.ridges, annexHip.faces);
     const mainPeak = main.eave + lift + pitch.mainRise;
-    const annexPeak = annex.eave + annexProfile.tileLift + pitch.annexRise;
+    const annexPeak = flat ? flat.deckY : annex.eave + annexProfile.tileLift + pitch.annexRise;
     return {
       main, annex, hat: { ...hat }, pitch, annexProfile, slabs: roofSlabLayout(layout),
       frontTrimGap: style === "floating" ? floatingHatTrimGap() : undefined,
       mainFaces: joinRoofFaces([...mainHip.faces, ...hatFaces.faces]),
-      annexFaces: annexHip.faces,
+      annexFaces: flat ? [] : annexHip.faces,
+      annexFlat: flat,
       mainRidges, annexRidges, mainPeak, annexPeak,
       mainRidgePeak: roofRidgePeak(mainRidges, mainPeak),
-      annexRidgePeak: roofRidgePeak(annexRidges, annexPeak),
+      annexRidgePeak: flat ? Math.max(flat.deckY + 1100, flat.canopy?.peak ?? 0) : roofRidgePeak(annexRidges, annexPeak),
       portico: { ...site.portico },
     };
   });
@@ -1382,18 +1392,28 @@ export function elevationModel(style: RoofStyle, layout?: VillaLayoutLive | null
   }));
 }
 
-/** 烟囱外壳与盖板共用模型定位，避免图纸自行估算屋面出口高度。 */
+/** 外挂扁平金属烟管绕过挑檐；雨棚开启时从收水槽外侧升起，均不穿板或玻璃。 */
 export function annexChimneyModel() {
-  const annex = annexRoofFootprint(), pitch = roofPitch(site.roofFenShui);
-  const { tileInset: roofTileInset, tileLift } = annexRoofProfile();
-  // 向前离开后侧斜脊，烟囱及盖板完整落在侧坡内。
-  const x = annexLocalX(850), z = site.annex.z + site.annex.d - 2050;
-  const localX = x - (annex.x + roofTileInset), localZ = z - (annex.z + roofTileInset);
-  const tileW = annex.w - 2 * roofTileInset, tileD = annex.d - 2 * roofTileInset;
-  const run = Math.min(tileW, tileD) / 2;
-  const dx = Math.min(localX, tileW - localX), dz = Math.min(localZ, tileD - localZ);
-  const base = annex.eave + tileLift + pitch.annexRise * Math.min(1, Math.min(dx, dz) / Math.max(50, run));
-  return { x, z, base, capY: base + 1600 };
+  const annex = annexRoofFootprint();
+  const { tileLift } = annexRoofProfile();
+  const bodyWidth = 560, bodyDepth = 160, capWidth = 680, capDepth = 280, capThickness = 35;
+  const outward = site.main.x > site.annex.x ? -1 : 1;
+  const wall = annexLocalX(0), wallX = wall + outward * (40 + bodyDepth / 2);
+  const z = site.annex.z + site.annex.d - Math.min(600, site.annex.d / 4);
+  const flat = site.annexRoofType === "flat" ? annexFlatRoofLayout() : null;
+  const base = flat ? flat.deckY : annex.eave + tileLift;
+  const outerEdge = flat?.canopy?.outerEdgeX ?? wall + outward * (site.eave + eyelidFixed.copingOverhang);
+  const x = outerEdge + outward * (capDepth / 2 + 100);
+  const fasciaBottom = withAnnexRoofDesign(() => fasciaBottomY(annex.eave, 0));
+  const bendY = fasciaBottom - 260, splitY = Math.max(site.entranceRise + 100, bendY - 450);
+  // 短出顶造型按附近低檐控制，不再追随屋脊或雨棚高边拔高。
+  const capY = flat?.canopy ? flat.canopy.lowY + 260 : base + 420;
+  const corner = Math.min(180, Math.abs(x - wallX) / 3);
+  const upperPath: Point[] = [[wallX, splitY], [wallX, bendY - corner], [wallX + outward * corner, bendY],
+    [x - outward * corner, bendY], [x, bendY + corner], [x, capY - 140]];
+  const outline = flueOutline(upperPath, bodyDepth);
+  return { x, wallX, wall, outward, z, base, capY, splitY, bottom: site.entranceRise,
+    bodyWidth, bodyDepth, capWidth, capDepth, capThickness, upperPath, outline };
 }
 
 function floatingHat(parent: THREE.Object3D, mainRoof: THREE.Object3D, mat: Mats, fenShui: number, baseParent = parent) {
@@ -1431,6 +1451,7 @@ export function attachRoofs(
   mat: Mats,
   fenShui = site.roofFenShui,
   roofStyle: RoofStyle = DEFAULT_ROOF_STYLE,
+  layout?: VillaLayoutLive | null,
 ) {
   const main = mainRoofFootprint();
   const pitch = roofPitch(fenShui);
@@ -1473,7 +1494,26 @@ export function attachRoofs(
   }
   const annex = annexRoofFootprint();
   const annexWall = { x: site.annex.x, z: site.annex.z, w: site.annex.w, d: site.annex.d };
-  withAnnexRoofDesign(() => gutteredRoof(annexRoof, annex.x, annex.z, annex.w, annex.d, annex.eave, pitch.annexRise, mat, undefined, annexWall, annexCover));
+  const flat = site.annexRoofType === "flat" ? annexFlatRoofLayout(layout?.exteriorOpenings) : null;
+  if (flat) {
+    withAnnexRoofDesign(() => flatRoofEaves(annexRoof, annex.x, annex.z, annex.w, annex.d, annex.eave, mat, annexWall));
+    annexCover.name = "辅楼平顶露台与连接平台";
+    for (const p of flat.pieces) {
+      const mesh = box(annexRoof, p.x, (p.bottom + p.top) / 2, p.z, p.w, p.top - p.bottom, p.d, mat[p.finish]);
+      mesh.name = p.name;
+      if (p.slopeX || p.slopeZ) {
+        // box共用单位几何，斜屋面必须独立生成，不能剪切全屋其它盒体。
+        mesh.geometry = new THREE.BoxGeometry(p.w, p.top - p.bottom, p.d);
+        mesh.scale.set(1, 1, 1);
+        const vertices = mesh.geometry.getAttribute("position");
+        for (let i = 0; i < vertices.count; i++) vertices.setY(i, vertices.getY(i)
+          + vertices.getX(i) * (p.slopeX ?? 0) + vertices.getZ(i) * (p.slopeZ ?? 0));
+        mesh.geometry.computeVertexNormals();
+        mesh.geometry.computeBoundingBox();
+        mesh.geometry.computeBoundingSphere();
+      }
+    }
+  } else withAnnexRoofDesign(() => gutteredRoof(annexRoof, annex.x, annex.z, annex.w, annex.d, annex.eave, pitch.annexRise, mat, undefined, annexWall, annexCover));
   // 瓦下补农村四坡常见木屋盖：正脊檩、斜脊梁、檩条与椽子（示意，非结构验算）。
   const tileLift = slabToTileEaveLift();
   const mainHip = hipRoofSurfaces(
@@ -1488,15 +1528,22 @@ export function attachRoofs(
     annex.w - 2 * annexProfile.tileInset, annex.d - 2 * annexProfile.tileInset,
     annex.eave + annexProfile.tileLift, pitch.annexRise,
   );
-  withAnnexRoofDesign(() => addTimberRoofFrame(annexCover, annexHip, mat.wood));
-  // 烟囱相对辅楼檐口＋坡起定位，避免墙高变化后出口低于瓦面。
-  const { x: chimneyX, z: chimneyZ, base: roofYAtChimney, capY } = annexChimneyModel();
-  const stackH = 1600;
-  const stackMid = roofYAtChimney + stackH / 2 - 200;
-  box(annexCover, chimneyX, stackMid, chimneyZ, 460, stackH + 400, 460, mat.stone);
-  box(annexCover, chimneyX, capY + 60, chimneyZ, 720, 120, 720, mat.dark);
-  for (const x of [chimneyX - 200, chimneyX + 200])
-    box(annexCover, x, capY - 140, chimneyZ, 45, 320, 45, mat.metal);
+  if (!flat) withAnnexRoofDesign(() => addTimberRoofFrame(annexCover, annexHip, mat.wood));
+  const chimney = annexChimneyModel();
+  const flue = new THREE.Group(); flue.name = "辅楼外挂扁平金属烟管"; annexCover.add(flue);
+  const shape = new THREE.Shape(chimney.outline.map(([x, y]) => new THREE.Vector2(x, y)));
+  const duct = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: chimney.bodyWidth, bevelEnabled: false }), mat.flueMetal);
+  duct.position.z = chimney.z - chimney.bodyWidth / 2;
+  duct.name = "辅楼外墙烟道上段"; duct.castShadow = true; duct.receiveShadow = true;
+  flue.add(duct);
+  box(flue, chimney.x, chimney.capY + chimney.capThickness / 2, chimney.z,
+    chimney.capDepth, chimney.capThickness, chimney.capWidth, mat.flueMetal).name = "辅楼金属烟管防雨帽";
+  for (const z of [chimney.z - chimney.bodyWidth / 2 + 25, chimney.z + chimney.bodyWidth / 2 - 25])
+    box(flue, chimney.x, chimney.capY - 70, z, 24, 140, 24, mat.flueMetal);
+  // 长外挂段以檐口侧支架承托，不让管道悬空；支架在楼板外皮结束。
+  const bracketEdge = annexLocalX(-site.eave - 24);
+  box(flue, (chimney.x + bracketEdge) / 2, chimney.base + 150, chimney.z,
+    Math.abs(chimney.x - bracketEdge), 32, 40, mat.metal).name = "辅楼金属烟管檐外支架";
   roof.add(mainCover);
   annexRoof.add(annexCover);
 }

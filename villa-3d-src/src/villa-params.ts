@@ -42,6 +42,8 @@ import {
   gutterBedTop,
   gutterCopingThickness,
   eyelidFixed,
+  type AnnexRoofType,
+  type AnnexCanopy,
 } from "./roof-options.ts";
 import { surroundings, rebuildTerraceLinkage, syncNeighborFootprint, syncRoadsideVillaPlacement } from "./surroundings.ts";
 import { rebuildGarageLayout } from "./garage-layout.ts";
@@ -60,6 +62,8 @@ export const LOCKED_SITE_WIDTH = 21000;
 export const villaParamsPreferenceKey = "anhua-villa-params-v1";
 
 export interface VillaParams {
+  annexRoofType: AnnexRoofType;
+  annexCanopy: AnnexCanopy;
   /** 两层半层高的新口径。缺省表示旧屋脊预算稿，载入时转换。 */
   halfStoreyHeightMode?: "storey";
   livingRailingStyle: RailingStyle;
@@ -173,6 +177,8 @@ export interface VillaParams {
 }
 
 export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
+  annexRoofType: "tiled",
+  annexCanopy: "glass",
   livingRailingStyle: "glass",
   stairRailingStyle: "wood",
   porticoStyle: "projecting",
@@ -200,7 +206,7 @@ export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
   annexDepth: 8000,
   annexHeight: 3600,
   annexSetback: 2000,
-  annexEave: 800,
+  annexEave: 600,
   roofFenShui: 4.5,
   gutterClearWidth: 600,
   gutterClearDepth: 200,
@@ -224,10 +230,10 @@ export const THREE_STOREY_DEFAULT_PARAMS: VillaParams = {
   annexGutterTileGap: 50,
   annexGutterTileOverhang: 200,
   annexGutterCopingSlope: 4,
-  annexCorbelLength: 500,
-  annexCorbelSpacing: 700,
-  annexCorbelCornerSpacing: 600,
-  annexEyelidToFasciaGap: 300,
+  annexCorbelLength: 350,
+  annexCorbelSpacing: 600,
+  annexCorbelCornerSpacing: 500,
+  annexEyelidToFasciaGap: 250,
   floatingHatHeightOffset: 200,
   oldDepth: 10800,
   rearGap: 800,
@@ -501,6 +507,8 @@ export function buildingDepthLimits(p: VillaParams) {
 export function validateVillaParams(p: VillaParams, scheme: ConstructionScheme = activeConstructionScheme): VillaParamsIssue[] {
   const halfStorey = scheme === "two-and-half";
   const issues: VillaParamsIssue[] = halfStorey ? validateHalfStoreyParams(p) : [];
+  if (p.annexCanopy !== undefined && !["off", "glass"].includes(p.annexCanopy)) issues.push({ field: "annexCanopy", message: "辅楼阳光雨棚类型无效" });
+  if (p.annexRoofType !== undefined && !["tiled", "flat"].includes(p.annexRoofType)) issues.push({ field: "annexRoofType", message: "辅楼屋顶类型无效" });
   for (const field of ["livingRailingStyle", "stairRailingStyle"] as const) {
     if (p[field] !== undefined && !isRailingStyle(p[field])) issues.push({ field, message: "栏杆造型无效" });
   }
@@ -939,10 +947,10 @@ export function normalizeVillaParamsLengths(input: Partial<VillaParams>, scheme:
   const params = { ...defaults, ...known };
   const independent = Object.values(ANNEX_ROOF_PARAM_KEYS).some(key => raw[key] !== undefined);
   for (const [main, annex] of Object.entries(ANNEX_ROOF_PARAM_KEYS) as [keyof typeof ANNEX_ROOF_PARAM_KEYS, typeof ANNEX_ROOF_PARAM_KEYS[keyof typeof ANNEX_ROOF_PARAM_KEYS]][]) {
-    if (raw[annex] === undefined) params[annex] = params[main];
+    if (raw[annex] === undefined && raw[main] !== undefined) params[annex] = params[main];
   }
   // 旧 annexEave 曾被强制覆盖，按当时真正生效的主楼出檐恢复，避免旧稿外观突变。
-  if (!independent) params.annexEave = params.thirdEave;
+  if (!independent && raw.thirdEave !== undefined) params.annexEave = params.thirdEave;
   // 迁移旧默认天沟组合，250内挡低于含压顶的外挡最高点。
   for (const [depth, inner, width, slope] of [
     ["gutterClearDepth", "gutterInnerDepth", "gutterOuterTopWidth", "gutterCopingSlope"],
@@ -1014,6 +1022,8 @@ export function applyVillaParams(input: VillaParams) {
 
   site.porticoStyle = synced.porticoStyle;
   site.buildingPlacement = synced.buildingPlacement;
+  site.annexRoofType = synced.annexRoofType;
+  site.annexCanopy = synced.annexCanopy;
   site.width = LOCKED_SITE_WIDTH;
   site.sideGap = westGap;
   site.lane = synced.lane;

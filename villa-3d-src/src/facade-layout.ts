@@ -1,5 +1,6 @@
 import { recessFrontFacades, thirdFloorWingIsClosed } from "./building-variants.ts";
 import { isHalfStoreyScheme } from "./construction-scheme.ts";
+import { annexFacingFacadeIndex, annexTerraceOpenings } from "./annex-terrace.ts";
 import { site, floors, circulation, type Floor, type Point } from "./data.ts";
 import { facades, mainEaveY, standardExteriorDoor, secondFloorSideGlassHeadY, thirdFloorMaxOpeningHead, type Opening } from "./facades.ts";
 import { facadeOpeningToWallOpening, type ExteriorOpeningDraft, type VoidDraft } from "./layout-draft.ts";
@@ -112,11 +113,19 @@ function ordinaryFacades(index: number, layout?: FacadeLayout | null) {
 
 /** 挑空外窗由下层洞口定位／宽度和上层窗顶共同确定，只派生渲染数据，不改户型稿。 */
 export function resolveLayoutFacades(layout?: FacadeLayout | null) {
-  if (layout?.exteriorOpenings) layout = { ...layout, exteriorOpenings: alignedEntryOpenings(layout) };
+  if (layout?.exteriorOpenings) layout = { ...layout, exteriorOpenings: annexTerraceOpenings(alignedEntryOpenings(layout)) };
   const walls = [0, 1, 2, 3].map(index => {
     const faces = ordinaryFacades(index, layout);
     return index === 3 ? faces : recessFrontFacades(faces, (layout?.floors ?? floors)[index].front);
   });
+  if (!layout?.exteriorOpenings && site.annexRoofType === "flat") {
+    const facadeIndex = annexFacingFacadeIndex(), face = walls[1][facadeIndex];
+    const items = face.openings.map(o => ({ floor: 1, facadeIndex, opening: facadeOpeningToWallOpening(o) }));
+    annexTerraceOpenings(items).forEach((item, i) => {
+      if (item.opening.kind === "door" && !face.openings[i].door)
+        face.openings[i] = { ...face.openings[i], door: true, kind: "door", sill: 0, h: standardExteriorDoor({ ...face.openings[i], door: true }, 1, floors[1].height).h, span: undefined };
+    });
+  }
   const floorList = layout?.floors ?? floors;
   const entries: EntryAssembly[] = [];
   if (!isHalfStoreyScheme) walls[0].forEach((face, facadeIndex) => {

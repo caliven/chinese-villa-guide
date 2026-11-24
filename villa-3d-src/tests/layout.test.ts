@@ -176,6 +176,7 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
     "grass",
     "soil",
     "metal",
+    "flueMetal",
     "glass",
     "lowE",
     "inside",
@@ -235,6 +236,8 @@ test("主辅楼屋檐均落在参考地块内，门厅二层没有平台", () =>
   ] as const)
     root.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
+      // 外挂烟管按造型从挑檐之外绕行，不属于本项核对的屋檐范围；避让由烟管专项检查。
+      if (o.parent?.name === "辅楼外挂扁平金属烟管") return;
       const pos = o.geometry.getAttribute("position");
       for (
         let instance = 0;

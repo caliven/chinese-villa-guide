@@ -1,3 +1,4 @@
+import { annexChimneyModel } from "./architecture";
 import { isHalfStoreyScheme } from "./construction-scheme";
 import { halfStoreyClearanceZones } from "./half-storey-plan";
 import { halfStoreyBalcony, halfStoreyBalconyRails } from "./half-storey-portico.ts";
@@ -34,10 +35,11 @@ import { collectPlanDimensions, collectPlanSiteDimensions, planDimSpanMm, type P
 import { virtualWallRegions } from "./plan-regions";
 import { ensureFurnitureWallClearance } from "./layout-align";
 import type { LayoutDraft, StairDraft, PorticoDraft, VoidDraft, ExteriorOpeningDraft } from "./layout-draft";
-import { draftHasStair } from "./layout-draft";
+import { draftHasStair, collectPublishedExteriorOpenings } from "./layout-draft";
 import { stairShape, stairWellBounds, fitStairToRoom } from "./stair-geometry";
 import { entryWindowGuards, livingVoidGuards, stairFloorGuards, type GuardSegment } from "./interior-guards";
 import { resolveLayoutFacades } from "./facade-layout";
+import { annexFlatRoofLayout, annexTerraceOpenings } from "./annex-terrace";
 import { canonicalRailingStyle, resolvedRailingStyle, railingStyleLabels, railingThickness } from "./railing-options";
 import { bedLayout, furnitureHasFacing, furnitureHasUseZone, furnitureLocalBounds, isRoundFurniture } from "./furniture-catalog";
 import { floorplanFurnitureSymbol } from "./floorplan-furniture";
@@ -304,8 +306,8 @@ export function planSourceFromPublished(index: number): PlanSource {
     sideDoorZ: circulation.sideDoorZ,
     sideDoorWidth: circulation.sideDoorWidth,
     thirdFront: floors[2].front,
-    exteriorOpenings: [],
-    exteriorManaged: false,
+    exteriorOpenings: site.annexRoofType === "flat" ? annexTerraceOpenings(collectPublishedExteriorOpenings()) : [],
+    exteriorManaged: site.annexRoofType === "flat",
     stairPresent: floors.some((f) => f.rooms.some((r) => r.kind === "stair")),
     entryGuards: index > 0 ? entryWindowGuards(resolveLayoutFacades().facades[index], floors[index], fitStairToRoom(stairLayout as StairDraft, floors), index === 1 ? circulation.livingVoid : undefined) : [],
   };
@@ -323,7 +325,7 @@ export function planSourceFromDraft(draft: LayoutDraft, index: number): PlanSour
     sideDoorZ: draft.sideDoorZ,
     sideDoorWidth: draft.sideDoorWidth,
     thirdFront: draft.floors[2].front,
-    exteriorOpenings: alignedEntryOpenings(draft).map(item => item.opening.kind === "slidingDoor" && thirdFloorWingIsClosed(item.floor, item.facadeIndex, item.opening.offset + item.opening.width / 2)
+    exteriorOpenings: annexTerraceOpenings(alignedEntryOpenings(draft)).map(item => item.opening.kind === "slidingDoor" && thirdFloorWingIsClosed(item.floor, item.facadeIndex, item.opening.offset + item.opening.width / 2)
       ? { ...item, opening: { ...item.opening, kind: "window" as const } } : item),
     exteriorManaged: draft.exteriorManaged,
     stairPresent: draftHasStair(draft),
@@ -900,13 +902,25 @@ function porticoPosts(porch: PorticoDraft) {
   return porticoColumnCenters(porch).map(x => ({ x, w }));
 }
 
+/** 二楼平面同步露台及跨通道平台，不能只画一扇通向空白的门。 */
+function terracePlan(flat: ReturnType<typeof annexFlatRoofLayout>) {
+  const r = flat.footprint;
+  return `<g class="annex-flat-terrace" pointer-events="none">${rect(r.x, r.z, r.w, r.d, 'fill="#ece8df" stroke="#75857e" stroke-width="35"')}
+    ${flat.pieces.filter(p => p.name === "二楼通辅楼连接平台").map(p => rect(p.x - p.w / 2, p.z - p.d / 2, p.w, p.d, 'fill="#e6e5dc" stroke="#75857e" stroke-width="30"')).join("")}
+    ${flat.guards.map(g => `<path d="M${g.a.join(" ")} L${g.b.join(" ")}" fill="none" stroke="#52665e" stroke-width="45"/>`).join("")}
+    ${flat.canopy ? rect(flat.canopy.x, flat.canopy.z, flat.canopy.w, flat.canopy.d, 'fill="none" stroke="#527076" stroke-width="25" stroke-dasharray="140 90"') : ""}
+    ${text(r.x + r.w / 2, r.z + r.d / 2, flat.canopy ? "辅楼露台 · 上方玻璃雨棚" : "辅楼平顶露台", "room-name")}
+    ${text(r.x + r.w / 2, r.z + r.d / 2 + 500, `完成面 +${formatMm(flat.deckY)}`, "room-size")}</g>`;
+}
+
 export function floorPlan(index: number, clearance: boolean, balcony: boolean, options: PlanOptions = {}, source?: PlanSource) {
   if (!source) ensureFurnitureWallClearance();
   if (options.editorCanvas) {
     const src = source ?? planSourceFromPublished(index);
-    const west = index === 0 ? Math.min(site.annex.x, site.main.x) : site.main.x;
+    const flat = index === 1 && site.annexRoofType === "flat" ? annexFlatRoofLayout(src.exteriorOpenings) : null;
+    const west = flat ? Math.min(site.main.x, flat.footprint.x) : index === 0 ? Math.min(site.annex.x, site.main.x) : site.main.x;
     const north = Math.min(src.floor.front, porticoElevation(src.portico).porticoColumnZ);
-    const frame = planFrame(west, index === 0 ? Math.max(site.annex.x + site.annex.w, site.main.x + site.main.w) : site.main.x + site.main.w, north - 1000, site.main.z + site.main.d + 1000);
+    const frame = planFrame(west, index === 0 || flat ? Math.max(site.annex.x + site.annex.w + (flat ? site.eave : 0), site.main.x + site.main.w) : site.main.x + site.main.w, north - 1000, site.main.z + site.main.d + 1000);
     const { cx, cy } = planViewCenter(frame.viewBox);
     return `<svg class="floor-svg editor-floor-svg ${options.editable ? "editing" : ""}" data-plan-building="all" data-canvas-floor="${index}" xmlns="http://www.w3.org/2000/svg" viewBox="${frame.viewBox}" aria-label="${src.floor.name}统一户型编辑画布，南向上，西向右，长度单位毫米">
       <defs><pattern id="editor-dot-grid" patternUnits="userSpaceOnUse" width="500" height="500"><circle cx="250" cy="250" r="18" fill="#d4cbbb"/></pattern></defs>
@@ -1099,6 +1113,7 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
       : Math.min(porchFront, columnNorth);
   const dimensions = planOuterDimensions(index, northClear, src, building, !!options.editorCanvas, editable && selected?.kind === "stair");
   const body = isAnnex ? site.annex : site.main;
+  const flatPreview = !isAnnex && index === 1 && site.annexRoofType === "flat" ? annexFlatRoofLayout(src.exteriorOpenings) : null;
   const regionBody = isAnnex ? body : { ...body, z: f.front, d: site.main.z + site.main.d - f.front };
   // 「分区／分区包络」易与房间混淆：仅在虚线分区中心尚未被房间占用时标注，并改用更明确文案。
   const regionLabels = virtualWallRegions(regionBody, isAnnex ? annexParts : mainPartitions)
@@ -1131,8 +1146,8 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
       ];
   // 固定预留标注空间；实体墙增减尺寸分段时坐标系保持不变。
   const frame = planFrame(
-    body.x,
-    body.x + body.w,
+    flatPreview ? Math.min(body.x, flatPreview.footprint.x) : body.x,
+    flatPreview ? Math.max(body.x + body.w, flatPreview.footprint.x + flatPreview.footprint.w) : body.x + body.w,
     northClear - PLAN_DIM_FACE - 3 * PLAN_DIM_CHAIN,
     body.z + body.d + PLAN_DIM_FACE + 3 * PLAN_DIM_CHAIN,
   );
@@ -1145,6 +1160,8 @@ function buildingFloorPlan(index: number, clearance: boolean, balcony: boolean, 
   return `${options.editorCanvas ? "" : `<svg data-plan-building="${building}" class="floor-svg ${isAnnex ? "annex-floor-svg" : "main-floor-svg"} ${editable ? "editing" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="${frame.viewBox}" aria-label="${isAnnex ? "辅楼一层" : `主楼${f.name}`}户型平面图，${orientLabel}${options.dining === "daily" ? "，餐厅日常6座建议情景" : ""}${editable ? "，编辑模式" : ""}">`}
     ${s}${options.editorCanvas ? "" : `<rect x="${frame.board.x}" y="${frame.board.z}" width="${frame.board.w}" height="${frame.board.h}" rx="200" fill="#fbfaf6"/>`}
     ${worldOpen}
+    ${flatPreview ? terracePlan(flatPreview) : ""}
+    ${isAnnex || flatPreview ? (() => { const c = annexChimneyModel(); return `<g class="annex-exterior-chimney" pointer-events="none">${rect(c.wallX - c.bodyDepth / 2, c.z - c.bodyWidth / 2, c.bodyDepth, c.bodyWidth, 'fill="#b8c1c5" stroke="#52665e" stroke-width="20"')}<title>辅楼贴墙扁平金属烟管</title></g>`; })() : ""}
     ${dimensions.svg}
     ${!isAnnex && !halfTop && index === 2 && hasThirdFloorSideTerraces() ? `${elevation.sideTerraces.map(t => rect(t.x, elevation.terraceFront, t.w, f.front + 40 - elevation.terraceFront, 'fill="#e9e2d4" stroke="#b4b6a9" stroke-width="60"')).join("")}${text(8850, -200, "西侧露台", "dim-label")}${text(18400, -200, "东侧露台", "dim-label")}` : ""}
     ${porticoHit}${showPortico ? rect(porchX, porchY, porchWidth, porchH, `fill="${index === 1 && !halfBalcony ? "url(#void)" : "#e9e2d4"}" stroke="#b4b6a9" stroke-width="60"`) : ""}

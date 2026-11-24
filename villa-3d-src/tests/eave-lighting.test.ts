@@ -5,7 +5,7 @@ import { annexRoofFootprint, attachRoofs, floatingHatLayout, mainRoofFootprint }
 import { hatSupportInset, tiledApron } from "../src/facade-details";
 import { setEaveWashAppearance, setEaveWashVisible } from "../src/eave-lighting";
 import { visibleSurfaceMeshes, batchStatic } from "../src/render-geometry";
-import { frontApronSection, apronFasciaBottom, eaveTrimDesign } from "../src/roof-options";
+import { frontApronSection, apronFasciaBottom, eaveTrimDesign, annexEaveTrimDesign } from "../src/roof-options";
 import type { Mats } from "../src/primitives";
 import { floatingHatJunctions } from "../src/hat-junctions";
 import { floors } from "../src/data";
@@ -39,14 +39,14 @@ test("主楼两种官帽及辅楼四面屋檐均生成可切换的灯带", () =>
     assert.equal(washes(annex).length, 4, `${style} 辅楼四面`);
     assert.ok(joinedEnds(washes(annex), "暖白灯带").every(Boolean), "辅楼四个转角灯带闭合");
     assert.ok(joinedEnds(washes(annex), "洗墙渐隐光晕").every(Boolean), "辅楼四个转角光晕闭合");
-    const fasciaTop = apronFasciaBottom(annexRoofFootprint().eave, 0) - eaveTrimDesign.eyelidToFascia;
+    const fasciaTop = apronFasciaBottom(annexRoofFootprint().eave, 0) - annexEaveTrimDesign.eyelidToFascia;
     for (const group of washes(annex)) {
       const strip = group.getObjectByName("暖白灯带")!;
       const glow = group.getObjectByName("洗墙渐隐光晕")!;
       const bounds = new THREE.Box3().setFromObject(glow);
       assert.equal(strip.position.y - 12, fasciaTop);
       assert.ok(Math.abs(bounds.min.y - fasciaTop) < 0.001);
-      assert.ok(Math.abs(bounds.max.y - fasciaTop - eaveTrimDesign.eyelidToFascia) < 0.001);
+      assert.ok(Math.abs(bounds.max.y - fasciaTop - annexEaveTrimDesign.eyelidToFascia) < 0.001);
     }
     assert.ok(washes(main).every(o => !o.visible));
     setEaveWashVisible(main, true);

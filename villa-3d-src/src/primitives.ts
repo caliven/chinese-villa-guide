@@ -342,8 +342,10 @@ export function materials() {
       metalness: 0.6,
       roughness: 0.38,
     }),
+    flueMetal: new THREE.MeshStandardMaterial({ name: "辅楼拉丝不锈钢扁烟管", color: 0xaeb8bd, metalness: 0.8, roughness: 0.32 }),
     // 全屋玻璃统一淡绿 Low-E 镀膜；保留 lowE 入口供一体门窗复用同一材质。
     glass: lowE,
+    canopyGlass: Object.assign(architecturalGlass(), { name: "阳光雨棚浅蓝透明玻璃", color: new THREE.Color(0xc5e0e5), transmission: 0.86, roughness: 0.08 }),
     lowE,
     inside: std(0xf5efe2),
     // 结构楼板：水泥灰。外缘与墙外皮齐平；负层级把板侧压到墙后，消除共面闪烁（与户型三维楼板同法）。

@@ -201,6 +201,8 @@ export function rebuildCourtyardGeometry() {
 }
 
 export const site = {
+  annexRoofType: "tiled" as "tiled" | "flat",
+  annexCanopy: "glass" as "off" | "glass",
   porticoStyle: "projecting" as "projecting" | "recessed",
   buildingPlacement: "main-east" as "main-east" | "main-west",
   width: 21000,
@@ -220,7 +222,7 @@ export const site = {
   // 主楼四坡默认起高：天沟外轮廓进深随 thirdEave（前退台＋后檐各 800 → 进深 9800）。
   // site.eave 仅表示辅楼四面挑出（默认与主楼同为 800），勿再当作主楼后檐。
   roofRise: 0.45 * (9800 - 2 * roofTileInset) / 2,
-  eave: 800,
+  eave: 600,
   secondFrontEave: 800,
   thirdEave: 800,
   // 主楼门头4500＋4600＋4500对称；门厅前沿两角为柱心。

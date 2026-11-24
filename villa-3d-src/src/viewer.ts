@@ -1227,7 +1227,7 @@ export class VillaViewer {
     ctx.font = `${font}px system-ui,sans-serif`;
     const lines = [
       `安化山居 · ${projectMeta.revision} / ${projectMeta.date} · 当前${this.state.existing ? "现状" : "新建"}模型 · 机位 ${this.activeCamera}`,
-      `${projectMeta.datum} · ${roofStyleLabels[this.state.roofStyle]} · 主楼${this.fenShui.toFixed(1)}／辅楼${site.annexRoofFenShui.toFixed(1)}分水 · 自家${courtyardFinishLabels[this.state.courtyardFinish]}／邻居${courtyardFinishLabels[this.state.neighborCourtyardFinish]} · 非测绘／施工图`,
+      `${projectMeta.datum} · ${roofStyleLabels[this.state.roofStyle]} · 主楼${this.fenShui.toFixed(1)}分水／辅楼${site.annexRoofType === "flat" ? "平顶露台" : `${site.annexRoofFenShui.toFixed(1)}分水`} · 自家${courtyardFinishLabels[this.state.courtyardFinish]}／邻居${courtyardFinishLabels[this.state.neighborCourtyardFinish]} · 非测绘／施工图`,
       this.state.garage ? "车辆通行未确认；道路与最低梁底待测；拟切口协商待确认" : "结构、净高、通行与排水待专业设计核实；周边含照片估算",
     ];
     lines.forEach((label, i) => ctx.fillText(label, font, source.height + font * (1.4 + i * 1.4), canvas.width - font * 2));

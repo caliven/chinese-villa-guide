@@ -2,6 +2,8 @@ import { recessedPortico, porticoWallZ, mirroredBuildings } from "./building-var
 import { construction, courtyardFront, floors, frontElevation, site, stairLayout } from "./data";
 import { formatMm, toM } from "./units";
 import { contourAt } from "./contours";
+import { terracePieceCorners } from "./annex-canopy";
+import { annexFlatRoofLayout } from "./annex-terrace";
 import { mainRoofFootprint, annexRoofFootprint, roofPitch } from "./architecture";
 import { facades } from "./facades";
 import { garageLayout } from "./garage-layout";
@@ -173,7 +175,15 @@ function northElevation(options: DrawingOptions) {
   const mainRoof = mainRoofFootprint();
   content += roof(mainRoof.x, mainRoof.x + mainRoof.w, roofY, pitch.mainRise, pitch.mainRun);
   const annexRoof = annexRoofFootprint();
-  content += roof(annexRoof.x, annexRoof.x + annexRoof.w, annexRoof.eave, pitch.annexRise, pitch.annexRun);
+  if (site.annexRoofType === "flat") {
+    const flat = annexFlatRoofLayout();
+    content += rect(x(annexRoof.x + annexRoof.w), y(flat.deckY), toM(annexRoof.w) * 35, toM(flat.deckY - annexRoof.eave) * scaleY, "wall");
+    content += rect(x(annexRoof.x + annexRoof.w - 100), y(flat.deckY + 1100), toM(annexRoof.w - 200) * 35, toM(1100) * scaleY, "glass");
+    if (flat.canopy) for (const piece of flat.canopy.pieces) {
+      const corners = terracePieceCorners(piece), ids = [0, 1, 5, 4];
+      content += path(ids.map((i, j) => `${j ? "L" : "M"}${x(corners[i][0])} ${y(corners[i][1])}`).join(" ") + " Z", piece.finish === "canopyGlass" ? "glass" : "wall");
+    }
+  } else content += roof(annexRoof.x, annexRoof.x + annexRoof.w, annexRoof.eave, pitch.annexRise, pitch.annexRun);
   for (const post of frontElevation.balustradePosts.slice(1, 3))
     content += rect(x(post.x + frontElevation.porticoColumnDepth / 2), y(thirdY), toM(frontElevation.porticoColumnDepth) * 35, toM(thirdY) * scaleY, "wall");
   for (const h of [0, site.entranceRise, floors[1].y, thirdY, roofY])

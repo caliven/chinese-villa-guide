@@ -12,7 +12,7 @@ import {
   type VillaParams,
 } from "./villa-params";
 import { courtyardFinishLabels } from "./courtyard-finishes";
-import { DEFAULT_ROOF_STYLE, roofStyleLabels, type RoofStyle } from "./roof-options";
+import { DEFAULT_ROOF_STYLE, roofStyleLabels, annexRoofTypeLabels, annexCanopyLabels, type RoofStyle } from "./roof-options";
 import { roofPlanModel } from "./architecture";
 import { VILLA_PARAM_NON_LENGTH, formatMm } from "./units";
 import { isHalfStoreyScheme } from "./construction-scheme";
@@ -280,13 +280,13 @@ function courtyardFinishGroupHtml() {
   </div>`;
 }
 
-function variantChoices(key: "porticoStyle" | "buildingPlacement" | "thirdFloorMode", label: string, labels: Record<string, string>, params: VillaParams) {
+function variantChoices(key: "porticoStyle" | "buildingPlacement" | "thirdFloorMode" | "annexRoofType" | "annexCanopy", label: string, labels: Record<string, string>, params: VillaParams) {
   return `<div class="params-choice-block"><h3 class="params-subhead">${label}</h3><p class="micro">即时切换并重算；包含面板中已输入的尺寸。</p><div class="segmented" role="group" aria-label="${label}">${Object.entries(labels).map(([value, text]) => `<button type="button" data-building-variant="${key}" data-variant-value="${value}" aria-pressed="${params[key] === value}" class="${params[key] === value ? "active" : ""}">${text}</button>`).join("")}</div></div>`;
 }
 
 function paneBodyHtml(g: ParamGroup, params: VillaParams) {
   const body = fieldsGridHtml(g.fields ?? [], params) + (g.sections ?? [])
-    .map(s => `<div class="params-subgroup">
+    .map((s, index) => `<div class="params-subgroup"${g.id === "annex" ? ` data-annex-roof-section="${index}"${params.annexRoofType === "flat" && (index === 0 || index === 2) ? " hidden" : ""}` : ""}>
       <h3 class="params-subhead">${s.heading}</h3>
       ${s.note ? `<p class="micro">${s.note}</p>` : ""}
       ${fieldsGridHtml(s.fields, params)}
@@ -294,6 +294,9 @@ function paneBodyHtml(g: ParamGroup, params: VillaParams) {
     </div>`).join("");
   const extras = g.extras === "courtyard-finish" ? courtyardFinishGroupHtml() : "";
   const choices = g.id === "site" ? variantChoices("buildingPlacement", "主辅楼位置", buildingPlacementLabels, params)
+    : g.id === "annex" ? variantChoices("annexRoofType", "辅楼屋顶", annexRoofTypeLabels, params)
+      + `<div data-annex-canopy-options${params.annexRoofType === "flat" ? "" : " hidden"}>${variantChoices("annexCanopy", "玻璃阳光雨棚", annexCanopyLabels, params)}<p class="micro">深灰框架、单坡玻璃顶，侧面敞开；铺满楼顶与连接平台，低边向楼外收水排出。</p></div>`
+      + '<p class="micro">平顶为带护栏的露台效果，二楼朝辅楼的窗默认改为门，并设连接平台；切回瓦顶恢复原窗。露台与连接平台为方案示意。</p>'
     : g.id === "portico" ? variantChoices("porticoStyle", "门厅造型", porticoStyleLabels, params)
     : g.id === "main" ? isHalfStoreyScheme
       ? '<p class="micro">半层北墙固定与下层齐平。一层层高从首层完成面量到二层楼面，入户抬高独立设置。3层半层高度从半层楼面量至檐口板顶，默认2000，已含120板厚。板顶以上另计天沟内挡、瓦檐间距、坡屋顶升高及脊瓦。屋脊最高点超过10000时提示。</p>'
@@ -503,10 +506,20 @@ export function fillVillaParamsDom(
     if (key === "porticoColumnSize") input.disabled = params.porticoStyle === "recessed";
   });
   root.querySelectorAll<HTMLButtonElement>("[data-building-variant]").forEach(button => {
-    const key = button.dataset.buildingVariant as "porticoStyle" | "buildingPlacement" | "thirdFloorMode";
+    const key = button.dataset.buildingVariant as "porticoStyle" | "buildingPlacement" | "thirdFloorMode" | "annexRoofType" | "annexCanopy";
     const on = params[key] === button.dataset.variantValue;
     button.classList.toggle("active", on);
     button.setAttribute("aria-pressed", String(on));
+  });
+  root.querySelectorAll<HTMLElement>("[data-annex-canopy-options]").forEach(section => { section.hidden = params.annexRoofType !== "flat"; });
+  root.querySelectorAll<HTMLElement>("[data-annex-roof-section]").forEach(section => {
+    const index = Number(section.dataset.annexRoofSection), flat = params.annexRoofType === "flat";
+    section.hidden = flat && (index === 0 || index === 2);
+    if (index === 1) {
+      const heading = section.querySelector(".params-subhead"), note = section.querySelector(".micro");
+      if (heading) heading.textContent = "飘檐与三眼皮";
+      if (note) note.textContent = flat ? "平顶保留三眼皮挑檐、梁托和下沿线，取消环形天沟及反坎；玻璃栏杆沿露台承托边顶装，外侧保留三眼皮饰边，雨棚柱单独内收。排水及锚固节点待深化。" : roofSections(true)[1].note ?? "";
+    }
   });
   updateVillaParamsMeta(params, root, options?.roofStyle);
 }

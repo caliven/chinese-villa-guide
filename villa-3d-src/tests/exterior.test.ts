@@ -511,7 +511,7 @@ test("梁托中心按面宽／拐角间距排布，两端内收半个拐角距",
   }
 });
 
-test("梁托背面贴三楼墙皮；主辅楼统一500×200×160，不随出檐缩短", async () => {
+test("梁托背面贴三楼墙皮；主辅楼分别使用本楼梁托尺寸", async () => {
   const { attachRoofs, mainRoofFootprint } = await import("../src/architecture");
   const { site, floors } = await import("../src/data");
   const roof = new THREE.Group(), annex = new THREE.Group();
@@ -572,7 +572,7 @@ test("梁托背面贴三楼墙皮；主辅楼统一500×200×160，不随出檐�
     const geometry = (o as THREE.Mesh).geometry;
     geometry.computeBoundingBox();
     const span = geometry.boundingBox!.getSize(new THREE.Vector3());
-    assert.ok(Math.abs(span.x - 500) < 1e-3, "辅楼梁托同样长500mm，不随较短出檐缩小");
+    assert.ok(Math.abs(span.x - 350) < 1e-3, "辅楼梁托按缩小后的默认350mm");
     assert.ok(Math.abs(span.z - 160) < 1e-3, "辅楼梁托宽160mm");
     assert.ok(Math.abs(span.y - 200) < 1e-3, "辅楼梁托高200mm");
   });
@@ -589,10 +589,10 @@ test("梁托背面贴三楼墙皮；主辅楼统一500×200×160，不随出檐�
   });
   layerOverhangs.sort((a, b) => b - a);
   assert.equal(layerOverhangs.length, 3);
-  assert.ok(Math.abs(layerOverhangs[0] - site.thirdEave) < 10, `最上层出挑 ${layerOverhangs[0]}`);
-  assert.ok(Math.abs(layerOverhangs[1] - (site.thirdEave - 100)) < 10, `中层出挑 ${layerOverhangs[1]}`);
-  assert.ok(Math.abs(layerOverhangs[2] - (site.thirdEave - 200)) < 10, `最下层出挑 ${layerOverhangs[2]}`);
-  assert.ok(layerOverhangs[2] - eaveTrimDesign.corbelLength > 90, "梁托端头应比最下层短约100mm");
+  assert.ok(Math.abs(layerOverhangs[0] - site.eave) < 10, `最上层出挑 ${layerOverhangs[0]}`);
+  assert.ok(Math.abs(layerOverhangs[1] - (site.eave - 100)) < 10, `中层出挑 ${layerOverhangs[1]}`);
+  assert.ok(Math.abs(layerOverhangs[2] - (site.eave - 200)) < 10, `最下层出挑 ${layerOverhangs[2]}`);
+  assert.ok(layerOverhangs[2] - 350 >= 50, "辅楼梁托端头比最下层内收至少50mm");
 });
 
 test("梁托侧视包络为落款 500×200，沿墙挤出 160", async () => {

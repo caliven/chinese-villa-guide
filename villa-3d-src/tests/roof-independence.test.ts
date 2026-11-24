@@ -169,7 +169,7 @@ test("辅楼每个屋面控制项单独应用都改变辅楼几何，主楼几�
       annexGutterClearDepth: 220, annexGutterInnerDepth: 310, annexGutterOuterTopWidth: 350,
       annexGutterBedSlope: 2, annexGutterTileGap: 80, annexGutterTileOverhang: 100,
       annexGutterCopingSlope: 6, annexCorbelLength: 550, annexCorbelSpacing: 900,
-      annexCorbelCornerSpacing: 500, annexEyelidToFasciaGap: 400 };
+      annexCorbelCornerSpacing: 450, annexEyelidToFasciaGap: 400 };
     for (const [field, value] of Object.entries(values)) {
       applyVillaParams({ ...DEFAULT_VILLA_PARAMS, [field]: value });
       const changed = roofs();

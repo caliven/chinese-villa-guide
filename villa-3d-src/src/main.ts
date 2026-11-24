@@ -1097,7 +1097,7 @@ async function commitVillaParams(params: VillaParams, options?: { persist?: bool
     syncFenShuiInputs(applied.roofFenShui);
     const pitched = roofPitch(params.roofFenShui);
     $("fen-shui-result").textContent =
-      `主楼升高 ${formatMm(pitched.mainRise)}，半坡 ${formatMm(pitched.mainRun)}。辅楼 ${pitched.annexFenShui} 分水，升高 ${formatMm(pitched.annexRise)}，半坡 ${formatMm(pitched.annexRun)}（mm）。`;
+      `主楼升高 ${formatMm(pitched.mainRise)}，半坡 ${formatMm(pitched.mainRun)}。${site.annexRoofType === "flat" ? "辅楼为平顶露台，二楼侧窗默认改门。" : `辅楼 ${pitched.annexFenShui} 分水，升高 ${formatMm(pitched.annexRise)}，半坡 ${formatMm(pitched.annexRun)}（mm）。`}`;
     const scaledDraft = rescaleStoredLayoutDraft();
     draftRescaled = !!scaledDraft;
     sceneUpdates.invalidate();
@@ -2030,7 +2030,7 @@ function updateFenShui(source?: HTMLInputElement) {
   $("fen-shui-output").textContent = String(Math.round(value * 10) / 10);
   const pitch = roofPitch(value);
   $("fen-shui-result").textContent =
-    `主楼升高 ${formatMm(pitch.mainRise)}，半坡 ${formatMm(pitch.mainRun)}。辅楼 ${pitch.annexFenShui} 分水，升高 ${formatMm(pitch.annexRise)}，半坡 ${formatMm(pitch.annexRun)}（mm）。`;
+    `主楼升高 ${formatMm(pitch.mainRise)}，半坡 ${formatMm(pitch.mainRun)}。${site.annexRoofType === "flat" ? "辅楼为平顶露台，二楼侧窗默认改门。" : `辅楼 ${pitch.annexFenShui} 分水，升高 ${formatMm(pitch.annexRise)}，半坡 ${formatMm(pitch.annexRun)}（mm）。`}`;
   viewer?.setRoofFenShui(value);
   const fenInput = document.querySelector<HTMLInputElement>('[data-villa-param="roofFenShui"]');
   if (fenInput) fenInput.value = String(value);
@@ -2350,6 +2350,8 @@ document.addEventListener("click", (event) => {
   if (el.dataset.buildingVariant) {
     const params = readVillaParamsFromDom(document, { finalize: true });
     const key = el.dataset.buildingVariant;
+    if (key === "annexCanopy" && (el.dataset.variantValue === "off" || el.dataset.variantValue === "glass")) params.annexCanopy = el.dataset.variantValue;
+    if (key === "annexRoofType" && (el.dataset.variantValue === "tiled" || el.dataset.variantValue === "flat")) params.annexRoofType = el.dataset.variantValue;
     if (key === "porticoStyle" && (el.dataset.variantValue === "projecting" || el.dataset.variantValue === "recessed")) params.porticoStyle = el.dataset.variantValue;
     if (key === "buildingPlacement" && (el.dataset.variantValue === "main-east" || el.dataset.variantValue === "main-west")) params.buildingPlacement = el.dataset.variantValue;
     if (key === "thirdFloorMode" && (el.dataset.variantValue === "setback" || el.dataset.variantValue === "flush")) params.thirdFloorMode = el.dataset.variantValue;

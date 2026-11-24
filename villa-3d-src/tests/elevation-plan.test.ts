@@ -232,13 +232,13 @@ test("高度明细列出实际层高及板底板顶，层高与板上构造只�
   assert.match(html, /当前首层层高＝4050－450＝3600/);
   assert.match(html, /板底 \+10530，板顶 \+10650/);
   assert.match(html, /450＋3600＋3300＋3300＋330＋2000＋130＝13110/);
-  assert.match(html, /屋脊最高点 \+5100；总高度包含烟囱盖板/);
-  assert.match(html, /450＋3270＋330＋920＋130＋1073＝6173/);
+  assert.match(html, /屋脊最高点 \+5010；总高度包含烟囱盖板/);
+  assert.match(html, /450＋3270＋330＋830＋130＝5010/);
   try {
     applyVillaParams({ ...DEFAULT_VILLA_PARAMS, annexHeight: 17000 });
     const tallAnnex = elevationPlan("east", "floating");
-    assert.match(tallAnnex, /data-overall-height="19573"/);
-    assert.match(tallAnnex, /主楼 13110，辅楼含烟囱 19573/);
+    assert.match(tallAnnex, /data-overall-height="18410"/);
+    assert.match(tallAnnex, /主楼 13110，辅楼含烟囱 18410/);
   } finally { resetVillaParams(); }
 });
 
